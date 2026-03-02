@@ -37,10 +37,10 @@ function isTauri(): boolean {
 
 // 获取 API 基础 URL
 function getBaseURL(): string {
-  // 在 Tauri 环境下，使用 localhost:3000
+  // 在 Tauri 环境下，使用 localhost:9732（后端默认端口）
   if (isTauri()) {
-    console.log('[ApiClient] Running in Tauri environment, using http://localhost:3000');
-    return 'http://localhost:3000';
+    console.log('[ApiClient] Running in Tauri environment, using http://localhost:9732');
+    return 'http://localhost:9732';
   }
   // 在浏览器开发环境下，使用空字符串（通过 Vite 代理）
   console.log('[ApiClient] Running in web environment, using relative paths');

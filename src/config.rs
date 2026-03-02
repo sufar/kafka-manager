@@ -38,7 +38,7 @@ impl Config {
         let settings = config::Config::builder()
             // 默认配置
             .set_default("server.host", "127.0.0.1")?
-            .set_default("server.port", 3000)?
+            .set_default("server.port", 9732)?
             .set_default("kafka.request_timeout_ms", 5000)?
             // 加载配置文件
             .add_source(config::File::from(path.as_ref()).required(false))
@@ -79,7 +79,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
-                port: 3000,
+                port: 9732,
             },
             kafka: default_kafka,
             clusters,
