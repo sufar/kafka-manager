@@ -34,3 +34,6 @@ uuid = { version = "1", features = ["v4"] }
 
 # 引用主项目的 kafka-manager-api
 kafka-manager-api = { path = ".." }
+
+# 目录工具
+dirs = "5"

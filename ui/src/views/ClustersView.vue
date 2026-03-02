@@ -270,11 +270,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import type { Cluster } from '@/types/api';
 
+const route = useRoute();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
 
@@ -424,5 +426,17 @@ async function refreshClusters() {
 onMounted(() => {
   clusterStore.fetchClusters();
   connectionStore.fetchAllConnections();
+
+  // 检查路由参数，如果 action=create 则打开创建模态框
+  if (route.query.action === 'create') {
+    openCreateModal();
+  }
+});
+
+// 监听路由参数变化
+watch(() => route.query.action, (action) => {
+  if (action === 'create') {
+    openCreateModal();
+  }
 });
 </script>

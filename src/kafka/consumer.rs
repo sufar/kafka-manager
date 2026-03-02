@@ -462,7 +462,8 @@ impl KafkaConsumer {
         client_config.set("session.timeout.ms", "10000");
         client_config.set("request.timeout.ms", "5000");
         client_config.set("socket.timeout.ms", "5000");
-        client_config.set("max.poll.records", "1000");      // 每次 poll 最多获取 1000 条
+        // 注意：max.poll.records 是 Kafka Consumer 配置，不是 librdkafka 配置
+        // 我们在消费循环中手动控制获取的消息数量
 
         let consumer: StreamConsumer = client_config.create()?;
 

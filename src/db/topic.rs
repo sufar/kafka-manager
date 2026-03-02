@@ -163,6 +163,12 @@ impl TopicStore {
             Self::delete(pool, cluster_id, topic_name).await?;
         }
 
+        // 保存新增的 Topic 记录（仅保存名称，其他字段在后续获取）
+        for topic_name in &added {
+            let config = std::collections::HashMap::new();
+            let _ = Self::upsert(pool, cluster_id, topic_name, 1, 1, &config).await;
+        }
+
         Ok(SyncResult { added, removed })
     }
 

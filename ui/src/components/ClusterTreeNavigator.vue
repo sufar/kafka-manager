@@ -11,6 +11,11 @@
         <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Clusters</span>
       </div>
       <div class="flex gap-0.5">
+        <button class="btn btn-ghost btn-xs" @click="handleAddCluster" title="Add cluster">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-success">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        </button>
         <button class="btn btn-ghost btn-xs" @click="expandAll" title="Expand all">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -408,6 +413,11 @@ function toggleConsumerGroupsFolder(clusterName: string) {
   } else {
     expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
   }
+}
+
+// 处理添加集群
+function handleAddCluster() {
+  emit('navigate', { path: '/clusters', query: { action: 'create' } });
 }
 
 function expandAll() {

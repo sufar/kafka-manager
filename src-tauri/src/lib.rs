@@ -28,12 +28,23 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
         // 开发模式：使用项目根目录的配置文件
         PathBuf::from("config.toml")
     } else {
-        // 生产模式：使用可执行文件所在目录的配置文件
+        // 生产模式：使用资源目录中的配置文件
+        // 在 macOS 上，Tauri 将资源文件放在 Resources/_up_/ 目录
         let exe_dir = std::env::current_exe()?
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        exe_dir.join("config.toml")
+
+        // 尝试多个可能的路径
+        let resource_dir = exe_dir.join("../Resources/_up_");
+        let config_in_resource = resource_dir.join("config.toml");
+
+        if config_in_resource.exists() {
+            config_in_resource
+        } else {
+            // 回退到可执行文件所在目录
+            exe_dir.join("config.toml")
+        }
     };
 
     // 加载配置
@@ -43,13 +54,39 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
     let db_path = if cfg!(debug_assertions) {
         "kafka_manager.db".to_string()
     } else {
-        let data_dir = std::env::current_exe()?
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-        data_dir.join("kafka_manager.db").to_string_lossy().to_string()
+        // 生产模式：将数据库放在用户的 Application Support 目录
+        let app_name = "Kafka Manager";
+        let db_filename = "kafka_manager.db";
+
+        // 尝试获取用户的 Application Support 目录
+        if let Some(home_dir) = dirs::home_dir() {
+            let app_support_dir = home_dir.join("Library/Application Support").join(app_name);
+
+            // 确保目录存在
+            if let Err(e) = std::fs::create_dir_all(&app_support_dir) {
+                eprintln!("Failed to create app support directory: {}", e);
+                // 回退到可执行文件所在目录
+                let exe_dir = std::env::current_exe()?
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                exe_dir.join(db_filename).to_string_lossy().to_string()
+            } else {
+                app_support_dir.join(db_filename).to_string_lossy().to_string()
+            }
+        } else {
+            // 回退到可执行文件所在目录
+            let exe_dir = std::env::current_exe()?
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."));
+            exe_dir.join(db_filename).to_string_lossy().to_string()
+        }
     };
     let pool = DbPool::new(&db_path).await?;
+
+    // 初始化数据库表
+    pool.init().await?;
 
     // 创建 Kafka 客户端管理器
     let clients = Arc::new(RwLock::new(KafkaClients::new(&config.clusters)?));

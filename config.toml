@@ -2,12 +2,6 @@
 host = "127.0.0.1"
 port = 9732
 
-# 单集群配置（向后兼容，会自动添加到 clusters 中作为 "default" 集群）
-# [kafka]
-# brokers = "localhost:9092"
-# request_timeout_ms = 5000
-# operation_timeout_ms = 5000
-
 # 多集群配置（推荐使用）
 [kafka.clusters.development]
 brokers = "localhost:9092"

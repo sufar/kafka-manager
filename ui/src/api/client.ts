@@ -52,6 +52,8 @@ function isTauri(): boolean {
 // 获取 API 基础 URL
 function getBaseURL(): string {
   // 在 Tauri 环境下，使用 localhost:9732（后端默认端口）
+  // 注意：生产环境的端口由 config.toml 中的 server.port 决定
+  // 默认开发端口为 9732
   if (isTauri()) {
     console.log('[ApiClient] Running in Tauri environment, using http://localhost:9732');
     return 'http://localhost:9732';

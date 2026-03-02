@@ -342,7 +342,13 @@ function handleClusterAction(action: string, cluster: string) {
       break;
     case 'deleteCluster':
       if (confirm(`Are you sure you want to remove cluster "${cluster}"?`)) {
-        // Handle delete
+        // 通过集群名称找到对应的 ID
+        const clusterId = clusterStore.clusters.find((c) => c.name === cluster)?.id;
+        if (clusterId) {
+          clusterStore.deleteCluster(clusterId);
+        } else {
+          alert('Cluster not found');
+        }
       }
       break;
   }
