@@ -81,6 +81,9 @@ export const useClusterStore = defineStore('clusters', () => {
       }
     } catch (e) {
       error.value = (e as { message: string }).message;
+      console.error('[ClusterStore] Failed to fetch clusters:', e);
+      // 不清除 clusters 数组，这样如果之前有数据还可以显示
+      // clusters.value = [];
     } finally {
       loading.value = false;
     }

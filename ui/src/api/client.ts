@@ -29,10 +29,24 @@ import type {
 // 检测是否在 Tauri 环境下运行
 function isTauri(): boolean {
   // Tauri 2 使用 __TAURI__ 全局对象
-  return typeof window !== 'undefined' &&
-    ('__TAURI_INTERNALS__' in window ||
-     '__TAURI__' in window ||
-     !!window.navigator.userAgent.includes('Tauri'));
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const win = window as any;
+  const isTauriValue = !!(
+    win.__TAURI__ ||
+    win.__TAURI_INTERNALS__ ||
+    win.__TAURI_IPC__ ||
+    win._TAURI_VERSION_ ||
+    win.navigator?.userAgent?.includes('Tauri')
+  );
+  console.log('[ApiClient] isTauri:', isTauriValue, {
+    has_TAURI__: !!win.__TAURI__,
+    has_TAURI_INTERNALS__: !!win.__TAURI_INTERNALS__,
+    has_TAURI_IPC__: !!win.__TAURI_IPC__,
+    userAgent: win.navigator?.userAgent?.substring(0, 100)
+  });
+  return isTauriValue;
 }
 
 // 获取 API 基础 URL
@@ -85,29 +99,56 @@ class ApiClient {
       headers['X-API-Key'] = this.apiKey;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      signal,
-    });
+    // 在 Tauri 环境下，添加重试逻辑
+    const maxRetries = isTauri() ? 5 : 1;
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      let message = `HTTP ${response.status}: ${response.statusText}`;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const errorData = await response.json();
-        message = errorData.message || message;
-      } catch {
-        // 忽略解析错误
+        const response = await fetch(url, {
+          ...options,
+          headers,
+          signal,
+        });
+
+        if (!response.ok) {
+          let message = `HTTP ${response.status}: ${response.statusText}`;
+          try {
+            const errorData = await response.json();
+            message = errorData.message || message;
+          } catch {
+            // 忽略解析错误
+          }
+          throw { message, status: response.status } as ApiError;
+        }
+
+        // 处理 204 No Content
+        if (response.status === 204) {
+          return {} as T;
+        }
+
+        return response.json();
+      } catch (e) {
+        // 如果是网络错误（可能是后端还没启动），重试
+        if (isTauri() && attempt < maxRetries - 1) {
+          const isError = e as { message?: string };
+          if (isError.message?.includes('Failed to fetch') || isError.message?.includes('NetworkError')) {
+            console.log(`[ApiClient] Request failed, retrying... (${attempt + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+            lastError = e as Error;
+            continue;
+          }
+        }
+        throw e;
       }
-      throw { message, status: response.status } as ApiError;
     }
 
-    // 处理 204 No Content
-    if (response.status === 204) {
-      return {} as T;
+    // 如果所有重试都失败，抛出最后的错误
+    if (lastError) {
+      throw lastError;
     }
 
-    return response.json();
+    throw new Error('Request failed');
   }
 
   // ==================== Health ====================

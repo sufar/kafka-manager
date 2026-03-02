@@ -7,6 +7,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, comp
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::time::Duration;
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
@@ -16,7 +17,7 @@ use kafka_manager_api::{
 };
 
 /// 启动后端服务器
-async fn start_backend() -> Result<(), Box<dyn std::error::Error>> {
+async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
@@ -93,6 +94,9 @@ async fn start_backend() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting backend server on http://{}", addr);
 
+    // 通知后端已启动
+    let _ = ready_tx.send(true);
+
     axum::serve(listener, app).await?;
 
     Ok(())
@@ -109,18 +113,25 @@ fn get_app_version() -> String {
 }
 
 pub fn run() {
+    // 使用通道等待后端服务器启动
+    let (ready_tx, ready_rx) = mpsc::channel::<bool>();
+
     // 在后台启动后端服务器
-    std::thread::spawn(|| {
+    std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = start_backend().await {
+            if let Err(e) = start_backend(ready_tx).await {
                 eprintln!("Failed to start backend: {}", e);
             }
         });
     });
 
-    // 给后端服务器一点启动时间
-    std::thread::sleep(Duration::from_secs(2));
+    // 等待后端服务器启动信号
+    if ready_rx.recv_timeout(Duration::from_secs(10)).is_ok() {
+        tracing::info!("Backend server is ready, starting Tauri application...");
+    } else {
+        eprintln!("Warning: Backend server startup timed out, starting Tauri application anyway");
+    }
 
     // 启动 Tauri 应用
     tauri::Builder::default()
