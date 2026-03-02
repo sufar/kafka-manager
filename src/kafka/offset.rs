@@ -16,6 +16,126 @@ impl KafkaOffsetManager {
         }
     }
 
+    /// 获取所有 Consumer Group 的 offsets 信息
+    pub fn get_all_consumer_offsets(
+        &self,
+        kafka_config: &KafkaConfig,
+    ) -> Result<Vec<ConsumerGroupOffsetsInfo>> {
+        // 创建 consumer 来获取 offsets
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", "kafka-manager-temp");
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config
+            .create()
+            .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
+
+        // 获取所有 consumer groups
+        let group_list = consumer
+            .client()
+            .fetch_group_list(None, std::time::Duration::from_millis(self.timeout_ms))
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
+
+        let mut all_groups = Vec::new();
+
+        for group in group_list.groups() {
+            let group_name = group.name();
+
+            // 为每个 group 获取 offsets
+            if let Some(group_offsets) = self.get_consumer_group_offsets_info(&consumer, group_name) {
+                all_groups.push(group_offsets);
+            }
+        }
+
+        Ok(all_groups)
+    }
+
+    /// 获取单个 Consumer Group 的 offsets 信息
+    fn get_consumer_group_offsets_info(
+        &self,
+        consumer: &BaseConsumer,
+        group_name: &str,
+    ) -> Option<ConsumerGroupOffsetsInfo> {
+        // 获取该 group 的 committed offsets
+        let mut tpl = TopicPartitionList::new();
+
+        // 获取所有 topic 元数据
+        let metadata = consumer
+            .client()
+            .fetch_metadata(None, std::time::Duration::from_millis(self.timeout_ms))
+            .ok()?;
+
+        // 收集所有 topic 和分区
+        for topic in metadata.topics() {
+            for partition in topic.partitions() {
+                tpl.add_partition(topic.name(), partition.id());
+            }
+        }
+
+        // 获取 committed offsets
+        let committed = consumer.committed_offsets(tpl.clone(), std::time::Duration::from_millis(self.timeout_ms)).ok()?;
+
+        // 按 topic 分组 offsets
+        let mut topic_map: std::collections::HashMap<String, Vec<PartitionOffsetInfo>> = std::collections::HashMap::new();
+
+        for element in committed.elements() {
+            if let Some(offset) = element.offset().to_raw() {
+                if offset >= 0 {
+                    let topic = element.topic().to_string();
+                    let partition = element.partition();
+                    let current_offset = offset;
+
+                    // 获取 watermarks
+                    let (start_offset, end_offset) = consumer
+                        .client()
+                        .fetch_watermarks(topic.as_str(), partition, std::time::Duration::from_millis(self.timeout_ms))
+                        .unwrap_or((0, 0));
+
+                    let lag = if end_offset > current_offset {
+                        end_offset - current_offset
+                    } else {
+                        0
+                    };
+
+                    topic_map.entry(topic).or_insert_with(Vec::new).push(PartitionOffsetInfo {
+                        partition,
+                        start_offset,
+                        end_offset,
+                        current_offset,
+                        lag,
+                    });
+                }
+            }
+        }
+
+        if topic_map.is_empty() {
+            return None;
+        }
+
+        // 构建响应
+        let mut topics = Vec::new();
+        let mut total_lag = 0i64;
+
+        for (topic_name, partitions) in topic_map {
+            let topic_lag: i64 = partitions.iter().map(|p| p.lag).sum();
+            total_lag += topic_lag;
+
+            topics.push(TopicOffsetsInfo {
+                topic: topic_name,
+                partitions,
+                total_lag: topic_lag,
+            });
+        }
+
+        Some(ConsumerGroupOffsetsInfo {
+            group_name: group_name.to_string(),
+            state: if total_lag > 0 { "Active".to_string() } else { "Empty".to_string() },
+            topics,
+            total_lag,
+        })
+    }
+
     /// 获取 Topic 所有分区的 offset 信息（包括时间戳）
     pub fn get_topic_partition_offsets(
         &self,
@@ -247,4 +367,31 @@ pub struct ConsumerGroupOffsetDetail {
     pub current_offset: i64,
     pub log_end_offset: i64,
     pub lag: i64,
+}
+
+/// 内部使用的 Partition Offset 信息（用于 Consumer Group offsets）
+#[derive(Debug, Clone)]
+pub struct PartitionOffsetInfo {
+    pub partition: i32,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub current_offset: i64,
+    pub lag: i64,
+}
+
+/// 内部使用的 Topic Offsets 信息
+#[derive(Debug, Clone)]
+pub struct TopicOffsetsInfo {
+    pub topic: String,
+    pub partitions: Vec<PartitionOffsetInfo>,
+    pub total_lag: i64,
+}
+
+/// 内部使用的 Consumer Group Offsets 信息
+#[derive(Debug, Clone)]
+pub struct ConsumerGroupOffsetsInfo {
+    pub group_name: String,
+    pub state: String,
+    pub topics: Vec<TopicOffsetsInfo>,
+    pub total_lag: i64,
 }

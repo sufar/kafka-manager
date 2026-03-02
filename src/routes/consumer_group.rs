@@ -3,13 +3,14 @@
 // 静态路径（如/_*）必须先注册，动态路径（如/:name）后注册
 
 use crate::error::{AppError, Result};
-use crate::kafka::offset::KafkaOffsetManager;
+use crate::kafka::offset::{KafkaOffsetManager, ConsumerGroupOffsetsInfo};
 use crate::kafka::throughput::KafkaThroughputCalculator;
 use crate::models::{
     ConsumerGroupDetailResponse, ConsumerGroupLagHistory, ConsumerGroupLagSummary, ConsumerGroupListResponse, ConsumerGroupMember,
     ConsumerGroupOffsetDetailResponse, ConsumerGroupPartitionDetail, ConsumerGroupThroughputResponse,
     LagHistoryQuery, PartitionLagDetail, ResetConsumerGroupOffsetRequest,
-    TopicConsumerLagHistoryResponse, TopicConsumerLagResponse,
+    TopicConsumerLagHistoryResponse, TopicConsumerLagResponse, ConsumerOffsetsListResponse,
+    ConsumerGroupOffsetsSummary, TopicOffsetsSummary, PartitionOffsetDetail,
 };
 use crate::AppState;
 use axum::{
@@ -34,6 +35,8 @@ pub fn cluster_routes() -> Router<AppState> {
         .route("/:name/_offsets", get(get_consumer_group_offsets))
         .route("/:name/_offsets/reset", post(reset_consumer_group_offset))
         .route("/:name/_throughput", get(get_consumer_group_throughput))
+        // Consumer Offsets 列表路由（获取所有 Consumer Group 的 offsets）
+        .route("/_consumer-offsets", get(get_all_consumer_offsets))
         // Topic consumer lag 路由
         .route("/topics/:topic/_consumer-lag", get(get_topic_consumer_lag))
         .route("/topics/:topic/_consumer-lag-history", get(get_topic_consumer_lag_history))
@@ -65,6 +68,61 @@ async fn list_consumer_groups(
                 state: g.state,
             })
             .collect(),
+    }))
+}
+
+/// 获取所有 Consumer Group 的 offsets 信息
+async fn get_all_consumer_offsets(
+    State(state): State<AppState>,
+    Path(cluster_id): Path<String>,
+) -> Result<Json<ConsumerOffsetsListResponse>> {
+    let clients = state.clients.read().await;
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let offset_manager = KafkaOffsetManager::new(&config);
+    let all_offsets = offset_manager.get_all_consumer_offsets(&config)?;
+
+    // 转换为响应格式
+    let consumer_groups: Vec<ConsumerGroupOffsetsSummary> = all_offsets
+        .into_iter()
+        .map(|group: ConsumerGroupOffsetsInfo| {
+            let topics: Vec<TopicOffsetsSummary> = group.topics
+                .into_iter()
+                .map(|topic| {
+                    let partitions: Vec<PartitionOffsetDetail> = topic.partitions
+                        .into_iter()
+                        .map(|p| PartitionOffsetDetail {
+                            partition: p.partition,
+                            start_offset: p.start_offset,
+                            end_offset: p.end_offset,
+                            current_offset: p.current_offset,
+                            lag: p.lag,
+                            state: if p.current_offset >= 0 { "Active".to_string() } else { "Empty".to_string() },
+                        })
+                        .collect();
+
+                    TopicOffsetsSummary {
+                        topic: topic.topic,
+                        partitions,
+                        total_lag: topic.total_lag,
+                    }
+                })
+                .collect();
+
+            ConsumerGroupOffsetsSummary {
+                group_name: group.group_name,
+                state: group.state,
+                topics,
+                total_lag: group.total_lag,
+            }
+        })
+        .collect();
+
+    Ok(Json(ConsumerOffsetsListResponse {
+        cluster_id,
+        consumer_groups,
     }))
 }
 

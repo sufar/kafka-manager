@@ -23,6 +23,7 @@ import type {
   HealthResponse,
   ApiError,
   ConsumerGroupSummary,
+  ConsumerOffsetsListResponse,
 } from '@/types/api';
 
 // 检测是否在 Tauri 环境下运行
@@ -241,6 +242,10 @@ class ApiClient {
       `/api/clusters/${clusterId}/consumer-groups`
     );
     return data.groups;
+  }
+
+  async getAllConsumerOffsets(clusterId: string): Promise<ConsumerOffsetsListResponse> {
+    return this.request(`/api/clusters/${clusterId}/consumer-groups/_consumer-offsets`);
   }
 
   async getConsumerGroupDetail(

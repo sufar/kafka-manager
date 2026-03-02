@@ -138,6 +138,7 @@ export interface ConsumerGroupPartitionDetail {
   state: string;
   last_commit_time?: number;
   topic?: string;
+  start_offset?: number;
 }
 
 export interface ConsumerGroupOffsetDetailResponse {
@@ -396,4 +397,33 @@ export interface LogDirPartitionInfo {
   size: number;
   offset_lag?: number;
   is_future?: boolean;
+}
+
+// ==================== Consumer Offsets ====================
+
+export interface PartitionOffsetDetail {
+  partition: number;
+  start_offset: number;
+  end_offset: number;
+  current_offset: number;
+  lag: number;
+  state: string;
+}
+
+export interface TopicOffsetsSummary {
+  topic: string;
+  partitions: PartitionOffsetDetail[];
+  total_lag: number;
+}
+
+export interface ConsumerGroupOffsetsSummary {
+  group_name: string;
+  state: string;
+  topics: TopicOffsetsSummary[];
+  total_lag: number;
+}
+
+export interface ConsumerOffsetsListResponse {
+  cluster_id: string;
+  consumer_groups: ConsumerGroupOffsetsSummary[];
 }

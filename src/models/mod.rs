@@ -297,6 +297,56 @@ pub struct PartitionLagDetail {
     pub state: String,
 }
 
+/// Consumer Offsets 列表响应（用于 Consumer Group 列表页面）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConsumerOffsetsListResponse {
+    /// 集群 ID
+    pub cluster_id: String,
+    /// Consumer Group 列表
+    pub consumer_groups: Vec<ConsumerGroupOffsetsSummary>,
+}
+
+/// Consumer Group offsets 摘要
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConsumerGroupOffsetsSummary {
+    /// Consumer Group 名称
+    pub group_name: String,
+    /// 状态
+    pub state: String,
+    /// Topic 列表
+    pub topics: Vec<TopicOffsetsSummary>,
+    /// 总 lag
+    pub total_lag: i64,
+}
+
+/// Topic offsets 摘要
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TopicOffsetsSummary {
+    /// Topic 名称
+    pub topic: String,
+    /// Partition offsets 详情
+    pub partitions: Vec<PartitionOffsetDetail>,
+    /// 该 topic 的总 lag
+    pub total_lag: i64,
+}
+
+/// Partition offset 详情
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PartitionOffsetDetail {
+    /// Partition ID
+    pub partition: i32,
+    /// Start Offset (earliest)
+    pub start_offset: i64,
+    /// End Offset (latest)
+    pub end_offset: i64,
+    /// 当前消费 offset
+    pub current_offset: i64,
+    /// Lag
+    pub lag: i64,
+    /// 状态 (Active/Empty)
+    pub state: String,
+}
+
 // ==================== 历史积压数据（用于折线图） ====================
 
 /// 历史积压数据响应（用于折线图）

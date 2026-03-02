@@ -216,7 +216,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
           </svg>
-          Offsets by Topic
+          Consumer Offsets
         </h4>
 
         <!-- Group partitions by topic -->
@@ -227,8 +227,9 @@
               <thead>
                 <tr>
                   <th>Partition</th>
+                  <th>Start Offset</th>
+                  <th>End Offset</th>
                   <th>Current Offset</th>
-                  <th>Log End Offset</th>
                   <th>Lag</th>
                   <th>State</th>
                 </tr>
@@ -236,8 +237,9 @@
               <tbody>
                 <tr v-for="p in partitions" :key="p.partition">
                   <td class="font-mono">{{ p.partition }}</td>
-                  <td class="font-mono">{{ p.current_offset }}</td>
+                  <td class="font-mono text-base-content/70">{{ p.start_offset ?? '-' }}</td>
                   <td class="font-mono">{{ p.log_end_offset }}</td>
+                  <td class="font-mono">{{ p.current_offset }}</td>
                   <td>
                     <span :class="p.lag > 0 ? 'text-warning font-bold' : 'text-success'">
                       {{ p.lag }}
@@ -526,6 +528,8 @@ import type {
   ConsumerGroupSummary,
   ConsumerGroupDetailResponse,
   ConsumerGroupOffsetDetailResponse,
+  ConsumerGroupOffsetsSummary,
+  ConsumerGroupPartitionDetail,
 } from '@/types/api';
 
 interface ConsumerGroupItem extends ConsumerGroupSummary {
@@ -658,39 +662,20 @@ async function fetchGroups() {
   // 单集群模式（从 URL 参数）
   if (clusterParam.value) {
     try {
-      const groups = await apiClient.getConsumerGroups(clusterParam.value);
-      // 并行获取每个 consumer group 的详细信息
-      const enrichedGroups = await Promise.all(
-        groups.map(async (g) => {
-          try {
-            const [detail, offsets] = await Promise.all([
-              apiClient.getConsumerGroupDetail(clusterParam.value as string, g.name),
-              apiClient.getConsumerGroupOffsets(clusterParam.value as string, g.name)
-            ]);
-            // 从 offsets 中提取 topic 列表
-            const topics = offsets.partitions
-              ? Array.from(new Set(offsets.partitions.map(p => p.topic || '').filter(Boolean)))
-              : [];
-            return {
-              ...g,
-              cluster: clusterParam.value as string,
-              memberCount: detail.members?.length || 0,
-              totalLag: offsets.total_lag || 0,
-              topics,
-            };
-          } catch (e) {
-            // 如果获取详情失败，返回基本信息
-            return {
-              ...g,
-              cluster: clusterParam.value as string,
-              memberCount: 0,
-              totalLag: 0,
-              topics: [],
-            };
-          }
-        })
-      );
-      clusterGroups.value = enrichedGroups;
+      // 使用新的 Consumer Offsets API 获取所有 Consumer Group 的 offsets 信息
+      const offsetsData = await apiClient.getAllConsumerOffsets(clusterParam.value);
+
+      // 转换为 ConsumerGroupItem 格式
+      clusterGroups.value = offsetsData.consumer_groups.map((group: ConsumerGroupOffsetsSummary) => ({
+        name: group.group_name,
+        state: group.state,
+        cluster: clusterParam.value as string,
+        memberCount: 0, // Consumer Offsets API 不提供成员信息
+        totalLag: group.total_lag,
+        topics: group.topics.map(t => t.topic),
+      }));
+
+      // 存储完整的 offsets 数据用于详情展示
       groupsByCluster.value = {};
       allGroupsList.value = [];
     } catch (e) {
@@ -713,38 +698,17 @@ async function fetchGroups() {
   try {
     const promises = selectedClusterIds.value.map(async (clusterId) => {
       try {
-        const groups = await apiClient.getConsumerGroups(clusterId);
-        // 并行获取每个 consumer group 的详细信息
-        const enrichedGroups = await Promise.all(
-          groups.map(async (g) => {
-            try {
-              const [detail, offsets] = await Promise.all([
-                apiClient.getConsumerGroupDetail(clusterId, g.name),
-                apiClient.getConsumerGroupOffsets(clusterId, g.name)
-              ]);
-              // 从 offsets 中提取 topic 列表
-              const topics = offsets.partitions
-                ? Array.from(new Set(offsets.partitions.map(p => p.topic || '').filter(Boolean)))
-                : [];
-              return {
-                ...g,
-                cluster: clusterId,
-                memberCount: detail.members?.length || 0,
-                totalLag: offsets.total_lag || 0,
-                topics,
-              };
-            } catch (e) {
-              return {
-                ...g,
-                cluster: clusterId,
-                memberCount: 0,
-                totalLag: 0,
-                topics: [],
-              };
-            }
-          })
-        );
-        groupsByCluster.value[clusterId] = enrichedGroups;
+        // 使用新的 Consumer Offsets API
+        const offsetsData = await apiClient.getAllConsumerOffsets(clusterId);
+
+        groupsByCluster.value[clusterId] = offsetsData.consumer_groups.map((group: ConsumerGroupOffsetsSummary) => ({
+          name: group.group_name,
+          state: group.state,
+          cluster: clusterId,
+          memberCount: 0,
+          totalLag: group.total_lag,
+          topics: group.topics.map(t => t.topic),
+        }));
       } catch (e) {
         groupsByCluster.value[clusterId] = [];
       }
@@ -840,8 +804,38 @@ async function loadGroupDetail(groupName: string) {
 
   loadingDetail.value = true;
   try {
+    // 获取 Consumer Group 详情（成员信息）
     selectedGroupDetail.value = await apiClient.getConsumerGroupDetail(clusterParam.value, groupName);
-    offsetDetail.value = await apiClient.getConsumerGroupOffsets(clusterParam.value, groupName);
+
+    // 获取 Consumer Group offsets 详情
+    const offsetsData = await apiClient.getAllConsumerOffsets(clusterParam.value);
+    const groupOffsets = offsetsData.consumer_groups.find(g => g.group_name === groupName);
+
+    if (groupOffsets) {
+      // 将新的 offset 格式转换为 ConsumerGroupOffsetDetailResponse 格式
+      const allPartitions: ConsumerGroupPartitionDetail[] = [];
+
+      for (const topicOffset of groupOffsets.topics) {
+        for (const p of topicOffset.partitions) {
+          allPartitions.push({
+            partition: p.partition,
+            current_offset: p.current_offset,
+            log_end_offset: p.end_offset,
+            lag: p.lag,
+            state: p.state,
+            last_commit_time: undefined,
+            topic: topicOffset.topic,
+          });
+        }
+      }
+
+      offsetDetail.value = {
+        group_name: groupName,
+        topic: groupOffsets.topics[0]?.topic || '',
+        partitions: allPartitions,
+        total_lag: groupOffsets.total_lag,
+      };
+    }
   } catch (e) {
     alert((e as { message: string }).message);
   } finally {
