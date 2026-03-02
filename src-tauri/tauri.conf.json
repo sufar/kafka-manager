@@ -28,24 +28,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [],
     "resources": [
-      "../kafka_manager.db",
       "../config.toml",
       "../migrations"
     ],
     "icon": [
       "icons/icon.png"
-    ],
-    "windows": {
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "headerImage": "icons/installer_header.bmp",
-        "sidebarImage": "icons/installer_sidebar.bmp",
-        "license": "../LICENSE",
-        "oneClick": false,
-        "allowToChangeInstallDirectory": true
-      }
-    }
+    ]
   }
 }
