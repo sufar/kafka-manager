@@ -6,24 +6,24 @@
 - **Web 框架**: Axum (Tokio ecosystem)
 - **数据库**: SQLite with SQLx
 - **Kafka 客户端**: rdkafka
+- **连接池**: 自定义 Kafka Consumer/Producer 连接池
 - **认证**: API Key + RBAC
+- **中间件**: 认证、审计日志、性能监控
 
 ### 2. 数据库层 (`src/db/`)
 
 | 模块 | 文件 | 功能 |
 |------|------|------|
 | 集群管理 | `cluster.rs` | 集群 CRUD 操作 |
-| 集群连接 | `cluster_connection.rs` | 连接历史追踪 |
+| 集群连接 | `cluster_connection.rs` | 连接状态管理 |
 | 用户管理 | `user.rs` | 用户和角色管理，bcrypt 密码哈希 |
-| ACL | `acl.rs` | ACL 规则存储，支持 USER/GROUP 主体 |
-| Quota | `quota.rs` | 配额管理，支持 producer/consumer byte rate |
-| 通知 | `notification.rs` | 通知配置和告警历史 |
-| 告警规则 | `alert_rule.rs` | 告警规则存储 |
+| 通知 | `notification.rs` | 通知配置管理 |
 | 审计日志 | `audit_log.rs` | API 请求审计 |
 | 资源标签 | `tag.rs` | 资源标签管理 |
 | Topic 管理 | `topic.rs` | Topic 元数据同步和存储 |
 | Topic 模板 | `topic_template.rs` | Topic 创建模板 |
 | API Key | `api_key.rs` | API Key 存储和验证 |
+| 设置 | `settings.rs` | 全局用户设置 |
 
 ### 3. Kafka 模块 (`src/kafka/`)
 
@@ -34,13 +34,28 @@
 | Producer | `producer.rs` | Kafka Producer 封装 |
 | Offset | `offset.rs` | Offset 管理 |
 | Throughput | `throughput.rs` | 吞吐量统计 |
-| Schema | `schema.rs` | Schema Registry HTTP 客户端 |
-| Schema Registry | `schema_registry.rs` | Schema Registry 高级封装 |
-| Rebalance | `rebalance.rs` | Rebalance 事件记录和统计 |
+| Schema | `schema.rs` | Schema 管理 |
+| Schema Registry | `schema_registry.rs` | Schema Registry HTTP 客户端 |
 | Transaction | `transaction.rs` | 事务管理（Kafka 2.8+） |
 | Import/Export | `import_export.rs` | 数据导入导出工具 |
 
-### 3.5 数据库表 (`src/db/mod.rs`)
+### 4. 连接池层 (`src/pool/`)
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| 连接池管理 | `mod.rs` | KafkaClients 连接池管理 |
+| Consumer 池 | `kafka_consumer.rs` | Consumer 连接池 |
+| Producer 池 | `kafka_producer.rs` | Producer 连接池 |
+
+### 5. 中间件 (`src/middleware/`)
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| 认证 | `auth.rs` | API Key 认证中间件 |
+| 审计 | `audit.rs` | 自动审计日志记录 |
+| 性能 | `performance.rs` | 性能监控中间件 |
+
+### 6. 数据库表
 
 | 表名 | 描述 |
 |------|------|
@@ -49,17 +64,35 @@
 | `api_keys` | API Key 存储 |
 | `audit_logs` | 审计日志 |
 | `users`, `roles` | 用户和角色 |
-| `acls` | ACL 规则 |
-| `quotas` | 配额配置 |
-| `alert_rules`, `alert_history` | 告警规则和历 |
 | `notification_configs` | 通知配置 |
-| `rebalance_events` | Rebalance 事件 |
 | `consumer_lag_history` | Consumer Lag 历史 |
 | `resource_tags` | 资源标签 |
 | `topic_templates` | Topic 模板 |
-| `topic_metadata` | **Topic 元数据（新增）** |
+| `topic_metadata` | Topic 元数据 |
+| `user_settings` | 用户全局设置 |
 
-### 4. 路由层 (`src/routes/`)
+### 7. 路由层 (`src/routes/`)
+
+| 模块 | 路径前缀 | 功能 |
+|------|---------|------|
+| `cluster.rs` | `/api/clusters` | 集群 CRUD |
+| `cluster_connection.rs` | `/api/cluster-connections` | 集群连接管理 |
+| `topic.rs` | `/api/clusters/:cluster_id/topics` | Topic 管理 |
+| `consumer_group.rs` | `/api/clusters/:cluster_id/consumer-groups` | Consumer Group 管理 |
+| `message.rs` | `/api/clusters/:cluster_id` | 消息浏览 |
+| `cluster_stats.rs` | `/api/clusters/:cluster_id/stats` | 集群统计 |
+| `cluster_monitor.rs` | `/api/clusters/:cluster_id` | 集群监控 |
+| `schema.rs` | `/api/schema-registry` | Schema Registry 管理 |
+| `notification.rs` | `/api/notifications` | 通知配置管理 |
+| `user.rs` | `/api/users`, `/api/roles` | 用户和角色管理 |
+| `auth.rs` | `/api/auth/keys` | API Key 认证 |
+| `audit_log.rs` | `/api/audit-logs` | 审计日志查询 |
+| `tag.rs` | `/api/clusters/:cluster_id` | 资源标签 |
+| `topic_template.rs` | `/api` | Topic 模板管理 |
+| `settings.rs` | `/api/settings` | 全局设置 |
+| `health.rs` | `/api` | 健康检查 |
+
+### 8. 认证和授权
 
 | 模块 | 路径前缀 | 功能 |
 |------|---------|------|
@@ -84,11 +117,12 @@
 | `topic_template.rs` | `/api` | Topic 模板管理 |
 | `health.rs` | `/api` | 健康检查 |
 
-### 5. 认证和授权
+### 8. 认证和授权
 
 **认证中间件** (`src/middleware/auth.rs`):
 - API Key 验证（从 `X-API-Key` 头）
 - 支持路径白名单跳过认证
+- 可配置的环境变量：`API_KEYS`, `AUTH_ENABLED`
 
 **RBAC 权限系统**:
 - 基于角色的访问控制
@@ -98,7 +132,7 @@
   - `operator`: 运维权限
   - `viewer`: 只读权限
 
-### 6. 告警通知系统
+### 9. 告警通知系统
 
 **支持的通知渠道**:
 - Webhook (通用 HTTP 回调)
@@ -109,29 +143,14 @@
 
 **告警类型**:
 - Consumer Lag (消费延迟)
-- Message Rate (消息速率)
-- Broker Down (Broker 宕机)
-- Custom (自定义指标)
+- Produce Rate (生产速率)
+- Consumer Rate (消费速率)
 
 **告警级别**:
-- `info`: 信息
-- `warning`: 警告
-- `critical`: 严重
+- `warning`: 警告级别
+- `critical`: 严重级别
 
-### 7. 数据导入导出
-
-**导出格式**:
-- JSON: 每行一个 JSON 对象
-- CSV: 逗号分隔值
-- Text: 纯文本格式
-
-**功能**:
-- 按 Topic/Partition 导出
-- 指定起始 Offset
-- 限制消息数量
-- 批量导入
-
-### 8. 集群连接管理
+### 10. 集群连接管理
 
 **功能**:
 - 获取所有集群连接状态
@@ -145,6 +164,13 @@
 - `Disconnected`: 已断开
 - `Error(message)`: 错误状态
 
+### 11. 任务管理
+
+**功能**:
+- 异步任务状态追踪
+- 定期健康检查任务
+- 任务取消支持
+
 ## 数据库表结构
 
 ### 核心表
@@ -156,19 +182,16 @@
 ### 用户权限
 - `users`: 用户账户
 - `roles`: 角色定义
-- `acls`: ACL 规则
 
 ### 监控告警
-- `alert_rules`: 告警规则
-- `alert_history`: 告警历史
 - `notification_configs`: 通知配置
-- `rebalance_events`: Rebalance 事件
 - `consumer_lag_history`: Consumer Lag 历史
 
 ### 资源管理
 - `resource_tags`: 资源标签
 - `topic_templates`: Topic 模板
-- `quotas`: 配额配置
+- `topic_metadata`: Topic 元数据
+- `user_settings`: 用户全局设置
 
 ## API 端点总览
 
@@ -195,29 +218,16 @@ GET    /api/clusters/:cluster_id/topics/:name
 PUT    /api/clusters/:cluster_id/topics/:name
 DELETE /api/clusters/:cluster_id/topics/:name
 GET    /api/clusters/:cluster_id/topics/:name/messages
-POST   /api/clusters/:cluster_id/topics/refresh    # 刷新 Topic 列表（同步到数据库）
+POST   /api/clusters/:cluster_id/topics/refresh    # 刷新 Topic 列表
 ```
 
 ### Consumer Group
 ```
 GET    /api/clusters/:cluster_id/consumer-groups
 GET    /api/clusters/:cluster_id/consumer-groups/:name
-DELETE /api/clusters/:cluster_id/consumer-groups/:name/offsets
-GET    /api/clusters/:cluster_id/consumer-groups/:name/lag
-```
-
-### ACL
-```
-GET    /api/acls
-POST   /api/acls
-DELETE /api/acls/:id
-```
-
-### Quota
-```
-GET    /api/quotas
-POST   /api/quotas
-DELETE /api/quotas/:id
+DELETE /api/clusters/:cluster_id/consumer-groups/:name
+GET    /api/clusters/:cluster_id/consumer-groups/:name/offsets
+POST   /api/clusters/:cluster_id/consumer-groups/:name/offsets/reset
 ```
 
 ### Schema Registry
@@ -263,14 +273,9 @@ POST   /api/alert-rules
 PUT    /api/alert-rules/:id
 DELETE /api/alert-rules/:id
 
-GET    /api/rebalance/rebalance-events
-GET    /api/rebalance/rebalance-stats/:group_id
-
-POST   /api/data/export
-POST   /api/data/import
-
 GET    /api/audit-logs
 GET    /api/health
+GET    /api/ready
 ```
 
 ## 编译和测试
@@ -301,6 +306,8 @@ cargo run
 - `bcrypt`: 密码哈希
 - `reqwest`: HTTP 客户端
 - `thiserror`: 错误处理
+- `chrono`: 时间处理
+- `tower-http`: 中间件工具
 
 ## 配置
 
@@ -308,23 +315,23 @@ cargo run
 ```toml
 [server]
 host = "0.0.0.0"
-port = 8080
+port = 3000
 
 [database]
-path = "data/kafka_manager.db"
-
-[kafka]
-# 多集群配置
-[kafka.clusters]
-[kafka.clusters.cluster-1]
-brokers = "localhost:9092"
-request_timeout_ms = 5000
-operation_timeout_ms = 5000
+path = "kafka_manager.db"
 ```
 
-## 待实现功能（需要前端 UI）
+### 环境变量
 
-以下功能已实现后端逻辑，但需要前端 UI 来完整使用：
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `API_KEYS` | API Key 列表（逗号分隔） | - |
+| `AUTH_ENABLED` | 是否启用认证 | false |
+| `HEALTH_CHECK_INTERVAL_SECS` | 健康检查间隔 | 30 |
+
+## 待实现功能
+
+以下功能需要前端 UI 来完整使用：
 
 1. **Kafka Connect 管理** - 连接器 CRUD 和状态监控
 2. **MirrorMaker 管理** - 数据复制配置
@@ -336,19 +343,17 @@ operation_timeout_ms = 5000
 已实现的后端功能涵盖了 Kafka 集群管理的核心需求：
 
 - ✅ 多集群管理
-- ✅ Topic 全生命周期管理（**支持自动同步到数据库**）
+- ✅ Topic 全生命周期管理（支持自动同步到数据库）
 - ✅ Consumer Group 管理和 Lag 监控
-- ✅ ACL 权限控制
-- ✅ Quota 配额管理
 - ✅ Schema Registry 集成
 - ✅ 多渠道告警通知
 - ✅ RBAC 用户管理
 - ✅ 审计日志
-- ✅ 数据导入导出
-- ✅ Rebalance 监控
-- ✅ 事务管理
 - ✅ 集群连接管理（断开/重连/健康检查）
-- ✅ **Topic 元数据管理（刷新同步、自动对齐）**
+- ✅ Topic 元数据管理（刷新同步、自动对齐）
+- ✅ 标签管理
+- ✅ Topic 模板
+- ✅ 全局设置
 
 所有 API 端点均已注册并可通过 HTTP 访问，代码编译通过，基础测试通过。
 
