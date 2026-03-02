@@ -59,6 +59,10 @@
         <option value="newest">Newest</option>
       </select>
 
+      <!-- Time Range Filter -->
+      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm" placeholder="Start Time" />
+      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm" placeholder="End Time" />
+
       <button class="btn btn-primary btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading">
         Fetch
       </button>
@@ -289,6 +293,8 @@ const filters = reactive({
   max_messages: 100,
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
+  startTime: '' as string,
+  endTime: '' as string,
 });
 
 const showSendModal = ref(false);
@@ -474,14 +480,26 @@ async function fetchMessages() {
       partition?: number;
       max_messages: number;
       search: string;
+      fetchMode?: 'oldest' | 'newest';
+      start_time?: number;
+      end_time?: number;
     } = {
       max_messages: filters.max_messages,
       search: filters.search,
+      fetchMode: filters.fetchMode,
     };
 
     // 只有当 partition 有值时才传递，不传递表示不过滤
     if (filters.partition !== undefined) {
       params.partition = filters.partition;
+    }
+
+    // 传递时间范围过滤（转换为毫秒时间戳）
+    if (filters.startTime) {
+      params.start_time = new Date(filters.startTime).getTime();
+    }
+    if (filters.endTime) {
+      params.end_time = new Date(filters.endTime).getTime();
     }
 
     messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);

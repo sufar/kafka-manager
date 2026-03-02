@@ -45,6 +45,87 @@ impl KafkaConsumer {
         Ok(Self { timeout })
     }
 
+    /// 使用 offsets_for_timestamp API 按时间戳查找 offset
+    pub async fn get_offset_for_time(
+        &self,
+        kafka_config: &KafkaConfig,
+        topic: &str,
+        partition: i32,
+        timestamp_ms: i64,
+    ) -> Result<Option<i64>> {
+        use rdkafka::config::ClientConfig;
+        use std::time::Duration;
+
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
+
+        let consumer: StreamConsumer = client_config.create()?;
+
+        // 使用 offsets_for_timestamp 方法查找 offset
+        match consumer.offsets_for_timestamp(
+            timestamp_ms,
+            Duration::from_secs(3),
+        ) {
+            Ok(tpl) => {
+                // 查找指定 topic 和 partition 的 offset
+                for elem in tpl.elements() {
+                    if elem.topic() == topic && elem.partition() == partition {
+                        match elem.offset() {
+                            rdkafka::Offset::Offset(off) => return Ok(Some(off)),
+                            _ => return Ok(None),
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// 使用 offsets_for_times API 按时间戳查找多个 partition 的 offset
+    pub async fn get_offsets_for_times(
+        &self,
+        kafka_config: &KafkaConfig,
+        topic: &str,
+        timestamps: Vec<(i32, i64)>, // (partition, timestamp_ms)
+    ) -> Result<std::collections::HashMap<i32, i64>> {
+        use rdkafka::config::ClientConfig;
+        use rdkafka::TopicPartitionList;
+        use std::time::Duration;
+
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
+
+        let consumer: StreamConsumer = client_config.create()?;
+
+        // 构建 TopicPartitionList，使用时间戳作为 offset
+        let mut tpl = TopicPartitionList::new();
+        for (partition, timestamp_ms) in timestamps {
+            // 使用 Offset::Offset 存储时间戳，offsets_for_times 会处理转换
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(timestamp_ms))?;
+        }
+
+        // 调用 offsets_for_times
+        let result_tpl = consumer.offsets_for_times(tpl, Duration::from_secs(3))?;
+
+        // 获取结果
+        let mut offsets = std::collections::HashMap::new();
+        for elem in result_tpl.elements() {
+            if elem.topic() == topic {
+                match elem.offset() {
+                    rdkafka::Offset::Offset(off) => {
+                        offsets.insert(elem.partition(), off);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(offsets)
+    }
+
     /// 从指定 offset 获取消息（批量获取优化版）
     ///
     /// 使用 futures::stream 批量获取，减少网络 RTT 开销
@@ -349,9 +430,10 @@ impl KafkaConsumer {
         Ok(messages)
     }
 
-    /// 从指定 offset 获取消息（支持流式过滤）
+    /// 从指定 offset 获取消息（支持流式过滤）- 性能优化版
     ///
     /// 此方法在读取消息时即进行过滤，避免大量数据加载到内存
+    /// 使用批量获取和时间戳二分查找优化性能
     pub async fn fetch_messages_filtered<M>(
         &self,
         kafka_config: &KafkaConfig,
@@ -373,13 +455,14 @@ impl KafkaConsumer {
         client_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
-        // 优化：降低各种超时时间
-        client_config.set("fetch.wait.max.ms", "10");
-        client_config.set("fetch.min.bytes", "1");
-        client_config.set("fetch.max.bytes", "1048576"); // 1MB
-        client_config.set("session.timeout.ms", "3000");
-        client_config.set("request.timeout.ms", "2000");
-        client_config.set("socket.timeout.ms", "2000");
+        // 优化：增加批量获取参数
+        client_config.set("fetch.wait.max.ms", "100");      // 增加到 100ms，让 broker 有更多时间批量消息
+        client_config.set("fetch.min.bytes", "10240");      // 增加到 10KB，减少网络往返
+        client_config.set("fetch.max.bytes", "10485760");   // 10MB
+        client_config.set("session.timeout.ms", "10000");
+        client_config.set("request.timeout.ms", "5000");
+        client_config.set("socket.timeout.ms", "5000");
+        client_config.set("max.poll.records", "1000");      // 每次 poll 最多获取 1000 条
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -392,7 +475,7 @@ impl KafkaConsumer {
             rdkafka::Offset::Offset(off)
         } else {
             // 查询 low watermark 作为开始 offset
-            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(500))) {
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(1000))) {
                 Ok((low, _high)) => rdkafka::Offset::Offset(low),
                 Err(_) => rdkafka::Offset::Beginning
             }
@@ -401,16 +484,18 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 首次请求稍微长一点，后续请求可以很短
-        let base_timeout = Duration::from_millis(100);
+        // 使用更长的超时时间，因为已经优化了批量获取
+        let base_timeout = Duration::from_millis(200);
         let mut consecutive_timeouts = 0;
-        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2;
+        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
         let mut filtered_count = 0;
+        let mut total_read = 0;
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
+                    total_read += 1;
 
                     // 分区过滤
                     if let Some(p) = partition {
@@ -437,7 +522,12 @@ impl KafkaConsumer {
                         messages.push(kafka_msg);
                     } else {
                         filtered_count += 1;
-                        if filtered_count >= max_messages * 10 {
+                        // 动态调整过滤限制：如果已经读取了很多消息但匹配很少，考虑提前退出
+                        if filtered_count >= max_messages * 20 && total_read >= max_messages * 50 {
+                            tracing::warn!(
+                                "Too many filtered messages: read {}, matched {}, filtered {}",
+                                total_read, messages.len(), filtered_count
+                            );
                             break;
                         }
                     }

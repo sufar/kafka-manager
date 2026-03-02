@@ -480,6 +480,7 @@ class ApiClient {
     search?: string;
     start_time?: number;
     end_time?: number;
+    fetchMode?: 'oldest' | 'newest';
   }): Promise<import('@/types/api').MessageRecord[]> {
     const queryParams = new URLSearchParams();
     if (params?.partition !== undefined) queryParams.append('partition', params.partition.toString());
@@ -489,6 +490,7 @@ class ApiClient {
     if (params?.search) queryParams.append('search', params.search);
     if (params?.start_time) queryParams.append('start_time', params.start_time.toString());
     if (params?.end_time) queryParams.append('end_time', params.end_time.toString());
+    if (params?.fetchMode) queryParams.append('fetch_mode', params.fetchMode);
     const queryString = queryParams.toString();
     const url = queryString ? `?${queryString}` : '';
     // getMessages 不使用默认的 AbortController，由调用者自行管理

@@ -30,6 +30,7 @@ pub struct GetMessageParams {
     pub decode: Option<String>,      // 解码方式："utf8", "base64", "hex"
     pub start_time: Option<i64>,     // 开始时间戳（毫秒）
     pub end_time: Option<i64>,       // 结束时间戳（毫秒）
+    pub fetch_mode: Option<String>,  // "oldest" or "newest"
 }
 
 impl GetMessageParams {
@@ -101,14 +102,34 @@ async fn get_messages(
     let need_sort = params.order_by.as_deref() == Some("timestamp");
     let desc = params.sort.as_deref() == Some("desc");
 
+    // 性能优化：如果有时间范围过滤，先使用 offsets_for_timestamp 定位起始 offset
+    // 或者根据 fetch_mode 确定起始 offset
+    let start_offset = if let Some(start_time) = params.start_time {
+        let target_partition = params.partition.unwrap_or(0);
+        match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
+            Ok(Some(offset)) => Some(offset),
+            Ok(None) | Err(_) => params.offset,
+        }
+    } else if params.fetch_mode.as_deref() == Some("newest") {
+        // fetch_mode=newest: 从最新的 offset 开始获取
+        let target_partition = params.partition.unwrap_or(0);
+        match consumer.get_offset_for_time(&config, &topic, target_partition, i64::MAX).await {
+            Ok(Some(offset)) => Some(offset),
+            Ok(None) | Err(_) => None, // fallback 到 earliest
+        }
+    } else {
+        // fetch_mode=oldest 或未指定：从最早的 offset 开始
+        params.offset
+    };
+
     // 流式获取消息：在读取时就进行过滤和排序
     let raw_messages = consumer
         .fetch_messages_filtered(
             &config,
             &topic,
             params_clone.partition,
-            params_clone.offset,
-            limit,  // 直接获取 limit 条，过滤逻辑已在 fetch_messages_filtered 内部处理
+            start_offset,
+            limit,
             &move |msg: &KafkaMessage| -> bool {
                 params_clone.matches(msg)
             },
