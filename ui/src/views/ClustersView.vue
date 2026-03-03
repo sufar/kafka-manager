@@ -190,14 +190,11 @@
 
     <!-- Create/Edit Modal using Teleport and DaisyUI modal -->
     <Teleport to="body">
-      <dialog ref="modalRef" class="modal">
+      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box">
+          <!-- close button -->
           <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
           <h3 class="font-bold text-lg mb-4">{{ editingCluster ? 'Edit Cluster' : 'Create Cluster' }}</h3>
           <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
@@ -261,8 +258,8 @@
             </div>
           </form>
         </div>
-        <form method="dialog" class="modal-backdrop">
-          <button @click="closeModal">close</button>
+        <form method="dialog" class="modal-backdrop" @click="closeModal">
+          <button>close</button>
         </form>
       </dialog>
     </Teleport>
@@ -429,14 +426,26 @@ onMounted(() => {
 
   // 检查路由参数，如果 action=create 则打开创建模态框
   if (route.query.action === 'create') {
-    openCreateModal();
+    setTimeout(() => {
+      openCreateModal();
+    }, 50);
   }
 });
 
 // 监听路由参数变化
 watch(() => route.query.action, (action) => {
   if (action === 'create') {
-    openCreateModal();
+    // 确保 modal 完全关闭后再打开
+    setTimeout(() => {
+      openCreateModal();
+    }, 50);
+  }
+});
+
+// 监听路由参数变化，关闭 modal
+watch(() => route.fullPath, (newPath, oldPath) => {
+  if (newPath !== oldPath && modalRef.value?.open) {
+    modalRef.value?.close();
   }
 });
 </script>

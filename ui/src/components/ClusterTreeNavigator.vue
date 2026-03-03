@@ -92,11 +92,11 @@
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-secondary/5 hover:shadow-md relative"
               :class="{ 'bg-secondary/10 shadow-inner': expandedTopicsFolders.has(cluster.name) }"
-              @click.stop="toggleTopicsFolder(cluster.name); loadClusterTopics(cluster.name)"
+              @click.stop="handleTopicsFolderClick(cluster.name)"
               @contextmenu.prevent="showTopicsFolderMenu($event, cluster.name)"
             >
               <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="toggleTopicsFolder(cluster.name); loadClusterTopics(cluster.name)" tabindex="-1">
+                <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="handleTopicsFolderToggle(cluster.name)" tabindex="-1">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -404,6 +404,16 @@ function toggleTopicsFolder(clusterName: string) {
   } else {
     expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
   }
+}
+
+function handleTopicsFolderToggle(clusterName: string) {
+  toggleTopicsFolder(clusterName);
+  loadClusterTopics(clusterName);
+}
+
+function handleTopicsFolderClick(clusterName: string) {
+  // 点击 Topics 文件夹时，导航到 Topics 页面
+  emit('navigate', { path: '/topics', query: { cluster: clusterName } });
 }
 
 function toggleConsumerGroupsFolder(clusterName: string) {
