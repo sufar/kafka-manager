@@ -222,12 +222,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
-const t = languageStore.t;
+const { t } = storeToRefs(languageStore);
 
 const clusters = computed(() => clusterStore.clusters);
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);

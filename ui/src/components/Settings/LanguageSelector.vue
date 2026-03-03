@@ -4,7 +4,11 @@
       <span class="label-text font-medium">{{ t.settings.language }}</span>
       <span class="label-text-alt">{{ t.settings.selectLanguage }}</span>
     </label>
-    <select v-model="selectedLanguage" class="select select-bordered" @change="handleLanguageChange">
+    <select
+      :value="currentLanguage.value"
+      class="select select-bordered"
+      @change="handleLanguageChange"
+    >
       <option value="zh">{{ t.settings.languageZh }}</option>
       <option value="en">{{ t.settings.languageEn }}</option>
     </select>
@@ -12,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useLanguageStore } from '@/stores/language';
 import type { Language } from '@/i18n/translations';
@@ -20,12 +24,6 @@ import type { Language } from '@/i18n/translations';
 const languageStore = useLanguageStore();
 const { t, setLanguage } = languageStore;
 const { currentLanguage } = storeToRefs(languageStore);
-
-const selectedLanguage = ref<Language>(currentLanguage.value);
-
-watch(currentLanguage, (newLang) => {
-  selectedLanguage.value = newLang;
-});
 
 async function handleLanguageChange(event: Event) {
   const target = event.target as HTMLSelectElement;

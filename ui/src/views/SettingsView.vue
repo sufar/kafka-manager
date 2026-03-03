@@ -71,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
@@ -79,7 +80,7 @@ const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
 
 const { isDark, toggleTheme } = themeStore;
-const { t } = languageStore;
+const { t } = storeToRefs(languageStore);
 
 function handleToggleTheme() {
   toggleTheme();
