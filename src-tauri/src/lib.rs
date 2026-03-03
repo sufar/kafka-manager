@@ -65,17 +65,33 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
     let db_path = if cfg!(debug_assertions) {
         "kafka_manager.db".to_string()
     } else {
-        // 生产模式：将数据库放在用户的 Application Support 目录
+        // 生产模式：将数据库放在用户的系统特定应用数据目录
         let app_name = "Kafka Manager";
         let db_filename = "kafka_manager.db";
 
-        // 尝试获取用户的 Application Support 目录
-        if let Some(home_dir) = dirs::home_dir() {
-            let app_support_dir = home_dir.join("Library/Application Support").join(app_name);
+        // 使用 dirs crate 获取正确的系统特定目录
+        let app_data_dir = if cfg!(target_os = "windows") {
+            // Windows: C:\\Users\\Username\\AppData\\Roaming\\Kafka Manager
+            dirs::data_local_dir()
+                .map(|d| d.join(app_name))
+                .or_else(|| dirs::home_dir().map(|d| d.join("AppData").join("Roaming").join(app_name)))
+        } else if cfg!(target_os = "macos") {
+            // macOS: ~/Library/Application Support/Kafka Manager
+            dirs::home_dir()
+                .map(|d| d.join("Library/Application Support").join(app_name))
+        } else {
+            // Linux/Other: ~/.local/share/Kafka Manager 或 ~/.kafka-manager
+            dirs::data_local_dir()
+                .map(|d| d.join(app_name))
+                .or_else(|| dirs::home_dir().map(|d| d.join(".local/share").join(app_name)))
+                .or_else(|| dirs::home_dir().map(|d| d.join(".kafka-manager")))
+        };
 
+        if let Some(app_data_dir) = app_data_dir {
             // 确保目录存在
-            if let Err(e) = std::fs::create_dir_all(&app_support_dir) {
-                eprintln!("Failed to create app support directory: {}", e);
+            if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
+                eprintln!("Failed to create app data directory: {}", e);
+                tracing::error!("Failed to create app data directory: {}", e);
                 // 回退到可执行文件所在目录
                 let exe_dir = std::env::current_exe()?
                     .parent()
@@ -83,7 +99,8 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
                     .unwrap_or_else(|| PathBuf::from("."));
                 exe_dir.join(db_filename).to_string_lossy().to_string()
             } else {
-                app_support_dir.join(db_filename).to_string_lossy().to_string()
+                tracing::info!("Using database path: {:?}", app_data_dir.join(db_filename));
+                app_data_dir.join(db_filename).to_string_lossy().to_string()
             }
         } else {
             // 回退到可执行文件所在目录
@@ -91,7 +108,9 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
                 .parent()
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| PathBuf::from("."));
-            exe_dir.join(db_filename).to_string_lossy().to_string()
+            let fallback_path = exe_dir.join(db_filename);
+            tracing::warn!("Failed to get home directory, using fallback: {:?}", fallback_path);
+            fallback_path.to_string_lossy().to_string()
         }
     };
     let pool = DbPool::new(&db_path).await?;
