@@ -200,10 +200,10 @@
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-success/5 hover:shadow-md relative"
               :class="{ 'bg-success/10 shadow-inner': expandedConsumerGroupsFolders.has(cluster.name) }"
-              @click.stop="toggleConsumerGroupsFolder(cluster.name); loadClusterConsumerGroups(cluster.name)"
+              @click.stop="handleConsumerGroupsFolderClick(cluster.name)"
             >
               <div class="flex items-center gap-1.5 flex-1 min-w-0 pr-7">
-                <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="toggleConsumerGroupsFolder(cluster.name); loadClusterConsumerGroups(cluster.name)" tabindex="-1">
+                <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="handleConsumerGroupsFolderToggle(cluster.name)" tabindex="-1">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -423,6 +423,16 @@ function toggleConsumerGroupsFolder(clusterName: string) {
   } else {
     expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
   }
+}
+
+function handleConsumerGroupsFolderToggle(clusterName: string) {
+  toggleConsumerGroupsFolder(clusterName);
+  loadClusterConsumerGroups(clusterName);
+}
+
+function handleConsumerGroupsFolderClick(clusterName: string) {
+  // 点击 Consumer Groups 文件夹时，导航到 Consumer Groups 页面
+  emit('navigate', { path: '/consumer-groups', query: { cluster: clusterName } });
 }
 
 // 处理添加集群
