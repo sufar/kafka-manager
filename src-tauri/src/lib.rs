@@ -20,7 +20,7 @@ use kafka_manager_api::{
 async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
         .init();
 
     // 确定配置文件路径
@@ -43,12 +43,23 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
             config_in_resource
         } else {
             // 回退到可执行文件所在目录
-            exe_dir.join("config.toml")
+            let exe_config = exe_dir.join("config.toml");
+            if exe_config.exists() {
+                exe_config
+            } else {
+                // 最后尝试当前工作目录
+                PathBuf::from("config.toml")
+            }
         }
     };
 
+    tracing::info!("Using config file path: {:?}", config_path);
+
     // 加载配置
-    let config = Config::load(&config_path)?;
+    let config = Config::load(&config_path).map_err(|e| {
+        tracing::error!("Failed to load config: {}", e);
+        e
+    })?;
 
     // 创建数据库连接池
     let db_path = if cfg!(debug_assertions) {
@@ -158,16 +169,18 @@ pub fn run() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             if let Err(e) = start_backend(ready_tx).await {
+                tracing::error!("Failed to start backend: {}", e);
                 eprintln!("Failed to start backend: {}", e);
             }
         });
     });
 
-    // 等待后端服务器启动信号
-    if ready_rx.recv_timeout(Duration::from_secs(10)).is_ok() {
+    // 等待后端服务器启动信号（延长超时时间到 30 秒）
+    if ready_rx.recv_timeout(Duration::from_secs(30)).is_ok() {
         tracing::info!("Backend server is ready, starting Tauri application...");
     } else {
-        eprintln!("Warning: Backend server startup timed out, starting Tauri application anyway");
+        tracing::warn!("Backend server startup timed out after 30 seconds, starting Tauri application anyway. The backend may still be starting up...");
+        eprintln!("Warning: Backend server startup timed out, starting Tauri application anyway. The backend may still be starting up...");
     }
 
     // 启动 Tauri 应用

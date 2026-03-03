@@ -55,8 +55,9 @@ function getBaseURL(): string {
   // 注意：生产环境的端口由 config.toml 中的 server.port 决定
   // 默认开发端口为 9732
   if (isTauri()) {
-    console.log('[ApiClient] Running in Tauri environment, using http://localhost:9732');
-    return 'http://localhost:9732';
+    const baseURL = 'http://localhost:9732';
+    console.log('[ApiClient] Running in Tauri environment, using baseURL:', baseURL);
+    return baseURL;
   }
   // 在浏览器开发环境下，使用空字符串（通过 Vite 代理）
   console.log('[ApiClient] Running in web environment, using relative paths');
@@ -67,6 +68,7 @@ class ApiClient {
   private baseURL: string;
   private apiKey: string | null;
   private currentAbortController: AbortController | null = null;
+  private backendReady: boolean | null = null;
 
   constructor(baseURL: string = getBaseURL(), apiKey: string | null = null) {
     this.baseURL = baseURL;
@@ -75,6 +77,30 @@ class ApiClient {
 
   setApiKey(apiKey: string) {
     this.apiKey = apiKey;
+  }
+
+  // 检查后端是否就绪
+  async checkBackendReady(): Promise<boolean> {
+    if (this.backendReady === true) {
+      return true;
+    }
+
+    try {
+      const response = await fetch(`${this.baseURL}/api/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000), // 5 秒超时
+      });
+      if (response.ok) {
+        this.backendReady = true;
+        console.log('[ApiClient] Backend is ready');
+        return true;
+      }
+    } catch (e) {
+      console.warn('[ApiClient] Backend health check failed:', e);
+    }
+
+    this.backendReady = false;
+    return false;
   }
 
   // 取消当前的 API 请求
@@ -91,6 +117,7 @@ class ApiClient {
     const { signal } = this.currentAbortController;
 
     const url = `${this.baseURL}${endpoint}`;
+    console.log('[ApiClient] Request URL:', url);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -131,15 +158,22 @@ class ApiClient {
 
         return response.json();
       } catch (e) {
+        const error = e as { message?: string; type?: string };
         // 如果是网络错误（可能是后端还没启动），重试
         if (isTauri() && attempt < maxRetries - 1) {
-          const isError = e as { message?: string };
-          if (isError.message?.includes('Failed to fetch') || isError.message?.includes('NetworkError')) {
-            console.log(`[ApiClient] Request failed, retrying... (${attempt + 1}/${maxRetries})`);
+          if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError') || error.type === 'TypeError') {
+            console.log(`[ApiClient] Request failed (attempt ${attempt + 1}/${maxRetries}), retrying...`);
+            console.warn('[ApiClient] Backend server may not be running. Retrying connection...');
             await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
             lastError = e as Error;
             continue;
           }
+        }
+        // 所有重试都失败后，抛出更详细的错误
+        if (isTauri() && (error.message?.includes('Failed to fetch') || error.type === 'TypeError')) {
+          console.error('[ApiClient] All connection attempts failed. Backend server is not responding.');
+          console.error('[ApiClient] Please ensure the backend server is running on http://localhost:9732');
+          throw new Error('无法连接到后端服务，请确保应用已正确启动（后端服务可能在启动中，请稍后重试）');
         }
         throw e;
       }
@@ -169,6 +203,13 @@ class ApiClient {
   }
 
   async createCluster(cluster: CreateClusterRequest): Promise<Cluster> {
+    // 在 Tauri 环境下，先检查后端是否就绪
+    if (isTauri()) {
+      const ready = await this.checkBackendReady();
+      if (!ready) {
+        throw new Error('后端服务未就绪，请等待应用完全启动后再试（约 5-10 秒）');
+      }
+    }
     return this.request('/api/clusters', {
       method: 'POST',
       body: JSON.stringify(cluster),
