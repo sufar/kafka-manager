@@ -268,11 +268,6 @@ const error = computed(() => clusterStore.error);
 const totalStats = computed(() => clusterStore.totalStats);
 const refreshing = ref(false);
 
-const avgPartitionsPerTopic = computed(() => {
-  if (totalStats.value.totalTopics === 0) return 0;
-  return Math.round(totalStats.value.totalPartitions / totalStats.value.totalTopics);
-});
-
 function formatNumber(num: number): string {
   if (num >= 1000000) {
     return `${(num / 1000000).toFixed(1)}M`;

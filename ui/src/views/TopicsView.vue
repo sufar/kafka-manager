@@ -637,6 +637,15 @@ import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import type { TopicDetailResponse, MessageRecord } from '@/types/api';
 
+// 定义本地类型
+interface TopicItem {
+  name: string;
+  cluster: string;
+  partition_count?: number;
+  replication_factor?: number;
+  status?: string;
+}
+
 const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();

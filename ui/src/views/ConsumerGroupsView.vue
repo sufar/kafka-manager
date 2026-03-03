@@ -526,12 +526,21 @@ import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import type {
-  ConsumerGroupSummary,
   ConsumerGroupDetailResponse,
   ConsumerGroupOffsetDetailResponse,
   ConsumerGroupOffsetsSummary,
   ConsumerGroupPartitionDetail,
 } from '@/types/api';
+
+// 定义本地类型
+interface ConsumerGroupItem {
+  name: string;
+  cluster: string;
+  state: string;
+  memberCount: number;
+  totalLag: number;
+  topics: string[];
+}
 
 const route = useRoute();
 const clusterStore = useClusterStore();

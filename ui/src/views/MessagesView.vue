@@ -230,7 +230,7 @@
                 <span class="label-text font-medium">{{ t.messages.value }}</span>
                 <span class="label-text-alt">{{ t.messages.required }}</span>
               </label>
-              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-32 font-mono text-sm w-full" required :placeholder='{"id": 1, "data": "example"}'></textarea>
+              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-32 font-mono text-sm w-full" required :placeholder="`{&quot;id&quot;: 1, &quot;data&quot;: &quot;example&quot;}`"></textarea>
             </div>
             <!-- Success Alert -->
             <div v-if="sendSuccess" class="alert alert-success py-2">
