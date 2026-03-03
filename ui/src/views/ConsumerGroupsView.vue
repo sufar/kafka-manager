@@ -12,14 +12,14 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
             <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.941-3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
           </svg>
-          Consumer Groups
+          {{ t.consumerGroups.title }}
         </h2>
         <p class="text-base-content/60 mt-2 text-lg">
           <span v-if="clusterParam || selectedGroup">
-            <span v-if="clusterParam">Cluster: {{ clusterParam }}</span>
-            <span v-if="selectedGroup"> • Group: {{ selectedGroup }}</span>
+            <span v-if="clusterParam">{{ t.dashboard.clusters }}: {{ clusterParam }}</span>
+            <span v-if="selectedGroup"> • {{ t.consumerGroups.groupId }}: {{ selectedGroup }}</span>
           </span>
-          <span v-else>Manage consumer groups across clusters</span>
+          <span v-else>{{ t.consumerGroups.description }}</span>
         </p>
       </div>
       <div class="flex gap-2" v-if="!clusterParam && !selectedGroup">
@@ -29,21 +29,21 @@
           :class="viewMode === 'by-cluster' ? 'btn-active btn-primary' : 'btn-outline'"
           @click="viewMode = 'by-cluster'"
         >
-          By Cluster
+          {{ t.dashboard.byCluster }}
         </button>
         <button
           class="btn btn-sm"
           :class="viewMode === 'all-groups' ? 'btn-active btn-primary' : 'btn-outline'"
           @click="viewMode = 'all-groups'"
         >
-          All Groups
+          {{ t.consumerGroups.title }}
         </button>
       </div>
       <button v-if="selectedGroup" class="btn btn-sm btn-ghost" @click="clearSelectedGroup">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
         </svg>
-        Back to List
+        {{ t.common.back }}
       </button>
     </div>
 
@@ -52,7 +52,7 @@
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <span>Select a cluster from the sidebar to view consumer groups</span>
+      <span>{{ t.consumerGroups.selectCluster }}</span>
     </div>
 
     <!-- Single cluster view (from URL param) - Must come FIRST before other checks -->
@@ -60,12 +60,12 @@
       <table class="table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>State</th>
-            <th>Members</th>
-            <th>Subscribed Topics</th>
-            <th>Total Lag</th>
-            <th>Actions</th>
+            <th>{{ t.common.name }}</th>
+            <th>{{ t.consumerGroups.state }}</th>
+            <th>{{ t.consumerGroups.members }}</th>
+            <th>{{ t.consumerGroups.topics }}</th>
+            <th>{{ t.consumerGroups.totalLag }}</th>
+            <th>{{ t.common.actions }}</th>
           </tr>
         </thead>
         <tbody>
@@ -99,9 +99,9 @@
             </td>
             <td>
               <div class="flex gap-2" @click.stop>
-                <button class="btn btn-sm btn-ghost" @click="selectGroup(group.name)">View</button>
-                <button class="btn btn-sm btn-ghost" @click.stop="openResetOffsetModal(clusterParam, group.name)">Reset Offset</button>
-                <button class="btn btn-sm btn-ghost text-error" @click.stop="confirmDelete(clusterParam, group.name)">Delete</button>
+                <button class="btn btn-sm btn-ghost" @click="selectGroup(group.name)">{{ t.consumerGroups.groupDetails }}</button>
+                <button class="btn btn-sm btn-ghost" @click.stop="openResetOffsetModal(clusterParam, group.name)">{{ t.consumerGroups.resetOffset }}</button>
+                <button class="btn btn-sm btn-ghost text-error" @click.stop="confirmDelete(clusterParam, group.name)">{{ t.common.delete }}</button>
               </div>
             </td>
           </tr>
@@ -133,7 +133,7 @@
                 {{ selectedGroupDetail?.state }}
               </div>
               <button class="btn btn-primary" @click="openResetOffsetModal(clusterParam || '', selectedGroup)">
-                Reset Offset
+                {{ t.consumerGroups.resetOffset }}
               </button>
             </div>
           </div>
@@ -141,15 +141,15 @@
           <!-- Group Info Cards -->
           <div class="grid grid-cols-3 gap-4 mt-6">
             <div class="bg-base-200 rounded-lg p-4">
-              <div class="text-sm text-base-content/60 mb-1">State</div>
+              <div class="text-sm text-base-content/60 mb-1">{{ t.consumerGroups.state }}</div>
               <div class="font-semibold text-lg">{{ selectedGroupDetail?.state || 'N/A' }}</div>
             </div>
             <div class="bg-base-200 rounded-lg p-4">
-              <div class="text-sm text-base-content/60 mb-1">Protocol</div>
+              <div class="text-sm text-base-content/60 mb-1">{{ t.consumerGroups.coordinator }}</div>
               <div class="font-semibold text-lg">{{ selectedGroupDetail?.protocol || 'N/A' }}</div>
             </div>
             <div class="bg-base-200 rounded-lg p-4">
-              <div class="text-sm text-base-content/60 mb-1">Members</div>
+              <div class="text-sm text-base-content/60 mb-1">{{ t.consumerGroups.members }}</div>
               <div class="font-semibold text-lg">{{ selectedGroupDetail?.members?.length || 0 }}</div>
             </div>
           </div>
@@ -160,7 +160,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
               </svg>
-              Subscribed Topics
+              {{ t.consumerGroups.topics }}
             </h4>
             <div class="flex flex-wrap gap-2">
               <span
@@ -180,14 +180,14 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
           </svg>
-          Members ({{ selectedGroupDetail.members.length }})
+          {{ t.consumerGroups.members }} ({{ selectedGroupDetail.members.length }})
         </h4>
         <div class="overflow-x-auto">
           <table class="table">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Client ID</th>
+                <th>{{ t.consumerGroups.coordinator }}</th>
                 <th>Host</th>
               </tr>
             </thead>
@@ -207,7 +207,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
-        <span>No active members - this consumer group appears to be empty</span>
+        <span>{{ t.consumerGroups.noActiveMembers }}</span>
       </div>
 
       <!-- Offsets by Topic -->
@@ -216,7 +216,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
           </svg>
-          Consumer Offsets
+          {{ t.consumerGroups.offsetInfo }}
         </h4>
 
         <!-- Group partitions by topic -->
@@ -226,12 +226,12 @@
             <table class="table">
               <thead>
                 <tr>
-                  <th>Partition</th>
-                  <th>Start Offset</th>
-                  <th>End Offset</th>
-                  <th>Current Offset</th>
-                  <th>Lag</th>
-                  <th>State</th>
+                  <th>{{ t.consumerGroups.partition }}</th>
+                  <th>{{ t.consumerGroups.startOffset }}</th>
+                  <th>{{ t.consumerGroups.endOffset }}</th>
+                  <th>{{ t.consumerGroups.currentOffset }}</th>
+                  <th>{{ t.consumerGroups.lag }}</th>
+                  <th>{{ t.consumerGroups.stateLabel }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -264,7 +264,7 @@
         <!-- Grand Total -->
         <div class="bg-base-200 rounded-lg p-4 mt-4">
           <div class="flex justify-between items-center">
-            <span class="font-semibold">Grand Total Lag</span>
+            <span class="font-semibold">{{ t.consumerGroups.totalLag }}</span>
             <span :class="offsetDetail.total_lag > 0 ? 'text-warning font-bold text-xl' : 'text-success text-xl'">
               {{ formatLag(offsetDetail.total_lag) }}
             </span>
@@ -279,8 +279,8 @@
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
         <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.944-3.197M6 15.12a9.038 9.038 0 0 1-3.741.479 3 3 0 0 1 4.682-2.72m.941-3.197a5.971 5.971 0 0 1 .944-3.197M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm0 0h.008v.008H15V12Zm-3-3h.008v.008H12V9Z" />
       </svg>
-      <h3 class="text-xl font-semibold mb-2">No Consumer Groups Found</h3>
-      <p class="text-base-content/60">Consumer groups will appear when consumers connect to the cluster</p>
+      <h3 class="text-xl font-semibold mb-2">{{ t.common.noData }}</h3>
+      <p class="text-base-content/60">{{ t.consumerGroups.noGroupsFound }}</p>
     </div>
 
     <!-- Loading state -->
@@ -309,25 +309,25 @@
               }"
             ></div>
             <h3 class="text-xl font-semibold">{{ clusterName }}</h3>
-            <span class="badge badge-ghost">{{ clusterGroups.length }} groups</span>
+            <span class="badge badge-ghost">{{ clusterGroups.length }} {{ t.consumerGroups.groups }}</span>
           </div>
         </div>
 
         <div v-if="clusterGroups.length === 0" class="card bg-base-100 shadow-sm">
           <div class="card-body py-8">
-            <p class="text-center text-base-content/60">No consumer groups in this cluster</p>
+            <p class="text-center text-base-content/60">{{ t.consumerGroups.noGroupsInCluster }}</p>
           </div>
         </div>
         <div v-else class="overflow-x-auto bg-base-100 rounded-box shadow">
           <table class="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>State</th>
-                <th>Members</th>
-                <th>Subscribed Topics</th>
-                <th>Total Lag</th>
-                <th>Actions</th>
+                <th>{{ t.common.name }}</th>
+                <th>{{ t.consumerGroups.state }}</th>
+                <th>{{ t.consumerGroups.members }}</th>
+                <th>{{ t.consumerGroups.topics }}</th>
+                <th>{{ t.consumerGroups.totalLag }}</th>
+                <th>{{ t.common.actions }}</th>
               </tr>
             </thead>
             <tbody>
@@ -361,9 +361,9 @@
                 </td>
                 <td>
                   <div class="flex gap-2">
-                    <button class="btn btn-sm btn-ghost" @click="selectGroup(group.name)">View</button>
-                    <button class="btn btn-sm btn-ghost" @click="openResetOffsetModal(clusterName, group.name)">Reset Offset</button>
-                    <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(clusterName, group.name)">Delete</button>
+                    <button class="btn btn-sm btn-ghost" @click="selectGroup(group.name)">{{ t.consumerGroups.groupDetails }}</button>
+                    <button class="btn btn-sm btn-ghost" @click="openResetOffsetModal(clusterName, group.name)">{{ t.consumerGroups.resetOffset }}</button>
+                    <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(clusterName, group.name)">{{ t.common.delete }}</button>
                   </div>
                 </td>
               </tr>
@@ -379,21 +379,21 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.944-3.197M6 15.12a9.038 9.038 0 0 1-3.741.479 3 3 0 0 1 4.682-2.72m.941-3.197a5.971 5.971 0 0 1 .944-3.197M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm0 0h.008v.008H15V12Zm-3-3h.008v.008H12V9Z" />
         </svg>
-        <h3 class="text-xl font-semibold mb-2">No Consumer Groups Found</h3>
-        <p class="text-base-content/60">Consumer groups will appear when consumers connect</p>
+        <h3 class="text-xl font-semibold mb-2">{{ t.common.noData }}</h3>
+        <p class="text-base-content/60">{{ t.consumerGroups.noGroupsFound }}</p>
       </div>
 
       <div v-else class="overflow-x-auto bg-base-100 rounded-box shadow">
         <table class="table">
           <thead>
             <tr>
-              <th>Cluster</th>
-              <th>Name</th>
-              <th>State</th>
-              <th>Members</th>
-              <th>Subscribed Topics</th>
-              <th>Total Lag</th>
-              <th>Actions</th>
+              <th>{{ t.dashboard.clusters }}</th>
+              <th>{{ t.common.name }}</th>
+              <th>{{ t.consumerGroups.state }}</th>
+              <th>{{ t.consumerGroups.members }}</th>
+              <th>{{ t.consumerGroups.topics }}</th>
+              <th>{{ t.consumerGroups.totalLag }}</th>
+              <th>{{ t.common.actions }}</th>
             </tr>
           </thead>
           <tbody>
@@ -439,9 +439,9 @@
               </td>
               <td>
                 <div class="flex gap-2">
-                  <button class="btn btn-sm btn-ghost" @click="selectGroup(item.name)">View</button>
-                  <button class="btn btn-sm btn-ghost" @click="openResetOffsetModal(item.cluster, item.name)">Reset Offset</button>
-                  <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(item.cluster, item.name)">Delete</button>
+                  <button class="btn btn-sm btn-ghost" @click="selectGroup(item.name)">{{ t.consumerGroups.groupDetails }}</button>
+                  <button class="btn btn-sm btn-ghost" @click="openResetOffsetModal(item.cluster, item.name)">{{ t.consumerGroups.resetOffset }}</button>
+                  <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(item.cluster, item.name)">{{ t.common.delete }}</button>
                 </div>
               </td>
             </tr>
@@ -457,12 +457,12 @@
           <form method="dialog">
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
-          <h3 class="font-bold text-lg mb-2">Reset Offset for {{ resettingGroup }}</h3>
-          <p class="text-sm text-base-content/60 mb-4">Cluster: {{ resettingCluster }}</p>
+          <h3 class="font-bold text-lg mb-2">{{ t.consumerGroups.resetOffset }} - {{ resettingGroup }}</h3>
+          <p class="text-sm text-base-content/60 mb-4">{{ t.dashboard.clusters }}: {{ resettingCluster }}</p>
           <form @submit.prevent="handleResetOffset">
             <div class="form-control mb-4">
               <label class="label">
-                <span class="label-text font-semibold">Topic Name</span>
+                <span class="label-text font-semibold">{{ t.topics.topicName }}</span>
               </label>
               <input
                 v-model="resetOffsetForm.topic"
@@ -473,18 +473,18 @@
             </div>
             <div class="form-control mb-4">
               <label class="label">
-                <span class="label-text font-semibold">Offset Type</span>
+                <span class="label-text font-semibold">{{ t.consumerGroups.offsetType }}</span>
               </label>
               <select v-model="resetOffsetForm.type" class="select select-bordered w-full">
-                <option value="earliest">Earliest</option>
-                <option value="latest">Latest</option>
-                <option value="value">Specific Value</option>
-                <option value="timestamp">Timestamp</option>
+                <option value="earliest">{{ t.consumerGroups.earliest }}</option>
+                <option value="latest">{{ t.consumerGroups.latest }}</option>
+                <option value="value">{{ t.consumerGroups.specificValue }}</option>
+                <option value="timestamp">{{ t.messages.timestampLabel }}</option>
               </select>
             </div>
             <div v-if="resetOffsetForm.type === 'value' || resetOffsetForm.type === 'timestamp'" class="form-control mb-4">
               <label class="label">
-                <span class="label-text font-semibold">Value</span>
+                <span class="label-text font-semibold">{{ t.consumerGroups.value }}</span>
               </label>
               <input
                 v-model.number="resetOffsetForm.offsetValue"
@@ -495,20 +495,20 @@
             </div>
             <div class="form-control mb-4">
               <label class="label">
-                <span class="label-text font-semibold">Partition (optional)</span>
+                <span class="label-text font-semibold">{{ t.consumerGroups.partition }} ({{ t.common.optional }})</span>
               </label>
               <input
                 v-model.number="resetOffsetForm.partition"
                 type="number"
                 class="input input-bordered w-full"
-                placeholder="Leave empty for all partitions"
+                :placeholder="t.consumerGroups.allPartitionsPlaceholder"
               />
             </div>
             <div class="modal-action">
-              <button type="button" class="btn" @click="closeResetOffsetModal">Cancel</button>
+              <button type="button" class="btn" @click="closeResetOffsetModal">{{ t.common.cancel }}</button>
               <button type="submit" class="btn btn-primary" :disabled="resetting">
                 <span v-if="resetting" class="loading loading-spinner loading-sm"></span>
-                Reset
+                {{ t.consumerGroups.resetOffset }}
               </button>
             </div>
           </form>
@@ -523,6 +523,7 @@
 import { ref, reactive, computed, onMounted, watchEffect } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import type {
   ConsumerGroupSummary,
@@ -532,15 +533,10 @@ import type {
   ConsumerGroupPartitionDetail,
 } from '@/types/api';
 
-interface ConsumerGroupItem extends ConsumerGroupSummary {
-  memberCount?: number;
-  totalLag?: number;
-  topics?: string[];
-  cluster: string;
-}
-
 const route = useRoute();
 const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
 

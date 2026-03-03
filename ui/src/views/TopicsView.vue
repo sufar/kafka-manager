@@ -14,11 +14,11 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
             </svg>
-            Topics
+            {{ t.topics.title }}
           </h1>
           <p class="text-base-content/60 mt-2 text-lg">
-            <span v-if="clusterParam">Cluster: <span class="font-medium">{{ clusterParam }}</span></span>
-            <span v-else>Manage Kafka topics across clusters</span>
+            <span v-if="clusterParam">{{ t.dashboard.clusters }}: <span class="font-medium">{{ clusterParam }}</span></span>
+            <span v-else>{{ t.topics.description }}</span>
           </p>
         </div>
         <div class="flex gap-2">
@@ -28,7 +28,7 @@
             :class="viewMode === 'by-cluster' ? 'btn-primary' : 'btn-outline'"
             @click="viewMode = 'by-cluster'"
           >
-            By Cluster
+            {{ t.dashboard.byCluster }}
           </button>
           <button
             v-if="!clusterParam && selectedClusterIds.length > 0"
@@ -36,7 +36,7 @@
             :class="viewMode === 'all-topics' ? 'btn-primary' : 'btn-outline'"
             @click="viewMode = 'all-topics'"
           >
-            All Topics
+            {{ t.topics.allTopics }}
           </button>
           <button
             class="btn btn-sm btn-outline"
@@ -46,7 +46,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': refreshing }">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
-            Refresh
+            {{ t.common.refresh }}
           </button>
           <button
             class="btn btn-sm btn-primary"
@@ -56,7 +56,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            Create Topic
+            {{ t.topics.createTopic }}
           </button>
         </div>
       </div>
@@ -69,8 +69,8 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
       </div>
-      <h3 class="text-lg font-semibold mb-2">No Cluster Selected</h3>
-      <p class="text-base-content/60 mb-4">Select a cluster from the sidebar to view topics</p>
+      <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
+      <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
     </div>
 
     <!-- Single cluster view (from URL param) -->
@@ -80,15 +80,15 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
       </div>
-      <h3 class="text-lg font-semibold mb-2">No Topics Found</h3>
-      <p class="text-base-content/60 mb-4">Create topics in this cluster</p>
-      <button class="btn btn-primary" @click="openCreateModal">Create Topic</button>
+      <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
+      <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
+      <button class="btn btn-primary" @click="openCreateModal">{{ t.topics.createTopic }}</button>
     </div>
 
     <!-- Loading state -->
     <div v-else-if="loading" class="flex justify-center py-12">
       <span class="loading loading-spinner loading-lg text-primary"></span>
-      <p class="ml-4 text-base-content/60">Loading topics...</p>
+      <p class="ml-4 text-base-content/60">{{ t.common.loading }}...</p>
     </div>
 
     <!-- Error state -->
@@ -111,7 +111,7 @@
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search topics..."
+              :placeholder="t.common.search"
               class="input input-bordered w-full max-w-md pl-10"
             />
           </div>
@@ -124,12 +124,12 @@
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                   </svg>
-                  Topic Name
+                  {{ t.topics.topicName }}
                 </div>
               </th>
-              <th>Partitions</th>
-              <th>Replication</th>
-              <th>Actions</th>
+              <th>{{ t.topics.partitions }}</th>
+              <th>{{ t.topics.replicationFactor }}</th>
+              <th>{{ t.common.actions }}</th>
             </tr>
           </thead>
           <tbody>
@@ -157,19 +157,19 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.09.27.09.56 0 .83C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                    Details
+                    {{ t.topics.viewDetails }}
                   </button>
                   <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(clusterParam, topic)">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046-.59.116-.872.21l-1.912.637a1.125 1.125 0 010 2.136l1.912.637c.282.094.574.164-.872.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046-.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046-.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164-.872.21" />
                     </svg>
-                    Messages
+                    {{ t.topics.viewMessages }}
                   </button>
                   <button class="btn btn-ghost btn-xs text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                     </svg>
-                    Delete
+                    {{ t.common.delete }}
                   </button>
                 </div>
               </td>
@@ -212,29 +212,29 @@
               class="btn btn-primary btn-xs"
               @click="createCluster = clusterName; openCreateModal()"
             >
-              Create Topic
+              {{ t.topics.createTopic }}
             </button>
             <button
               v-if="clusterTopics.length > 0"
               class="btn btn-outline btn-xs"
               @click="currentCluster = clusterName; viewAllTopics(clusterTopics)"
             >
-              View All
+              {{ t.common.refresh }}
             </button>
           </div>
         </div>
 
         <div v-if="clusterTopics.length === 0" class="card glass gradient-border">
-          <p class="text-base-content/60 text-center p-8">No topics in this cluster</p>
+          <p class="text-base-content/60 text-center p-8">{{ t.common.noData }}</p>
         </div>
         <div v-else class="card glass gradient-border">
           <div class="overflow-x-auto">
             <table class="table">
               <thead>
                 <tr>
-                  <th>Topic Name</th>
-                  <th>Partitions</th>
-                  <th>Actions</th>
+                  <th>{{ t.topics.topicName }}</th>
+                  <th>{{ t.topics.partitions }}</th>
+                  <th>{{ t.common.actions }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -252,9 +252,9 @@
                   <td><div class="badge badge-neutral">{{ topic.partition_count || '-' }}</div></td>
                   <td>
                     <div class="flex gap-1">
-                      <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(clusterName, topic)">Details</button>
-                      <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(clusterName, topic)">Messages</button>
-                      <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">Delete</button>
+                      <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(clusterName, topic)">{{ t.topics.viewDetails }}</button>
+                      <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(clusterName, topic)">{{ t.topics.viewMessages }}</button>
+                      <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">{{ t.common.delete }}</button>
                     </div>
                   </td>
                 </tr>
@@ -276,7 +276,7 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search topics..."
+            :placeholder="t.common.search"
             class="input input-bordered w-full max-w-md pl-10"
           />
         </div>
@@ -287,8 +287,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </div>
-        <h3 class="text-lg font-semibold mb-2">No Topics Found</h3>
-        <p class="text-base-content/60 mb-4">Create topics in selected clusters</p>
+        <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
+        <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
       </div>
 
       <div v-else class="card bg-base-200">
@@ -296,10 +296,10 @@
           <table class="table">
             <thead>
               <tr>
-                <th>Cluster</th>
-                <th>Topic Name</th>
-                <th>Partitions</th>
-                <th>Actions</th>
+                <th>{{ t.dashboard.clusters }}</th>
+                <th>{{ t.topics.topicName }}</th>
+                <th>{{ t.topics.partitions }}</th>
+                <th>{{ t.common.actions }}</th>
               </tr>
             </thead>
             <tbody>
@@ -328,9 +328,9 @@
                 <td><div class="badge badge-neutral">{{ item.partition_count || '-' }}</div></td>
                 <td>
                   <div class="flex gap-1">
-                    <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(item.cluster, item)">Details</button>
-                    <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(item.cluster, item)">Messages</button>
-                    <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(item.cluster, item.name)">Delete</button>
+                    <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(item.cluster, item)">{{ t.topics.viewDetails }}</button>
+                    <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(item.cluster, item)">{{ t.topics.viewMessages }}</button>
+                    <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(item.cluster, item.name)">{{ t.common.delete }}</button>
                   </div>
                 </td>
               </tr>
@@ -347,11 +347,11 @@
           <form method="dialog">
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
-          <h3 class="text-lg font-bold mb-4">Create Topic</h3>
+          <h3 class="text-lg font-bold mb-4">{{ t.topics.createTopic }}</h3>
           <form @submit.prevent="handleCreate" class="space-y-4">
             <div v-if="!createCluster" class="form-control">
               <label class="label">
-                <span class="label-text">Cluster</span>
+                <span class="label-text">{{ t.dashboard.clusters }}</span>
               </label>
               <select v-model="targetCluster" class="select select-bordered" required>
                 <option v-for="cluster in selectedClusterIds" :key="cluster" :value="cluster">
@@ -362,7 +362,7 @@
 
             <div class="form-control">
               <label class="label">
-                <span class="label-text">Topic Name</span>
+                <span class="label-text">{{ t.topics.topicName }}</span>
               </label>
               <input
                 v-model="newTopic.name"
@@ -375,7 +375,7 @@
             <div class="grid grid-cols-2 gap-4">
               <div class="form-control">
                 <label class="label">
-                  <span class="label-text">Partitions</span>
+                  <span class="label-text">{{ t.topics.partitions }}</span>
                 </label>
                 <input
                   v-model.number="newTopic.num_partitions"
@@ -386,7 +386,7 @@
               </div>
               <div class="form-control">
                 <label class="label">
-                  <span class="label-text">Replication Factor</span>
+                  <span class="label-text">{{ t.topics.replicationFactor }}</span>
                 </label>
                 <input
                   v-model.number="newTopic.replication_factor"
@@ -397,10 +397,10 @@
               </div>
             </div>
             <div class="modal-action mt-6">
-              <button type="button" class="btn" @click="closeCreateModal">Cancel</button>
+              <button type="button" class="btn" @click="closeCreateModal">{{ t.common.cancel }}</button>
               <button type="submit" class="btn btn-primary" :disabled="creating">
                 <span v-if="creating" class="loading loading-spinner loading-sm mr-2"></span>
-                Create Topic
+                {{ t.topics.createTopic }}
               </button>
             </div>
           </form>
@@ -448,12 +448,12 @@
             </table>
           </div>
           <div class="modal-action mt-6">
-            <button class="btn" @click="closeDetailModal">Close</button>
+            <button class="btn" @click="closeDetailModal">{{ t.common.cancel }}</button>
             <button class="btn btn-primary" @click="addPartitions">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              Add Partitions
+              {{ t.topics.partitions }} +
             </button>
           </div>
         </div>
@@ -471,7 +471,7 @@
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
           <h3 class="text-lg font-bold mb-4">
-            Topic Messages: {{ selectedMessageTopic }}
+            {{ t.topics.viewMessages }}: {{ selectedMessageTopic }}
             <span v-if="selectedMessageCluster" class="text-sm font-normal text-base-content/60 ml-2">
               ({{ selectedMessageCluster }})
             </span>
@@ -483,17 +483,17 @@
               <div class="grid grid-cols-4 gap-3">
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">Partition</span>
+                    <span class="label-text-sm">{{ t.messages.partition }}</span>
                   </label>
                   <select v-model.number="messageFilters.partition" class="select select-bordered select-sm">
-                    <option :value="undefined">All</option>
+                    <option :value="undefined">{{ t.common.all }}</option>
                     <option v-for="p in availablePartitions" :key="p" :value="p">{{ p }}</option>
                   </select>
                 </div>
 
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">Max Messages</span>
+                    <span class="label-text-sm">{{ t.messages.maxMessages }}</span>
                   </label>
                   <input
                     v-model.number="messageFilters.limit"
@@ -506,23 +506,23 @@
 
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">Format</span>
+                    <span class="label-text-sm">{{ t.messages.viewAs }}</span>
                   </label>
                   <select v-model="messageFilters.format" class="select select-bordered select-sm">
-                    <option value="raw">Raw</option>
-                    <option value="json">JSON</option>
-                    <option value="hex">Hex</option>
+                    <option value="raw">{{ t.messages.raw }}</option>
+                    <option value="json">{{ t.messages.json }}</option>
+                    <option value="hex">{{ t.messages.hex }}</option>
                   </select>
                 </div>
 
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">Search</span>
+                    <span class="label-text-sm">{{ t.common.search }}</span>
                   </label>
                   <input
                     v-model="messageFilters.search"
                     type="text"
-                    placeholder="Search key or value"
+                    :placeholder="t.messages.filter"
                     class="input input-bordered input-sm"
                     @keyup.enter="fetchMessages"
                   />
@@ -532,7 +532,7 @@
               <div class="grid grid-cols-4 gap-3 mt-3">
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">Start Time</span>
+                    <span class="label-text-sm">{{ t.messages.startTime }}</span>
                   </label>
                   <input
                     v-model="messageFilters.startTime"
@@ -543,7 +543,7 @@
 
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text-sm">End Time</span>
+                    <span class="label-text-sm">{{ t.messages.endTime }}</span>
                   </label>
                   <input
                     v-model="messageFilters.endTime"
@@ -555,7 +555,7 @@
                 <div class="form-control col-span-2 flex items-end">
                   <button class="btn btn-primary" @click="fetchMessages" :disabled="loadingMessages">
                     <span v-if="loadingMessages" class="loading loading-spinner loading-sm mr-2"></span>
-                    Load Messages
+                    {{ t.messages.fetch }}
                   </button>
                 </div>
               </div>
@@ -580,18 +580,18 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046-.59.116-.872.21l-1.912.637a1.125 1.125 0 010 2.136l1.912.637c.282.094.574.164-.872.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046-.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046-.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164-.872.21" />
               </svg>
             </div>
-            <p class="text-base-content/60">No messages found</p>
+            <p class="text-base-content/60">{{ t.messages.noMessages }}</p>
           </div>
 
           <div v-else class="overflow-x-auto">
             <table class="table">
               <thead>
                 <tr>
-                  <th>Partition</th>
-                  <th>Offset</th>
-                  <th>Timestamp</th>
-                  <th>Key</th>
-                  <th>Value</th>
+                  <th>{{ t.messages.partition }}</th>
+                  <th>{{ t.messages.offset }}</th>
+                  <th>{{ t.messages.timestampLabel }}</th>
+                  <th>{{ t.messages.key }}</th>
+                  <th>{{ t.messages.value }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -611,12 +611,12 @@
           </div>
 
           <div class="modal-action mt-6">
-            <button class="btn" @click="closeMessagesModal">Close</button>
+            <button class="btn" @click="closeMessagesModal">{{ t.common.cancel }}</button>
             <button class="btn btn-primary" @click="exportMessages" :disabled="topicMessages.length === 0">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
-              Export
+              {{ t.topics.exportData }}
             </button>
           </div>
         </div>
@@ -633,18 +633,14 @@
 import { ref, reactive, computed, onMounted, watchEffect } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import type { TopicDetailResponse, MessageRecord } from '@/types/api';
 
-interface TopicItem {
-  name: string;
-  partition_count?: number;
-  replication_factor?: number;
-  cluster: string;
-}
-
 const route = useRoute();
 const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
 

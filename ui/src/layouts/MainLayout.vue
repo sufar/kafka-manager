@@ -15,7 +15,7 @@
           <!-- Selected clusters info -->
           <div class="flex items-center gap-2">
             <span class="text-sm text-base-content/60">
-              {{ selectedClusterIds.length }} cluster(s) selected
+              {{ selectedClusterIds.length }} {{ t.mainLayout.clustersSelected }}
             </span>
           </div>
         </div>
@@ -24,7 +24,7 @@
             class="btn btn-sm btn-ghost"
             :class="{ 'btn-active': refreshingHealth }"
             @click="handleRefreshHealth"
-            title="Refresh cluster health"
+            :title="t.mainLayout.refreshHealth"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -48,7 +48,7 @@
       <!-- Footer -->
       <footer class="footer footer-center p-4 bg-base-100 text-base-content">
         <div>
-          <p>Kafka Manager v0.1.0 - Built with Vue 3 + Tailwind CSS + DaisyUI</p>
+          <p>{{ t.mainLayout.footerText }}</p>
         </div>
       </footer>
     </div>
@@ -67,7 +67,7 @@
             </div>
             <div>
               <h1 class="text-xl font-bold text-primary">Kafka Manager</h1>
-              <p class="text-xs text-base-content/60">Multi-Cluster</p>
+              <p class="text-xs text-base-content/60">{{ t.mainLayout.multiCluster }}</p>
             </div>
           </div>
         </div>
@@ -80,7 +80,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
                 </svg>
-                Dashboard
+                {{ t.nav.dashboard }}
               </router-link>
             </li>
             <li>
@@ -88,7 +88,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
                 </svg>
-                Clusters
+                {{ t.nav.clusters }}
               </router-link>
             </li>
           </ul>
@@ -96,7 +96,7 @@
           <!-- Cluster-based navigation -->
           <div class="mt-4">
             <div class="flex items-center justify-between mb-2 px-2">
-              <span class="text-xs font-semibold text-base-content/60 uppercase">Clusters</span>
+              <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.mainLayout.clustersLabel }}</span>
             </div>
             <ul class="menu menu-md gap-1">
               <li v-for="cluster in clusters" :key="cluster.id">
@@ -114,27 +114,27 @@
                   <ul class="ml-4">
                     <li>
                       <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active">
-                        Topics
+                        {{ t.mainLayout.topics }}
                       </router-link>
                     </li>
                     <li>
                       <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active">
-                        Consumer Groups
+                        {{ t.mainLayout.consumerGroups }}
                       </router-link>
                     </li>
                     <li>
                       <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active">
-                        Messages
+                        {{ t.mainLayout.messages }}
                       </router-link>
                     </li>
                     <li>
                       <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active">
-                        Schema Registry
+                        {{ t.mainLayout.schemaRegistry }}
                       </router-link>
                     </li>
                     <li>
                       <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active">
-                        ACLs
+                        {{ t.mainLayout.acls }}
                       </router-link>
                     </li>
                   </ul>
@@ -147,21 +147,21 @@
         <!-- Clusters List -->
         <div class="flex-1 overflow-y-auto px-4 py-2">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-base-content/60 uppercase">Clusters</span>
+            <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.mainLayout.clustersLabel }}</span>
             <div class="flex gap-1">
               <button
                 class="btn btn-xs btn-ghost"
                 @click="selectAllClusters"
-                title="Select all"
+                :title="t.mainLayout.selectAll"
               >
-                All
+                {{ t.mainLayout.selectAll }}
               </button>
               <button
                 class="btn btn-xs btn-ghost"
                 @click="clearSelection"
-                title="Clear selection"
+                :title="t.mainLayout.clearSelection"
               >
-                None
+                {{ t.mainLayout.clearSelection }}
               </button>
             </div>
           </div>
@@ -212,7 +212,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            Manage Clusters
+            {{ t.mainLayout.manageClusters }}
           </router-link>
         </div>
       </aside>
@@ -223,8 +223,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
 
 const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const t = languageStore.t;
 
 const clusters = computed(() => clusterStore.clusters);
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);

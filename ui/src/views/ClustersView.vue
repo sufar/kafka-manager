@@ -14,15 +14,15 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
-            Clusters
+            {{ t.clusters.title }}
           </h1>
-          <p class="text-base-content/60 mt-2 text-lg">Manage your Kafka cluster connections</p>
+          <p class="text-base-content/60 mt-2 text-lg">{{ t.clusters.description }}</p>
         </div>
         <button class="btn btn-primary" @click="openCreateModal">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Add Cluster
+          {{ t.clusters.addCluster }}
         </button>
       </div>
     </div>
@@ -31,7 +31,7 @@
     <div v-if="loading" class="flex justify-center items-center py-20">
       <div class="flex flex-col items-center">
         <span class="loading loading-spinner loading-lg text-primary"></span>
-        <p class="mt-4 text-base-content/60">Loading clusters...</p>
+        <p class="mt-4 text-base-content/60">{{ t.common.loading }}...</p>
       </div>
     </div>
 
@@ -42,20 +42,20 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
         </svg>
       </div>
-      <h3 class="text-xl font-semibold mb-2">Connection Error</h3>
+      <h3 class="text-xl font-semibold mb-2">{{ t.clusters.connectionError }}</h3>
       <p class="text-base-content/60 mb-4 max-w-md">{{ error }}</p>
       <div class="flex gap-3">
         <button class="btn btn-primary" @click="refreshClusters">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
           </svg>
-          Retry
+          {{ t.clusters.retry }}
         </button>
         <button class="btn btn-outline" @click="openCreateModal">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Add Cluster
+          {{ t.clusters.addCluster }}
         </button>
       </div>
     </div>
@@ -67,13 +67,13 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
         </svg>
       </div>
-      <h3 class="text-xl font-semibold mb-2">No Clusters Yet</h3>
-      <p class="text-base-content/60 mb-6">Add your first Kafka cluster to get started</p>
+      <h3 class="text-xl font-semibold mb-2">{{ t.common.noData }}</h3>
+      <p class="text-base-content/60 mb-6">{{ t.clusters.description }}</p>
       <button class="btn btn-primary" @click="openCreateModal">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        Add Cluster
+        {{ t.clusters.addCluster }}
       </button>
     </div>
 
@@ -196,11 +196,11 @@
           <form method="dialog">
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
-          <h3 class="font-bold text-lg mb-4">{{ editingCluster ? 'Edit Cluster' : 'Create Cluster' }}</h3>
+          <h3 class="font-bold text-lg mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
           <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
             <div class="form-control">
               <label class="label">
-                <span class="label-text font-medium">Cluster Name</span>
+                <span class="label-text font-medium">{{ t.clusters.clusterName }}</span>
               </label>
               <input
                 v-model="formData.name"
@@ -212,7 +212,7 @@
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text font-medium">Brokers</span>
+                <span class="label-text font-medium">{{ t.clusters.brokers }}</span>
               </label>
               <input
                 v-model="formData.brokers"
@@ -228,7 +228,7 @@
             <div class="grid grid-cols-2 gap-4">
               <div class="form-control">
                 <label class="label">
-                  <span class="label-text font-medium">Request Timeout (ms)</span>
+                  <span class="label-text font-medium">{{ t.clusters.requestTimeout }}</span>
                 </label>
                 <input
                   v-model.number="formData.request_timeout_ms"
@@ -239,7 +239,7 @@
               </div>
               <div class="form-control">
                 <label class="label">
-                  <span class="label-text font-medium">Operation Timeout (ms)</span>
+                  <span class="label-text font-medium">{{ t.clusters.operationTimeout }}</span>
                 </label>
                 <input
                   v-model.number="formData.operation_timeout_ms"
@@ -250,10 +250,10 @@
               </div>
             </div>
             <div class="modal-action mt-4">
-              <button type="button" class="btn btn-outline" @click="closeModal">Cancel</button>
+              <button type="button" class="btn btn-outline" @click="closeModal">{{ t.common.cancel }}</button>
               <button type="submit" class="btn btn-primary" :disabled="submitting">
                 <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
-                {{ editingCluster ? 'Update' : 'Create' }}
+                {{ editingCluster ? t.common.edit : t.common.create }}
               </button>
             </div>
           </form>
@@ -271,16 +271,21 @@ import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
+import { useLanguageStore } from '@/stores/language';
 import type { Cluster } from '@/types/api';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
+const languageStore = useLanguageStore();
 
 const clusters = computed(() => clusterStore.clusters);
 const loading = computed(() => clusterStore.loading);
 const error = computed(() => clusterStore.error);
 const connectionLoading = computed(() => connectionStore.loading);
+
+// 翻译
+const t = computed(() => languageStore.t);
 
 const editingCluster = ref<Cluster | null>(null);
 const testing = ref(new Set<number>());

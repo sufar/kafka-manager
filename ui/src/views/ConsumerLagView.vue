@@ -10,7 +10,7 @@
         </button>
         <div>
           <h1 class="text-lg font-semibold text-base-content">{{ topicName }}</h1>
-          <p class="text-xs text-base-content/60">Cluster: {{ clusterName }}</p>
+          <p class="text-xs text-base-content/60">{{ t.consumerLag.cluster }}: {{ clusterName }}</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
@@ -18,7 +18,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': loading }">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
           </svg>
-          Refresh
+          {{ t.consumerLag.refresh }}
         </button>
       </div>
     </div>
@@ -26,28 +26,28 @@
     <!-- Summary Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4">
       <div class="stat bg-base-200 rounded-box p-4">
-        <div class="stat-title text-base-content/60">Total Lag</div>
+        <div class="stat-title text-base-content/60">{{ t.consumerLag.totalLag }}</div>
         <div class="stat-value text-lg" :class="{ 'text-error': totalLag > 10000, 'text-warning': totalLag > 1000 && totalLag <= 10000 }">
           {{ formatNumber(totalLag) }}
         </div>
-        <div class="stat-desc text-base-content/60">messages</div>
+        <div class="stat-desc text-base-content/60">{{ t.consumerLag.messages }}</div>
       </div>
       <div class="stat bg-base-200 rounded-box p-4">
-        <div class="stat-title text-base-content/60">Consumer Groups</div>
+        <div class="stat-title text-base-content/60">{{ t.consumerLag.consumerGroups }}</div>
         <div class="stat-value text-lg text-primary">{{ consumerGroups.length }}</div>
-        <div class="stat-desc text-base-content/60">groups</div>
+        <div class="stat-desc text-base-content/60">{{ t.consumerLag.groups }}</div>
       </div>
       <div class="stat bg-base-200 rounded-box p-4">
-        <div class="stat-title text-base-content/60">Partitions</div>
+        <div class="stat-title text-base-content/60">{{ t.consumerLag.partitions }}</div>
         <div class="stat-value text-lg text-secondary">{{ partitionCount }}</div>
-        <div class="stat-desc text-base-content/60">partitions</div>
+        <div class="stat-desc text-base-content/60">{{ t.consumerLag.partitions }}</div>
       </div>
       <div class="stat bg-base-200 rounded-box p-4">
-        <div class="stat-title text-base-content/60">Max Lag Group</div>
+        <div class="stat-title text-base-content/60">{{ t.consumerLag.maxLagGroup }}</div>
         <div class="stat-value text-lg truncate" :title="maxLagGroup">
           {{ maxLagGroup || '-' }}
         </div>
-        <div class="stat-desc text-base-content/60">consumer group</div>
+        <div class="stat-desc text-base-content/60">{{ t.consumerLag.groups }}</div>
       </div>
     </div>
 
@@ -55,13 +55,13 @@
     <div class="p-4">
       <div class="card bg-base-200 rounded-box border border-base-300">
         <div class="card-body p-4">
-          <h3 class="card-title text-sm">Consumer Lag Trend</h3>
+          <h3 class="card-title text-sm">{{ t.consumerLag.lagTrend }}</h3>
           <div v-if="loading" class="flex items-center justify-center h-64">
             <span class="loading loading-spinner loading-md"></span>
-            <span class="ml-2 text-sm text-base-content/60">Loading data...</span>
+            <span class="ml-2 text-sm text-base-content/60">{{ t.consumerLag.loadingData }}</span>
           </div>
           <div v-else-if="chartData.length === 0" class="flex items-center justify-center h-64">
-            <span class="text-sm text-base-content/60">No historical data available</span>
+            <span class="text-sm text-base-content/60">{{ t.consumerLag.noHistoricalData }}</span>
           </div>
           <div v-else class="chart-wrapper" style="height: 300px;">
             <canvas ref="chartCanvas"></canvas>
@@ -74,14 +74,14 @@
     <div class="p-4">
       <div class="card bg-base-200 rounded-box border border-base-300">
         <div class="card-body p-4">
-          <h3 class="card-title text-sm">Consumer Group Details</h3>
+          <h3 class="card-title text-sm">{{ t.consumerLag.consumerGroupDetails }}</h3>
           <div class="overflow-x-auto">
             <table class="table table-zebra w-full text-sm">
               <thead>
                 <tr>
-                  <th class="font-medium text-base-content/60">Consumer Group</th>
-                  <th class="text-right font-medium text-base-content/60">Total Lag</th>
-                  <th class="font-medium text-base-content/60">Partition Details</th>
+                  <th class="font-medium text-base-content/60">{{ t.consumerLag.consumerGroups }}</th>
+                  <th class="text-right font-medium text-base-content/60">{{ t.consumerLag.totalLag }}</th>
+                  <th class="font-medium text-base-content/60">{{ t.consumerLag.partitionDetails }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,7 +116,7 @@
                 </tr>
                 <tr v-if="consumerGroups.length === 0">
                   <td colspan="3" class="py-8 text-center text-base-content/60">
-                    No consumer groups found for this topic
+                    {{ t.consumerLag.noConsumerGroupsDesc }}
                   </td>
                 </tr>
               </tbody>
@@ -129,12 +129,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useLanguageStore } from '@/stores/language';
 import Chart from 'chart.js/auto';
 
 const router = useRouter();
 const route = useRoute();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 const clusterName = ref(route.query.cluster as string || '');
 const topicName = ref(route.query.topic as string || '');

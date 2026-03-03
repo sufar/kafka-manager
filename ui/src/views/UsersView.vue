@@ -2,18 +2,18 @@
   <div>
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h2 class="text-3xl font-bold">User Management</h2>
-        <p class="text-base-content/60 mt-1">Manage users and roles</p>
+        <h2 class="text-3xl font-bold">{{ t.users.title }}</h2>
+        <p class="text-base-content/60 mt-1">{{ t.users.description }}</p>
       </div>
       <div class="flex gap-2">
         <button class="btn btn-outline" @click="showRoles = !showRoles">
-          {{ showRoles ? 'Show Users' : 'Show Roles' }}
+          {{ showRoles ? t.users.showUsers : t.users.showRoles }}
         </button>
         <button class="btn btn-primary" @click="openCreateModal">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          {{ showRoles ? 'Create Role' : 'Create User' }}
+          {{ showRoles ? t.users.createRole : t.users.createUser }}
         </button>
       </div>
     </div>
@@ -30,9 +30,9 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
         </svg>
-        <h3 class="text-xl font-semibold mb-2">No Users</h3>
-        <p class="text-base-content/60 mb-4">Create your first user to get started</p>
-        <button class="btn btn-primary" @click="openCreateModal">Create User</button>
+        <h3 class="text-xl font-semibold mb-2">{{ t.users.noUsers }}</h3>
+        <p class="text-base-content/60 mb-4">{{ t.users.noUsersDesc }}</p>
+        <button class="btn btn-primary" @click="openCreateModal">{{ t.users.createUser }}</button>
       </div>
 
       <!-- Users Table -->
@@ -40,12 +40,12 @@
         <table class="table">
           <thead>
             <tr>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th>Actions</th>
+              <th>{{ t.users.username }}</th>
+              <th>{{ t.users.email }}</th>
+              <th>{{ t.users.role }}</th>
+              <th>{{ t.users.status }}</th>
+              <th>{{ t.users.created }}</th>
+              <th>{{ t.users.actions }}</th>
             </tr>
           </thead>
           <tbody>
@@ -57,19 +57,19 @@
                 <div class="text-sm">{{ user.email || '-' }}</div>
               </td>
               <td>
-                <div class="badge badge-ghost badge-sm">{{ user.role_name || 'No Role' }}</div>
+                <div class="badge badge-ghost badge-sm">{{ user.role_name || t.users.noRole }}</div>
               </td>
               <td>
                 <div :class="`badge ${user.is_active ? 'badge-success' : 'badge-ghost'}`">
-                  {{ user.is_active ? 'Active' : 'Inactive' }}
+                  {{ user.is_active ? t.users.active : t.users.inactive }}
                 </div>
               </td>
               <td class="text-sm">{{ formatDate(user.created_at) }}</td>
               <td>
                 <div class="flex gap-2">
-                  <button class="btn btn-sm btn-ghost" @click="editUser(user)">Edit</button>
+                  <button class="btn btn-sm btn-ghost" @click="editUser(user)">{{ t.users.edit }}</button>
                   <button class="btn btn-sm btn-ghost" @click="toggleUserStatus(user)">
-                    {{ user.is_active ? 'Deactivate' : 'Activate' }}
+                    {{ user.is_active ? t.users.deactivate : t.users.activate }}
                   </button>
                 </div>
               </td>
@@ -86,9 +86,9 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
         </svg>
-        <h3 class="text-xl font-semibold mb-2">No Roles</h3>
-        <p class="text-base-content/60 mb-4">Create roles to manage user permissions</p>
-        <button class="btn btn-primary" @click="openCreateModal">Create Role</button>
+        <h3 class="text-xl font-semibold mb-2">{{ t.users.noRoles }}</h3>
+        <p class="text-base-content/60 mb-4">{{ t.users.noRolesDesc }}</p>
+        <button class="btn btn-primary" @click="openCreateModal">{{ t.users.createRole }}</button>
       </div>
 
       <!-- Roles Grid -->
@@ -97,9 +97,9 @@
           <div class="card-body">
             <div class="flex items-center justify-between mb-2">
               <h3 class="card-title">{{ role.name }}</h3>
-              <button class="btn btn-sm btn-ghost" @click="editRole(role)">Edit</button>
+              <button class="btn btn-sm btn-ghost" @click="editRole(role)">{{ t.users.edit }}</button>
             </div>
-            <p class="text-sm text-base-content/60 mb-4">{{ role.description || 'No description' }}</p>
+            <p class="text-sm text-base-content/60 mb-4">{{ role.description || t.users.noDescription }}</p>
             <div class="flex flex-wrap gap-2">
               <span v-for="perm in role.permissions" :key="perm" class="badge badge-sm badge-outline">
                 {{ perm }}
@@ -113,11 +113,11 @@
     <!-- Create/Edit User Modal -->
     <dialog ref="userModalRef" class="modal">
       <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">{{ editingUser ? 'Edit User' : 'Create User' }}</h3>
+        <h3 class="font-bold text-lg mb-4">{{ editingUser ? t.users.editUser : t.users.createUser }}</h3>
         <form @submit.prevent="handleUserSubmit">
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Username</span>
+              <span class="label-text font-semibold">{{ t.users.username }}</span>
             </label>
             <input
               v-model="userForm.username"
@@ -129,7 +129,7 @@
           </div>
           <div class="form-control mb-4" v-if="!editingUser">
             <label class="label">
-              <span class="label-text font-semibold">Password</span>
+              <span class="label-text font-semibold">{{ t.users.password }}</span>
             </label>
             <input
               v-model="userForm.password"
@@ -140,24 +140,24 @@
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Email</span>
+              <span class="label-text font-semibold">{{ t.users.email }}</span>
             </label>
             <input v-model="userForm.email" type="email" class="input input-bordered" />
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Role</span>
+              <span class="label-text font-semibold">{{ t.users.role }}</span>
             </label>
             <select v-model="userForm.role_id" class="select select-bordered">
-              <option :value="undefined">No Role</option>
+              <option :value="undefined">{{ t.users.noRole }}</option>
               <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
             </select>
           </div>
           <div class="modal-action">
-            <button type="button" class="btn" @click="closeUserModal">Cancel</button>
+            <button type="button" class="btn" @click="closeUserModal">{{ t.users.cancel }}</button>
             <button type="submit" class="btn btn-primary" :disabled="userSubmitting">
               <span v-if="userSubmitting" class="loading loading-spinner loading-sm"></span>
-              {{ editingUser ? 'Update' : 'Create' }}
+              {{ editingUser ? t.users.update : t.users.create }}
             </button>
           </div>
         </form>
@@ -170,23 +170,23 @@
     <!-- Create/Edit Role Modal -->
     <dialog ref="roleModalRef" class="modal">
       <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">{{ editingRole ? 'Edit Role' : 'Create Role' }}</h3>
+        <h3 class="font-bold text-lg mb-4">{{ editingRole ? t.users.editRole : t.users.createRole }}</h3>
         <form @submit.prevent="handleRoleSubmit">
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Role Name</span>
+              <span class="label-text font-semibold">{{ t.users.roleName }}</span>
             </label>
             <input v-model="roleForm.name" type="text" class="input input-bordered" required />
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Description</span>
+              <span class="label-text font-semibold">{{ t.users.roleDescription }}</span>
             </label>
             <textarea v-model="roleForm.description" class="textarea textarea-bordered h-20"></textarea>
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Permissions</span>
+              <span class="label-text font-semibold">{{ t.users.permissions }}</span>
             </label>
             <div class="border border-base-200 rounded-lg p-4 space-y-2">
               <label v-for="perm in availablePermissions" :key="perm" class="flex items-center gap-2">
@@ -201,10 +201,10 @@
             </div>
           </div>
           <div class="modal-action">
-            <button type="button" class="btn" @click="closeRoleModal">Cancel</button>
+            <button type="button" class="btn" @click="closeRoleModal">{{ t.users.cancel }}</button>
             <button type="submit" class="btn btn-primary" :disabled="roleSubmitting">
               <span v-if="roleSubmitting" class="loading loading-spinner loading-sm"></span>
-              {{ editingRole ? 'Update' : 'Create' }}
+              {{ editingRole ? t.users.update : t.users.create }}
             </button>
           </div>
         </form>
@@ -217,9 +217,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
+import { useLanguageStore } from '@/stores/language';
 import type { UserResponse, RoleResponse } from '@/types/api';
+
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 const loading = ref(false);
 const showRoles = ref(false);

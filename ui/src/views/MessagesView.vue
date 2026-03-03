@@ -9,28 +9,28 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </div>
-        <span class="text-xs font-bold text-base-content/80">Topic</span>
+        <span class="text-xs font-bold text-base-content/80">{{ t.topics.title }}</span>
         <span v-if="selectedTopic" class="text-xs font-mono text-accent">: {{ selectedTopic }}</span>
       </div>
 
       <div class="w-px h-6 bg-base-content/20" />
 
-      <button class="btn btn-ghost btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading" title="Refresh">
+      <button class="btn btn-ghost btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading" :title="t.common.refresh">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': loading }">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       </button>
-      <button class="btn btn-ghost btn-sm" @click="stopFetching" :disabled="!loading" title="Stop">
+      <button class="btn btn-ghost btn-sm" @click="stopFetching" :disabled="!loading" :title="t.common.cancel">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
         </svg>
       </button>
-      <button class="btn btn-ghost btn-sm" @click="openSendModal" :disabled="!selectedTopic" title="Send Message">
+      <button class="btn btn-ghost btn-sm" @click="openSendModal" :disabled="!selectedTopic" :title="t.messages.sendMessage">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
         </svg>
       </button>
-      <button class="btn btn-ghost btn-sm" @click="exportMessages" :disabled="!selectedTopic" title="Export">
+      <button class="btn btn-ghost btn-sm" @click="exportMessages" :disabled="!selectedTopic" :title="t.topics.exportData">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
         </svg>
@@ -40,31 +40,31 @@
 
       <!-- Topic Selector -->
       <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-sm" @change="fetchMessages">
-        <option value="">Select a topic...</option>
+        <option value="">{{ t.messages.selectTopic }}</option>
         <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
       </select>
 
       <!-- Partition Filter -->
       <select v-model.number="filters.partition" class="select select-bordered select-sm w-auto" @change="fetchMessages">
-        <option :value="undefined">All Partitions</option>
+        <option :value="undefined">{{ t.messages.allPartitions }}</option>
         <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-sm" placeholder="Filter..." @keyup.enter="fetchMessages" />
+      <input v-model="filters.search" type="text" class="input input-bordered input-sm" :placeholder="t.messages.filter" @keyup.enter="fetchMessages" />
 
       <!-- Fetch Mode -->
       <select v-model="filters.fetchMode" class="select select-bordered select-sm w-auto">
-        <option value="oldest">Oldest</option>
-        <option value="newest">Newest</option>
+        <option value="oldest">{{ t.messages.oldest }}</option>
+        <option value="newest">{{ t.messages.newest }}</option>
       </select>
 
       <!-- Time Range Filter -->
-      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm" placeholder="Start Time" />
-      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm" placeholder="End Time" />
+      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm" :placeholder="t.messages.startTime" />
+      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm" :placeholder="t.messages.endTime" />
 
       <button class="btn btn-primary btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading">
-        Fetch
+        {{ t.messages.fetch }}
       </button>
     </div>
 
@@ -74,11 +74,11 @@
         <table class="table table-sm w-full">
           <thead class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
-              <th class="text-left w-20 bg-gradient-to-r from-primary/10 to-transparent">Offset</th>
-              <th class="text-left w-32 bg-gradient-to-r from-secondary/10 to-transparent">Partition</th>
-              <th class="text-left w-40 bg-gradient-to-r from-accent/10 to-transparent">Timestamp</th>
-              <th class="text-left w-48 bg-gradient-to-r from-info/10 to-transparent">Key</th>
-              <th class="text-left bg-gradient-to-r from-success/10 to-transparent">Message</th>
+              <th class="text-left w-20 bg-gradient-to-r from-primary/10 to-transparent">{{ t.messages.offset }}</th>
+              <th class="text-left w-32 bg-gradient-to-r from-secondary/10 to-transparent">{{ t.messages.partition }}</th>
+              <th class="text-left w-40 bg-gradient-to-r from-accent/10 to-transparent">{{ t.messages.timestampLabel }}</th>
+              <th class="text-left w-48 bg-gradient-to-r from-info/10 to-transparent">{{ t.messages.key }}</th>
+              <th class="text-left bg-gradient-to-r from-success/10 to-transparent">{{ t.messages.value }}</th>
             </tr>
           </thead>
           <tbody>
@@ -87,7 +87,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mx-auto mb-2 opacity-50">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
               </svg>
-              No messages found
+              {{ t.messages.noMessages }}
             </td>
           </tr>
           <tr
@@ -174,20 +174,20 @@
         </div>
       </div>
       <div v-else class="flex items-center justify-center h-full text-base-content/40 text-sm">
-        Select a message to view details
+        {{ t.messages.selectTopic }}
       </div>
     </div>
 
     <!-- Status Bar -->
     <div class="status-bar flex items-center justify-between px-3 py-2 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md">
       <div class="flex items-center gap-4">
-        <span>{{ loading ? 'Fetching...' : 'Ready' }}</span>
-        <span>[Messages = {{ messages.length }}]</span>
-        <span v-if="fetchTime > 0">[Time = {{ fetchTime }}ms]</span>
-        <span v-if="selectedMessage">[Selected Offset = {{ selectedMessage.offset }}]</span>
+        <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
+        <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
+        <span v-if="fetchTime > 0">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
+        <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
       <div class="flex items-center gap-2">
-        <span>Max Messages</span>
+        <span>{{ t.messages.maxMessages }}</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-16" min="1" max="1000" />
       </div>
     </div>
@@ -203,54 +203,54 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-info">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
             </svg>
-            Send Message to <span class="font-mono">{{ selectedTopic }}</span>
+            {{ t.messages.sendMessage }} <span class="font-mono">{{ selectedTopic }}</span>
           </h3>
           <form @submit.prevent="() => handleSendMessage(false)" class="flex flex-col gap-3">
             <!-- Partition Dropdown -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">Partition</span>
-                <span class="label-text-alt">Target partition</span>
+                <span class="label-text font-medium">{{ t.messages.partition }}</span>
+                <span class="label-text-alt">{{ t.messages.targetPartition }}</span>
               </label>
               <select v-model.number="messageForm.partition" class="select select-bordered w-full" required>
-                <option v-for="p in topicPartitions" :key="p" :value="p">Partition {{ p }}</option>
+                <option v-for="p in topicPartitions" :key="p" :value="p">{{ t.messages.partition }} {{ p }}</option>
               </select>
             </div>
             <!-- Key Input -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">Key</span>
-                <span class="label-text-alt">Optional</span>
+                <span class="label-text font-medium">{{ t.messages.key }}</span>
+                <span class="label-text-alt">{{ t.messages.optional }}</span>
               </label>
-              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" placeholder="Message key (optional)" />
+              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" :placeholder="t.messages.optional" />
             </div>
             <!-- Value Textarea -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">Value</span>
-                <span class="label-text-alt">Required</span>
+                <span class="label-text font-medium">{{ t.messages.value }}</span>
+                <span class="label-text-alt">{{ t.messages.required }}</span>
               </label>
-              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-32 font-mono text-sm w-full" required placeholder='{"id": 1, "data": "example"}'></textarea>
+              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-32 font-mono text-sm w-full" required :placeholder='{"id": 1, "data": "example"}'></textarea>
             </div>
             <!-- Success Alert -->
             <div v-if="sendSuccess" class="alert alert-success py-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
               </svg>
-              <span class="text-sm">Message sent! Offset: {{ lastOffset }}</span>
+              <span class="text-sm">{{ t.messages.messageSent }}! Offset: {{ lastOffset }}</span>
             </div>
             <!-- Actions -->
             <div class="modal-action">
-              <button type="button" class="btn" @click="closeSendModal">Cancel</button>
+              <button type="button" class="btn" @click="closeSendModal">{{ t.common.cancel }}</button>
               <button type="button" class="btn btn-primary" @click="handleSendMessage(true)" :disabled="sending">
-                Send & New
+                {{ t.messages.sendAndNew }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="sending">
                 <svg v-if="sending" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                {{ sending ? 'Sending...' : 'Send' }}
+                {{ sending ? t.messages.sending : t.messages.send }}
               </button>
             </div>
           </form>
@@ -264,10 +264,13 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 // 从 URL 参数获取集群 ID
 const clusterParam = computed(() => route.query.cluster as string || '');

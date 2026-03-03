@@ -2,14 +2,14 @@
   <div>
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h2 class="text-3xl font-bold">Notification Settings</h2>
-        <p class="text-base-content/60 mt-1">Configure alert notification channels</p>
+        <h2 class="text-3xl font-bold">{{ t.notifications.title }}</h2>
+        <p class="text-base-content/60 mt-1">{{ t.notifications.description }}</p>
       </div>
       <button class="btn btn-primary" @click="openCreateModal">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        Add Notification
+        {{ t.notifications.addNotification }}
       </button>
     </div>
 
@@ -31,9 +31,9 @@
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
         <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31 8.967 8.967 0 01-2.312-6.022V9a6 6 0 10-12 0v.75a8.967 8.967 0 01-2.312 6.022m19.615-4.409a23.848 23.848 0 01-5.454 1.31 8.967 8.967 0 002.312 6.022c-.621.25-1.277.45-1.958.59m-13.477 0a8.966 8.966 0 01-1.958-.59 8.967 8.967 0 002.312-6.022m19.615 4.409a23.848 23.848 0 01-5.454 1.31 8.967 8.967 0 00-2.312 6.022m-19.615-4.409a8.966 8.966 0 01-1.958-.59 8.967 8.967 0 002.312 6.022" />
       </svg>
-      <h3 class="text-xl font-semibold mb-2">No Notification Channels</h3>
-      <p class="text-base-content/60 mb-4">Configure notification channels to receive alerts</p>
-      <button class="btn btn-primary" @click="openCreateModal">Add Notification</button>
+      <h3 class="text-xl font-semibold mb-2">{{ t.notifications.noNotifications }}</h3>
+      <p class="text-base-content/60 mb-4">{{ t.notifications.noNotificationsDesc }}</p>
+      <button class="btn btn-primary" @click="openCreateModal">{{ t.notifications.addNotification }}</button>
     </div>
 
     <!-- Notifications Grid -->
@@ -43,7 +43,7 @@
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
               <div :class="`badge ${notif.enabled ? 'badge-success' : 'badge-ghost'}`">
-                {{ notif.enabled ? 'Enabled' : 'Disabled' }}
+                {{ notif.enabled ? t.notifications.enabled : t.notifications.disabled }}
               </div>
               <h3 class="card-title">{{ notif.name }}</h3>
             </div>
@@ -67,10 +67,10 @@
               :class="notif.enabled ? 'btn-warning' : 'btn-success'"
               @click="toggleEnabled(notif)"
             >
-              {{ notif.enabled ? 'Disable' : 'Enable' }}
+              {{ notif.enabled ? t.notifications.disable : t.notifications.enable }}
             </button>
-            <button class="btn btn-sm btn-ghost" @click="editNotification(notif)">Edit</button>
-            <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(notif.id)">Delete</button>
+            <button class="btn btn-sm btn-ghost" @click="editNotification(notif)">{{ t.notifications.edit }}</button>
+            <button class="btn btn-sm btn-ghost text-error" @click="confirmDelete(notif.id)">{{ t.notifications.delete }}</button>
           </div>
         </div>
       </div>
@@ -79,18 +79,18 @@
     <!-- Create/Edit Modal -->
     <dialog ref="modalRef" class="modal">
       <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">{{ editing ? 'Edit Notification' : 'Add Notification' }}</h3>
+        <h3 class="font-bold text-lg mb-4">{{ editing ? t.notifications.editNotification : t.notifications.addNotification }}</h3>
         <form @submit.prevent="handleSubmit">
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Name</span>
+              <span class="label-text font-semibold">{{ t.notifications.name }}</span>
             </label>
             <input v-model="formData.name" type="text" class="input input-bordered" required />
           </div>
 
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text font-semibold">Type</span>
+              <span class="label-text font-semibold">{{ t.notifications.type }}</span>
             </label>
             <select v-model="formData.type" class="select select-bordered" required :disabled="editing">
               <option value="slack">Slack</option>
@@ -103,13 +103,13 @@
           <div v-if="formData.type === 'slack'" class="space-y-4">
             <div class="form-control">
               <label class="label">
-                <span class="label-text">Webhook URL</span>
+                <span class="label-text">{{ t.notifications.webhookUrl }}</span>
               </label>
               <input v-model="slackConfig.webhook_url" type="url" class="input input-bordered" placeholder="https://hooks.slack.com/..." />
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text">Channel</span>
+                <span class="label-text">{{ t.notifications.channel }}</span>
               </label>
               <input v-model="slackConfig.channel" type="text" class="input input-bordered" placeholder="#alerts" />
             </div>
@@ -119,13 +119,13 @@
           <div v-if="formData.type === 'webhook'" class="space-y-4">
             <div class="form-control">
               <label class="label">
-                <span class="label-text">URL</span>
+                <span class="label-text">{{ t.notifications.url }}</span>
               </label>
               <input v-model="webhookConfig.url" type="url" class="input input-bordered" />
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text">Method</span>
+                <span class="label-text">{{ t.notifications.method }}</span>
               </label>
               <select v-model="webhookConfig.method" class="select select-bordered">
                 <option value="POST">POST</option>
@@ -138,29 +138,29 @@
           <div v-if="formData.type === 'email'" class="space-y-4">
             <div class="form-control">
               <label class="label">
-                <span class="label-text">SMTP Server</span>
+                <span class="label-text">{{ t.notifications.smtpServer }}</span>
               </label>
               <input v-model="emailConfig.smtp_server" type="text" class="input input-bordered" placeholder="smtp.example.com" />
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text">Port</span>
+                <span class="label-text">{{ t.notifications.port }}</span>
               </label>
               <input v-model.number="emailConfig.port" type="number" class="input input-bordered" placeholder="587" />
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text">From Email</span>
+                <span class="label-text">{{ t.notifications.fromEmail }}</span>
               </label>
               <input v-model="emailConfig.from_email" type="email" class="input input-bordered" />
             </div>
             <div class="form-control">
               <label class="label">
-                <span class="label-text">To Emails</span>
+                <span class="label-text">{{ t.notifications.toEmails }}</span>
               </label>
               <input v-model="emailConfig.to_emails" type="text" class="input input-bordered" placeholder="admin@example.com" />
               <label class="label">
-                <span class="label-text-alt">Comma separated emails</span>
+                <span class="label-text-alt">{{ t.notifications.commaSeparatedEmails }}</span>
               </label>
             </div>
           </div>
@@ -168,15 +168,15 @@
           <div class="form-control mb-4 mt-4">
             <label class="cursor-pointer label justify-start gap-4">
               <input v-model="formData.enabled" type="checkbox" class="checkbox" />
-              <span class="label-text">Enabled</span>
+              <span class="label-text">{{ t.notifications.enabled }}</span>
             </label>
           </div>
 
           <div class="modal-action">
-            <button type="button" class="btn" @click="closeModal">Cancel</button>
+            <button type="button" class="btn" @click="closeModal">{{ t.notifications.cancel }}</button>
             <button type="submit" class="btn btn-primary" :disabled="submitting">
               <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
-              {{ editing ? 'Update' : 'Create' }}
+              {{ editing ? t.notifications.update : t.notifications.create }}
             </button>
           </div>
         </form>
@@ -189,9 +189,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
+import { useLanguageStore } from '@/stores/language';
 import type { NotificationConfig } from '@/types/api';
+
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 interface SlackConfig {
   webhook_url: string;
@@ -336,7 +340,7 @@ function toggleEnabled(notif: NotificationConfig) {
 }
 
 function confirmDelete(id: number) {
-  if (confirm('Are you sure you want to delete this notification channel?')) {
+  if (confirm(t.value.notifications.confirmDelete)) {
     apiClient.deleteNotification(id)
       .then(() => fetchNotifications())
       .catch(e => alert((e as { message: string }).message));
