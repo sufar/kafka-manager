@@ -14,7 +14,7 @@ mod tests;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use axum::Extension;
@@ -34,7 +34,7 @@ use crate::task::{TaskStore, HealthChecker, HealthCheckConfig};
 #[derive(Clone)]
 pub struct AppState {
     pub db: DbPool,
-    pub clients: Arc<RwLock<KafkaClients>>,
+    pub clients: Arc<ArcSwap<KafkaClients>>,
     pub config: Config,
     pub auth: AuthMiddleware,
     /// Kafka 连接池
@@ -45,6 +45,18 @@ pub struct AppState {
     pub task_store: TaskStore,
     /// 健康检查器
     pub health_checker: HealthChecker,
+}
+
+impl AppState {
+    /// 获取 Kafka 客户端（无锁读取）
+    pub fn get_clients(&self) -> Arc<KafkaClients> {
+        self.clients.load_full()
+    }
+
+    /// 更新 Kafka 客户端（原子操作）
+    pub fn set_clients(&self, clients: KafkaClients) {
+        self.clients.store(clients.into());
+    }
 }
 
 #[tokio::main]
@@ -74,14 +86,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 从数据库加载集群配置并创建 Kafka 客户端
     let clusters = load_clusters_from_db(db.inner()).await?;
     let clients = KafkaClients::new(&clusters)?;
+    let clients: Arc<ArcSwap<KafkaClients>> = Arc::new(ArcSwap::new(clients.into()));
     tracing::info!(
         "Connected to Kafka clusters: {:?}",
-        clients.cluster_ids()
+        clients.load_full().cluster_ids()
     );
 
     // 初始化连接池
     let pools = ClusterPools::new();
-    pools.init(&clusters).await?;
+    pools.init(&clusters, &config.pool).await?;
     tracing::info!("Kafka connection pools initialized");
 
     // 初始化缓存
@@ -135,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 应用状态
     let state = AppState {
         db: db.clone(),
-        clients: Arc::new(RwLock::new(clients)),
+        clients,
         config: config.clone(),
         auth: auth.clone(),
         pools: pools.clone(),

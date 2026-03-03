@@ -51,7 +51,19 @@ async fn list_consumer_groups(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ConsumerGroupListResponse>> {
-    let clients = state.clients.read().await;
+    // 先尝试从缓存获取
+    if let Some(cached_groups) = state.cache.get_consumer_group_list(&cluster_id).await {
+        let groups = cached_groups
+            .into_iter()
+            .map(|name| crate::models::ConsumerGroupSummary {
+                name,
+                state: "Unknown".to_string(),
+            })
+            .collect();
+        return Ok(Json(ConsumerGroupListResponse { groups }));
+    }
+
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -60,13 +72,16 @@ async fn list_consumer_groups(
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
     let groups = admin.list_consumer_groups(&config)?;
+    let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
+
+    // 写入缓存
+    state.cache.set_consumer_group_list(&cluster_id, group_names.clone()).await;
+
     Ok(Json(ConsumerGroupListResponse {
-        groups: groups
+        groups: group_names
             .into_iter()
-            .map(|g| crate::models::ConsumerGroupSummary {
-                name: g.name,
-                state: g.state,
-            })
+            .zip(groups.into_iter().map(|g| g.state))
+            .map(|(name, state)| crate::models::ConsumerGroupSummary { name, state })
             .collect(),
     }))
 }
@@ -76,7 +91,7 @@ async fn get_all_consumer_offsets(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ConsumerOffsetsListResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -130,7 +145,7 @@ async fn get_consumer_group(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<Json<ConsumerGroupDetailResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -161,7 +176,7 @@ async fn delete_consumer_group(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<()> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -175,7 +190,7 @@ async fn get_consumer_group_offsets(
     Path((cluster_id, group_name)): Path<(String, String)>,
     Query(query): Query<ConsumerGroupOffsetsQuery>,
 ) -> Result<Json<ConsumerGroupOffsetDetailResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -221,7 +236,7 @@ async fn reset_consumer_group_offset(
     Path((cluster_id, group_name)): Path<(String, String)>,
     Json(req): Json<ResetConsumerGroupOffsetRequest>,
 ) -> Result<()> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -279,7 +294,7 @@ async fn batch_delete_consumer_groups(
     Path(cluster_id): Path<String>,
     Json(req): Json<BatchDeleteConsumerGroupsRequest>,
 ) -> Result<Json<BatchDeleteConsumerGroupsResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -326,7 +341,7 @@ async fn get_consumer_group_throughput(
     Path((cluster_id, group_name)): Path<(String, String)>,
     Query(query): Query<ThroughputQuery>,
 ) -> Result<Json<ConsumerGroupThroughputResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -346,7 +361,7 @@ async fn get_topic_consumer_lag(
     State(state): State<AppState>,
     Path((cluster_id, topic)): Path<(String, String)>,
 ) -> Result<Json<TopicConsumerLagResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -418,7 +433,7 @@ async fn get_topic_consumer_lag_history(
     Path((cluster_id, topic)): Path<(String, String)>,
     Query(query): Query<LagHistoryQuery>,
 ) -> Result<Json<TopicConsumerLagHistoryResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;

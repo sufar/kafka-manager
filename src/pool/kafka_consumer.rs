@@ -3,7 +3,7 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use deadpool::managed;
-use rdkafka::consumer::StreamConsumer;
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::config::ClientConfig;
 
 /// Kafka Consumer 连接池类型
@@ -46,13 +46,24 @@ impl managed::Manager for KafkaConsumerManager {
 
     async fn create(&self) -> Result<StreamConsumer> {
         let client_config = self.create_client_config("kafka-manager-pool");
-        let consumer: StreamConsumer = client_config.create()
+        let consumer: StreamConsumer = client_config
+            .create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
         Ok(consumer)
     }
 
-    async fn recycle(&self, _conn: &mut StreamConsumer, _: &managed::Metrics) -> managed::RecycleResult<AppError> {
-        // Kafka Consumer 通常不需要显式的健康检查
-        Ok(())
+    async fn recycle(&self, conn: &mut StreamConsumer, _: &managed::Metrics) -> managed::RecycleResult<AppError> {
+        // 健康检查：尝试获取消费者元数据来判断连接是否有效
+        use std::time::Duration;
+
+        // 使用 client().metadata() 进行健康检查
+        let client = conn.client();
+        match client.fetch_metadata(None, Duration::from_secs(2)) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::warn!("Consumer health check failed: {}", e);
+                Err(managed::RecycleError::Message(format!("Health check failed: {}", e).into()))
+            }
+        }
     }
 }

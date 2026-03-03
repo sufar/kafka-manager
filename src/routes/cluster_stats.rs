@@ -38,7 +38,7 @@ async fn get_cluster_stats(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ClusterStatsResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;

@@ -37,3 +37,6 @@ kafka-manager-api = { path = ".." }
 
 # 目录工具
 dirs = "5"
+
+# Lock-free Arc for AppState
+arc-swap = "1.7"

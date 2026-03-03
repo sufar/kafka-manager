@@ -10,8 +10,12 @@ use std::time::Duration;
 pub struct MetadataCache {
     /// Topic 元数据缓存
     topic_metadata: Cache<String, TopicMetadataEntry>,
+    /// Topic 列表缓存
+    topic_list: Cache<String, TopicListEntry>,
     /// Consumer Group 信息缓存
     consumer_group: Cache<String, ConsumerGroupEntry>,
+    /// Consumer Group 列表缓存
+    consumer_group_list: Cache<String, ConsumerGroupListEntry>,
     /// Broker 信息缓存
     broker_info: Cache<String, BrokerInfoEntry>,
 }
@@ -23,10 +27,24 @@ pub struct TopicMetadataEntry {
     pub fetched_at: i64,
 }
 
+/// Topic 列表缓存条目
+#[derive(Debug, Clone)]
+pub struct TopicListEntry {
+    pub topics: Vec<String>,
+    pub fetched_at: i64,
+}
+
 /// Consumer Group 缓存条目
 #[derive(Debug, Clone)]
 pub struct ConsumerGroupEntry {
     pub data: Vec<u8>,
+    pub fetched_at: i64,
+}
+
+/// Consumer Group 列表缓存条目
+#[derive(Debug, Clone)]
+pub struct ConsumerGroupListEntry {
+    pub groups: Vec<String>,
     pub fetched_at: i64,
 }
 
@@ -46,8 +64,20 @@ impl MetadataCache {
                 .time_to_idle(Duration::from_secs(3))
                 .max_capacity(1000)
                 .build(),
+            // Topic 列表：3 秒过期
+            topic_list: Cache::builder()
+                .time_to_live(Duration::from_secs(3))
+                .time_to_idle(Duration::from_secs(1))
+                .max_capacity(500)
+                .build(),
             // Consumer Group：3 秒过期
             consumer_group: Cache::builder()
+                .time_to_live(Duration::from_secs(3))
+                .time_to_idle(Duration::from_secs(1))
+                .max_capacity(500)
+                .build(),
+            // Consumer Group 列表：3 秒过期
+            consumer_group_list: Cache::builder()
                 .time_to_live(Duration::from_secs(3))
                 .time_to_idle(Duration::from_secs(1))
                 .max_capacity(500)
@@ -70,6 +100,32 @@ impl MetadataCache {
     pub async fn set_topic_metadata(&self, key: &str, data: Vec<u8>) {
         self.topic_metadata.insert(key.to_string(), TopicMetadataEntry {
             data,
+            fetched_at: chrono::Utc::now().timestamp_millis(),
+        }).await;
+    }
+
+    /// 获取 Topic 列表
+    pub async fn get_topic_list(&self, cluster_id: &str) -> Option<Vec<String>> {
+        self.topic_list.get(cluster_id).await.map(|e| e.topics)
+    }
+
+    /// 设置 Topic 列表
+    pub async fn set_topic_list(&self, cluster_id: &str, topics: Vec<String>) {
+        self.topic_list.insert(cluster_id.to_string(), TopicListEntry {
+            topics,
+            fetched_at: chrono::Utc::now().timestamp_millis(),
+        }).await;
+    }
+
+    /// 获取 Consumer Group 列表
+    pub async fn get_consumer_group_list(&self, cluster_id: &str) -> Option<Vec<String>> {
+        self.consumer_group_list.get(cluster_id).await.map(|e| e.groups)
+    }
+
+    /// 设置 Consumer Group 列表
+    pub async fn set_consumer_group_list(&self, cluster_id: &str, groups: Vec<String>) {
+        self.consumer_group_list.insert(cluster_id.to_string(), ConsumerGroupListEntry {
+            groups,
             fetched_at: chrono::Utc::now().timestamp_millis(),
         }).await;
     }
@@ -105,10 +161,22 @@ impl MetadataCache {
         self.topic_metadata.invalidate(key).await;
     }
 
+    /// 使 Topic 列表缓存失效
+    pub async fn invalidate_topic_list(&self, cluster_id: &str) {
+        self.topic_list.invalidate(cluster_id).await;
+    }
+
+    /// 使 Consumer Group 列表缓存失效
+    pub async fn invalidate_consumer_group_list(&self, cluster_id: &str) {
+        self.consumer_group_list.invalidate(cluster_id).await;
+    }
+
     /// 清除所有缓存
     pub async fn invalidate_all(&self) {
         self.topic_metadata.invalidate_all();
+        self.topic_list.invalidate_all();
         self.consumer_group.invalidate_all();
+        self.consumer_group_list.invalidate_all();
         self.broker_info.invalidate_all();
     }
 

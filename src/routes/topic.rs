@@ -60,13 +60,22 @@ async fn list_topics(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<TopicListResponse>> {
-    // 从 Kafka 集群实时获取 topics
-    let clients = state.clients.read().await;
+    // 先尝试从缓存获取
+    if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
+        return Ok(Json(TopicListResponse { topics: cached_topics }));
+    }
+
+    // 缓存未命中，从 Kafka 集群实时获取 topics
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
     let topics = admin.list_topics()?;
+
+    // 写入缓存
+    state.cache.set_topic_list(&cluster_id, topics.clone()).await;
+
     Ok(Json(TopicListResponse { topics }))
 }
 
@@ -103,7 +112,7 @@ async fn create_topic(
     Path(cluster_id): Path<String>,
     Json(req): Json<CreateTopicRequest>,
 ) -> Result<Json<CreateTopicResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -117,6 +126,9 @@ async fn create_topic(
         )
         .await?;
 
+    // 使缓存失效
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
     Ok(Json(CreateTopicResponse { name: req.name }))
 }
 
@@ -124,7 +136,7 @@ async fn get_topic(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<Json<TopicDetailResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -150,12 +162,16 @@ async fn delete_topic(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<()> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
     admin.delete_topic(&name).await?;
+
+    // 使缓存失效
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
     Ok(())
 }
 
@@ -164,7 +180,7 @@ async fn add_partitions(
     Path((cluster_id, name)): Path<(String, String)>,
     Json(req): Json<AddPartitionsRequest>,
 ) -> Result<()> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -177,7 +193,7 @@ async fn get_config(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<Json<HashMap<String, String>>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -191,7 +207,7 @@ async fn alter_config(
     Path((cluster_id, name)): Path<(String, String)>,
     Json(req): Json<AlterConfigRequest>,
 ) -> Result<()> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -204,7 +220,7 @@ async fn get_topic_offsets(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<Json<Vec<TopicPartitionDetail>>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -289,7 +305,7 @@ async fn batch_create_topics(
     Path(cluster_id): Path<String>,
     Json(req): Json<BatchCreateTopicsRequest>,
 ) -> Result<Json<BatchCreateTopicsResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -337,23 +353,26 @@ async fn batch_delete_topics(
     Path(cluster_id): Path<String>,
     Json(req): Json<BatchDeleteTopicsRequest>,
 ) -> Result<Json<BatchDeleteTopicsResponse>> {
-    let clients = state.clients.read().await;
+    use futures::future::join_all;
+
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let mut deleted = Vec::new();
-    let mut failed = Vec::new();
+    // 如果不需要在错误时继续，则使用串行删除
+    if !req.continue_on_error {
+        let mut deleted = Vec::new();
+        let mut failed = Vec::new();
 
-    for topic_name in req.topics {
-        match admin.delete_topic(&topic_name).await {
-            Ok(_) => deleted.push(topic_name),
-            Err(e) => {
-                failed.push(FailedTopic {
-                    name: topic_name,
-                    error: e.to_string(),
-                });
-                if !req.continue_on_error {
+        for topic_name in req.topics {
+            match admin.delete_topic(&topic_name).await {
+                Ok(_) => deleted.push(topic_name),
+                Err(e) => {
+                    failed.push(FailedTopic {
+                        name: topic_name,
+                        error: e.to_string(),
+                    });
                     return Ok(Json(BatchDeleteTopicsResponse {
                         success: false,
                         deleted,
@@ -362,13 +381,55 @@ async fn batch_delete_topics(
                 }
             }
         }
+
+        // 使缓存失效
+        state.cache.invalidate_topic_list(&cluster_id).await;
+
+        return Ok(Json(BatchDeleteTopicsResponse {
+            success: failed.is_empty(),
+            deleted,
+            failed,
+        }));
     }
+
+    // 并行删除所有 topics
+    let tasks: Vec<_> = req.topics.into_iter().map(|topic_name| {
+        let admin = &admin;
+        async move {
+            match admin.delete_topic(&topic_name).await {
+                Ok(_) => BatchDeleteResult::Deleted(topic_name),
+                Err(e) => BatchDeleteResult::Failed(FailedTopic {
+                    name: topic_name,
+                    error: e.to_string(),
+                }),
+            }
+        }
+    }).collect();
+
+    let results = join_all(tasks).await;
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+
+    for result in results {
+        match result {
+            BatchDeleteResult::Deleted(name) => deleted.push(name),
+            BatchDeleteResult::Failed(failure) => failed.push(failure),
+        }
+    }
+
+    // 使缓存失效
+    state.cache.invalidate_topic_list(&cluster_id).await;
 
     Ok(Json(BatchDeleteTopicsResponse {
         success: failed.is_empty(),
         deleted,
         failed,
     }))
+}
+
+enum BatchDeleteResult {
+    Deleted(String),
+    Failed(FailedTopic),
 }
 
 // ==================== Topic 吞吐量 ====================
@@ -381,7 +442,7 @@ async fn get_topic_throughput(
     State(state): State<AppState>,
     Path((cluster_id, name)): Path<(String, String)>,
 ) -> Result<Json<TopicThroughputResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -410,7 +471,7 @@ async fn refresh_topics(
 ) -> Result<Json<RefreshTopicsResponse>> {
     use crate::db::topic::TopicStore;
 
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;

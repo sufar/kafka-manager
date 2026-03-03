@@ -2,7 +2,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::time::Duration;
@@ -118,12 +118,12 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
     // 初始化数据库表
     pool.init().await?;
 
-    // 创建 Kafka 客户端管理器
-    let clients = Arc::new(RwLock::new(KafkaClients::new(&config.clusters)?));
+    // 创建 Kafka 客户端管理器（使用 ArcSwap 实现无锁读取）
+    let clients = Arc::new(ArcSwap::new(Arc::new(KafkaClients::new(&config.clusters)?)));
 
     // 创建 Kafka 连接池
     let kafka_pools = ClusterPools::new();
-    kafka_pools.init(&config.clusters).await?;
+    kafka_pools.init(&config.clusters, &config.pool).await?;
 
     // 创建元数据缓存
     let cache = MetadataCache::new();

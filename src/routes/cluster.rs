@@ -168,8 +168,7 @@ async fn test_cluster(
 async fn reload_clients(state: &AppState) -> Result<()> {
     use crate::config::KafkaConfig;
     use crate::db::topic::TopicStore;
-
-    let mut clients = state.clients.write().await;
+    use futures::future::join_all;
 
     // 从数据库获取所有集群
     let clusters = ClusterStore::list(state.db.inner()).await?;
@@ -189,17 +188,24 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     // 创建新的 KafkaClients
     let new_clients = KafkaClients::new(&new_clusters)?;
 
-    // 同步每个集群的 Topic 列表
-    for cluster in &clusters {
-        if let Some(admin) = new_clients.get_admin(&cluster.name) {
-            if let Ok(topics) = admin.list_topics() {
-                let _ = TopicStore::sync_topics(state.db.inner(), &cluster.name, &topics).await;
-                tracing::info!("Synced {} topics for cluster '{}'", topics.len(), cluster.name);
+    // 并行同步每个集群的 Topic 列表
+    let sync_tasks: Vec<_> = clusters.iter().map(|cluster| {
+        let new_clients = &new_clients;
+        let db = state.db.inner();
+        async move {
+            if let Some(admin) = new_clients.get_admin(&cluster.name) {
+                if let Ok(topics) = admin.list_topics() {
+                    let _ = TopicStore::sync_topics(db, &cluster.name, &topics).await;
+                    tracing::info!("Synced {} topics for cluster '{}'", topics.len(), cluster.name);
+                }
             }
         }
-    }
+    }).collect();
 
-    *clients = new_clients;
+    join_all(sync_tasks).await;
+
+    // 原子更新 Kafka 客户端
+    state.set_clients(new_clients.into());
 
     tracing::info!("Reloaded Kafka clients");
 

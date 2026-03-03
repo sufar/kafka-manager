@@ -184,11 +184,10 @@ async fn disconnect_cluster(
     // 从连接池断开
     state.pools.disconnect(&cluster_id).await?;
 
-    // 从 Kafka 客户端移除
-    let mut clients = state.clients.write().await;
-    let new_clients = clients.without_cluster(&cluster_id);
-    *clients = new_clients;
-    drop(clients);
+    // 从 Kafka 客户端移除（使用 ArcSwap 无锁更新）
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.without_cluster(&cluster_id);
+    state.set_clients(new_clients);
 
     tracing::info!("Disconnected cluster: {}", cluster_id);
 
@@ -215,13 +214,12 @@ async fn reconnect_cluster(
     };
 
     // 重连连接池
-    state.pools.reconnect(&cluster.name, &config).await?;
+    state.pools.reconnect(&cluster.name, &config, &state.config.pool).await?;
 
-    // 更新 Kafka 客户端
-    let mut clients = state.clients.write().await;
-    let new_clients = clients.with_added_cluster(&cluster.name, &config)?;
-    *clients = new_clients;
-    drop(clients);
+    // 更新 Kafka 客户端（使用 ArcSwap 无锁更新）
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(&cluster.name, &config)?;
+    state.set_clients(new_clients.into());
 
     tracing::info!("Reconnected cluster: {}", cluster_name);
 
@@ -362,11 +360,10 @@ async fn batch_disconnect(
     for cluster_name in &req.cluster_names {
         match state.pools.disconnect(cluster_name).await {
             Ok(_) => {
-                // 从 Kafka 客户端移除
-                let mut clients = state.clients.write().await;
-                let new_clients = clients.without_cluster(cluster_name);
-                *clients = new_clients;
-                drop(clients);
+                // 从 Kafka 客户端移除（使用 ArcSwap 无锁更新）
+                let current_clients = state.get_clients();
+                let new_clients = current_clients.without_cluster(cluster_name);
+                state.set_clients(new_clients.into());
 
                 results.push(BatchResultItem {
                     cluster_name: cluster_name.clone(),
@@ -398,60 +395,65 @@ async fn batch_reconnect(
     State(state): State<AppState>,
     Json(req): Json<BatchClustersRequest>,
 ) -> Result<Json<BatchOperationResponse>> {
-    let mut results = Vec::new();
-    let mut successful = 0;
+    use futures::future::join_all;
 
-    for cluster_name in &req.cluster_names {
-        // 从数据库获取集群配置
-        match ClusterStore::get_by_name(state.db.inner(), cluster_name).await {
-            Ok(Some(cluster)) => {
-                let config = crate::config::KafkaConfig {
-                    brokers: cluster.brokers,
-                    request_timeout_ms: cluster.request_timeout_ms as u32,
-                    operation_timeout_ms: cluster.operation_timeout_ms as u32,
-                };
+    let tasks: Vec<_> = req.cluster_names.iter().map(|cluster_name| {
+        let state = state.clone();
+        let cluster_name = cluster_name.clone();
+        async move {
+            // 从数据库获取集群配置
+            match ClusterStore::get_by_name(state.db.inner(), &cluster_name).await {
+                Ok(Some(cluster)) => {
+                    let config = crate::config::KafkaConfig {
+                        brokers: cluster.brokers,
+                        request_timeout_ms: cluster.request_timeout_ms as u32,
+                        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                    };
 
-                // 重连连接池
-                match state.pools.reconnect(cluster_name, &config).await {
-                    Ok(_) => {
-                        // 更新 Kafka 客户端
-                        let mut clients = state.clients.write().await;
-                        let new_clients = clients.with_added_cluster(cluster_name, &config)?;
-                        *clients = new_clients;
-                        drop(clients);
-
-                        results.push(BatchResultItem {
-                            cluster_name: cluster_name.clone(),
-                            success: true,
-                            message: Some("Reconnected successfully".to_string()),
-                        });
-                        successful += 1;
-                    }
-                    Err(e) => {
-                        results.push(BatchResultItem {
+                    // 重连连接池
+                    match state.pools.reconnect(&cluster_name, &config, &state.config.pool).await {
+                        Ok(_) => {
+                            // 更新 Kafka 客户端（使用 ArcSwap 无锁更新）
+                            let current_clients = state.get_clients();
+                            match current_clients.with_added_cluster(&cluster_name, &config) {
+                                Ok(new_clients) => {
+                                    state.set_clients(new_clients.into());
+                                    BatchResultItem {
+                                        cluster_name: cluster_name.clone(),
+                                        success: true,
+                                        message: Some("Reconnected successfully".to_string()),
+                                    }
+                                }
+                                Err(e) => BatchResultItem {
+                                    cluster_name: cluster_name.clone(),
+                                    success: false,
+                                    message: Some(format!("Failed to update client: {}", e)),
+                                }
+                            }
+                        }
+                        Err(e) => BatchResultItem {
                             cluster_name: cluster_name.clone(),
                             success: false,
                             message: Some(format!("Reconnect failed: {}", e)),
-                        });
+                        }
                     }
                 }
-            }
-            Ok(None) => {
-                results.push(BatchResultItem {
+                Ok(None) => BatchResultItem {
                     cluster_name: cluster_name.clone(),
                     success: false,
                     message: Some("Cluster not found in database".to_string()),
-                });
-            }
-            Err(e) => {
-                results.push(BatchResultItem {
+                },
+                Err(e) => BatchResultItem {
                     cluster_name: cluster_name.clone(),
                     success: false,
                     message: Some(format!("Database error: {}", e)),
-                });
+                },
             }
         }
-    }
+    }).collect();
+
+    let results = join_all(tasks).await;
+    let successful = results.iter().filter(|r| r.success).count();
 
     Ok(Json(BatchOperationResponse {
         total: req.cluster_names.len(),

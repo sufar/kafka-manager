@@ -25,7 +25,7 @@ async fn get_cluster_info(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ClusterInfoResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -53,7 +53,7 @@ async fn get_cluster_metrics(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ClusterMetricsResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -74,7 +74,7 @@ async fn list_brokers(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<BrokerListResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -98,7 +98,7 @@ async fn get_broker(
     State(state): State<AppState>,
     Path((cluster_id, broker_id)): Path<(String, i32)>,
 ) -> Result<Json<BrokerDetailResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -134,7 +134,7 @@ async fn get_broker_logdirs(
     State(state): State<AppState>,
     Path((cluster_id, broker_id)): Path<(String, i32)>,
 ) -> Result<Json<BrokerLogDirsResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -192,7 +192,7 @@ async fn get_broker_metrics(
     State(state): State<AppState>,
     Path((cluster_id, broker_id)): Path<(String, i32)>,
 ) -> Result<Json<BrokerMetricsResponse>, AppError> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;

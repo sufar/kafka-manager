@@ -56,6 +56,12 @@ moka = { version = "0.12", features = ["future"] }
 futures = "0.3"
 tokio-stream = "0.1"
 
+# Lock-free Arc for AppState
+arc-swap = "1.7"
+
+# Rate limiting
+governor = "0.6"
+
 # UUID for task IDs
 uuid = { version = "1", features = ["v4", "serde"] }
 

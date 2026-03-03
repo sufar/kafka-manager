@@ -125,7 +125,7 @@ async fn register_schema(
     State(state): State<AppState>,
     Json(req): Json<RegisterSchemaRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let config = clients.get_config(&req.cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", req.cluster_id)))?;
 

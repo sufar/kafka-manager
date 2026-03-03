@@ -83,7 +83,7 @@ async fn get_messages(
     use std::collections::BinaryHeap;
     use std::cmp::Reverse;
 
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -319,7 +319,7 @@ async fn get_messages_enhanced(
     Path((cluster_id, topic)): Path<(String, String)>,
     Query(params): Query<GetMessageParams>,
 ) -> Result<serde_json::Value> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -478,7 +478,7 @@ async fn send_message(
     Path((cluster_id, topic)): Path<(String, String)>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<SendMessageResponse>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let producer = clients
         .get_producer(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
@@ -545,7 +545,7 @@ async fn export_messages(
 ) -> Result<Response> {
     use chrono::{DateTime, Utc};
 
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;

@@ -11,6 +11,9 @@ pub struct Config {
     /// 多个 Kafka 集群配置
     #[serde(default)]
     pub clusters: HashMap<String, KafkaConfig>,
+    /// 连接池配置
+    #[serde(default)]
+    pub pool: PoolConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,6 +30,50 @@ pub struct KafkaConfig {
     pub request_timeout_ms: u32,
     #[serde(default = "default_operation_timeout")]
     pub operation_timeout_ms: u32,
+}
+
+/// 连接池配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct PoolConfig {
+    /// 最大连接数
+    #[serde(default = "default_pool_max_size")]
+    pub max_size: usize,
+    /// 最小连接数
+    #[serde(default = "default_pool_min_size")]
+    pub min_size: usize,
+    /// 连接获取超时时间（秒）
+    #[serde(default = "default_pool_timeout")]
+    pub acquire_timeout_secs: u64,
+    /// 连接空闲超时时间（秒）
+    #[serde(default = "default_pool_idle_timeout")]
+    pub idle_timeout_secs: u64,
+}
+
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            max_size: default_pool_max_size(),
+            min_size: default_pool_min_size(),
+            acquire_timeout_secs: default_pool_timeout(),
+            idle_timeout_secs: default_pool_idle_timeout(),
+        }
+    }
+}
+
+fn default_pool_max_size() -> usize {
+    20
+}
+
+fn default_pool_min_size() -> usize {
+    2
+}
+
+fn default_pool_timeout() -> u64 {
+    30
+}
+
+fn default_pool_idle_timeout() -> u64 {
+    600
 }
 
 fn default_operation_timeout() -> u32 {
@@ -83,6 +130,7 @@ impl Default for Config {
             },
             kafka: default_kafka,
             clusters,
+            pool: PoolConfig::default(),
         }
     }
 }

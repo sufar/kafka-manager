@@ -8,7 +8,7 @@ pub mod kafka_producer;
 pub use kafka_consumer::KafkaConsumerPool;
 pub use kafka_producer::KafkaProducerPool;
 
-use crate::config::KafkaConfig;
+use crate::config::{KafkaConfig, PoolConfig};
 use crate::error::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,24 +36,15 @@ impl ClusterPools {
     }
 
     /// 初始化所有集群的连接池
-    pub async fn init(&self, clusters: &HashMap<String, KafkaConfig>) -> Result<()> {
-        use deadpool::managed::Pool;
-
+    pub async fn init(&self, clusters: &HashMap<String, KafkaConfig>, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
 
         for (cluster_id, config) in clusters {
             let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
             let producer_mgr = kafka_producer::KafkaProducerManager::new(config)?;
 
-            let consumer_pool = Pool::builder(consumer_mgr)
-                .max_size(10)
-                .build()
-                .map_err(|e| crate::error::AppError::Internal(format!("Failed to create consumer pool: {}", e)))?;
-
-            let producer_pool = Pool::builder(producer_mgr)
-                .max_size(10)
-                .build()
-                .map_err(|e| crate::error::AppError::Internal(format!("Failed to create producer pool: {}", e)))?;
+            let consumer_pool = build_pool(consumer_mgr, pool_config);
+            let producer_pool = build_pool(producer_mgr, pool_config);
 
             pools.insert(cluster_id.clone(), (consumer_pool, producer_pool));
         }
@@ -74,23 +65,14 @@ impl ClusterPools {
     }
 
     /// 添加新的集群连接池
-    pub async fn add_cluster(&self, cluster_id: &str, config: &KafkaConfig) -> Result<()> {
-        use deadpool::managed::Pool;
-
+    pub async fn add_cluster(&self, cluster_id: &str, config: &KafkaConfig, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
 
         let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
         let producer_mgr = kafka_producer::KafkaProducerManager::new(config)?;
 
-        let consumer_pool = Pool::builder(consumer_mgr)
-            .max_size(10)
-            .build()
-            .map_err(|e| crate::error::AppError::Internal(format!("Failed to create consumer pool: {}", e)))?;
-
-        let producer_pool = Pool::builder(producer_mgr)
-            .max_size(10)
-            .build()
-            .map_err(|e| crate::error::AppError::Internal(format!("Failed to create producer pool: {}", e)))?;
+        let consumer_pool = build_pool(consumer_mgr, pool_config);
+        let producer_pool = build_pool(producer_mgr, pool_config);
 
         pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
 
@@ -115,13 +97,9 @@ impl ClusterPools {
         match producer_pool.get().await {
             Ok(producer) => {
                 // 使用 producer 的 client 进行元数据请求
-                // 使用较短的超时时间 (2 秒) 并强制刷新元数据
                 let client = producer.client();
-                // topic: None 表示获取所有 topic 的元数据
-                // timeout: 使用较短的超时时间以便快速失败
                 match client.fetch_metadata(None, Duration::from_secs(2)) {
                     Ok(metadata) => {
-                        // 额外检查：确保获取到了 broker 信息
                         if metadata.brokers().is_empty() {
                             Some(ConnectionStatus::Error("No brokers in metadata".into()))
                         } else {
@@ -149,23 +127,14 @@ impl ClusterPools {
     }
 
     /// 重连集群
-    pub async fn reconnect(&self, cluster_id: &str, config: &KafkaConfig) -> Result<()> {
-        use deadpool::managed::Pool;
-
+    pub async fn reconnect(&self, cluster_id: &str, config: &KafkaConfig, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
 
         let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
         let producer_mgr = kafka_producer::KafkaProducerManager::new(config)?;
 
-        let consumer_pool = Pool::builder(consumer_mgr)
-            .max_size(10)
-            .build()
-            .map_err(|e| crate::error::AppError::Internal(format!("Failed to create consumer pool: {}", e)))?;
-
-        let producer_pool = Pool::builder(producer_mgr)
-            .max_size(10)
-            .build()
-            .map_err(|e| crate::error::AppError::Internal(format!("Failed to create producer pool: {}", e)))?;
+        let consumer_pool = build_pool(consumer_mgr, pool_config);
+        let producer_pool = build_pool(producer_mgr, pool_config);
 
         pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
         tracing::info!("Reconnected cluster: {}", cluster_id);
@@ -175,13 +144,11 @@ impl ClusterPools {
 
     /// 获取所有集群连接状态
     pub async fn get_all_connections_status(&self) -> Vec<(String, ConnectionStatus)> {
-        // 先获取所有集群 ID 列表
         let cluster_ids: Vec<String> = {
             let pools = self.pools.read().await;
             pools.keys().cloned().collect()
         };
 
-        // 然后逐个检查连接状态
         let mut statuses = Vec::new();
         for cluster_id in cluster_ids {
             let status = self.check_connection(&cluster_id).await
@@ -191,6 +158,31 @@ impl ClusterPools {
 
         statuses
     }
+}
+
+/// 构建连接池的辅助函数
+fn build_pool<M>(manager: M, config: &PoolConfig) -> deadpool::managed::Pool<M>
+where
+    M: deadpool::managed::Manager + Send + Sync + 'static,
+    M::Type: Send + Sync,
+    M::Error: Send + Sync + std::fmt::Display,
+{
+    use deadpool::managed::{Hook, Timeouts};
+    use std::time::Duration;
+
+    deadpool::managed::Pool::builder(manager)
+        .max_size(config.max_size)
+        .wait_timeout(Some(Duration::from_secs(config.acquire_timeout_secs)))
+        .timeouts(Timeouts {
+            wait: Some(Duration::from_secs(config.acquire_timeout_secs)),
+            create: Some(Duration::from_secs(30)),
+            recycle: Some(Duration::from_secs(10)),
+        })
+        .post_recycle(Hook::async_fn(|_conn, _metrics| {
+            Box::pin(async move { Ok(()) })
+        }))
+        .build()
+        .expect("Failed to create pool")
 }
 
 impl Default for ClusterPools {

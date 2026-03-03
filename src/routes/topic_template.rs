@@ -100,7 +100,7 @@ async fn create_topic_from_template(
     Query(query): Query<CreateTopicFromTemplateQuery>,
     Json(req): Json<CreateTopicFromTemplateRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    let clients = state.clients.read().await;
+    let clients = state.get_clients();
     let admin = clients
         .get_admin(&query.cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", query.cluster_id)))?;

@@ -14,7 +14,7 @@ pub mod task;
 pub mod cache;
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use arc_swap::ArcSwap;
 
 pub use config::Config;
 pub use db::DbPool;
@@ -28,13 +28,25 @@ pub use middleware::auth::{auth_middleware, AuthMiddleware};
 #[derive(Clone)]
 pub struct AppState {
     pub db: DbPool,
-    pub clients: Arc<RwLock<KafkaClients>>,
+    pub clients: Arc<ArcSwap<KafkaClients>>,
     pub config: Config,
     pub auth: AuthMiddleware,
     pub pools: ClusterPools,
     pub cache: MetadataCache,
     pub task_store: TaskStore,
     pub health_checker: HealthChecker,
+}
+
+impl AppState {
+    /// 获取 Kafka 客户端（无锁读取）
+    pub fn get_clients(&self) -> Arc<KafkaClients> {
+        self.clients.load_full()
+    }
+
+    /// 更新 Kafka 客户端（原子操作）
+    pub fn set_clients(&self, clients: KafkaClients) {
+        self.clients.store(clients.into());
+    }
 }
 
 pub use routes::create_router;

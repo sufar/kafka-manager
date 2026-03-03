@@ -166,7 +166,7 @@ impl HealthChecker {
                                         operation_timeout_ms: cluster.operation_timeout_ms as u32,
                                     };
 
-                                    if let Err(e) = pools.reconnect(&cluster.name, &kafka_config).await {
+                                    if let Err(e) = pools.reconnect(&cluster.name, &kafka_config, &crate::config::PoolConfig::default()).await {
                                         tracing::error!(
                                             "Auto-reconnect failed for cluster {}: {}",
                                             cluster.name,
