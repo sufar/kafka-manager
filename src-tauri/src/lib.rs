@@ -18,10 +18,14 @@ use kafka_manager_api::{
 
 /// 启动后端服务器
 async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化日志
-    tracing_subscriber::registry()
+    // 初始化日志（使用 try_init 避免重复初始化错误）
+    let _ = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
-        .init();
+        .try_init();
+
+    // 记录启动日志
+    tracing::info!("Starting backend server initialization...");
+    eprintln!("[Backend] Starting backend server initialization...");
 
     // 确定配置文件路径
     let config_path = if cfg!(debug_assertions) {
@@ -29,68 +33,72 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
         PathBuf::from("config.toml")
     } else {
         // 生产模式：使用资源目录中的配置文件
-        let exe_dir = std::env::current_exe()?
+        let exe_path = std::env::current_exe()?;
+        let exe_dir = exe_path
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        #[cfg(target_os = "windows")]
-        {
+        tracing::info!("Executable path: {:?}", exe_path);
+        tracing::info!("Executable directory: {:?}", exe_dir);
+        eprintln!("[Backend] Executable directory: {:?}", exe_dir);
+
+        // 尝试多个可能的路径
+        let possible_paths = [
             // Windows: 资源文件在可执行文件目录的 _up_ 子目录中
-            let resource_dir = exe_dir.join("_up_");
-            let config_in_resource = resource_dir.join("config.toml");
+            exe_dir.join("_up_").join("config.toml"),
+            // Windows MSI 安装程序可能将资源放在不同位置
+            exe_dir.join("../_up_/config.toml"),
+            // 与可执行文件同目录
+            exe_dir.join("config.toml"),
+            // 当前工作目录
+            PathBuf::from("config.toml"),
+        ];
 
-            if config_in_resource.exists() {
-                config_in_resource
-            } else {
-                // 回退到可执行文件所在目录
-                let exe_config = exe_dir.join("config.toml");
-                if exe_config.exists() {
-                    exe_config
-                } else {
-                    // 最后尝试当前工作目录
-                    PathBuf::from("config.toml")
-                }
+        let mut found_path = None;
+        for path in &possible_paths {
+            tracing::info!("Checking config path: {:?}", path);
+            eprintln!("[Backend] Checking config path: {:?}", path);
+            if path.exists() {
+                tracing::info!("Found config at: {:?}", path);
+                eprintln!("[Backend] Found config at: {:?}", path);
+                found_path = Some(path.clone());
+                break;
             }
         }
 
-        #[cfg(target_os = "macos")]
-        {
-            // macOS: 资源文件在 Resources/_up_/ 目录
-            let resource_dir = exe_dir.join("../Resources/_up_");
-            let config_in_resource = resource_dir.join("config.toml");
-
-            if config_in_resource.exists() {
-                config_in_resource
-            } else {
-                let exe_config = exe_dir.join("config.toml");
-                if exe_config.exists() {
-                    exe_config
-                } else {
-                    PathBuf::from("config.toml")
-                }
-            }
-        }
-
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        {
-            // Linux/Other: 尝试标准位置
-            let exe_config = exe_dir.join("config.toml");
-            if exe_config.exists() {
-                exe_config
-            } else {
-                PathBuf::from("config.toml")
-            }
-        }
+        found_path.unwrap_or_else(|| {
+            tracing::warn!("No config file found, using default");
+            eprintln!("[Backend] No config file found, using default");
+            PathBuf::from("config.toml")
+        })
     };
 
     tracing::info!("Using config file path: {:?}", config_path);
+    eprintln!("[Backend] Using config file path: {:?}", config_path);
 
-    // 加载配置
-    let config = Config::load(&config_path).map_err(|e| {
-        tracing::error!("Failed to load config: {}", e);
-        e
-    })?;
+    // 加载配置（如果不存在，使用默认配置）
+    let config = if config_path.exists() {
+        match Config::load(&config_path) {
+            Ok(cfg) => {
+                tracing::info!("Config loaded successfully");
+                eprintln!("[Backend] Config loaded successfully");
+                cfg
+            }
+            Err(e) => {
+                tracing::error!("Failed to load config: {}, using default", e);
+                eprintln!("[Backend] Failed to load config: {}, using default", e);
+                Config::default()
+            }
+        }
+    } else {
+        tracing::warn!("Config file not found, using default configuration");
+        eprintln!("[Backend] Config file not found, using default configuration");
+        Config::default()
+    };
+
+    tracing::info!("Server config: {}:{}", config.server.host, config.server.port);
+    eprintln!("[Backend] Server config: {}:{}", config.server.host, config.server.port);
 
     // 创建数据库连接池
     let db_path = if cfg!(debug_assertions) {
@@ -218,19 +226,31 @@ pub fn run() {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = start_backend(ready_tx).await {
+            if let Err(e) = start_backend(ready_tx.clone()).await {
                 tracing::error!("Failed to start backend: {}", e);
-                eprintln!("Failed to start backend: {}", e);
+                eprintln!("[Backend] Failed to start backend: {}", e);
+                // 确保通知前端启动失败
+                let _ = ready_tx.send(false);
             }
         });
     });
 
-    // 等待后端服务器启动信号（延长超时时间到 30 秒）
-    if ready_rx.recv_timeout(Duration::from_secs(30)).is_ok() {
+    // 等待后端服务器启动信号
+    let backend_ready = match ready_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(ready) => ready,
+        Err(_) => {
+            tracing::warn!("Backend server startup timed out after 30 seconds");
+            eprintln!("[Backend] Startup timed out after 30 seconds");
+            false
+        }
+    };
+
+    if backend_ready {
         tracing::info!("Backend server is ready, starting Tauri application...");
+        eprintln!("[Backend] Backend server is ready, starting Tauri application...");
     } else {
-        tracing::warn!("Backend server startup timed out after 30 seconds, starting Tauri application anyway. The backend may still be starting up...");
-        eprintln!("Warning: Backend server startup timed out, starting Tauri application anyway. The backend may still be starting up...");
+        tracing::warn!("Backend server failed to start or timed out, starting Tauri application anyway...");
+        eprintln!("[Backend] Backend server failed to start or timed out, starting Tauri application anyway...");
     }
 
     // 启动 Tauri 应用
