@@ -459,35 +459,27 @@ async function loadClusterTopics(clusterName: string) {
 
   try {
     // 先从数据库获取已保存的 topics
-    const savedResponse = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/topics/_saved`);
-    let data = { topics: [] };
-
-    if (savedResponse.ok) {
-      data = await savedResponse.json();
-    }
+    const topics = await apiClient.getSavedTopics(clusterName);
 
     // 如果数据库中没有 topics，从 Kafka 集群实时获取并保存到数据库
-    if (!data.topics || data.topics.length === 0) {
+    if (!topics || topics.length === 0) {
       console.log('[ClusterTreeNavigator] No saved topics, fetching from Kafka cluster:', clusterName);
       // 调用刷新接口，将集群 topics 同步到数据库
-      const refreshResponse = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/topics/_refresh`, {
-        method: 'POST',
-      });
-      if (refreshResponse.ok) {
-        // 刷新后重新获取完整的 topics 列表
-        const savedResponse2 = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/topics/_saved`);
-        if (savedResponse2.ok) {
-          data = await savedResponse2.json();
-        }
-      }
+      await apiClient.refreshTopics(clusterName);
+      // 刷新后重新获取完整的 topics 列表
+      const refreshedTopics = await apiClient.getSavedTopics(clusterName);
+      clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
+        name,
+        partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
+      }));
+      topicCounts[clusterName] = refreshedTopics?.length || 0;
+    } else {
+      clusterTopics[clusterName] = topics.map((name: string) => ({
+        name,
+        partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
+      }));
+      topicCounts[clusterName] = topics.length;
     }
-
-    // API returns { topics: string[] }
-    clusterTopics[clusterName] = (data.topics || []).map((name: string) => ({
-      name,
-      partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-    }));
-    topicCounts[clusterName] = data.topics?.length || 0;
   } catch (error) {
     console.error('Failed to load topics:', error);
   }

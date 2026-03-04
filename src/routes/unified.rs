@@ -147,6 +147,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.partitions_add" => handle_topic_partitions_add(state, body).await,
         "topic.throughput" => handle_topic_throughput(state, body).await,
         "topic.refresh" => handle_topic_refresh(state, body).await,
+        "topic.saved" => handle_topic_saved(state, body).await,
         "topic.search" => handle_topic_search(state).await,
         "topic.count" => handle_topic_count(state, body).await,
 
@@ -159,6 +160,10 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "consumer_group.throughput" => handle_consumer_group_throughput(state, body).await,
         "consumer_group.batch_delete" => handle_consumer_group_batch_delete(state, body).await,
         "consumer_group.consumer_offsets" => handle_consumer_group_consumer_offsets(state, body).await,
+
+        // Consumer Lag
+        "consumer_lag.get" => handle_consumer_lag_get(state, body).await,
+        "consumer_lag.history" => handle_consumer_lag_history(state, body).await,
 
         // Message
         "message.list" => handle_message_list(state, body).await,
@@ -2672,4 +2677,146 @@ async fn handle_auth_api_key_revoke(state: AppState, body: Value) -> Result<Valu
     let deleted = ApiKeyStore::delete(state.db.inner(), id).await?;
 
     Ok(serde_json::json!({ "success": deleted }))
+}
+
+// ==================== Additional Topic Handlers ====================
+
+async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
+    use crate::db::topic::TopicStore;
+
+    let cluster_id = get_string_param(&body, "cluster")?;
+
+    let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    let topic_names: Vec<String> = topics.into_iter().map(|t| t.topic_name).collect();
+
+    Ok(serde_json::json!({ "topics": topic_names }))
+}
+
+// ==================== Consumer Lag Handlers ====================
+
+async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> {
+    use crate::kafka::offset::KafkaOffsetManager;
+
+    let cluster_id = get_string_param(&body, "cluster")?;
+    let topic = get_string_param(&body, "topic")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    // 获取所有 consumer groups
+    let groups = admin.list_consumer_groups(&config)?;
+
+    let offset_manager = KafkaOffsetManager::new(&config);
+    let mut consumer_group_lags = Vec::new();
+    let mut total_lag = 0i64;
+
+    for group in &groups {
+        // 获取该 group 在指定 topic 上的 offset
+        let offsets = offset_manager.get_consumer_group_offsets(
+            &config,
+            &group.name,
+            Some(&topic),
+        )?;
+
+        if offsets.is_empty() {
+            // 该 group 没有消费过这个 topic
+            continue;
+        }
+
+        let group_lag: i64 = offsets.iter().map(|o| o.lag).sum();
+        total_lag += group_lag;
+
+        let partitions: Vec<Value> = offsets
+            .into_iter()
+            .map(|o| {
+                serde_json::json!({
+                    "partition": o.partition,
+                    "current_offset": o.current_offset,
+                    "log_end_offset": o.log_end_offset,
+                    "lag": o.lag,
+                    "state": if o.current_offset >= 0 { "Active" } else { "Empty" },
+                })
+            })
+            .collect();
+
+        consumer_group_lags.push(serde_json::json!({
+            "group_name": group.name,
+            "total_lag": group_lag,
+            "partitions": partitions,
+        }));
+    }
+
+    // 按 lag 降序排序
+    consumer_group_lags.sort_by(|a: &Value, b: &Value| {
+        let a_lag = a.get("total_lag").and_then(|v| v.as_i64()).unwrap_or(0);
+        let b_lag = b.get("total_lag").and_then(|v| v.as_i64()).unwrap_or(0);
+        b_lag.cmp(&a_lag)
+    });
+
+    Ok(serde_json::json!({
+        "topic": topic,
+        "total_lag": total_lag,
+        "consumer_groups": consumer_group_lags,
+    }))
+}
+
+async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Value> {
+    use crate::kafka::throughput::KafkaThroughputCalculator;
+
+    let cluster_id = get_string_param(&body, "cluster")?;
+    let topic = get_string_param(&body, "topic")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let calculator = KafkaThroughputCalculator::new(&config);
+    let snapshot = calculator.get_topic_consumer_lag_snapshot(&config, &topic, &admin)?;
+
+    // 获取当前时间戳
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let groups: Vec<Value> = snapshot
+        .consumer_groups
+        .into_iter()
+        .map(|g| {
+            let partitions: Vec<Value> = g
+                .partitions
+                .into_iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "partition": p.partition,
+                        "current_offset": p.current_offset,
+                        "latest_offset": p.log_end_offset,
+                        "lag": p.lag,
+                    })
+                })
+                .collect();
+
+            serde_json::json!({
+                "group_id": g.group_name,
+                "total_lag": g.total_lag,
+                "partitions": partitions,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "topic": snapshot.topic,
+        "total_lag": snapshot.total_lag,
+        "groups": groups,
+        "timestamp": now,
+    }))
 }

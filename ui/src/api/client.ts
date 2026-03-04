@@ -238,6 +238,11 @@ class ApiClient {
     return this.request('topic.refresh', { cluster: clusterId });
   }
 
+  async getSavedTopics(clusterId: string): Promise<string[]> {
+    const data = await this.request<{ topics: string[] }>('topic.saved', { cluster: clusterId });
+    return data.topics || [];
+  }
+
   async searchTopics(): Promise<{ cluster: string; topic: string }[]> {
     const data = await this.request<{ results: { cluster: string; topic: string }[] }>('topic.search', {});
     return data.results || [];
@@ -306,6 +311,40 @@ class ApiClient {
     request: BatchDeleteConsumerGroupsRequest
   ): Promise<BatchDeleteConsumerGroupsResponse> {
     return this.request('consumer_group.batch_delete', { cluster: clusterId, ...request });
+  }
+
+  async getConsumerLag(clusterId: string, topic: string): Promise<{
+    topic: string;
+    total_lag: number;
+    consumer_groups: {
+      group_name: string;
+      total_lag: number;
+      partitions: {
+        partition: number;
+        current_offset: number;
+        log_end_offset: number;
+        lag: number;
+        state: string;
+      }[];
+    }[];
+  }> {
+    return this.request('consumer_lag.get', { cluster: clusterId, topic });
+  }
+
+  async getConsumerLagHistory(clusterId: string, topic: string): Promise<{
+    topic: string;
+    start_time: number;
+    end_time: number;
+    data_points: number;
+    timestamps: number[];
+    consumer_groups: {
+      group_name: string;
+      lag_series: number[];
+      consumed_series: number[];
+      produced_series: number[];
+    }[];
+  }> {
+    return this.request('consumer_lag.history', { cluster: clusterId, topic });
   }
 
   // ==================== Cluster Stats ====================
