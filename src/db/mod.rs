@@ -44,13 +44,26 @@ impl DbPool {
             .map_err(|e| sqlx::Error::Protocol(format!("Cannot create database file: {}", e)))?;
 
         // 构建 SQLite 连接 URL
-        // 使用绝对路径，将反斜杠转换为正斜杠（Windows 兼容）
         let path_str = abs_path.to_string_lossy().to_string();
-        // 在 Windows 上，路径可能是 C:\Users\... 格式，需要转换为 URL 格式
-        let normalized_path = path_str.replace('\\', "/");
 
-        // SQLite 连接 URL 格式：sqlite:///path/to/db（Unix）或 sqlite:///C:/path/to/db（Windows）
-        let conn_url = format!("sqlite:///{}", normalized_path);
+        // Windows 和 Unix 使用不同的 URL 格式
+        #[cfg(target_os = "windows")]
+        let conn_url = {
+            // Windows: 使用正斜杠，file:// 协议需要额外处理盘符
+            let normalized_path = path_str.replace('\\', "/");
+            // 如果路径以盘符开头如 C:/，需要添加前导斜杠
+            if normalized_path.len() >= 2 && &normalized_path[1..2] == ":" {
+                // Windows 绝对路径如 C:/Users/... -> file:///C:/Users/...
+                format!("file:/// {}", normalized_path)
+            } else {
+                format!("file:/// {}", normalized_path)
+            }
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let conn_url = format!("sqlite:/// {}", path_str);
+
+        eprintln!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -58,6 +71,8 @@ impl DbPool {
             .acquire_timeout(std::time::Duration::from_secs(30))
             .connect(&conn_url)
             .await?;
+
+        eprintln!("[KAFKA-MANAGER] Database pool created successfully");
 
         Ok(Self {
             pool: Arc::new(pool),
@@ -71,6 +86,8 @@ impl DbPool {
 
     /// 初始化数据库表
     pub async fn init(&self) -> Result<(), sqlx::Error> {
+        eprintln!("[KAFKA-MANAGER] Initializing database tables...");
+
         // 运行迁移
         sqlx::query(
             r#"
@@ -343,6 +360,8 @@ impl DbPool {
 
         // 初始化默认角色
         self.init_default_roles().await?;
+
+        eprintln!("[KAFKA-MANAGER] Database tables initialized successfully");
 
         Ok(())
     }

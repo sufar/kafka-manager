@@ -404,7 +404,6 @@ async fn handle_cluster_test(state: AppState, body: Value) -> Result<Value> {
 
 async fn reload_clients(state: &AppState) -> Result<()> {
     use crate::config::KafkaConfig;
-    use futures::future::join_all;
 
     // Get all clusters from database
     let clusters = ClusterStore::list(state.db.inner()).await?;
@@ -424,33 +423,46 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     // Create new KafkaClients
     let new_clients = crate::kafka::KafkaClients::new(&new_clusters)?;
 
-    // Parallel sync topics for each cluster
-    let sync_tasks: Vec<_> = clusters
-        .iter()
-        .map(|cluster| {
-            let new_clients = &new_clients;
-            let db = state.db.inner();
-            async move {
-                if let Some(admin) = new_clients.get_admin(&cluster.name) {
-                    if let Ok(topics) = admin.list_topics() {
-                        let _ = TopicStore::sync_topics(db, &cluster.name, &topics).await;
+    // Clone clients for background sync (to avoid holding reference)
+    let clients_for_sync = new_clients.clone();
+    let db_pool = state.db.clone();
+    let cluster_names: Vec<String> = clusters.iter().map(|c| c.name.clone()).collect();
+
+    // Spawn background task for topic sync to avoid blocking the response
+    tokio::spawn(async move {
+        for cluster_name in cluster_names {
+            let db = db_pool.inner();
+            if let Some(admin) = clients_for_sync.get_admin(&cluster_name) {
+                // Use spawn_blocking for synchronous list_topics
+                let admin_clone = admin.clone();
+                match tokio::task::spawn_blocking(move || admin_clone.list_topics())
+                    .await
+                {
+                    Ok(Ok(topics)) => {
+                        let _ = TopicStore::sync_topics(db, &cluster_name, &topics).await;
                         tracing::info!(
                             "Synced {} topics for cluster '{}'",
                             topics.len(),
-                            cluster.name
+                            cluster_name
                         );
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("Failed to list topics for cluster '{}': {}", cluster_name, e);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Topic list task panicked for cluster '{}': {}", cluster_name, e);
                     }
                 }
             }
-        })
-        .collect();
+            // Small delay between clusters to avoid overwhelming
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    });
 
-    join_all(sync_tasks).await;
-
-    // Atomically update Kafka clients
+    // Atomically update Kafka clients immediately (don't wait for sync)
     state.set_clients(new_clients.into());
 
-    tracing::info!("Reloaded Kafka clients");
+    tracing::info!("Reloaded Kafka clients (topic sync in background)");
 
     Ok(())
 }
@@ -471,7 +483,11 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let topics = admin.list_topics()?;
+    // Use spawn_blocking to avoid blocking async runtime
+    let admin_clone = admin.clone();
+    let topics = tokio::task::spawn_blocking(move || admin_clone.list_topics())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
     // Write to cache
     state
@@ -775,26 +791,37 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    // Get current topics from Kafka
-    let current_topics = admin.list_topics()?;
+    // Get current topics from Kafka (blocking operation)
+    let current_topics = {
+        let admin = admin.clone();
+        tokio::task::spawn_blocking(move || admin.list_topics())
+            .await
+            .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??
+    };
 
     // Sync to database
     let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
 
-    // Save new topics to database
+    // Save new topics to database (blocking operations in spawn_blocking)
     for topic_name in &sync_result.added {
-        if let Ok(topic_info) = admin.get_topic_info(topic_name) {
-            let config = std::collections::HashMap::new();
-            let _ = TopicStore::upsert(
-                state.db.inner(),
-                &cluster_id,
-                topic_name,
-                topic_info.partitions.len() as i32,
-                1,
-                &config,
-            )
-            .await;
-        }
+        let topic_name = topic_name.clone();
+        let admin = admin.clone();
+        let cluster_id = cluster_id.clone();
+        let db = state.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
+                let config = std::collections::HashMap::new();
+                let _ = TopicStore::upsert(
+                    db.inner(),
+                    &cluster_id,
+                    &topic_name,
+                    topic_info.partitions.len() as i32,
+                    1,
+                    &config,
+                );
+            }
+        }).await.ok();
     }
 
     // Get total count
@@ -2041,36 +2068,41 @@ async fn handle_monitor_stats(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    // Get cluster info
-    let cluster_info = admin.get_cluster_info()?;
+    // Get all info in blocking thread
+    let admin = admin.clone();
+    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) =
+        tokio::task::spawn_blocking(move || {
+            let info = admin.get_cluster_info()?;
+            let topics = admin.list_topics()?;
 
-    // Get all topic partition info
-    let topics = admin.list_topics()?;
-    let mut partition_count = 0;
-    let mut under_replicated = 0;
-    let mut broker_leader_counts: std::collections::HashMap<i32, i32> =
-        std::collections::HashMap::new();
-    let mut broker_replica_counts: std::collections::HashMap<i32, i32> =
-        std::collections::HashMap::new();
+            let mut partition_count = 0;
+            let mut under_replicated = 0;
+            let mut broker_leader_counts: std::collections::HashMap<i32, i32> =
+                std::collections::HashMap::new();
+            let mut broker_replica_counts: std::collections::HashMap<i32, i32> =
+                std::collections::HashMap::new();
 
-    for topic in &topics {
-        let topic_info = admin.get_topic_info(topic)?;
-        for partition in &topic_info.partitions {
-            partition_count += 1;
+            for topic in &topics {
+                let topic_info = admin.get_topic_info(topic)?;
+                for partition in &topic_info.partitions {
+                    partition_count += 1;
 
-            // Check under replicated
-            if partition.isr.len() < partition.replicas.len() {
-                under_replicated += 1;
+                    // Check under replicated
+                    if partition.isr.len() < partition.replicas.len() {
+                        under_replicated += 1;
+                    }
+
+                    // Count leader and replica
+                    let leader = partition.leader;
+                    *broker_leader_counts.entry(leader).or_insert(0) += 1;
+                    for replica in &partition.replicas {
+                        *broker_replica_counts.entry(*replica).or_insert(0) += 1;
+                    }
+                }
             }
 
-            // Count leader and replica
-            let leader = partition.leader;
-            *broker_leader_counts.entry(leader).or_insert(0) += 1;
-            for replica in &partition.replicas {
-                *broker_replica_counts.entry(*replica).or_insert(0) += 1;
-            }
-        }
-    }
+            Result::<_>::Ok((info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
+        }).await.map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
     // Build broker stats
     let broker_stats: Vec<Value> = cluster_info
@@ -2110,7 +2142,9 @@ async fn handle_monitor_info(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let info = admin.get_cluster_info()?;
+    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(serde_json::json!({
         "brokers": info.brokers.iter().map(|b| serde_json::json!({
@@ -2152,7 +2186,9 @@ async fn handle_monitor_brokers(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let info = admin.get_cluster_info()?;
+    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(serde_json::json!({
         "brokers": info.brokers.iter().map(|b| serde_json::json!({
@@ -2172,7 +2208,9 @@ async fn handle_monitor_broker_get(state: AppState, body: Value) -> Result<Value
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let broker = admin.get_broker_info(broker_id)?;
+    let broker = tokio::task::spawn_blocking(move || admin.get_broker_info(broker_id))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(serde_json::json!({
         "id": broker.id,
