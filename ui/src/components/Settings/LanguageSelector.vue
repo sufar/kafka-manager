@@ -5,7 +5,7 @@
       <span class="label-text-alt">{{ t.settings.selectLanguage }}</span>
     </label>
     <select
-      :value="currentLanguage.value"
+      :value="currentLanguage"
       class="select select-bordered"
       @change="handleLanguageChange"
     >
@@ -19,7 +19,6 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useLanguageStore } from '@/stores/language';
-import type { Language } from '@/i18n/translations';
 
 const languageStore = useLanguageStore();
 const { t, setLanguage } = languageStore;

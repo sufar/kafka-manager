@@ -3,6 +3,7 @@ import type {
   CreateClusterRequest,
   UpdateClusterRequest,
   TestConnectionResponse,
+  TopicListResponse,
   CreateTopicRequest,
   CreateTopicResponse,
   TopicDetailResponse,
