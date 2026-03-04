@@ -1256,14 +1256,17 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
     let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
 
-    let config = state.get_clients()
+    let _config = state.get_clients()
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 使用直接的 consumer 获取消息
-    let messages = fetch_messages_direct(&config, &topic, partition, offset, max_msgs)
+    // 使用连接池中的 consumer 获取消息
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let messages = fetch_messages_from_pool(&consumer_pool, &topic, partition, offset, max_msgs)
         .await?;
 
     let records: Vec<Value> = messages
@@ -1282,53 +1285,41 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "messages": records }))
 }
 
-/// 直接使用 Kafka Consumer 获取消息
-async fn fetch_messages_direct(
-    kafka_config: &crate::config::KafkaConfig,
+/// 使用连接池中的 consumer 获取消息
+async fn fetch_messages_from_pool(
+    pool: &crate::pool::KafkaConsumerPool,
     topic: &str,
     partition: Option<i32>,
     offset: Option<i64>,
     max_messages: usize,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    use rdkafka::consumer::{Consumer, StreamConsumer};
-    use rdkafka::config::ClientConfig;
+    use rdkafka::consumer::Consumer;
     use rdkafka::Message;
     use rdkafka::TopicPartitionList;
     use std::time::Duration;
 
-    // 创建 consumer 配置
-    let mut temp_config = ClientConfig::new();
-    temp_config.set("bootstrap.servers", &kafka_config.brokers);
-    temp_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-    temp_config.set("enable.auto.commit", "false");
-    temp_config.set("auto.offset.reset", "earliest");
-    temp_config.set("fetch.wait.max.ms", "200");
-    temp_config.set("fetch.min.bytes", "1");
-    temp_config.set("session.timeout.ms", "6000");
-    temp_config.set("request.timeout.ms", "5000");
-    temp_config.set("socket.timeout.ms", "5000");
+    // 从连接池获取一个 consumer
+    let consumer = pool.get().await
+        .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
 
-    let temp_consumer: StreamConsumer = temp_config.create()
-        .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
-
-    // 使用 assign 而不是 subscribe，避免分区重平衡延迟
+    // 使用 assign 直接分配分区，避免重平衡延迟
     let target_partition = partition.unwrap_or(0);
     let start_offset = offset.unwrap_or(0);
 
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_offset))
-        .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+        .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
-    temp_consumer.assign(&tpl)
+    consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
     let mut messages = Vec::new();
-    let base_timeout = Duration::from_millis(300);
+    let base_timeout = Duration::from_millis(200);
     let mut consecutive_timeouts = 0;
-    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2;
 
     while messages.len() < max_messages {
-        match tokio::time::timeout(base_timeout, temp_consumer.recv()).await {
+        match tokio::time::timeout(base_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 consecutive_timeouts = 0;
 
@@ -1348,6 +1339,10 @@ async fn fetch_messages_direct(
             }
         }
     }
+
+    // 重置 consumer 的分配，避免影响后续请求
+    let empty_tpl = TopicPartitionList::new();
+    let _ = consumer.assign(&empty_tpl);
 
     Ok(messages)
 }

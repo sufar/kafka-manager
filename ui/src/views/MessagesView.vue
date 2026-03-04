@@ -36,32 +36,32 @@
         </svg>
       </button>
 
-      <div class="flex-1" />
+      <div class="flex-1 min-w-0" />
 
       <!-- Topic Selector -->
-      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-sm" @change="fetchMessages">
+      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-sm max-w-xs" @change="fetchMessages">
         <option value="">{{ t.messages.selectTopic }}</option>
         <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
       </select>
 
       <!-- Partition Filter -->
       <select v-model.number="filters.partition" class="select select-bordered select-sm w-auto" @change="fetchMessages">
-        <option :value="undefined">{{ t.messages.allPartitions }}</option>
+        <option :value="undefined">All</option>
         <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-sm" :placeholder="t.messages.filter" @keyup.enter="fetchMessages" />
+      <input v-model="filters.search" type="text" class="input input-bordered input-sm w-32" :placeholder="t.messages.filter" @keyup.enter="fetchMessages" />
 
       <!-- Fetch Mode -->
-      <select v-model="filters.fetchMode" class="select select-bordered select-sm w-auto">
+      <select v-model="filters.fetchMode" class="select select-bordered select-sm w-24">
         <option value="oldest">{{ t.messages.oldest }}</option>
         <option value="newest">{{ t.messages.newest }}</option>
       </select>
 
       <!-- Time Range Filter -->
-      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm" :placeholder="t.messages.startTime" />
-      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm" :placeholder="t.messages.endTime" />
+      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" />
+      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" />
 
       <button class="btn btn-primary btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading">
         {{ t.messages.fetch }}
