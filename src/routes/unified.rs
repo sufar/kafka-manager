@@ -2744,7 +2744,7 @@ async fn handle_auth_api_key_revoke(state: AppState, body: Value) -> Result<Valu
 async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
     use crate::db::topic::TopicStore;
 
-    let cluster_id = get_string_param(&body, "cluster")?;
+    let cluster_id = get_string_param(&body, "cluster_id")?;
 
     let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
     let topic_names: Vec<String> = topics.into_iter().map(|t| t.topic_name).collect();
@@ -2757,7 +2757,7 @@ async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
 async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> {
     use crate::kafka::offset::KafkaOffsetManager;
 
-    let cluster_id = get_string_param(&body, "cluster")?;
+    let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
 
     let clients = state.get_clients();
@@ -2828,7 +2828,7 @@ async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> 
 async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Value> {
     use crate::kafka::throughput::KafkaThroughputCalculator;
 
-    let cluster_id = get_string_param(&body, "cluster")?;
+    let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
 
     let clients = state.get_clients();

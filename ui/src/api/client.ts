@@ -297,7 +297,7 @@ class ApiClient {
     clusterId: string,
     groupName: string
   ): Promise<ConsumerGroupDetailResponse> {
-    return this.request('consumer_group.get', { cluster_id: clusterId, group: groupName });
+    return this.request('consumer_group.get', { cluster_id: clusterId, name: groupName });
   }
 
   async getConsumerGroupOffsets(
@@ -305,7 +305,7 @@ class ApiClient {
     groupName: string,
     topic?: string
   ): Promise<ConsumerGroupOffsetDetailResponse> {
-    return this.request('consumer_group.offsets', { cluster_id: clusterId, group: groupName, topic });
+    return this.request('consumer_group.offsets', { cluster_id: clusterId, group_name: groupName, topic });
   }
 
   async resetConsumerGroupOffset(
@@ -315,13 +315,13 @@ class ApiClient {
   ): Promise<void> {
     return this.request('consumer_group.offsets.reset', {
       cluster_id: clusterId,
-      group: groupName,
+      group_name: groupName,
       ...request
     });
   }
 
   async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
-    return this.request('consumer_group.delete', { cluster_id: clusterId, group: groupName });
+    return this.request('consumer_group.delete', { cluster_id: clusterId, name: groupName });
   }
 
   async batchDeleteConsumerGroups(
