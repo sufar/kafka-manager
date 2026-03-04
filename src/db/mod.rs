@@ -49,19 +49,13 @@ impl DbPool {
         // Windows 和 Unix 使用不同的 URL 格式
         #[cfg(target_os = "windows")]
         let conn_url = {
-            // Windows: 使用正斜杠，file:// 协议需要额外处理盘符
+            // Windows: 路径使用正斜杠，sqlite:///C:/path/to/db 格式
             let normalized_path = path_str.replace('\\', "/");
-            // 如果路径以盘符开头如 C:/，需要添加前导斜杠
-            if normalized_path.len() >= 2 && &normalized_path[1..2] == ":" {
-                // Windows 绝对路径如 C:/Users/... -> file:///C:/Users/...
-                format!("file:/// {}", normalized_path)
-            } else {
-                format!("file:/// {}", normalized_path)
-            }
+            format!("sqlite:///{}", normalized_path)
         };
 
         #[cfg(not(target_os = "windows"))]
-        let conn_url = format!("sqlite:/// {}", path_str);
+        let conn_url = format!("sqlite:///{}", path_str);
 
         eprintln!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
 
