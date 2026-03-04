@@ -69,16 +69,30 @@ class ApiClient {
       return true;
     }
 
-    try {
-      const response = await this.request('health', {});
-      if (response) {
-        this.backendReady = true;
-        return true;
+    // 在 Tauri 环境下，增加重试次数和超时时间
+    const maxRetries = isTauri() ? 60 : 1; // Tauri 下最多尝试 60 次（30 秒）
+    const retryDelay = 500; // 每次等待 500ms
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await this.request('health', {});
+        if (response) {
+          this.backendReady = true;
+          console.log('[ApiClient] Backend is ready after', i + 1, 'attempts');
+          return true;
+        }
+      } catch (e) {
+        const error = e as { message?: string };
+        console.warn(`[ApiClient] Backend health check attempt ${i + 1}/${maxRetries} failed:`, error.message || e);
+
+        // 如果不是最后一次，等待后重试
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
       }
-    } catch (e) {
-      console.warn('[ApiClient] Backend health check failed:', e);
     }
 
+    console.error('[ApiClient] Backend health check failed after all retries');
     this.backendReady = false;
     return false;
   }
@@ -107,8 +121,8 @@ class ApiClient {
       headers['X-API-Key'] = this.apiKey;
     }
 
-    // 在 Tauri 环境下，添加重试逻辑
-    const maxRetries = isTauri() ? 5 : 1;
+    // 在 Tauri 环境下，添加更多重试
+    const maxRetries = isTauri() ? 10 : 1; // Tauri 下最多重试 10 次
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -141,8 +155,12 @@ class ApiClient {
       } catch (e) {
         const error = e as { message?: string; type?: string };
         if (isTauri() && attempt < maxRetries - 1) {
-          if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError') || error.type === 'TypeError') {
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          if (error.message?.includes('Failed to fetch') ||
+              error.message?.includes('NetworkError') ||
+              error.message?.includes('fetch') ||
+              error.type === 'TypeError') {
+            console.log(`[ApiClient] Retrying request (${attempt + 1}/${maxRetries})...`);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待 1 秒
             lastError = e as Error;
             continue;
           }
