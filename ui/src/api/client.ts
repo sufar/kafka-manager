@@ -571,43 +571,43 @@ class ApiClient {
 
   // ==================== 集群连接管理 ====================
   async getAllConnectionStatus(): Promise<{ connections: { cluster_id: string; status: string; error_message?: string }[] }> {
-    return this.request('cluster_connection.list', {});
+    return this.request('connection.list', {});
   }
 
   async getConnectionStatus(clusterId: string): Promise<{ cluster_id: string; status: string; error_message?: string }> {
-    return this.request('cluster_connection.get', { cluster: clusterId });
+    return this.request('connection.get', { cluster: clusterId });
   }
 
   async disconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request('cluster_connection.disconnect', { cluster: clusterId });
+    return this.request('connection.disconnect', { cluster: clusterId });
   }
 
   async reconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request('cluster_connection.reconnect', { cluster: clusterId });
+    return this.request('connection.reconnect', { cluster: clusterId });
   }
 
   async healthCheckCluster(clusterId: string): Promise<{ cluster_id: string; healthy: boolean; status: string; error_message?: string }> {
-    return this.request('cluster_connection.health_check', { cluster: clusterId });
+    return this.request('connection.health_check', { cluster: clusterId });
   }
 
   async getConnectionMetrics(clusterId: string): Promise<{ cluster_id: string; consumer_pool_size: number; producer_pool_size: number; consumer_pool_available: number; producer_pool_available: number }> {
-    return this.request('cluster_connection.metrics', { cluster: clusterId });
+    return this.request('connection.metrics', { cluster: clusterId });
   }
 
   async getConnectionHistory(clusterId: string, limit?: number): Promise<{ cluster_id: string; history: { status: string; error_message?: string; latency_ms?: number; checked_at: string }[] }> {
-    return this.request('cluster_connection.history', { cluster: clusterId, limit });
+    return this.request('connection.history', { cluster: clusterId, limit });
   }
 
   async getConnectionStats(clusterId: string): Promise<{ cluster_id: string; total_checks: number; successful_checks: number; failed_checks: number; success_rate: number; avg_latency_ms?: number; last_status: string; last_checked_at?: string }> {
-    return this.request('cluster_connection.stats', { cluster: clusterId });
+    return this.request('connection.stats', { cluster: clusterId });
   }
 
   async batchDisconnect(clusterNames: string[]): Promise<{ total: number; successful: number; failed: number; results: { cluster_name: string; success: boolean; message?: string }[] }> {
-    return this.request('cluster_connection.batch_disconnect', { cluster_names: clusterNames });
+    return this.request('connection.batch_disconnect', { cluster_names: clusterNames });
   }
 
   async batchReconnect(clusterNames: string[]): Promise<{ total: number; successful: number; failed: number; results: { cluster_name: string; success: boolean; message?: string }[] }> {
-    return this.request('cluster_connection.batch_reconnect', { cluster_names: clusterNames });
+    return this.request('connection.batch_reconnect', { cluster_names: clusterNames });
   }
 
   // ==================== 全局设置 ====================
