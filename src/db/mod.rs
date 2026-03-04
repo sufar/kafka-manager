@@ -43,9 +43,14 @@ impl DbPool {
             .open(&abs_path)
             .map_err(|e| sqlx::Error::Protocol(format!("Cannot create database file: {}", e)))?;
 
-        // 使用 file:// 前缀和绝对路径
-        let url = abs_path.to_string_lossy().to_string();
-        let conn_url = format!("file://{}", url);
+        // 构建 SQLite 连接 URL
+        // 使用绝对路径，将反斜杠转换为正斜杠（Windows 兼容）
+        let path_str = abs_path.to_string_lossy().to_string();
+        // 在 Windows 上，路径可能是 C:\Users\... 格式，需要转换为 URL 格式
+        let normalized_path = path_str.replace('\\', "/");
+
+        // SQLite 连接 URL 格式：sqlite:///path/to/db（Unix）或 sqlite:///C:/path/to/db（Windows）
+        let conn_url = format!("sqlite:///{}", normalized_path);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)

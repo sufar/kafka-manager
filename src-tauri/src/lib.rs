@@ -29,25 +29,56 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) -> Result<(), Box<dyn std::
         PathBuf::from("config.toml")
     } else {
         // 生产模式：使用资源目录中的配置文件
-        // 在 macOS 上，Tauri 将资源文件放在 Resources/_up_/ 目录
         let exe_dir = std::env::current_exe()?
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        // 尝试多个可能的路径
-        let resource_dir = exe_dir.join("../Resources/_up_");
-        let config_in_resource = resource_dir.join("config.toml");
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: 资源文件在可执行文件目录的 _up_ 子目录中
+            let resource_dir = exe_dir.join("_up_");
+            let config_in_resource = resource_dir.join("config.toml");
 
-        if config_in_resource.exists() {
-            config_in_resource
-        } else {
-            // 回退到可执行文件所在目录
+            if config_in_resource.exists() {
+                config_in_resource
+            } else {
+                // 回退到可执行文件所在目录
+                let exe_config = exe_dir.join("config.toml");
+                if exe_config.exists() {
+                    exe_config
+                } else {
+                    // 最后尝试当前工作目录
+                    PathBuf::from("config.toml")
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // macOS: 资源文件在 Resources/_up_/ 目录
+            let resource_dir = exe_dir.join("../Resources/_up_");
+            let config_in_resource = resource_dir.join("config.toml");
+
+            if config_in_resource.exists() {
+                config_in_resource
+            } else {
+                let exe_config = exe_dir.join("config.toml");
+                if exe_config.exists() {
+                    exe_config
+                } else {
+                    PathBuf::from("config.toml")
+                }
+            }
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            // Linux/Other: 尝试标准位置
             let exe_config = exe_dir.join("config.toml");
             if exe_config.exists() {
                 exe_config
             } else {
-                // 最后尝试当前工作目录
                 PathBuf::from("config.toml")
             }
         }
