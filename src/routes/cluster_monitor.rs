@@ -30,7 +30,9 @@ async fn get_cluster_info(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let info = admin.get_cluster_info()?;
+    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(ClusterInfoResponse {
         brokers: info.brokers
@@ -58,7 +60,9 @@ async fn get_cluster_metrics(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let metrics = admin.get_cluster_metrics()?;
+    let metrics = tokio::task::spawn_blocking(move || admin.get_cluster_metrics())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(ClusterMetricsResponse {
         broker_count: metrics.broker_count,
@@ -79,7 +83,9 @@ async fn list_brokers(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let info = admin.get_cluster_info()?;
+    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(BrokerListResponse {
         brokers: info.brokers
@@ -103,7 +109,9 @@ async fn get_broker(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let broker = admin.get_broker_info(broker_id)?;
+    let broker = tokio::task::spawn_blocking(move || admin.get_broker_info(broker_id))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(BrokerDetailResponse {
         id: broker.id,
@@ -139,37 +147,45 @@ async fn get_broker_logdirs(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    // 获取 broker 信息
-    let _broker = admin.get_broker_info(broker_id)?;
+    // 在阻塞线程中执行所有 Kafka 操作
+    let admin = admin.clone();
+    let log_dirs = tokio::task::spawn_blocking(move || -> Result<Vec<LogDirInfo>, AppError> {
+        // 获取 broker 信息
+        let _broker = admin.get_broker_info(broker_id)?;
 
-    // 获取所有 topic 的日志目录信息
-    let topics = admin.list_topics()?;
-    let mut log_dir_map: std::collections::HashMap<String, (i64, i32, i32)> = std::collections::HashMap::new();
+        // 获取所有 topic 的日志目录信息
+        let topics = admin.list_topics()?;
+        let mut log_dir_map: std::collections::HashMap<String, (i64, i32, i32)> = std::collections::HashMap::new();
 
-    for topic in &topics {
-        let topic_info = admin.get_topic_info(topic)?;
-        for partition in &topic_info.partitions {
-            // 只统计指定 broker 的分区
-            if partition.leader == broker_id || partition.replicas.contains(&broker_id) {
-                // 由于 rdkafka 限制，无法获取实际的日志目录信息
-                // 这里返回模拟数据
-                let entry = log_dir_map.entry("/var/kafka-logs".to_string())
-                    .or_insert((0, 0, 0));
-                entry.1 += 1; // topic count
-                entry.2 += 1; // partition count
+        for topic in &topics {
+            let topic_info = admin.get_topic_info(topic)?;
+            for partition in &topic_info.partitions {
+                // 只统计指定 broker 的分区
+                if partition.leader == broker_id || partition.replicas.contains(&broker_id) {
+                    // 由于 rdkafka 限制，无法获取实际的日志目录信息
+                    // 这里返回模拟数据
+                    let entry = log_dir_map.entry("/var/kafka-logs".to_string())
+                        .or_insert((0, 0, 0));
+                    entry.1 += 1; // topic count
+                    entry.2 += 1; // partition count
+                }
             }
         }
-    }
 
-    let log_dirs: Vec<LogDirInfo> = log_dir_map
-        .into_iter()
-        .map(|(path, (size, topics, partitions))| LogDirInfo {
-            path,
-            size_bytes: Some(size),
-            topic_count: topics,
-            partition_count: partitions,
-        })
-        .collect();
+        let log_dirs: Vec<LogDirInfo> = log_dir_map
+            .into_iter()
+            .map(|(path, (size, topics, partitions))| LogDirInfo {
+                path,
+                size_bytes: Some(size),
+                topic_count: topics,
+                partition_count: partitions,
+            })
+            .collect();
+
+        Ok(log_dirs)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(BrokerLogDirsResponse {
         broker_id,
@@ -197,24 +213,32 @@ async fn get_broker_metrics(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let broker = admin.get_broker_info(broker_id)?;
+    // 在阻塞线程中执行所有 Kafka 操作
+    let admin = admin.clone();
+    let (broker, under_replicated_count, offline_partitions) = tokio::task::spawn_blocking(move || -> Result<(crate::kafka::admin::BrokerDetail, i32, i32), AppError> {
+        let broker = admin.get_broker_info(broker_id)?;
 
-    // 统计未完全复制的分区
-    let topics = admin.list_topics()?;
-    let mut under_replicated_count = 0;
-    let mut offline_partitions = 0;
+        // 统计未完全复制的分区
+        let topics = admin.list_topics()?;
+        let mut under_replicated_count = 0;
+        let mut offline_partitions = 0;
 
-    for topic in &topics {
-        let topic_info = admin.get_topic_info(topic)?;
-        for partition in &topic_info.partitions {
-            if partition.isr.len() < partition.replicas.len() {
-                under_replicated_count += 1;
-            }
-            if partition.isr.is_empty() {
-                offline_partitions += 1;
+        for topic in &topics {
+            let topic_info = admin.get_topic_info(topic)?;
+            for partition in &topic_info.partitions {
+                if partition.isr.len() < partition.replicas.len() {
+                    under_replicated_count += 1;
+                }
+                if partition.isr.is_empty() {
+                    offline_partitions += 1;
+                }
             }
         }
-    }
+
+        Ok((broker, under_replicated_count, offline_partitions))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(BrokerMetricsResponse {
         broker_id,

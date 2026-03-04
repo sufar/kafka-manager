@@ -43,34 +43,43 @@ async fn get_cluster_stats(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    // 获取集群信息
-    let cluster_info = admin.get_cluster_info()?;
+    // 在阻塞线程中执行所有 Kafka 操作
+    let admin = admin.clone();
+    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) =
+        tokio::task::spawn_blocking(move || -> Result<(crate::kafka::admin::ClusterInfo, Vec<String>, i32, i32, std::collections::HashMap<i32, i32>, std::collections::HashMap<i32, i32>)> {
+            // 获取集群信息
+            let cluster_info = admin.get_cluster_info()?;
 
-    // 获取所有 topic 的分区信息
-    let topics = admin.list_topics()?;
-    let mut partition_count = 0;
-    let mut under_replicated = 0;
-    let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-    let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+            // 获取所有 topic 的分区信息
+            let topics = admin.list_topics()?;
+            let mut partition_count = 0;
+            let mut under_replicated = 0;
+            let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+            let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
 
-    for topic in &topics {
-        let topic_info = admin.get_topic_info(topic)?;
-        for partition in &topic_info.partitions {
-            partition_count += 1;
+            for topic in &topics {
+                let topic_info = admin.get_topic_info(topic)?;
+                for partition in &topic_info.partitions {
+                    partition_count += 1;
 
-            // 检查是否未完全复制
-            if partition.isr.len() < partition.replicas.len() {
-                under_replicated += 1;
+                    // 检查是否未完全复制
+                    if partition.isr.len() < partition.replicas.len() {
+                        under_replicated += 1;
+                    }
+
+                    // 统计 leader 和 replica
+                    let leader = partition.leader;
+                    *broker_leader_counts.entry(leader).or_insert(0) += 1;
+                    for replica in &partition.replicas {
+                        *broker_replica_counts.entry(*replica).or_insert(0) += 1;
+                    }
+                }
             }
 
-            // 统计 leader 和 replica
-            let leader = partition.leader;
-            *broker_leader_counts.entry(leader).or_insert(0) += 1;
-            for replica in &partition.replicas {
-                *broker_replica_counts.entry(*replica).or_insert(0) += 1;
-            }
-        }
-    }
+            Ok((cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     // 构建 broker 统计
     let broker_stats: Vec<BrokerStats> = cluster_info

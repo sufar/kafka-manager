@@ -58,34 +58,34 @@ pub struct BrokerInfoEntry {
 impl MetadataCache {
     pub fn new() -> Self {
         Self {
-            // Topic 元数据：5 秒过期
+            // Topic 元数据：30 秒过期（原 5 秒）
             topic_metadata: Cache::builder()
-                .time_to_live(Duration::from_secs(5))
-                .time_to_idle(Duration::from_secs(3))
-                .max_capacity(1000)
+                .time_to_live(Duration::from_secs(30))
+                .time_to_idle(Duration::from_secs(10))
+                .max_capacity(10000)
                 .build(),
-            // Topic 列表：3 秒过期
+            // Topic 列表：30 秒过期（原 3 秒）
             topic_list: Cache::builder()
-                .time_to_live(Duration::from_secs(3))
-                .time_to_idle(Duration::from_secs(1))
+                .time_to_live(Duration::from_secs(30))
+                .time_to_idle(Duration::from_secs(10))
                 .max_capacity(500)
                 .build(),
-            // Consumer Group：3 秒过期
+            // Consumer Group：30 秒过期（原 3 秒）
             consumer_group: Cache::builder()
-                .time_to_live(Duration::from_secs(3))
-                .time_to_idle(Duration::from_secs(1))
+                .time_to_live(Duration::from_secs(30))
+                .time_to_idle(Duration::from_secs(10))
                 .max_capacity(500)
                 .build(),
-            // Consumer Group 列表：3 秒过期
+            // Consumer Group 列表：30 秒过期（原 3 秒）
             consumer_group_list: Cache::builder()
-                .time_to_live(Duration::from_secs(3))
-                .time_to_idle(Duration::from_secs(1))
+                .time_to_live(Duration::from_secs(30))
+                .time_to_idle(Duration::from_secs(10))
                 .max_capacity(500)
                 .build(),
-            // Broker 信息：10 秒过期
+            // Broker 信息：60 秒过期（原 10 秒）
             broker_info: Cache::builder()
-                .time_to_live(Duration::from_secs(10))
-                .time_to_idle(Duration::from_secs(5))
+                .time_to_live(Duration::from_secs(60))
+                .time_to_idle(Duration::from_secs(30))
                 .max_capacity(100)
                 .build(),
         }

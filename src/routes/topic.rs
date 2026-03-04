@@ -192,7 +192,9 @@ async fn get_topic(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let topic_info = admin.get_topic_info(&name)?;
+    let topic_info = tokio::task::spawn_blocking(move || admin.get_topic_info(&name))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     Ok(Json(TopicDetailResponse {
         name: topic_info.name,
@@ -527,26 +529,18 @@ async fn refresh_topics(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    // 从 Kafka 集群获取当前 Topic 列表
-    let current_topics = admin.list_topics()?;
+    // 在阻塞线程中执行 Kafka 操作
+    let admin = admin.clone();
+    let current_topics = tokio::task::spawn_blocking(move || -> std::result::Result<Vec<String>, AppError> {
+        // 从 Kafka 集群获取当前 Topic 列表
+        let current_topics = admin.list_topics()?;
+        Ok(current_topics)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
     // 同步到数据库（删除已不存在的 topics）
     let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
-
-    // 保存新增的 topics 到数据库
-    for topic_name in &sync_result.added {
-        if let Ok(topic_info) = admin.get_topic_info(topic_name) {
-            let config = std::collections::HashMap::new();
-            let _ = TopicStore::upsert(
-                state.db.inner(),
-                &cluster_id,
-                topic_name,
-                topic_info.partitions.len() as i32,
-                1,
-                &config,
-            ).await;
-        }
-    }
 
     // 获取更新后的总数
     let all_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
