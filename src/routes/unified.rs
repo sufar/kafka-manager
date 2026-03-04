@@ -937,21 +937,19 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
 }
 
 async fn handle_topic_search(state: AppState) -> Result<Value> {
-    // Get all clusters
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    // 一次性查询所有 topic
+    let topics = TopicStore::list_all(state.db.inner()).await?;
 
-    // Search all clusters' topics
-    let mut results = Vec::new();
-
-    for cluster in &clusters {
-        let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster.name).await?;
-        for topic in topics {
-            results.push(serde_json::json!({
-                "cluster": cluster.name.clone(),
+    // 转换为响应格式
+    let results: Vec<Value> = topics
+        .into_iter()
+        .map(|topic| {
+            serde_json::json!({
+                "cluster": topic.cluster_id,
                 "topic": topic.topic_name,
-            }));
-        }
-    }
+            })
+        })
+        .collect();
 
     Ok(serde_json::json!({ "results": results }))
 }

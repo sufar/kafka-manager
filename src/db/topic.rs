@@ -125,7 +125,34 @@ impl TopicStore {
         Ok(result.rows_affected() > 0)
     }
 
-    /// 同步集群 Topic 列表（添加新 Topic，删除已不存在的 Topic）
+    /// 获取所有 Topic 元数据（用于搜索）
+    pub async fn list_all(
+        pool: &sqlx::SqlitePool,
+    ) -> Result<Vec<TopicMetadata>> {
+        let topics = sqlx::query_as(
+            "SELECT * FROM topic_metadata ORDER BY cluster_id, topic_name",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(topics)
+    }
+
+    /// 搜索 Topic（按名称模糊匹配）
+    pub async fn search(
+        pool: &sqlx::SqlitePool,
+        keyword: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let pattern = format!("%{}%", keyword);
+        let results: Vec<(String, String)> = sqlx::query_as(
+            "SELECT cluster_id, topic_name FROM topic_metadata WHERE topic_name LIKE ? ORDER BY cluster_id, topic_name LIMIT 100",
+        )
+        .bind(&pattern)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(results)
+    }
     /// 返回新增和删除的 topic 名称列表
     pub async fn sync_topics(
         pool: &sqlx::SqlitePool,
