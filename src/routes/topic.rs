@@ -7,12 +7,59 @@ use crate::models::{
 use crate::AppState;
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use futures::future::join_all;
+
+/// 统一 API 响应结构
+#[derive(Debug, Serialize)]
+struct ApiResponse<T> {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl<T> ApiResponse<T> {
+    fn success(data: T) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    fn error(message: String) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: Some(message),
+        }
+    }
+}
+
+/// 将 Result 转换为统一响应
+fn into_response<T: Serialize>(result: Result<T>) -> impl IntoResponse {
+    match result {
+        Ok(data) => (StatusCode::OK, Json(ApiResponse::success(data))),
+        Err(e) => {
+            let (status, message) = match &e {
+                AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+                AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+                AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            };
+            (status, Json(ApiResponse::<Value>::error(message)))
+        }
+    }
+}
 
 pub fn cluster_routes() -> Router<AppState> {
     // 在 Axum 中，路由匹配优先级基于路径段的字面量匹配
@@ -59,24 +106,28 @@ pub struct AlterConfigRequest {
 async fn list_topics(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
-) -> Result<Json<TopicListResponse>> {
-    // 先尝试从缓存获取
-    if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
-        return Ok(Json(TopicListResponse { topics: cached_topics }));
-    }
+) -> impl IntoResponse {
+    let result = async {
+        // 先尝试从缓存获取
+        if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
+            return Ok(TopicListResponse { topics: cached_topics });
+        }
 
-    // 缓存未命中，从 Kafka 集群实时获取 topics
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        // 缓存未命中，从 Kafka 集群实时获取 topics
+        let clients = state.get_clients();
+        let admin = clients
+            .get_admin(&cluster_id)
+            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let topics = admin.list_topics()?;
+        let topics = admin.list_topics()?;
 
-    // 写入缓存
-    state.cache.set_topic_list(&cluster_id, topics.clone()).await;
+        // 写入缓存
+        state.cache.set_topic_list(&cluster_id, topics.clone()).await;
 
-    Ok(Json(TopicListResponse { topics }))
+        Ok(TopicListResponse { topics })
+    }.await;
+
+    into_response(result)
 }
 
 /// 从数据库获取已保存的 topics

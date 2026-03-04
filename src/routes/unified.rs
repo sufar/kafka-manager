@@ -308,7 +308,7 @@ async fn handle_cluster_list(state: AppState) -> Result<Value> {
         })
         .collect();
 
-    Ok(serde_json::json!({ "clusters": cluster_infos }))
+    Ok(serde_json::json!(cluster_infos))
 }
 
 async fn handle_cluster_get(state: AppState, body: Value) -> Result<Value> {

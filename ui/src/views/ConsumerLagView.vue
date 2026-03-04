@@ -85,8 +85,8 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="group in consumerGroups" :key="group.group_id">
-                  <td class="font-medium">{{ group.group_id }}</td>
+                <tr v-for="group in consumerGroups" :key="group.group_name">
+                  <td class="font-medium">{{ group.group_name }}</td>
                   <td class="text-right">
                     <span class="badge" :class="{
                       'badge-error text-error': group.total_lag > 10000,
@@ -132,6 +132,7 @@
 import { ref, onMounted, nextTick, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
 import Chart from 'chart.js/auto';
 
 const router = useRouter();
@@ -147,9 +148,9 @@ const totalLag = ref(0);
 const partitionCount = ref(0);
 const maxLagGroup = ref('');
 const consumerGroups = ref<Array<{
-  group_id: string;
+  group_name: string;
   total_lag: number;
-  partitions: Array<{ partition: number; lag: number; current_offset: number; end_offset: number }>;
+  partitions: Array<{ partition: number; lag: number; current_offset: number; log_end_offset: number; state: string }>;
 }>>([]);
 
 const chartData = ref<Array<{ timestamp: number; groups: Array<{ group_id: string; total_lag: number }> }>>([]);
@@ -162,28 +163,29 @@ async function loadConsumerLag() {
   loading.value = true;
   try {
     // 获取当前 consumer lag
-    const lagResponse = await fetch(`/api/clusters/${encodeURIComponent(clusterName.value)}/consumer-groups/topics/${encodeURIComponent(topicName.value)}/consumer-lag`);
-    if (lagResponse.ok) {
-      const data = await lagResponse.json();
-      totalLag.value = data.total_lag || 0;
-      consumerGroups.value = data.consumer_groups || [];
-      partitionCount.value = consumerGroups.value[0]?.partitions?.length || 0;
+    const lagData = await apiClient.getConsumerLag(clusterName.value, topicName.value);
+    totalLag.value = lagData.total_lag || 0;
+    consumerGroups.value = lagData.consumer_groups || [];
+    partitionCount.value = consumerGroups.value[0]?.partitions?.length || 0;
 
-      // 找到 lag 最大的 group
-      if (consumerGroups.value.length > 0) {
-        const maxGroup = consumerGroups.value.reduce((max, g) => g.total_lag > (max?.total_lag ?? 0) ? g : max, consumerGroups.value[0]);
-        maxLagGroup.value = maxGroup ? maxGroup.group_id : '';
-      }
+    // 找到 lag 最大的 group
+    if (consumerGroups.value.length > 0) {
+      const maxGroup = consumerGroups.value.reduce((max, g) => g.total_lag > (max?.total_lag ?? 0) ? g : max, consumerGroups.value[0]);
+      maxLagGroup.value = maxGroup ? maxGroup.group_name : '';
     }
 
     // 获取历史数据
-    const historyResponse = await fetch(`/api/clusters/${encodeURIComponent(clusterName.value)}/consumer-groups/topics/${encodeURIComponent(topicName.value)}/consumer-lag-history`);
-    if (historyResponse.ok) {
-      const historyData = await historyResponse.json();
-      chartData.value = historyData.data || [];
-      await nextTick();
-      renderChart();
-    }
+    const historyData = await apiClient.getConsumerLagHistory(clusterName.value, topicName.value);
+    // 转换历史数据格式
+    chartData.value = historyData.timestamps.map((timestamp, idx) => ({
+      timestamp,
+      groups: historyData.consumer_groups.map(g => ({
+        group_id: g.group_name,
+        total_lag: g.lag_series[idx] || 0
+      }))
+    }));
+    await nextTick();
+    renderChart();
   } catch (error) {
     console.error('Failed to load consumer lag:', error);
   } finally {

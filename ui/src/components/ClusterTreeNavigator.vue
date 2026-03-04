@@ -491,15 +491,12 @@ async function loadClusterConsumerGroups(clusterName: string) {
 
   try {
     // Consumer Groups 始终从 Kafka 集群实时获取
-    const response = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/consumer-groups`);
-    if (response.ok) {
-      const data = await response.json();
-      clusterConsumerGroups[clusterName] = data.groups.map((g: { name: string; state: string }) => ({
-        groupId: g.name,
-        state: g.state
-      }));
-      consumerGroupCounts[clusterName] = data.groups.length;
-    }
+    const groups = await apiClient.getConsumerGroups(clusterName);
+    clusterConsumerGroups[clusterName] = groups.map((g: { name: string; state: string }) => ({
+      groupId: g.name,
+      state: g.state
+    }));
+    consumerGroupCounts[clusterName] = groups.length;
   } catch (error) {
     console.error('Failed to load consumer groups:', error);
   }
@@ -511,25 +508,17 @@ async function refreshClusterConsumerGroups(clusterName: string) {
   refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value.add(clusterName));
   try {
     // 调用后端 API 刷新 consumer groups
-    const response = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/consumer-groups`, {
-      method: 'GET',
-    });
+    const groups = await apiClient.getConsumerGroups(clusterName);
+    clusterConsumerGroups[clusterName] = groups.map((g: { name: string; state: string }) => ({
+      groupId: g.name,
+      state: g.state
+    }));
+    consumerGroupCounts[clusterName] = groups.length;
 
-    if (response.ok) {
-      const data = await response.json();
-      clusterConsumerGroups[clusterName] = data.groups.map((g: { name: string; state: string }) => ({
-        groupId: g.name,
-        state: g.state
-      }));
-      consumerGroupCounts[clusterName] = data.groups.length;
-
-      // 自动展开 Consumer Groups 文件夹（重新赋值触发响应式更新）
-      expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
-    }
-    // 注意：刷新 consumer groups 失败不更新健康状态，因为可能是临时网络问题
+    // 自动展开 Consumer Groups 文件夹（重新赋值触发响应式更新）
+    expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
   } catch (error) {
     console.error('Failed to refresh consumer groups:', error);
-    // 刷新失败时也不更新健康状态，保持原有状态
   } finally {
     refreshingConsumerGroups.value.delete(clusterName);
     refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value);
@@ -542,32 +531,20 @@ async function refreshClusterTopics(clusterName: string) {
   refreshingClusters.value = new Set(refreshingClusters.value.add(clusterName));
   try {
     // 调用后端 API 刷新 topics（从 Kafka 集群同步到数据库）
-    const response = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/topics/_refresh`, {
-      method: 'POST',
-    });
+    const refreshResult = await apiClient.refreshTopics(clusterName);
 
-    if (response.ok) {
-      const data = await response.json();
+    // 刷新后重新获取完整的 topics 列表
+    const savedTopics = await apiClient.getSavedTopics(clusterName);
+    clusterTopics[clusterName] = (savedTopics || []).map((name: string) => ({
+      name,
+      partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
+    }));
+    topicCounts[clusterName] = savedTopics?.length || refreshResult.total || 0;
 
-      // 刷新后重新获取完整的 topics 列表
-      const savedResponse = await fetch(`/api/clusters/${encodeURIComponent(clusterName)}/topics/_saved`);
-      if (savedResponse.ok) {
-        const savedData = await savedResponse.json();
-        // API returns { topics: string[] }
-        clusterTopics[clusterName] = (savedData.topics || []).map((name: string) => ({
-          name,
-          partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-        }));
-        topicCounts[clusterName] = savedData.topics?.length || data.total || 0;
-      }
-
-      // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
-      expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
-    }
-    // 注意：刷新 topics 失败不更新健康状态，因为可能是临时网络问题
+    // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
+    expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
   } catch (error) {
     console.error('Failed to refresh topics:', error);
-    // 刷新失败时也不更新健康状态，保持原有状态
   } finally {
     refreshingClusters.value.delete(clusterName);
     refreshingClusters.value = new Set(refreshingClusters.value);
