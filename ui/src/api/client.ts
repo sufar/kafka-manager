@@ -575,31 +575,31 @@ class ApiClient {
   }
 
   async getConnectionStatus(clusterId: string): Promise<{ cluster_id: string; status: string; error_message?: string }> {
-    return this.request('connection.get', { cluster: clusterId });
+    return this.request('connection.get', { cluster_id: clusterId });
   }
 
   async disconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request('connection.disconnect', { cluster: clusterId });
+    return this.request('connection.disconnect', { cluster_id: clusterId });
   }
 
   async reconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request('connection.reconnect', { cluster: clusterId });
+    return this.request('connection.reconnect', { cluster_name: clusterId });
   }
 
   async healthCheckCluster(clusterId: string): Promise<{ cluster_id: string; healthy: boolean; status: string; error_message?: string }> {
-    return this.request('connection.health_check', { cluster: clusterId });
+    return this.request('connection.health_check', { cluster_id: clusterId });
   }
 
   async getConnectionMetrics(clusterId: string): Promise<{ cluster_id: string; consumer_pool_size: number; producer_pool_size: number; consumer_pool_available: number; producer_pool_available: number }> {
-    return this.request('connection.metrics', { cluster: clusterId });
+    return this.request('connection.metrics', { cluster_id: clusterId });
   }
 
   async getConnectionHistory(clusterId: string, limit?: number): Promise<{ cluster_id: string; history: { status: string; error_message?: string; latency_ms?: number; checked_at: string }[] }> {
-    return this.request('connection.history', { cluster: clusterId, limit });
+    return this.request('connection.history', { cluster_id: clusterId, limit });
   }
 
   async getConnectionStats(clusterId: string): Promise<{ cluster_id: string; total_checks: number; successful_checks: number; failed_checks: number; success_rate: number; avg_latency_ms?: number; last_status: string; last_checked_at?: string }> {
-    return this.request('connection.stats', { cluster: clusterId });
+    return this.request('connection.stats', { cluster_id: clusterId });
   }
 
   async batchDisconnect(clusterNames: string[]): Promise<{ total: number; successful: number; failed: number; results: { cluster_name: string; success: boolean; message?: string }[] }> {
