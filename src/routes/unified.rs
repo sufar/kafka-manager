@@ -1,0 +1,2675 @@
+/// 统一 API 路由处理器
+/// 所有 API 请求都通过 POST /api 发送，method 放在 header 中，参数放在 body 中
+
+use crate::db::api_key::ApiKeyStore;
+use crate::db::audit_log::AuditLogStore;
+use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
+use crate::db::cluster_connection::ClusterConnectionStore;
+use crate::db::notification::{CreateNotificationConfigRequest, NotificationStore};
+use crate::db::settings::SettingStore;
+use crate::db::tag::{BatchTagsRequest, TagRequest, TagStore};
+use crate::db::topic::TopicStore;
+use crate::db::topic_template::{
+    CreateTopicTemplateRequest, TopicTemplateStore,
+    UpdateTopicTemplateRequest,
+};
+use crate::db::user::{RoleStore, UserStore};
+use crate::error::{AppError, Result};
+use crate::kafka::offset::KafkaOffsetManager;
+use crate::kafka::schema::SchemaRegistryClient;
+use crate::kafka::throughput::KafkaThroughputCalculator;
+use crate::AppState;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::post,
+    Json, Router,
+};
+use serde_json::Value;
+use std::collections::HashMap;
+
+// 创建统一路由
+pub fn routes() -> Router<AppState> {
+    Router::new().route("/", post(handle_unified_request))
+}
+
+// Helper functions for parameter extraction
+fn get_string_param(body: &Value, key: &str) -> Result<String> {
+    body.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+}
+
+fn get_i64_param(body: &Value, key: &str) -> Result<i64> {
+    body.get(key)
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+}
+
+fn get_i32_param(body: &Value, key: &str) -> Result<i32> {
+    body.get(key)
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32)
+        .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+}
+
+fn get_optional_string_param(body: &Value, key: &str) -> Option<String> {
+    body.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+
+fn get_optional_i64_param(body: &Value, key: &str) -> Option<i64> {
+    body.get(key).and_then(|v| v.as_i64())
+}
+
+fn get_optional_i32_param(body: &Value, key: &str) -> Option<i32> {
+    body.get(key).and_then(|v| v.as_i64()).map(|v| v as i32)
+}
+
+fn get_bool_param(body: &Value, key: &str) -> Result<bool> {
+    body.get(key)
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+}
+
+fn get_optional_bool_param(body: &Value, key: &str) -> Option<bool> {
+    body.get(key).and_then(|v| v.as_bool())
+}
+
+fn get_hashmap_param(body: &Value, key: &str) -> HashMap<String, String> {
+    body.get(key)
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn get_string_array_param(body: &Value, key: &str) -> Vec<String> {
+    body.get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+// Main request handler
+async fn handle_unified_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Response> {
+    // Get method from header
+    let method = headers
+        .get("X-API-Method")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| AppError::BadRequest("Missing X-API-Method header".to_string()))?;
+
+    // Dispatch request
+    let result = dispatch_request(method, state, body).await;
+
+    match result {
+        Ok(value) => Ok((StatusCode::OK, Json(value)).into_response()),
+        Err(e) => Err(e),
+    }
+}
+
+// Dispatch function
+async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<Value> {
+    match method {
+        // Health
+        "health" => handle_health().await,
+
+        // Cluster
+        "cluster.list" => handle_cluster_list(state).await,
+        "cluster.get" => handle_cluster_get(state, body).await,
+        "cluster.create" => handle_cluster_create(state, body).await,
+        "cluster.update" => handle_cluster_update(state, body).await,
+        "cluster.delete" => handle_cluster_delete(state, body).await,
+        "cluster.test" => handle_cluster_test(state, body).await,
+
+        // Topic
+        "topic.list" => handle_topic_list(state, body).await,
+        "topic.get" => handle_topic_get(state, body).await,
+        "topic.create" => handle_topic_create(state, body).await,
+        "topic.delete" => handle_topic_delete(state, body).await,
+        "topic.batch_create" => handle_topic_batch_create(state, body).await,
+        "topic.batch_delete" => handle_topic_batch_delete(state, body).await,
+        "topic.offsets" => handle_topic_offsets(state, body).await,
+        "topic.config_get" => handle_topic_config_get(state, body).await,
+        "topic.config_alter" => handle_topic_config_alter(state, body).await,
+        "topic.partitions_add" => handle_topic_partitions_add(state, body).await,
+        "topic.throughput" => handle_topic_throughput(state, body).await,
+        "topic.refresh" => handle_topic_refresh(state, body).await,
+        "topic.search" => handle_topic_search(state).await,
+        "topic.count" => handle_topic_count(state, body).await,
+
+        // Consumer Group
+        "consumer_group.list" => handle_consumer_group_list(state, body).await,
+        "consumer_group.get" => handle_consumer_group_get(state, body).await,
+        "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
+        "consumer_group.offsets" => handle_consumer_group_offsets(state, body).await,
+        "consumer_group.offsets_reset" => handle_consumer_group_offsets_reset(state, body).await,
+        "consumer_group.throughput" => handle_consumer_group_throughput(state, body).await,
+        "consumer_group.batch_delete" => handle_consumer_group_batch_delete(state, body).await,
+        "consumer_group.consumer_offsets" => handle_consumer_group_consumer_offsets(state, body).await,
+
+        // Message
+        "message.list" => handle_message_list(state, body).await,
+        "message.send" => handle_message_send(state, body).await,
+        "message.export" => handle_message_export(state, body).await,
+
+        // Cluster Connection
+        "connection.list" => handle_connection_list(state).await,
+        "connection.get" => handle_connection_get(state, body).await,
+        "connection.disconnect" => handle_connection_disconnect(state, body).await,
+        "connection.reconnect" => handle_connection_reconnect(state, body).await,
+        "connection.health_check" => handle_connection_health_check(state, body).await,
+        "connection.metrics" => handle_connection_metrics(state, body).await,
+        "connection.history" => handle_connection_history(state, body).await,
+        "connection.stats" => handle_connection_stats(state, body).await,
+        "connection.batch_disconnect" => handle_connection_batch_disconnect(state, body).await,
+        "connection.batch_reconnect" => handle_connection_batch_reconnect(state, body).await,
+
+        // User
+        "user.list" => handle_user_list(state).await,
+        "user.get" => handle_user_get(state, body).await,
+        "user.create" => handle_user_create(state, body).await,
+        "user.update" => handle_user_update(state, body).await,
+        "user.password_update" => handle_user_password_update(state, body).await,
+
+        // Role
+        "role.list" => handle_role_list(state).await,
+        "role.get" => handle_role_get(state, body).await,
+        "role.create" => handle_role_create(state, body).await,
+        "role.update" => handle_role_update(state, body).await,
+
+        // Notification
+        "notification.list" => handle_notification_list(state).await,
+        "notification.get" => handle_notification_get(state, body).await,
+        "notification.create" => handle_notification_create(state, body).await,
+        "notification.delete" => handle_notification_delete(state, body).await,
+        "notification.enable" => handle_notification_enable(state, body).await,
+        "notification.disable" => handle_notification_disable(state, body).await,
+
+        // Alert History
+        "alert_history.list" => handle_alert_history_list(state, body).await,
+
+        // Schema Registry
+        "schema.subjects" => handle_schema_subjects(body).await,
+        "schema.versions" => handle_schema_versions(body).await,
+        "schema.get" => handle_schema_get(body).await,
+        "schema.register" => handle_schema_register(state, body).await,
+        "schema.delete" => handle_schema_delete(body).await,
+        "schema.version_delete" => handle_schema_version_delete(body).await,
+        "schema.compatibility_level" => handle_schema_compatibility_level(body).await,
+
+        // Settings
+        "settings.get" => handle_settings_get(state, body).await,
+        "settings.update" => handle_settings_update(state, body).await,
+
+        // Cluster Stats/Monitor
+        "monitor.stats" => handle_monitor_stats(state, body).await,
+        "monitor.info" => handle_monitor_info(state, body).await,
+        "monitor.metrics" => handle_monitor_metrics(state, body).await,
+        "monitor.brokers" => handle_monitor_brokers(state, body).await,
+        "monitor.broker_get" => handle_monitor_broker_get(state, body).await,
+
+        // Topic Template
+        "template.list" => handle_template_list(state).await,
+        "template.get" => handle_template_get(state, body).await,
+        "template.create" => handle_template_create(state, body).await,
+        "template.update" => handle_template_update(state, body).await,
+        "template.delete" => handle_template_delete(state, body).await,
+        "template.presets" => handle_template_presets().await,
+        "template.create_topic" => handle_template_create_topic(state, body).await,
+
+        // Tag
+        "tag.list" => handle_tag_list(state, body).await,
+        "tag.create" => handle_tag_create(state, body).await,
+        "tag.delete" => handle_tag_delete(state, body).await,
+        "tag.topics" => handle_tag_topics(state, body).await,
+        "tag.keys" => handle_tag_keys(state, body).await,
+        "tag.values" => handle_tag_values(state, body).await,
+        "tag.filter" => handle_tag_filter(state, body).await,
+        "tag.batch_update" => handle_tag_batch_update(state, body).await,
+
+        // Audit Log
+        "audit_log.list" => handle_audit_log_list(state, body).await,
+
+        // Auth
+        "auth.api_keys" => handle_auth_api_keys(state).await,
+        "auth.api_key_create" => handle_auth_api_key_create(state, body).await,
+        "auth.api_key_revoke" => handle_auth_api_key_revoke(state, body).await,
+
+        _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
+    }
+}
+
+// ==================== Health ====================
+
+async fn handle_health() -> Result<Value> {
+    Ok(serde_json::json!({
+        "status": "healthy",
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+// ==================== Cluster ====================
+
+async fn handle_cluster_list(state: AppState) -> Result<Value> {
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+
+    let cluster_infos: Vec<Value> = clusters
+        .into_iter()
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id,
+                "name": c.name,
+                "brokers": c.brokers,
+                "request_timeout_ms": c.request_timeout_ms,
+                "operation_timeout_ms": c.operation_timeout_ms,
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "clusters": cluster_infos }))
+}
+
+async fn handle_cluster_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let cluster = ClusterStore::get(state.db.inner(), id).await?;
+
+    Ok(serde_json::json!({
+        "id": cluster.id,
+        "name": cluster.name,
+        "brokers": cluster.brokers,
+        "request_timeout_ms": cluster.request_timeout_ms,
+        "operation_timeout_ms": cluster.operation_timeout_ms,
+        "created_at": cluster.created_at,
+        "updated_at": cluster.updated_at,
+    }))
+}
+
+async fn handle_cluster_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let brokers = get_string_param(&body, "brokers")?;
+    let request_timeout_ms = get_optional_i64_param(&body, "request_timeout_ms").unwrap_or(5000);
+    let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms").unwrap_or(5000);
+
+    // Check if name exists
+    if let Some(_existing) = ClusterStore::get_by_name(state.db.inner(), &name).await? {
+        return Err(AppError::BadRequest(format!(
+            "Cluster name '{}' already exists",
+            name
+        )));
+    }
+
+    let req = CreateClusterRequest {
+        name: name.clone(),
+        brokers,
+        request_timeout_ms,
+        operation_timeout_ms,
+    };
+
+    let cluster = ClusterStore::create(state.db.inner(), &req).await?;
+
+    // Reload Kafka clients
+    reload_clients(&state).await?;
+
+    Ok(serde_json::json!({
+        "id": cluster.id,
+        "name": cluster.name,
+        "brokers": cluster.brokers,
+        "request_timeout_ms": cluster.request_timeout_ms,
+        "operation_timeout_ms": cluster.operation_timeout_ms,
+        "created_at": cluster.created_at,
+        "updated_at": cluster.updated_at,
+    }))
+}
+
+async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let name = get_optional_string_param(&body, "name");
+    let brokers = get_optional_string_param(&body, "brokers");
+    let request_timeout_ms = get_optional_i64_param(&body, "request_timeout_ms");
+    let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms");
+
+    let old_cluster = ClusterStore::get(state.db.inner(), id).await?;
+
+    // If name changed, check new name exists
+    if let Some(ref new_name) = name {
+        if new_name != &old_cluster.name {
+            if let Some(_existing) = ClusterStore::get_by_name(state.db.inner(), new_name).await? {
+                return Err(AppError::BadRequest(format!(
+                    "Cluster name '{}' already exists",
+                    new_name
+                )));
+            }
+        }
+    }
+
+    let req = UpdateClusterRequest {
+        name,
+        brokers,
+        request_timeout_ms,
+        operation_timeout_ms,
+    };
+
+    let cluster = ClusterStore::update(state.db.inner(), id, &req).await?;
+
+    // Reload Kafka clients
+    reload_clients(&state).await?;
+
+    Ok(serde_json::json!({
+        "id": cluster.id,
+        "name": cluster.name,
+        "brokers": cluster.brokers,
+        "request_timeout_ms": cluster.request_timeout_ms,
+        "operation_timeout_ms": cluster.operation_timeout_ms,
+        "created_at": cluster.created_at,
+        "updated_at": cluster.updated_at,
+    }))
+}
+
+async fn handle_cluster_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    ClusterStore::delete(state.db.inner(), id).await?;
+
+    // Reload Kafka clients
+    reload_clients(&state).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_cluster_test(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let success = ClusterStore::test_connection(state.db.inner(), id).await?;
+
+    Ok(serde_json::json!({ "success": success }))
+}
+
+async fn reload_clients(state: &AppState) -> Result<()> {
+    use crate::config::KafkaConfig;
+    use futures::future::join_all;
+
+    // Get all clusters from database
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+
+    let mut new_clusters = std::collections::HashMap::new();
+    for cluster in &clusters {
+        new_clusters.insert(
+            cluster.name.clone(),
+            KafkaConfig {
+                brokers: cluster.brokers.clone(),
+                request_timeout_ms: cluster.request_timeout_ms as u32,
+                operation_timeout_ms: cluster.operation_timeout_ms as u32,
+            },
+        );
+    }
+
+    // Create new KafkaClients
+    let new_clients = crate::kafka::KafkaClients::new(&new_clusters)?;
+
+    // Parallel sync topics for each cluster
+    let sync_tasks: Vec<_> = clusters
+        .iter()
+        .map(|cluster| {
+            let new_clients = &new_clients;
+            let db = state.db.inner();
+            async move {
+                if let Some(admin) = new_clients.get_admin(&cluster.name) {
+                    if let Ok(topics) = admin.list_topics() {
+                        let _ = TopicStore::sync_topics(db, &cluster.name, &topics).await;
+                        tracing::info!(
+                            "Synced {} topics for cluster '{}'",
+                            topics.len(),
+                            cluster.name
+                        );
+                    }
+                }
+            }
+        })
+        .collect();
+
+    join_all(sync_tasks).await;
+
+    // Atomically update Kafka clients
+    state.set_clients(new_clients.into());
+
+    tracing::info!("Reloaded Kafka clients");
+
+    Ok(())
+}
+
+// ==================== Topic ====================
+
+async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    // Try cache first
+    if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
+        return Ok(serde_json::json!({ "topics": cached_topics }));
+    }
+
+    // Cache miss, get from Kafka
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let topics = admin.list_topics()?;
+
+    // Write to cache
+    state
+        .cache
+        .set_topic_list(&cluster_id, topics.clone())
+        .await;
+
+    Ok(serde_json::json!({ "topics": topics }))
+}
+
+async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let topic_info = admin.get_topic_info(&name)?;
+
+    Ok(serde_json::json!({
+        "name": topic_info.name,
+        "partitions": topic_info
+            .partitions
+            .into_iter()
+            .map(|p| serde_json::json!({
+                "id": p.id,
+                "leader": p.leader,
+                "replicas": p.replicas,
+                "isr": p.isr,
+            }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+async fn handle_topic_create(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+    let num_partitions = get_optional_i32_param(&body, "num_partitions").unwrap_or(1);
+    let replication_factor = get_optional_i32_param(&body, "replication_factor").unwrap_or(1);
+    let config = get_hashmap_param(&body, "config");
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    admin
+        .create_topic(&name, num_partitions, replication_factor, config)
+        .await?;
+
+    // Invalidate cache
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
+    Ok(serde_json::json!({ "name": name }))
+}
+
+async fn handle_topic_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    admin.delete_topic(&name).await?;
+
+    // Invalidate cache
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_topic_batch_create(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topics = body
+        .get("topics")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AppError::BadRequest("Missing topics array".to_string()))?;
+    let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+
+    for topic_req in topics {
+        let name = topic_req
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let num_partitions = topic_req
+            .get("num_partitions")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .unwrap_or(1);
+        let replication_factor = topic_req
+            .get("replication_factor")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .unwrap_or(1);
+        let config = topic_req
+            .get("config")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        match admin
+            .create_topic(&name, num_partitions, replication_factor, config)
+            .await
+        {
+            Ok(_) => created.push(name),
+            Err(e) => {
+                failed.push(serde_json::json!({
+                    "name": name,
+                    "error": e.to_string()
+                }));
+                if !continue_on_error {
+                    return Ok(serde_json::json!({
+                        "success": false,
+                        "created": created,
+                        "failed": failed
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "success": failed.is_empty(),
+        "created": created,
+        "failed": failed
+    }))
+}
+
+async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topics = get_string_array_param(&body, "topics");
+    let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+
+    for topic_name in topics {
+        match admin.delete_topic(&topic_name).await {
+            Ok(_) => deleted.push(topic_name),
+            Err(e) => {
+                failed.push(serde_json::json!({
+                    "name": topic_name,
+                    "error": e.to_string()
+                }));
+                if !continue_on_error {
+                    return Ok(serde_json::json!({
+                        "success": false,
+                        "deleted": deleted,
+                        "failed": failed
+                    }));
+                }
+            }
+        }
+    }
+
+    // Invalidate cache
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
+    Ok(serde_json::json!({
+        "success": failed.is_empty(),
+        "deleted": deleted,
+        "failed": failed
+    }))
+}
+
+async fn handle_topic_offsets(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let offset_manager = KafkaOffsetManager::new(&config);
+    let partition_offsets = offset_manager.get_topic_partition_offsets(&config, &name)?;
+
+    let details: Vec<Value> = partition_offsets
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "topic": p.topic,
+                "partition": p.partition,
+                "leader": p.leader,
+                "replicas": p.replicas,
+                "isr": p.isr,
+                "earliest_offset": p.earliest_offset,
+                "latest_offset": p.latest_offset,
+                "first_commit_time": p.first_commit_time,
+                "last_commit_time": p.last_commit_time,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "offsets": details }))
+}
+
+async fn handle_topic_config_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let config = admin.get_topic_config(&name).await?;
+
+    Ok(serde_json::json!(config))
+}
+
+async fn handle_topic_config_alter(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+    let config = get_hashmap_param(&body, "config");
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    admin.alter_topic_config(&name, config).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_topic_partitions_add(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+    let new_partitions = get_i32_param(&body, "new_partitions")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    admin.create_partitions(&name, new_partitions).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let calculator = KafkaThroughputCalculator::new(&config);
+    let throughput = calculator.calculate_topic_throughput(&config, &name)?;
+
+    Ok(serde_json::json!({
+        "topic": throughput.topic,
+        "produce_throughput": {
+            "messages_per_second": throughput.produce_throughput.messages_per_second,
+            "bytes_per_second": throughput.produce_throughput.bytes_per_second,
+            "window_seconds": throughput.produce_throughput.window_seconds,
+        },
+        "total_messages": throughput.total_messages,
+        "partitions": throughput.partitions.iter().map(|p| serde_json::json!({
+            "partition": p.partition,
+            "earliest_offset": p.earliest_offset,
+            "latest_offset": p.latest_offset,
+            "message_count": p.message_count,
+            "produce_rate": p.produce_rate,
+            "first_message_time": p.first_message_time,
+            "last_message_time": p.last_message_time,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    // Get current topics from Kafka
+    let current_topics = admin.list_topics()?;
+
+    // Sync to database
+    let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
+
+    // Save new topics to database
+    for topic_name in &sync_result.added {
+        if let Ok(topic_info) = admin.get_topic_info(topic_name) {
+            let config = std::collections::HashMap::new();
+            let _ = TopicStore::upsert(
+                state.db.inner(),
+                &cluster_id,
+                topic_name,
+                topic_info.partitions.len() as i32,
+                1,
+                &config,
+            )
+            .await;
+        }
+    }
+
+    // Get total count
+    let all_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "added": sync_result.added,
+        "removed": sync_result.removed,
+        "total": all_topics.len(),
+    }))
+}
+
+async fn handle_topic_search(state: AppState) -> Result<Value> {
+    // Get all clusters
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+
+    // Search all clusters' topics
+    let mut results = Vec::new();
+
+    for cluster in &clusters {
+        let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster.name).await?;
+        for topic in topics {
+            results.push(serde_json::json!({
+                "cluster": cluster.name.clone(),
+                "topic": topic.topic_name,
+            }));
+        }
+    }
+
+    Ok(serde_json::json!({ "results": results }))
+}
+
+async fn handle_topic_count(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+
+    Ok(serde_json::json!({ "count": topics.len() }))
+}
+
+// ==================== Consumer Group ====================
+
+async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    // Try cache first
+    if let Some(cached_groups) = state.cache.get_consumer_group_list(&cluster_id).await {
+        let groups: Vec<Value> = cached_groups
+            .into_iter()
+            .map(|name| {
+                serde_json::json!({
+                    "name": name,
+                    "state": "Unknown"
+                })
+            })
+            .collect();
+        return Ok(serde_json::json!({ "groups": groups }));
+    }
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let groups = admin.list_consumer_groups(&config)?;
+    let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
+
+    // Write to cache
+    state
+        .cache
+        .set_consumer_group_list(&cluster_id, group_names.clone())
+        .await;
+
+    let group_summaries: Vec<Value> = groups
+        .into_iter()
+        .map(|g| {
+            serde_json::json!({
+                "name": g.name,
+                "state": g.state,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "groups": group_summaries }))
+}
+
+async fn handle_consumer_group_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let group_info = admin.get_consumer_group_info(&config, &name)?;
+
+    Ok(serde_json::json!({
+        "name": group_info.name,
+        "state": group_info.state,
+        "protocol": group_info.protocol,
+        "members": group_info
+            .members
+            .into_iter()
+            .map(|m| serde_json::json!({
+                "client_id": m.client_id,
+                "host": m.host,
+            }))
+            .collect::<Vec<_>>(),
+        "offsets": [],
+    }))
+}
+
+async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let name = get_string_param(&body, "name")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    admin.delete_consumer_group(&name).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let group_name = get_string_param(&body, "group_name")?;
+    let topic = get_optional_string_param(&body, "topic");
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let offset_manager = KafkaOffsetManager::new(&config);
+    let offsets =
+        offset_manager.get_consumer_group_offsets(&config, &group_name, topic.as_deref())?;
+
+    let topic_name = offsets.first().map(|o| o.topic.clone()).unwrap_or_default();
+    let total_lag: i64 = offsets.iter().map(|o| o.lag).sum();
+
+    let partitions: Vec<Value> = offsets
+        .into_iter()
+        .map(|o| {
+            serde_json::json!({
+                "partition": o.partition,
+                "current_offset": o.current_offset,
+                "log_end_offset": o.log_end_offset,
+                "lag": o.lag,
+                "state": if o.current_offset >= 0 { "Active" } else { "Empty" },
+                "topic": o.topic,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "group_name": group_name,
+        "topic": topic_name,
+        "partitions": partitions,
+        "total_lag": total_lag,
+    }))
+}
+
+async fn handle_consumer_group_offsets_reset(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let group_name = get_string_param(&body, "group_name")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_optional_i32_param(&body, "partition");
+
+    // Parse offset type
+    let offset_type = if let Some(offset_val) = get_optional_i64_param(&body, "value") {
+        crate::kafka::admin::OffsetType::Value(offset_val)
+    } else if let Some(ts) = get_optional_i64_param(&body, "timestamp") {
+        crate::kafka::admin::OffsetType::Timestamp(ts)
+    } else if body.get("earliest").is_some() {
+        crate::kafka::admin::OffsetType::Earliest
+    } else {
+        crate::kafka::admin::OffsetType::Latest
+    };
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    if let Some(partition) = partition {
+        admin
+            .reset_consumer_group_offset(&config, &group_name, &topic, partition, offset_type)
+            .await?;
+    } else {
+        admin
+            .reset_consumer_group_offsets(&config, &group_name, &topic, offset_type)
+            .await?;
+    }
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_consumer_group_throughput(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let group_name = get_string_param(&body, "group_name")?;
+    let topic = get_string_param(&body, "topic")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let calculator = KafkaThroughputCalculator::new(&config);
+    let throughput = calculator.calculate_consumer_group_throughput(&config, &group_name, &topic)?;
+
+    Ok(serde_json::json!({
+        "group_name": throughput.group_name,
+        "topic": throughput.topic,
+        "consume_throughput": {
+            "messages_per_second": throughput.consume_throughput.messages_per_second,
+            "bytes_per_second": throughput.consume_throughput.bytes_per_second,
+            "window_seconds": throughput.consume_throughput.window_seconds,
+        },
+        "total_lag": throughput.total_lag,
+        "estimated_time_to_catch_up": throughput.estimated_time_to_catch_up,
+        "partitions": throughput.partitions.iter().map(|p| serde_json::json!({
+            "partition": p.partition,
+            "current_offset": p.current_offset,
+            "log_end_offset": p.log_end_offset,
+            "lag": p.lag,
+            "consume_rate": p.consume_rate,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+async fn handle_consumer_group_batch_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let group_names = get_string_array_param(&body, "group_names");
+    let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+
+    for group_name in group_names {
+        match admin.delete_consumer_group(&group_name).await {
+            Ok(_) => deleted.push(group_name),
+            Err(e) => {
+                failed.push(serde_json::json!({
+                    "name": group_name,
+                    "error": e.to_string()
+                }));
+                if !continue_on_error {
+                    return Ok(serde_json::json!({
+                        "success": false,
+                        "deleted": deleted,
+                        "failed": failed
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "success": failed.is_empty(),
+        "deleted": deleted,
+        "failed": failed
+    }))
+}
+
+async fn handle_consumer_group_consumer_offsets(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let offset_manager = KafkaOffsetManager::new(&config);
+    let all_offsets = offset_manager.get_all_consumer_offsets(&config)?;
+
+    let consumer_groups: Vec<Value> = all_offsets
+        .into_iter()
+        .map(|group| {
+            serde_json::json!({
+                "group_name": group.group_name,
+                "state": group.state,
+                "total_lag": group.total_lag,
+                "topics": group.topics.iter().map(|topic| serde_json::json!({
+                    "topic": topic.topic,
+                    "total_lag": topic.total_lag,
+                    "partitions": topic.partitions.iter().map(|p| serde_json::json!({
+                        "partition": p.partition,
+                        "start_offset": p.start_offset,
+                        "end_offset": p.end_offset,
+                        "current_offset": p.current_offset,
+                        "lag": p.lag,
+                        "state": if p.current_offset >= 0 { "Active" } else { "Empty" },
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "consumer_groups": consumer_groups,
+    }))
+}
+
+// ==================== Message ====================
+
+async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_optional_i32_param(&body, "partition");
+    let offset = get_optional_i64_param(&body, "offset");
+    let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
+    let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
+
+    let clients = state.get_clients();
+    let consumer = clients
+        .get_consumer(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let max_msgs = limit.or(max_messages).unwrap_or(100);
+
+    // For simplicity, fetch messages without complex filtering in unified API
+    let messages = consumer
+        .fetch_messages(&config, &topic, partition, offset, max_msgs)
+        .await?;
+
+    let records: Vec<Value> = messages
+        .into_iter()
+        .map(|msg| {
+            serde_json::json!({
+                "partition": msg.partition,
+                "offset": msg.offset,
+                "key": msg.key,
+                "value": msg.value,
+                "timestamp": msg.timestamp,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "messages": records }))
+}
+
+async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic = get_string_param(&body, "topic")?;
+    let key = get_optional_string_param(&body, "key");
+    let value = get_string_param(&body, "value")?;
+    let partition = get_optional_i32_param(&body, "partition");
+
+    let clients = state.get_clients();
+    let producer = clients
+        .get_producer(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let (partition_result, offset) = producer
+        .send_to_partition(&topic, partition, key.as_deref(), &value)
+        .await?;
+
+    Ok(serde_json::json!({
+        "partition": partition_result,
+        "offset": offset,
+    }))
+}
+
+async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
+    // For export, we'll return JSON data that can be formatted by the client
+    // The actual file download handling would need special treatment
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_optional_i32_param(&body, "partition");
+    let offset = get_optional_i64_param(&body, "offset");
+    let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
+
+    let clients = state.get_clients();
+    let consumer = clients
+        .get_consumer(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let max_msgs = max_messages.unwrap_or(1000);
+
+    let messages = consumer
+        .fetch_messages(&config, &topic, partition, offset, max_msgs)
+        .await?;
+
+    let records: Vec<Value> = messages
+        .into_iter()
+        .map(|msg| {
+            serde_json::json!({
+                "partition": msg.partition,
+                "offset": msg.offset,
+                "key": msg.key,
+                "value": msg.value,
+                "timestamp": msg.timestamp,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "topic": topic,
+        "format": "json",
+        "messages": records,
+        "count": records.len(),
+    }))
+}
+
+// ==================== Cluster Connection ====================
+
+async fn handle_connection_list(state: AppState) -> Result<Value> {
+    let statuses = state.pools.get_all_connections_status().await;
+
+    let connections: Vec<Value> = statuses
+        .into_iter()
+        .map(|(cluster_id, status)| {
+            let (status_str, error_message) = match status {
+                crate::pool::ConnectionStatus::Connected => {
+                    ("connected".to_string(), None::<String>)
+                }
+                crate::pool::ConnectionStatus::Disconnected => {
+                    ("disconnected".to_string(), None)
+                }
+                crate::pool::ConnectionStatus::Error(msg) => ("error".to_string(), Some(msg)),
+            };
+
+            serde_json::json!({
+                "cluster_id": cluster_id,
+                "status": status_str,
+                "error_message": error_message,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "connections": connections }))
+}
+
+async fn handle_connection_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let status = state.pools.check_connection(&cluster_id).await;
+
+    match status {
+        Some(conn_status) => {
+            let (status_str, error_message) = match conn_status {
+                crate::pool::ConnectionStatus::Connected => {
+                    ("connected".to_string(), None::<String>)
+                }
+                crate::pool::ConnectionStatus::Disconnected => {
+                    ("disconnected".to_string(), None)
+                }
+                crate::pool::ConnectionStatus::Error(msg) => ("error".to_string(), Some(msg)),
+            };
+
+            Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "status": status_str,
+                "error_message": error_message,
+            }))
+        }
+        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+    }
+}
+
+async fn handle_connection_disconnect(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    // Disconnect from pool
+    state.pools.disconnect(&cluster_id).await?;
+
+    // Remove from Kafka clients
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.without_cluster(&cluster_id);
+    state.set_clients(new_clients.into());
+
+    tracing::info!("Disconnected cluster: {}", cluster_id);
+
+    Ok(serde_json::json!({
+        "success": true,
+        "message": format!("Cluster '{}' disconnected successfully", cluster_id),
+    }))
+}
+
+async fn handle_connection_reconnect(state: AppState, body: Value) -> Result<Value> {
+    let cluster_name = get_string_param(&body, "cluster_name")?;
+
+    // Get cluster config from database
+    let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_name)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Cluster '{}' not found in database", cluster_name))
+        })?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    // Reconnect pool
+    state
+        .pools
+        .reconnect(&cluster.name, &config, &state.config.pool)
+        .await?;
+
+    // Update Kafka clients
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(&cluster.name, &config)?;
+    state.set_clients(new_clients.into());
+
+    tracing::info!("Reconnected cluster: {}", cluster_name);
+
+    Ok(serde_json::json!({
+        "success": true,
+        "message": format!("Cluster '{}' reconnected successfully", cluster_name),
+    }))
+}
+
+async fn handle_connection_health_check(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let status = state.pools.check_connection(&cluster_id).await;
+
+    match status {
+        Some(conn_status) => {
+            let (healthy, status_str, error_message) = match conn_status {
+                crate::pool::ConnectionStatus::Connected => {
+                    (true, "healthy".to_string(), None::<String>)
+                }
+                crate::pool::ConnectionStatus::Disconnected => {
+                    (false, "disconnected".to_string(), None)
+                }
+                crate::pool::ConnectionStatus::Error(msg) => {
+                    (false, "error".to_string(), Some(msg))
+                }
+            };
+
+            Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "healthy": healthy,
+                "status": status_str,
+                "error_message": error_message,
+            }))
+        }
+        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+    }
+}
+
+async fn handle_connection_metrics(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    // Check cluster exists
+    let pools = state.pools.get_all_connections_status().await;
+    if !pools.iter().any(|(id, _)| id == &cluster_id) {
+        return Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id)));
+    }
+
+    // Get pool status
+    let consumer_pool_status = state
+        .pools
+        .get_consumer_pool(&cluster_id)
+        .await
+        .map(|pool| (pool.status().size, pool.status().available));
+    let producer_pool_status = state
+        .pools
+        .get_producer_pool(&cluster_id)
+        .await
+        .map(|pool| (pool.status().size, pool.status().available));
+
+    let (consumer_pool_size, consumer_pool_available) = consumer_pool_status.unwrap_or((0, 0));
+    let (producer_pool_size, producer_pool_available) = producer_pool_status.unwrap_or((0, 0));
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "consumer_pool_size": consumer_pool_size,
+        "producer_pool_size": producer_pool_size,
+        "consumer_pool_available": consumer_pool_available,
+        "producer_pool_available": producer_pool_available,
+    }))
+}
+
+async fn handle_connection_history(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let limit = get_optional_i64_param(&body, "limit").unwrap_or(100);
+
+    let history = ClusterConnectionStore::get_history(state.db.inner(), &cluster_id, limit).await?;
+
+    let entries: Vec<Value> = history
+        .into_iter()
+        .map(|h| {
+            serde_json::json!({
+                "status": h.status,
+                "error_message": h.error_message,
+                "latency_ms": h.latency_ms,
+                "checked_at": h.checked_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "history": entries,
+    }))
+}
+
+async fn handle_connection_stats(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let stats = ClusterConnectionStore::get_stats(state.db.inner(), &cluster_id).await?;
+
+    match stats {
+        Some(s) => {
+            let success_rate = if s.total_checks > 0 {
+                (s.successful_checks as f64 / s.total_checks as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "total_checks": s.total_checks,
+                "successful_checks": s.successful_checks,
+                "failed_checks": s.failed_checks,
+                "success_rate": success_rate,
+                "avg_latency_ms": s.avg_latency_ms,
+                "last_status": s.last_status,
+                "last_checked_at": s.last_checked_at,
+            }))
+        }
+        None => Ok(serde_json::json!({
+            "cluster_id": cluster_id,
+            "total_checks": 0,
+            "successful_checks": 0,
+            "failed_checks": 0,
+            "success_rate": 0.0,
+            "avg_latency_ms": None::<f64>,
+            "last_status": "unknown",
+            "last_checked_at": None::<String>,
+        })),
+    }
+}
+
+async fn handle_connection_batch_disconnect(state: AppState, body: Value) -> Result<Value> {
+    let cluster_names = get_string_array_param(&body, "cluster_names");
+    let mut results = Vec::new();
+    let mut successful = 0;
+
+    for cluster_name in &cluster_names {
+        match state.pools.disconnect(cluster_name).await {
+            Ok(_) => {
+                // Remove from Kafka clients
+                let current_clients = state.get_clients();
+                let new_clients = current_clients.without_cluster(cluster_name);
+                state.set_clients(new_clients.into());
+
+                results.push(serde_json::json!({
+                    "cluster_name": cluster_name,
+                    "success": true,
+                    "message": "Disconnected successfully"
+                }));
+                successful += 1;
+            }
+            Err(e) => {
+                results.push(serde_json::json!({
+                    "cluster_name": cluster_name,
+                    "success": false,
+                    "message": e.to_string()
+                }));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "total": cluster_names.len(),
+        "successful": successful,
+        "failed": cluster_names.len() - successful,
+        "results": results,
+    }))
+}
+
+async fn handle_connection_batch_reconnect(state: AppState, body: Value) -> Result<Value> {
+    let cluster_names = get_string_array_param(&body, "cluster_names");
+    let mut results = Vec::new();
+
+    for cluster_name in &cluster_names {
+        // Get cluster config from database
+        match ClusterStore::get_by_name(state.db.inner(), cluster_name).await {
+            Ok(Some(cluster)) => {
+                let config = crate::config::KafkaConfig {
+                    brokers: cluster.brokers,
+                    request_timeout_ms: cluster.request_timeout_ms as u32,
+                    operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                };
+
+                // Reconnect pool
+                match state
+                    .pools
+                    .reconnect(cluster_name, &config, &state.config.pool)
+                    .await
+                {
+                    Ok(_) => {
+                        // Update Kafka clients
+                        let current_clients = state.get_clients();
+                        match current_clients.with_added_cluster(cluster_name, &config) {
+                            Ok(new_clients) => {
+                                state.set_clients(new_clients.into());
+                                results.push(serde_json::json!({
+                                    "cluster_name": cluster_name,
+                                    "success": true,
+                                    "message": "Reconnected successfully"
+                                }));
+                            }
+                            Err(e) => {
+                                results.push(serde_json::json!({
+                                    "cluster_name": cluster_name,
+                                    "success": false,
+                                    "message": format!("Failed to update client: {}", e)
+                                }));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        results.push(serde_json::json!({
+                            "cluster_name": cluster_name,
+                            "success": false,
+                            "message": format!("Reconnect failed: {}", e)
+                        }));
+                    }
+                }
+            }
+            Ok(None) => {
+                results.push(serde_json::json!({
+                    "cluster_name": cluster_name,
+                    "success": false,
+                    "message": "Cluster not found in database"
+                }));
+            }
+            Err(e) => {
+                results.push(serde_json::json!({
+                    "cluster_name": cluster_name,
+                    "success": false,
+                    "message": format!("Database error: {}", e)
+                }));
+            }
+        }
+    }
+
+    let successful = results.iter().filter(|r| r.get("success").and_then(|v| v.as_bool()).unwrap_or(false)).count();
+
+    Ok(serde_json::json!({
+        "total": cluster_names.len(),
+        "successful": successful,
+        "failed": cluster_names.len() - successful,
+        "results": results,
+    }))
+}
+
+// ==================== User ====================
+
+async fn handle_user_list(state: AppState) -> Result<Value> {
+    let users = UserStore::list_with_roles(state.db.inner()).await?;
+
+    let user_list: Vec<Value> = users
+        .into_iter()
+        .map(|u| {
+            serde_json::json!({
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "role_id": u.role_id,
+                "role_name": u.role_name,
+                "is_active": u.is_active,
+                "created_at": u.created_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "users": user_list }))
+}
+
+async fn handle_user_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let user = UserStore::get_with_role(state.db.inner(), id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
+
+    Ok(serde_json::json!({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role_id": user.role_id,
+        "role_name": user.role_name,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+    }))
+}
+
+async fn handle_user_create(state: AppState, body: Value) -> Result<Value> {
+    let username = get_string_param(&body, "username")?;
+    let password = get_string_param(&body, "password")?;
+    let email = get_optional_string_param(&body, "email");
+    let role_id = get_i64_param(&body, "role_id")?;
+
+    // Hash password
+    let password_hash = bcrypt::hash(&password, bcrypt::DEFAULT_COST)
+        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
+
+    let id = UserStore::create(
+        state.db.inner(),
+        &username,
+        &password_hash,
+        email.as_deref(),
+        role_id,
+    )
+    .await?;
+
+    Ok(serde_json::json!({
+        "id": id,
+        "username": username,
+    }))
+}
+
+async fn handle_user_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let email = get_optional_string_param(&body, "email");
+    let role_id = get_optional_i64_param(&body, "role_id");
+    let is_active = get_optional_bool_param(&body, "is_active");
+
+    UserStore::update(
+        state.db.inner(),
+        id,
+        email.as_deref(),
+        role_id,
+        is_active,
+    )
+    .await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_user_password_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let old_password = get_string_param(&body, "old_password")?;
+    let new_password = get_string_param(&body, "new_password")?;
+
+    // Verify old password
+    let user = UserStore::get_by_id(state.db.inner(), id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
+
+    let valid = bcrypt::verify(&old_password, &user.password_hash)
+        .map_err(|e| AppError::Internal(format!("Failed to verify password: {}", e)))?;
+
+    if !valid {
+        return Err(AppError::Unauthorized("Invalid old password".to_string()));
+    }
+
+    // Update password
+    let new_hash = bcrypt::hash(&new_password, bcrypt::DEFAULT_COST)
+        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
+
+    UserStore::update_password(state.db.inner(), id, &new_hash).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Role ====================
+
+async fn handle_role_list(state: AppState) -> Result<Value> {
+    let roles = RoleStore::list(state.db.inner()).await?;
+
+    let role_list: Vec<Value> = roles
+        .into_iter()
+        .map(|r| {
+            let permissions: Vec<String> =
+                serde_json::from_str(&r.permissions).unwrap_or_default();
+            serde_json::json!({
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "permissions": permissions,
+                "created_at": r.created_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "roles": role_list }))
+}
+
+async fn handle_role_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let role = RoleStore::get_by_id(state.db.inner(), id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Role {} not found", id)))?;
+
+    let permissions: Vec<String> = serde_json::from_str(&role.permissions).unwrap_or_default();
+
+    Ok(serde_json::json!({
+        "id": role.id,
+        "name": role.name,
+        "description": role.description,
+        "permissions": permissions,
+        "created_at": role.created_at,
+    }))
+}
+
+async fn handle_role_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let description = get_optional_string_param(&body, "description");
+    let permissions = get_string_array_param(&body, "permissions");
+
+    let id = RoleStore::create(
+        state.db.inner(),
+        &name,
+        description.as_deref(),
+        &permissions,
+    )
+    .await?;
+
+    Ok(serde_json::json!({
+        "id": id,
+        "name": name,
+    }))
+}
+
+async fn handle_role_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let name = get_optional_string_param(&body, "name");
+    let description = get_optional_string_param(&body, "description");
+    let permissions = if body.get("permissions").is_some() {
+        Some(get_string_array_param(&body, "permissions"))
+    } else {
+        None
+    };
+
+    RoleStore::update(
+        state.db.inner(),
+        id,
+        name.as_deref(),
+        description.as_deref(),
+        permissions.as_deref(),
+    )
+    .await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Notification ====================
+
+async fn handle_notification_list(state: AppState) -> Result<Value> {
+    let configs = NotificationStore::list(state.db.inner()).await?;
+    Ok(serde_json::json!({ "notifications": configs }))
+}
+
+async fn handle_notification_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let config = NotificationStore::get_by_id(state.db.inner(), id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Notification config {} not found", id)))?;
+
+    Ok(serde_json::json!(config))
+}
+
+async fn handle_notification_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let config_type = get_string_param(&body, "config_type")?;
+    let webhook_url = get_optional_string_param(&body, "webhook_url");
+
+    // email_recipients is Option<Vec<String>>
+    let email_recipients = body.get("email_recipients")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        });
+
+    let dingtalk_webhook = get_optional_string_param(&body, "dingtalk_webhook");
+    let dingtalk_secret = get_optional_string_param(&body, "dingtalk_secret");
+    let wechat_webhook = get_optional_string_param(&body, "wechat_webhook");
+    let slack_webhook = get_optional_string_param(&body, "slack_webhook");
+
+    let req = CreateNotificationConfigRequest {
+        name,
+        config_type,
+        webhook_url,
+        email_recipients,
+        dingtalk_webhook,
+        dingtalk_secret,
+        wechat_webhook,
+        slack_webhook,
+    };
+
+    let id = NotificationStore::create(state.db.inner(), &req).await?;
+
+    Ok(serde_json::json!({
+        "id": id,
+        "success": true
+    }))
+}
+
+async fn handle_notification_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    NotificationStore::delete(state.db.inner(), id).await?;
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_notification_enable(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    NotificationStore::update(state.db.inner(), id, Some(true)).await?;
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_notification_disable(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    NotificationStore::update(state.db.inner(), id, Some(false)).await?;
+    Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Alert History ====================
+
+async fn handle_alert_history_list(state: AppState, body: Value) -> Result<Value> {
+    let limit = get_optional_i64_param(&body, "limit");
+    let cluster_id = get_optional_string_param(&body, "cluster_id");
+    let rule_id = get_optional_i64_param(&body, "rule_id");
+    let severity = get_optional_string_param(&body, "severity");
+
+    let query = crate::db::notification::AlertHistoryQuery {
+        limit,
+        cluster_id,
+        rule_id,
+        severity,
+    };
+
+    let history = NotificationStore::list_history(state.db.inner(), &query).await?;
+
+    let responses: Vec<Value> = history
+        .into_iter()
+        .map(|h| {
+            serde_json::json!({
+                "id": h.id,
+                "rule_id": h.rule_id,
+                "cluster_id": h.cluster_id,
+                "alert_type": h.alert_type,
+                "alert_message": h.alert_message,
+                "alert_value": h.alert_value,
+                "threshold": h.threshold,
+                "severity": h.severity,
+                "notified": h.notified,
+                "created_at": h.created_at
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "history": responses }))
+}
+
+// ==================== Schema Registry ====================
+
+async fn handle_schema_subjects(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let subjects = client.get_subjects().await?;
+
+    Ok(serde_json::json!({ "subjects": subjects }))
+}
+
+async fn handle_schema_versions(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+    let subject = get_string_param(&body, "subject")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let versions = client.get_versions(&subject).await?;
+
+    Ok(serde_json::json!({
+        "subject": subject,
+        "versions": versions,
+    }))
+}
+
+async fn handle_schema_get(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+    let subject = get_string_param(&body, "subject")?;
+    let version = get_string_param(&body, "version")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let schema = client.get_schema(&subject, &version).await?;
+
+    Ok(serde_json::json!(schema))
+}
+
+async fn handle_schema_register(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let subject = get_string_param(&body, "subject")?;
+    let schema = get_string_param(&body, "schema")?;
+    let schema_type = get_string_param(&body, "schema_type")?;
+
+    let clients = state.get_clients();
+    let config = clients
+        .get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    // Get Schema Registry URL from env or construct from brokers
+    let registry_url = std::env::var("SCHEMA_REGISTRY_URL").unwrap_or_else(|_| {
+        format!(
+            "http://{}:8081",
+            config.brokers.split(',').next().unwrap_or("localhost")
+        )
+    });
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let id = client
+        .register_schema(&subject, &schema, &schema_type)
+        .await?;
+
+    Ok(serde_json::json!({
+        "id": id,
+        "subject": subject,
+        "success": true
+    }))
+}
+
+async fn handle_schema_delete(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+    let subject = get_string_param(&body, "subject")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let deleted_versions = client.delete_subject(&subject).await?;
+
+    Ok(serde_json::json!({
+        "deleted_versions": deleted_versions,
+        "subject": subject,
+        "success": true
+    }))
+}
+
+async fn handle_schema_version_delete(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+    let subject = get_string_param(&body, "subject")?;
+    let version = get_string_param(&body, "version")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+    let deleted_version = client.delete_schema_version(&subject, &version).await?;
+
+    Ok(serde_json::json!({
+        "deleted_version": deleted_version,
+        "subject": subject,
+        "success": true
+    }))
+}
+
+async fn handle_schema_compatibility_level(body: Value) -> Result<Value> {
+    let registry_url = get_string_param(&body, "schema_registry_url")?;
+
+    let client = SchemaRegistryClient::new(&registry_url);
+
+    // If level is provided, update it; otherwise, get it
+    if let Some(level) = get_optional_string_param(&body, "level") {
+        client.update_compatibility_level(&level).await?;
+        Ok(serde_json::json!({
+            "level": level,
+            "success": true
+        }))
+    } else {
+        let level = client.get_compatibility_level().await?;
+        Ok(serde_json::json!({ "level": level }))
+    }
+}
+
+// ==================== Settings ====================
+
+async fn handle_settings_get(state: AppState, body: Value) -> Result<Value> {
+    let keys = get_string_array_param(&body, "keys");
+
+    let settings = if keys.is_empty() {
+        // Get all settings
+        let all: Vec<(String, String)> = sqlx::query_as(
+            "SELECT key, value FROM user_settings ORDER BY key"
+        )
+        .fetch_all(state.db.inner())
+        .await?;
+        all.into_iter()
+            .map(|(k, v)| serde_json::json!({ "key": k, "value": v }))
+            .collect()
+    } else {
+        // Get specified settings
+        let mut result = Vec::new();
+        for key in keys {
+            if let Some(value) = SettingStore::get(state.db.inner(), &key).await? {
+                result.push(serde_json::json!({ "key": key, "value": value }));
+            }
+        }
+        result
+    };
+
+    Ok(serde_json::json!({ "settings": settings }))
+}
+
+async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
+    let key = get_string_param(&body, "key")?;
+    let value = get_string_param(&body, "value")?;
+
+    SettingStore::set(state.db.inner(), &key, &value).await?;
+
+    Ok(serde_json::json!({
+        "key": key,
+        "value": value,
+    }))
+}
+
+// ==================== Cluster Stats/Monitor ====================
+
+async fn handle_monitor_stats(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    // Get cluster info
+    let cluster_info = admin.get_cluster_info()?;
+
+    // Get all topic partition info
+    let topics = admin.list_topics()?;
+    let mut partition_count = 0;
+    let mut under_replicated = 0;
+    let mut broker_leader_counts: std::collections::HashMap<i32, i32> =
+        std::collections::HashMap::new();
+    let mut broker_replica_counts: std::collections::HashMap<i32, i32> =
+        std::collections::HashMap::new();
+
+    for topic in &topics {
+        let topic_info = admin.get_topic_info(topic)?;
+        for partition in &topic_info.partitions {
+            partition_count += 1;
+
+            // Check under replicated
+            if partition.isr.len() < partition.replicas.len() {
+                under_replicated += 1;
+            }
+
+            // Count leader and replica
+            let leader = partition.leader;
+            *broker_leader_counts.entry(leader).or_insert(0) += 1;
+            for replica in &partition.replicas {
+                *broker_replica_counts.entry(*replica).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Build broker stats
+    let broker_stats: Vec<Value> = cluster_info
+        .brokers
+        .iter()
+        .map(|b| {
+            let is_controller = cluster_info.controller_id == Some(b.id);
+            serde_json::json!({
+                "id": b.id,
+                "host": b.host,
+                "port": b.port,
+                "is_controller": is_controller,
+                "leader_partitions": broker_leader_counts.get(&b.id).unwrap_or(&0),
+                "replica_partitions": broker_replica_counts.get(&b.id).unwrap_or(&0),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "broker_count": cluster_info.brokers.len() as i32,
+        "controller_id": cluster_info.controller_id,
+        "topic_count": topics.len() as i32,
+        "partition_count": partition_count,
+        "under_replicated_partitions": under_replicated,
+        "consumer_group_count": 0, // Not implemented in original
+        "total_lag": 0,
+        "broker_stats": broker_stats,
+    }))
+}
+
+async fn handle_monitor_info(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let info = admin.get_cluster_info()?;
+
+    Ok(serde_json::json!({
+        "brokers": info.brokers.iter().map(|b| serde_json::json!({
+            "id": b.id,
+            "host": b.host,
+            "port": b.port,
+        })).collect::<Vec<_>>(),
+        "controller_id": info.controller_id,
+        "cluster_id": info.cluster_id,
+        "topic_count": info.topic_count,
+        "total_partitions": info.total_partitions,
+    }))
+}
+
+async fn handle_monitor_metrics(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let metrics = admin.get_cluster_metrics()?;
+
+    Ok(serde_json::json!({
+        "broker_count": metrics.broker_count,
+        "controller_id": metrics.controller_id,
+        "topic_count": metrics.topic_count,
+        "partition_count": metrics.partition_count,
+        "under_replicated_partitions": metrics.under_replicated_partitions,
+    }))
+}
+
+async fn handle_monitor_brokers(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let info = admin.get_cluster_info()?;
+
+    Ok(serde_json::json!({
+        "brokers": info.brokers.iter().map(|b| serde_json::json!({
+            "id": b.id,
+            "host": b.host,
+            "port": b.port,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+async fn handle_monitor_broker_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let broker_id = get_i32_param(&body, "broker_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let broker = admin.get_broker_info(broker_id)?;
+
+    Ok(serde_json::json!({
+        "id": broker.id,
+        "host": broker.host,
+        "port": broker.port,
+        "is_controller": broker.is_controller,
+        "leader_partitions": broker.leader_partitions,
+        "replica_partitions": broker.replica_partitions,
+    }))
+}
+
+// ==================== Topic Template ====================
+
+async fn handle_template_list(state: AppState) -> Result<Value> {
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+    let templates = store.list().await?;
+
+    let template_list: Vec<Value> = templates
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "num_partitions": t.num_partitions,
+                "replication_factor": t.replication_factor,
+                "config": t.config_json,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "templates": template_list }))
+}
+
+async fn handle_template_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+    let template = store
+        .get(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Template {} not found", id)))?;
+
+    Ok(serde_json::json!({
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "num_partitions": template.num_partitions,
+        "replication_factor": template.replication_factor,
+        "config": template.config_json,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }))
+}
+
+async fn handle_template_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let description = get_optional_string_param(&body, "description");
+    let num_partitions = get_optional_i32_param(&body, "num_partitions").unwrap_or(3);
+    let replication_factor = get_optional_i32_param(&body, "replication_factor").unwrap_or(1);
+    let config = get_hashmap_param(&body, "config");
+
+    let req = CreateTopicTemplateRequest {
+        name,
+        description,
+        num_partitions,
+        replication_factor,
+        config,
+    };
+
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+    let id = store.create(&req).await?;
+
+    let template = store
+        .get(id)
+        .await?
+        .ok_or_else(|| AppError::Internal("Failed to get created template".to_string()))?;
+
+    Ok(serde_json::json!({
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "num_partitions": template.num_partitions,
+        "replication_factor": template.replication_factor,
+        "config": template.config_json,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }))
+}
+
+async fn handle_template_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let name = get_optional_string_param(&body, "name");
+    let description = get_optional_string_param(&body, "description");
+    let num_partitions = get_optional_i32_param(&body, "num_partitions");
+    let replication_factor = get_optional_i32_param(&body, "replication_factor");
+    let config = if body.get("config").is_some() {
+        Some(get_hashmap_param(&body, "config"))
+    } else {
+        None
+    };
+
+    let req = UpdateTopicTemplateRequest {
+        name,
+        description,
+        num_partitions,
+        replication_factor,
+        config,
+    };
+
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+    store.update(id, &req).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_template_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+    let deleted = store.delete(id).await?;
+
+    if !deleted {
+        return Err(AppError::NotFound(format!("Template {} not found", id)));
+    }
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_template_presets() -> Result<Value> {
+    use crate::db::topic_template::preset_templates::get_preset_templates;
+
+    let presets = get_preset_templates();
+
+    let preset_list: Vec<Value> = presets
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "description": p.description,
+                "num_partitions": p.num_partitions,
+                "replication_factor": p.replication_factor,
+                "config": p.config,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "presets": preset_list }))
+}
+
+async fn handle_template_create_topic(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic_name = get_string_param(&body, "topic_name")?;
+    let template_id = get_optional_i64_param(&body, "template_id");
+    let template_name = get_optional_string_param(&body, "template_name");
+    let override_config = if body.get("override_config").is_some() {
+        Some(get_hashmap_param(&body, "override_config"))
+    } else {
+        None
+    };
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let store = TopicTemplateStore::new(state.db.inner().clone());
+
+    // Get template
+    let template = if let Some(id) = template_id {
+        store.get(id).await?
+    } else if let Some(name) = &template_name {
+        store.get_by_name(&name).await?
+    } else {
+        // Default to default template
+        store.get_by_name("default").await?
+    }
+    .ok_or_else(|| AppError::NotFound("Template not found".to_string()))?;
+
+    // Merge config
+    let mut final_config: HashMap<String, String> =
+        serde_json::from_str(&template.config_json).unwrap_or_default();
+    if let Some(override_config) = override_config {
+        for (key, value) in override_config {
+            final_config.insert(key, value);
+        }
+    }
+
+    // Create topic
+    admin
+        .create_topic(
+            &topic_name,
+            template.num_partitions,
+            template.replication_factor,
+            final_config,
+        )
+        .await?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "topic": topic_name,
+        "template": template.name,
+        "num_partitions": template.num_partitions,
+        "replication_factor": template.replication_factor,
+    }))
+}
+
+// ==================== Tag ====================
+
+async fn handle_tag_list(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_string_param(&body, "resource_type")?;
+    let resource_name = get_string_param(&body, "resource_name")?;
+
+    let store = TagStore::new(state.db.inner().clone());
+    let tags = store
+        .get_tags(&cluster_id, &resource_type, &resource_name)
+        .await?;
+
+    let tag_list: Vec<Value> = tags
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "tag_key": t.tag_key,
+                "tag_value": t.tag_value,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "tags": tag_list }))
+}
+
+async fn handle_tag_create(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_string_param(&body, "resource_type")?;
+    let resource_name = get_string_param(&body, "resource_name")?;
+    let key = get_string_param(&body, "key")?;
+    let value = get_string_param(&body, "value")?;
+
+    let store = TagStore::new(state.db.inner().clone());
+    store
+        .add_tag(&cluster_id, &resource_type, &resource_name, &key, &value)
+        .await?;
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "resource_type": resource_type,
+        "resource_name": resource_name,
+        "key": key,
+        "value": value,
+        "success": true,
+    }))
+}
+
+async fn handle_tag_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_string_param(&body, "resource_type")?;
+    let resource_name = get_string_param(&body, "resource_name")?;
+    let key = get_string_param(&body, "key")?;
+
+    let store = TagStore::new(state.db.inner().clone());
+    let deleted = store
+        .delete_tag(&cluster_id, &resource_type, &resource_name, &key)
+        .await?;
+
+    if !deleted {
+        return Err(AppError::NotFound(format!("Tag '{}' not found", key)));
+    }
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_tag_topics(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_optional_string_param(&body, "resource_type");
+    let resource_name = get_optional_string_param(&body, "resource_name");
+
+    let store = TagStore::new(state.db.inner().clone());
+
+    // If no filter, return empty list
+    if resource_type.is_none() || resource_name.is_none() {
+        return Ok(serde_json::json!({ "tags": [] }));
+    }
+
+    let tags = store
+        .get_tags(
+            &cluster_id,
+            &resource_type.unwrap(),
+            &resource_name.unwrap(),
+        )
+        .await?;
+
+    let tag_list: Vec<Value> = tags
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "tag_key": t.tag_key,
+                "tag_value": t.tag_value,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "tags": tag_list }))
+}
+
+async fn handle_tag_keys(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_optional_string_param(&body, "resource_type");
+
+    let store = TagStore::new(state.db.inner().clone());
+    let keys = store
+        .get_all_tag_keys(&cluster_id, resource_type.as_deref())
+        .await?;
+
+    Ok(serde_json::json!({ "keys": keys }))
+}
+
+async fn handle_tag_values(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let key = get_string_param(&body, "key")?;
+    let resource_type = get_optional_string_param(&body, "resource_type")
+        .unwrap_or_else(|| "topic".to_string());
+
+    let store = TagStore::new(state.db.inner().clone());
+    let values = store
+        .get_tag_values(&cluster_id, &resource_type, &key)
+        .await?;
+
+    Ok(serde_json::json!({ "values": values }))
+}
+
+async fn handle_tag_filter(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_string_param(&body, "resource_type")?;
+    let tag_key = get_string_param(&body, "tag_key")?;
+    let tag_value = get_optional_string_param(&body, "tag_value");
+
+    let store = TagStore::new(state.db.inner().clone());
+    let resources = store
+        .filter_by_tag(&cluster_id, &resource_type, &tag_key, tag_value.as_deref())
+        .await?;
+
+    Ok(serde_json::json!({ "resources": resources }))
+}
+
+async fn handle_tag_batch_update(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let resource_type = get_string_param(&body, "resource_type")?;
+    let resource_name = get_string_param(&body, "resource_name")?;
+
+    let tags = body
+        .get("tags")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| AppError::BadRequest("Missing tags object".to_string()))?;
+
+    let tag_map: HashMap<String, String> = tags
+        .iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+        .collect();
+
+    let store = TagStore::new(state.db.inner().clone());
+    store
+        .batch_update_tags(&cluster_id, &resource_type, &resource_name, &tag_map)
+        .await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Audit Log ====================
+
+async fn handle_audit_log_list(state: AppState, body: Value) -> Result<Value> {
+    let limit = get_optional_i64_param(&body, "limit").unwrap_or(100);
+    let offset = get_optional_i64_param(&body, "offset").unwrap_or(0);
+    let action = get_optional_string_param(&body, "action");
+    let cluster_id = get_optional_string_param(&body, "cluster_id");
+    let status = get_optional_i64_param(&body, "status").map(|v| v as i32);
+
+    let total = AuditLogStore::count(
+        state.db.inner(),
+        action.as_deref(),
+        cluster_id.as_deref(),
+        status,
+    )
+    .await?;
+
+    let logs = AuditLogStore::list(
+        state.db.inner(),
+        limit,
+        offset,
+        action.as_deref(),
+        cluster_id.as_deref(),
+        status,
+    )
+    .await?;
+
+    use chrono::{DateTime, Utc};
+
+    let log_infos: Vec<Value> = logs
+        .into_iter()
+        .map(|log| {
+            // Parse timestamp
+            let timestamp = DateTime::parse_from_rfc3339(&log.timestamp)
+                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).unwrap().into())
+                .with_timezone(&Utc);
+
+            serde_json::json!({
+                "id": log.id,
+                "timestamp": timestamp,
+                "method": log.method,
+                "path": log.path,
+                "cluster_id": log.cluster_id,
+                "resource": log.resource,
+                "action": log.action,
+                "api_key": log.api_key,
+                "status": log.status,
+                "duration_ms": log.duration_ms,
+                "client_ip": log.client_ip,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "logs": log_infos,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }))
+}
+
+// ==================== Auth ====================
+
+async fn handle_auth_api_keys(state: AppState) -> Result<Value> {
+    let keys = ApiKeyStore::list(state.db.inner()).await?;
+
+    let key_infos: Vec<Value> = keys
+        .into_iter()
+        .map(|k| {
+            serde_json::json!({
+                "id": k.id,
+                "key_prefix": k.key_prefix,
+                "name": k.name,
+                "created_at": k.created_at,
+                "expires_at": k.expires_at,
+                "is_active": k.is_active,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "keys": key_infos }))
+}
+
+async fn handle_auth_api_key_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_optional_string_param(&body, "name");
+    let expires_in_days = get_optional_i64_param(&body, "expires_in_days");
+
+    // Generate new API Key
+    let key = ApiKeyStore::generate_key();
+    let key_prefix = key[..7].to_string();
+    let key_hash = ApiKeyStore::hash_key(&key);
+
+    // Calculate expiration time
+    let expires_at = if let Some(days) = expires_in_days {
+        let expires = chrono::Utc::now()
+            .checked_add_signed(chrono::Duration::days(days))
+            .unwrap()
+            .to_rfc3339();
+        Some(expires)
+    } else {
+        None
+    };
+
+    // Store in database
+    let record = ApiKeyStore::create(
+        state.db.inner(),
+        &key_hash,
+        &key_prefix,
+        name.as_deref(),
+        expires_at.as_deref(),
+    )
+    .await?;
+
+    Ok(serde_json::json!({
+        "id": record.id,
+        "key": key,
+        "key_prefix": record.key_prefix,
+        "name": record.name,
+        "created_at": record.created_at,
+        "expires_at": record.expires_at,
+    }))
+}
+
+async fn handle_auth_api_key_revoke(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let deleted = ApiKeyStore::delete(state.db.inner(), id).await?;
+
+    Ok(serde_json::json!({ "success": deleted }))
+}

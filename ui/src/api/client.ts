@@ -1,10 +1,8 @@
 import type {
   Cluster,
-  ClusterListResponse,
   CreateClusterRequest,
   UpdateClusterRequest,
   TestConnectionResponse,
-  TopicListResponse,
   CreateTopicRequest,
   CreateTopicResponse,
   TopicDetailResponse,
@@ -28,39 +26,24 @@ import type {
 
 // 检测是否在 Tauri 环境下运行
 function isTauri(): boolean {
-  // Tauri 2 使用 __TAURI__ 全局对象
   if (typeof window === 'undefined') {
     return false;
   }
   const win = window as any;
-  const isTauriValue = !!(
+  return !!(
     win.__TAURI__ ||
     win.__TAURI_INTERNALS__ ||
     win.__TAURI_IPC__ ||
     win._TAURI_VERSION_ ||
     win.navigator?.userAgent?.includes('Tauri')
   );
-  console.log('[ApiClient] isTauri:', isTauriValue, {
-    has_TAURI__: !!win.__TAURI__,
-    has_TAURI_INTERNALS__: !!win.__TAURI_INTERNALS__,
-    has_TAURI_IPC__: !!win.__TAURI_IPC__,
-    userAgent: win.navigator?.userAgent?.substring(0, 100)
-  });
-  return isTauriValue;
 }
 
 // 获取 API 基础 URL
 function getBaseURL(): string {
-  // 在 Tauri 环境下，使用 localhost:9732（后端默认端口）
-  // 注意：生产环境的端口由 config.toml 中的 server.port 决定
-  // 默认开发端口为 9732
   if (isTauri()) {
-    const baseURL = 'http://localhost:9732';
-    console.log('[ApiClient] Running in Tauri environment, using baseURL:', baseURL);
-    return baseURL;
+    return 'http://localhost:9732';
   }
-  // 在浏览器开发环境下，使用空字符串（通过 Vite 代理）
-  console.log('[ApiClient] Running in web environment, using relative paths');
   return '';
 }
 
@@ -86,13 +69,9 @@ class ApiClient {
     }
 
     try {
-      const response = await fetch(`${this.baseURL}/api/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000), // 5 秒超时
-      });
-      if (response.ok) {
+      const response = await this.request('health', {});
+      if (response) {
         this.backendReady = true;
-        console.log('[ApiClient] Backend is ready');
         return true;
       }
     } catch (e) {
@@ -111,17 +90,16 @@ class ApiClient {
     }
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    // 创建新的 AbortController
+  // 统一请求方法
+  private async request<T>(method: string, body: Record<string, any>): Promise<T> {
     this.currentAbortController = new AbortController();
     const { signal } = this.currentAbortController;
 
-    const url = `${this.baseURL}${endpoint}`;
-    console.log('[ApiClient] Request URL:', url);
+    const url = `${this.baseURL}/api`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
+      'X-API-Method': method,
     };
 
     if (this.apiKey) {
@@ -135,8 +113,9 @@ class ApiClient {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const response = await fetch(url, {
-          ...options,
+          method: 'POST',
           headers,
+          body: JSON.stringify(body),
           signal,
         });
 
@@ -144,42 +123,33 @@ class ApiClient {
           let message = `HTTP ${response.status}: ${response.statusText}`;
           try {
             const errorData = await response.json();
-            message = errorData.message || message;
+            message = errorData.error || message;
           } catch {
             // 忽略解析错误
           }
           throw { message, status: response.status } as ApiError;
         }
 
-        // 处理 204 No Content
-        if (response.status === 204) {
-          return {} as T;
+        const data = await response.json();
+
+        if (!data.success) {
+          throw { message: data.error || 'Unknown error', status: response.status } as ApiError;
         }
 
-        return response.json();
+        return data.data as T;
       } catch (e) {
         const error = e as { message?: string; type?: string };
-        // 如果是网络错误（可能是后端还没启动），重试
         if (isTauri() && attempt < maxRetries - 1) {
           if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError') || error.type === 'TypeError') {
-            console.log(`[ApiClient] Request failed (attempt ${attempt + 1}/${maxRetries}), retrying...`);
-            console.warn('[ApiClient] Backend server may not be running. Retrying connection...');
             await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
             lastError = e as Error;
             continue;
           }
         }
-        // 所有重试都失败后，抛出更详细的错误
-        if (isTauri() && (error.message?.includes('Failed to fetch') || error.type === 'TypeError')) {
-          console.error('[ApiClient] All connection attempts failed. Backend server is not responding.');
-          console.error('[ApiClient] Please ensure the backend server is running on http://localhost:9732');
-          throw new Error('无法连接到后端服务，请确保应用已正确启动（后端服务可能在启动中，请稍后重试）');
-        }
         throw e;
       }
     }
 
-    // 如果所有重试都失败，抛出最后的错误
     if (lastError) {
       throw lastError;
     }
@@ -189,124 +159,96 @@ class ApiClient {
 
   // ==================== Health ====================
   async health(): Promise<HealthResponse> {
-    return this.request('/api/health');
+    return this.request('health', {});
   }
 
   // ==================== Clusters ====================
   async getClusters(): Promise<Cluster[]> {
-    const data = await this.request<ClusterListResponse>('/api/clusters');
-    return data.clusters;
+    return this.request('cluster.list', {});
   }
 
   async getCluster(id: number): Promise<Cluster> {
-    return this.request<Cluster>(`/api/clusters/${id}`);
+    return this.request('cluster.get', { id });
   }
 
   async createCluster(cluster: CreateClusterRequest): Promise<Cluster> {
-    // 在 Tauri 环境下，先检查后端是否就绪
     if (isTauri()) {
       const ready = await this.checkBackendReady();
       if (!ready) {
         throw new Error('后端服务未就绪，请等待应用完全启动后再试（约 5-10 秒）');
       }
     }
-    return this.request('/api/clusters', {
-      method: 'POST',
-      body: JSON.stringify(cluster),
-    });
+    return this.request('cluster.create', cluster);
   }
 
   async updateCluster(id: number, cluster: UpdateClusterRequest): Promise<Cluster> {
-    return this.request(`/api/clusters/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(cluster),
-    });
+    return this.request('cluster.update', { id, ...cluster });
   }
 
   async deleteCluster(id: number): Promise<void> {
-    return this.request(`/api/clusters/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request('cluster.delete', { id });
   }
 
   async testCluster(id: number): Promise<TestConnectionResponse> {
-    return this.request(`/api/clusters/_test/${id}`, {
-      method: 'POST',
-    });
+    return this.request('cluster.test', { id });
   }
 
   // ==================== Topics ====================
   async getTopics(clusterId: string): Promise<string[]> {
-    const data = await this.request<TopicListResponse>(`/api/clusters/${clusterId}/topics`);
+    const data = await this.request<TopicListResponse>('topic.list', { cluster: clusterId });
     return data.topics;
   }
 
   async getTopicDetail(clusterId: string, topicName: string): Promise<TopicDetailResponse> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}`);
+    return this.request('topic.get', { cluster: clusterId, topic: topicName });
   }
 
   async createTopic(clusterId: string, topic: CreateTopicRequest): Promise<CreateTopicResponse> {
-    return this.request(`/api/clusters/${clusterId}/topics`, {
-      method: 'POST',
-      body: JSON.stringify(topic),
-    });
+    return this.request('topic.create', { cluster: clusterId, ...topic });
   }
 
   async batchCreateTopics(
     clusterId: string,
     topics: BatchCreateTopicsRequest
   ): Promise<BatchCreateTopicsResponse> {
-    return this.request(`/api/clusters/${clusterId}/topics/batch`, {
-      method: 'POST',
-      body: JSON.stringify(topics),
-    });
+    return this.request('topic.batch_create', { cluster: clusterId, ...topics });
   }
 
   async deleteTopic(clusterId: string, topicName: string): Promise<void> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}`, {
-      method: 'DELETE',
-    });
+    return this.request('topic.delete', { cluster: clusterId, topic: topicName });
   }
 
   async batchDeleteTopics(
     clusterId: string,
     topics: BatchDeleteTopicsRequest
   ): Promise<BatchDeleteTopicsResponse> {
-    return this.request(`/api/clusters/${clusterId}/topics/batch`, {
-      method: 'DELETE',
-      body: JSON.stringify(topics),
-    });
+    return this.request('topic.batch_delete', { cluster: clusterId, ...topics });
   }
 
   async getTopicOffsets(clusterId: string, topicName: string): Promise<TopicPartitionDetail[]> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}/offsets`);
+    return this.request('topic.offsets', { cluster: clusterId, topic: topicName });
   }
 
   async addPartitions(clusterId: string, topicName: string, newPartitions: number): Promise<void> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}/partitions`, {
-      method: 'POST',
-      body: JSON.stringify({ new_partitions: newPartitions }),
-    });
+    return this.request('topic.partitions.add', { cluster: clusterId, topic: topicName, new_partitions: newPartitions });
   }
 
   async refreshTopics(clusterId: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
-    return this.request(`/api/clusters/${clusterId}/topics/_refresh`, {
-      method: 'POST',
-    });
+    return this.request('topic.refresh', { cluster: clusterId });
   }
 
   async searchTopics(): Promise<{ cluster: string; topic: string }[]> {
-    const data = await this.request<{ results: { cluster: string; topic: string }[] }>('/api/topics/search');
+    const data = await this.request<{ results: { cluster: string; topic: string }[] }>('topic.search', {});
     return data.results || [];
   }
 
   async getTopicCount(clusterId: string): Promise<number> {
-    const data = await this.request<{ count: number }>(`/api/clusters/${clusterId}/topics/_count`);
+    const data = await this.request<{ count: number }>('topic.count', { cluster: clusterId });
     return data.count;
   }
 
   async getTopicConfig(clusterId: string, topicName: string): Promise<Record<string, string>> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}/config`);
+    return this.request('topic.config.get', { cluster: clusterId, topic: topicName });
   }
 
   async alterTopicConfig(
@@ -314,29 +256,24 @@ class ApiClient {
     topicName: string,
     config: Record<string, string>
   ): Promise<void> {
-    return this.request(`/api/clusters/${clusterId}/topics/${topicName}/config`, {
-      method: 'POST',
-      body: JSON.stringify({ config }),
-    });
+    return this.request('topic.config.alter', { cluster: clusterId, topic: topicName, config });
   }
 
   // ==================== Consumer Groups ====================
   async getConsumerGroups(clusterId: string): Promise<ConsumerGroupSummary[]> {
-    const data = await this.request<ConsumerGroupListResponse>(
-      `/api/clusters/${clusterId}/consumer-groups`
-    );
+    const data = await this.request<ConsumerGroupListResponse>('consumer_group.list', { cluster: clusterId });
     return data.groups;
   }
 
   async getAllConsumerOffsets(clusterId: string): Promise<ConsumerOffsetsListResponse> {
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/_consumer-offsets`);
+    return this.request('consumer_group.consumer_offsets', { cluster: clusterId });
   }
 
   async getConsumerGroupDetail(
     clusterId: string,
     groupName: string
   ): Promise<ConsumerGroupDetailResponse> {
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/${groupName}`);
+    return this.request('consumer_group.get', { cluster: clusterId, group: groupName });
   }
 
   async getConsumerGroupOffsets(
@@ -344,11 +281,7 @@ class ApiClient {
     groupName: string,
     topic?: string
   ): Promise<ConsumerGroupOffsetDetailResponse> {
-    const params = new URLSearchParams();
-    if (topic) params.append('topic', topic);
-
-    const query = params.toString() ? `?${params}` : '';
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/${groupName}/_offsets${query}`);
+    return this.request('consumer_group.offsets', { cluster: clusterId, group: groupName, topic });
   }
 
   async resetConsumerGroupOffset(
@@ -356,162 +289,144 @@ class ApiClient {
     groupName: string,
     request: ResetConsumerGroupOffsetRequest
   ): Promise<void> {
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/${groupName}/_offsets/reset`, {
-      method: 'POST',
-      body: JSON.stringify(request),
+    return this.request('consumer_group.offsets.reset', {
+      cluster: clusterId,
+      group: groupName,
+      ...request
     });
   }
 
   async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/${groupName}`, {
-      method: 'DELETE',
-    });
+    return this.request('consumer_group.delete', { cluster: clusterId, group: groupName });
   }
 
   async batchDeleteConsumerGroups(
     clusterId: string,
     request: BatchDeleteConsumerGroupsRequest
   ): Promise<BatchDeleteConsumerGroupsResponse> {
-    return this.request(`/api/clusters/${clusterId}/consumer-groups/_batch`, {
-      method: 'DELETE',
-      body: JSON.stringify(request),
-    });
+    return this.request('consumer_group.batch_delete', { cluster: clusterId, ...request });
   }
 
   // ==================== Cluster Stats ====================
   async getClusterStats(clusterId: string): Promise<ClusterStatsResponse> {
-    return this.request(`/api/clusters/${clusterId}/stats`);
+    return this.request('cluster.stats', { cluster: clusterId });
   }
 
   // ==================== Schema Registry ====================
   async getSchemaSubjects(clusterId: string, schemaRegistryUrl: string): Promise<string[]> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    const data = await this.request<{ subjects: string[] }>(`/api/schema-registry/?${params}`);
+    const data = await this.request<{ subjects: string[] }>('schema.subjects', {
+      cluster: clusterId,
+      schema_registry_url: schemaRegistryUrl
+    });
     return data.subjects;
   }
 
   async getSchemaSubjectVersions(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    const data = await this.request<{ versions: number[] }>(`/api/schema-registry/${subject}?${params}`);
+    const data = await this.request<{ versions: number[] }>('schema.versions', {
+      cluster: clusterId,
+      subject,
+      schema_registry_url: schemaRegistryUrl
+    });
     return data.versions;
   }
 
   async getSchema(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<import('@/types/api').SchemaInfo> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    return this.request(`/api/schema-registry/${subject}/${version}?${params}`);
-  }
-
-  async registerSchema(clusterId: string, schema: import('@/types/api').RegisterSchemaRequest): Promise<{ id: number; subject: string; success: boolean }> {
-    return this.request('/api/schema-registry/_register', {
-      method: 'POST',
-      body: JSON.stringify({ cluster_id: clusterId, ...schema }),
+    return this.request('schema.get', {
+      cluster: clusterId,
+      subject,
+      version,
+      schema_registry_url: schemaRegistryUrl
     });
   }
 
+  async registerSchema(clusterId: string, schema: import('@/types/api').RegisterSchemaRequest): Promise<{ id: number; subject: string; success: boolean }> {
+    return this.request('schema.register', { cluster: clusterId, ...schema });
+  }
+
   async deleteSchema(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    const data = await this.request<{ deleted_versions: number[] }>(`/api/schema-registry/${subject}?${params}`);
+    const data = await this.request<{ deleted_versions: number[] }>('schema.delete', {
+      cluster: clusterId,
+      subject,
+      schema_registry_url: schemaRegistryUrl
+    });
     return data.deleted_versions;
   }
 
   async deleteSchemaVersion(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<number> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    const data = await this.request<{ deleted_version: number }>(`/api/schema-registry/${subject}/${version}?${params}`);
+    const data = await this.request<{ deleted_version: number }>('schema.version.delete', {
+      cluster: clusterId,
+      subject,
+      version,
+      schema_registry_url: schemaRegistryUrl
+    });
     return data.deleted_version;
   }
 
   async getCompatibilityLevel(clusterId: string, schemaRegistryUrl: string): Promise<string> {
-    const params = new URLSearchParams({ cluster_id: clusterId, schema_registry_url: schemaRegistryUrl });
-    const data = await this.request<{ level: string }>(`/api/schema-registry/_compatibility-level?${params}`);
+    const data = await this.request<{ level: string }>('schema.compatibility_level', {
+      cluster: clusterId,
+      schema_registry_url: schemaRegistryUrl
+    });
     return data.level;
   }
 
   // ==================== 用户管理 ====================
   async getUsers(): Promise<import('@/types/api').UserResponse[]> {
-    return this.request('/api/users');
+    return this.request('user.list', {});
   }
 
   async createUser(user: import('@/types/api').CreateUserRequest): Promise<{ id: number; username: string }> {
-    return this.request('/api/users', {
-      method: 'POST',
-      body: JSON.stringify(user),
-    });
+    return this.request('user.create', user);
   }
 
   async updateUser(id: number, user: { email?: string; role_id?: number; is_active?: boolean }): Promise<{ success: boolean }> {
-    return this.request(`/api/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(user),
-    });
+    return this.request('user.update', { id, ...user });
   }
 
   async updatePassword(id: number, passwords: { old_password: string; new_password: string }): Promise<{ success: boolean }> {
-    return this.request(`/api/users/${id}/password`, {
-      method: 'PUT',
-      body: JSON.stringify(passwords),
-    });
+    return this.request('user.password.update', { id, ...passwords });
   }
 
   // ==================== 角色管理 ====================
   async getRoles(): Promise<import('@/types/api').RoleResponse[]> {
-    return this.request('/api/roles');
+    return this.request('role.list', {});
   }
 
   async createRole(role: import('@/types/api').CreateRoleRequest): Promise<{ id: number; name: string }> {
-    return this.request('/api/roles', {
-      method: 'POST',
-      body: JSON.stringify(role),
-    });
+    return this.request('role.create', role);
   }
 
   async updateRole(id: number, role: { name?: string; description?: string; permissions?: string[] }): Promise<{ success: boolean }> {
-    return this.request(`/api/roles/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(role),
-    });
+    return this.request('role.update', { id, ...role });
   }
 
   // ==================== 通知管理 ====================
   async getNotifications(): Promise<import('@/types/api').NotificationConfig[]> {
-    return this.request('/api/notifications');
+    return this.request('notification.list', {});
   }
 
   async createNotification(notification: import('@/types/api').CreateNotificationConfigRequest): Promise<{ id: number; success: boolean }> {
-    return this.request('/api/notifications', {
-      method: 'POST',
-      body: JSON.stringify(notification),
-    });
+    return this.request('notification.create', notification);
   }
 
   async getNotification(id: number): Promise<import('@/types/api').NotificationConfig> {
-    return this.request(`/api/notifications/${id}`);
+    return this.request('notification.get', { id });
   }
 
   async deleteNotification(id: number): Promise<void> {
-    return this.request(`/api/notifications/${id}`, {
-      method: 'DELETE',
-    });
+    return this.request('notification.delete', { id });
   }
 
   async enableNotification(id: number): Promise<{ success: boolean }> {
-    return this.request(`/api/notifications/${id}/enable`, {
-      method: 'POST',
-    });
+    return this.request('notification.enable', { id });
   }
 
   async disableNotification(id: number): Promise<{ success: boolean }> {
-    return this.request(`/api/notifications/${id}/disable`, {
-      method: 'POST',
-    });
+    return this.request('notification.disable', { id });
   }
 
   async getAlertHistory(query?: { limit?: number; severity?: string; notified?: boolean }): Promise<import('@/types/api').AlertHistoryItem[]> {
-    const params = new URLSearchParams();
-    if (query?.limit) params.append('limit', query.limit.toString());
-    if (query?.severity) params.append('severity', query.severity);
-    if (query?.notified !== undefined) params.append('notified', query.notified.toString());
-    const queryString = params.toString() ? `?${params}` : '';
-    return this.request(`/api/alerts/history${queryString}`);
+    return this.request('alert.history', query || {});
   }
 
   // ==================== 消息管理 ====================
@@ -525,60 +440,23 @@ class ApiClient {
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
   }): Promise<import('@/types/api').MessageRecord[]> {
-    const queryParams = new URLSearchParams();
-    if (params?.partition !== undefined) queryParams.append('partition', params.partition.toString());
-    if (params?.offset !== undefined) queryParams.append('offset', params.offset.toString());
-    if (params?.max_messages) queryParams.append('max_messages', params.max_messages.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.start_time) queryParams.append('start_time', params.start_time.toString());
-    if (params?.end_time) queryParams.append('end_time', params.end_time.toString());
-    if (params?.fetchMode) queryParams.append('fetch_mode', params.fetchMode);
-    const queryString = queryParams.toString();
-    const url = queryString ? `?${queryString}` : '';
-    // getMessages 不使用默认的 AbortController，由调用者自行管理
-    const controller = new AbortController();
-    this.currentAbortController = controller;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (this.apiKey) {
-      headers['X-API-Key'] = this.apiKey;
-    }
-
-    const response = await fetch(`${this.baseURL}/api/clusters/${clusterId}/${topic}/messages${url}`, {
-      headers,
-      signal: controller.signal,
+    const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
+      cluster: clusterId,
+      topic,
+      ...params
     });
-
-    if (!response.ok) {
-      let message = `HTTP ${response.status}: ${response.statusText}`;
-      try {
-        const errorData = await response.json();
-        message = errorData.message || message;
-      } catch {
-        // 忽略解析错误
-      }
-      throw { message, status: response.status } as ApiError;
-    }
-
-    const data = await response.json();
     return data.messages;
   }
 
-  // 取消 getMessages 请求
   cancelGetMessages() {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort();
-      this.currentAbortController = null;
-    }
+    this.cancelRequest();
   }
 
   async sendMessage(clusterId: string, topic: string, message: import('@/types/api').SendMessageRequest): Promise<import('@/types/api').SendMessageResponse> {
-    return this.request(`/api/clusters/${clusterId}/${topic}/messages`, {
-      method: 'POST',
-      body: JSON.stringify(message),
+    return this.request('message.send', {
+      cluster: clusterId,
+      topic,
+      ...message
     });
   }
 
@@ -591,6 +469,7 @@ class ApiClient {
     start_time?: number;
     end_time?: number;
   }): Promise<Blob> {
+    // 导出功能需要通过原始URL获取
     const queryParams = new URLSearchParams();
     if (params?.format) queryParams.append('format', params.format);
     if (params?.partition !== undefined) queryParams.append('partition', params.partition.toString());
@@ -599,8 +478,11 @@ class ApiClient {
     if (params?.fetchMode) queryParams.append('fetch_mode', params.fetchMode);
     if (params?.start_time) queryParams.append('start_time', params.start_time.toString());
     if (params?.end_time) queryParams.append('end_time', params.end_time.toString());
+
     const queryString = queryParams.toString();
-    const response = await fetch(`${this.baseURL}/api/clusters/${clusterId}/${topic}/messages/_export${queryString ? `?${queryString}` : ''}`, {
+    const url = `${this.baseURL}/api/clusters/${clusterId}/${topic}/messages/_export${queryString ? `?${queryString}` : ''}`;
+
+    const response = await fetch(url, {
       headers: this.apiKey ? { 'X-API-Key': this.apiKey } : {},
     });
 
@@ -613,94 +495,71 @@ class ApiClient {
 
   // ==================== 集群监控 ====================
   async getClusterInfo(clusterId: string): Promise<import('@/types/api').ClusterInfoResponse> {
-    return this.request(`/api/clusters/${clusterId}/info`);
+    return this.request('cluster.info', { cluster: clusterId });
   }
 
   async getClusterMetrics(clusterId: string): Promise<import('@/types/api').ClusterMetricsResponse> {
-    return this.request(`/api/clusters/${clusterId}/metrics`);
+    return this.request('cluster.metrics', { cluster: clusterId });
   }
 
   async getBrokers(clusterId: string): Promise<import('@/types/api').BrokerInfo[]> {
-    const data = await this.request<{ brokers: import('@/types/api').BrokerInfo[] }>(`/api/clusters/${clusterId}/brokers`);
+    const data = await this.request<{ brokers: import('@/types/api').BrokerInfo[] }>('cluster.brokers', { cluster: clusterId });
     return data.brokers;
   }
 
   async getBrokerDetail(clusterId: string, brokerId: number): Promise<import('@/types/api').BrokerDetailResponse> {
-    return this.request(`/api/clusters/${clusterId}/brokers/${brokerId}`);
+    return this.request('cluster.broker.get', { cluster: clusterId, broker_id: brokerId });
   }
 
   // ==================== 集群连接管理 ====================
   async getAllConnectionStatus(): Promise<{ connections: { cluster_id: string; status: string; error_message?: string }[] }> {
-    return this.request('/api/cluster-connections/');
+    return this.request('cluster_connection.list', {});
   }
 
   async getConnectionStatus(clusterId: string): Promise<{ cluster_id: string; status: string; error_message?: string }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/status`);
+    return this.request('cluster_connection.get', { cluster: clusterId });
   }
 
   async disconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/disconnect`, {
-      method: 'POST',
-    });
+    return this.request('cluster_connection.disconnect', { cluster: clusterId });
   }
 
   async reconnectCluster(clusterId: string): Promise<{ success: boolean; message: string }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/reconnect`, {
-      method: 'POST',
-    });
+    return this.request('cluster_connection.reconnect', { cluster: clusterId });
   }
 
   async healthCheckCluster(clusterId: string): Promise<{ cluster_id: string; healthy: boolean; status: string; error_message?: string }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/health-check`, {
-      method: 'POST',
-    });
+    return this.request('cluster_connection.health_check', { cluster: clusterId });
   }
 
   async getConnectionMetrics(clusterId: string): Promise<{ cluster_id: string; consumer_pool_size: number; producer_pool_size: number; consumer_pool_available: number; producer_pool_available: number }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/metrics`);
+    return this.request('cluster_connection.metrics', { cluster: clusterId });
   }
 
   async getConnectionHistory(clusterId: string, limit?: number): Promise<{ cluster_id: string; history: { status: string; error_message?: string; latency_ms?: number; checked_at: string }[] }> {
-    const params = new URLSearchParams();
-    if (limit) params.append('limit', limit.toString());
-    const query = params.toString() ? `?${params}` : '';
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/history${query}`);
+    return this.request('cluster_connection.history', { cluster: clusterId, limit });
   }
 
   async getConnectionStats(clusterId: string): Promise<{ cluster_id: string; total_checks: number; successful_checks: number; failed_checks: number; success_rate: number; avg_latency_ms?: number; last_status: string; last_checked_at?: string }> {
-    return this.request(`/api/cluster-connections/${encodeURIComponent(clusterId)}/stats`);
+    return this.request('cluster_connection.stats', { cluster: clusterId });
   }
 
   async batchDisconnect(clusterNames: string[]): Promise<{ total: number; successful: number; failed: number; results: { cluster_name: string; success: boolean; message?: string }[] }> {
-    return this.request('/api/cluster-connections/batch/disconnect', {
-      method: 'POST',
-      body: JSON.stringify({ cluster_names: clusterNames }),
-    });
+    return this.request('cluster_connection.batch_disconnect', { cluster_names: clusterNames });
   }
 
   async batchReconnect(clusterNames: string[]): Promise<{ total: number; successful: number; failed: number; results: { cluster_name: string; success: boolean; message?: string }[] }> {
-    return this.request('/api/cluster-connections/batch/reconnect', {
-      method: 'POST',
-      body: JSON.stringify({ cluster_names: clusterNames }),
-    });
+    return this.request('cluster_connection.batch_reconnect', { cluster_names: clusterNames });
   }
 
   // ==================== 全局设置 ====================
   async getSettings(keys?: string[]): Promise<{ key: string; value: string }[]> {
-    const params = new URLSearchParams();
-    if (keys && keys.length > 0) {
-      params.append('keys', keys.join(','));
-    }
-    const query = params.toString() ? `?${params}` : '';
-    const data = await this.request<{ settings: { key: string; value: string }[] }>(`/api/settings${query}`);
+    const data = await this.request<{ settings: { key: string; value: string }[] }>('settings.get', { keys });
     return data.settings;
   }
 
   async updateSetting(key: string, value: string): Promise<{ key: string; value: string }> {
-    return this.request('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ key, value }),
-    });
+    return this.request('settings.update', { key, value });
   }
 }
 
