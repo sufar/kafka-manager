@@ -168,6 +168,7 @@ where
     M::Error: Send + Sync + std::fmt::Display,
 {
     use deadpool::managed::{Hook, Timeouts};
+    use deadpool::Runtime;
     use std::time::Duration;
 
     deadpool::managed::Pool::builder(manager)
@@ -178,6 +179,7 @@ where
             create: Some(Duration::from_secs(30)),
             recycle: Some(Duration::from_secs(10)),
         })
+        .runtime(Runtime::Tokio1)
         .post_recycle(Hook::async_fn(|_conn, _metrics| {
             Box::pin(async move { Ok(()) })
         }))

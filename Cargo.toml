@@ -46,7 +46,7 @@ bcrypt = "0.15"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"] }
 
 # Connection pooling
-deadpool = "0.12"
+deadpool = { version = "0.12", features = ["managed", "rt_tokio_1"] }
 deadpool-runtime = "0.1"
 
 # Caching

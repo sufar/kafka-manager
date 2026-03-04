@@ -69,9 +69,14 @@ async fn get_or_create_admin_client(
     // 建立连接池连接
     state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
 
+    // 更新 Kafka 客户端（使用 with_added_cluster 创建新的客户端集合）
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(cluster_id, &config)?;
+    state.set_clients(new_clients.into());
+
     // 获取新的客户端
-    let new_clients = state.get_clients();
-    new_clients.get_admin(cluster_id)
+    let updated_clients = state.get_clients();
+    updated_clients.get_admin(cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
 }
 
@@ -1251,20 +1256,14 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
     let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
 
-    let clients = state.get_clients();
-    let consumer = clients
-        .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
-
-    let config = clients
+    let config = state.get_clients()
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // For simplicity, fetch messages without complex filtering in unified API
-    let messages = consumer
-        .fetch_messages(&config, &topic, partition, offset, max_msgs)
+    // 使用直接的 consumer 获取消息
+    let messages = fetch_messages_direct(&config, &topic, partition, offset, max_msgs)
         .await?;
 
     let records: Vec<Value> = messages
@@ -1281,6 +1280,76 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         .collect();
 
     Ok(serde_json::json!({ "messages": records }))
+}
+
+/// 直接使用 Kafka Consumer 获取消息
+async fn fetch_messages_direct(
+    kafka_config: &crate::config::KafkaConfig,
+    topic: &str,
+    partition: Option<i32>,
+    offset: Option<i64>,
+    max_messages: usize,
+) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
+    use rdkafka::consumer::{Consumer, StreamConsumer};
+    use rdkafka::config::ClientConfig;
+    use rdkafka::Message;
+    use rdkafka::TopicPartitionList;
+    use std::time::Duration;
+
+    // 创建 consumer 配置
+    let mut temp_config = ClientConfig::new();
+    temp_config.set("bootstrap.servers", &kafka_config.brokers);
+    temp_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+    temp_config.set("enable.auto.commit", "false");
+    temp_config.set("auto.offset.reset", "earliest");
+    temp_config.set("fetch.wait.max.ms", "200");
+    temp_config.set("fetch.min.bytes", "1");
+    temp_config.set("session.timeout.ms", "6000");
+    temp_config.set("request.timeout.ms", "5000");
+    temp_config.set("socket.timeout.ms", "5000");
+
+    let temp_consumer: StreamConsumer = temp_config.create()
+        .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
+
+    // 使用 assign 而不是 subscribe，避免分区重平衡延迟
+    let target_partition = partition.unwrap_or(0);
+    let start_offset = offset.unwrap_or(0);
+
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_offset))
+        .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+
+    temp_consumer.assign(&tpl)
+        .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+
+    let mut messages = Vec::new();
+    let base_timeout = Duration::from_millis(300);
+    let mut consecutive_timeouts = 0;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+
+    while messages.len() < max_messages {
+        match tokio::time::timeout(base_timeout, temp_consumer.recv()).await {
+            Ok(Ok(msg)) => {
+                consecutive_timeouts = 0;
+
+                messages.push(crate::kafka::consumer::KafkaMessage {
+                    partition: msg.partition(),
+                    offset: msg.offset(),
+                    key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                    value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                    timestamp: msg.timestamp().to_millis(),
+                });
+            }
+            Ok(Err(_)) | Err(_) => {
+                consecutive_timeouts += 1;
+                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(messages)
 }
 
 async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
