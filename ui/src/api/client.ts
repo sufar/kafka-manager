@@ -214,50 +214,50 @@ class ApiClient {
 
   // ==================== Topics ====================
   async getTopics(clusterId: string): Promise<string[]> {
-    const data = await this.request<TopicListResponse>('topic.list', { cluster: clusterId });
+    const data = await this.request<TopicListResponse>('topic.list', { cluster_id: clusterId });
     return data.topics;
   }
 
   async getTopicDetail(clusterId: string, topicName: string): Promise<TopicDetailResponse> {
-    return this.request('topic.get', { cluster: clusterId, topic: topicName });
+    return this.request('topic.get', { cluster_id: clusterId, topic: topicName });
   }
 
   async createTopic(clusterId: string, topic: CreateTopicRequest): Promise<CreateTopicResponse> {
-    return this.request('topic.create', { cluster: clusterId, ...topic });
+    return this.request('topic.create', { cluster_id: clusterId, ...topic });
   }
 
   async batchCreateTopics(
     clusterId: string,
     topics: BatchCreateTopicsRequest
   ): Promise<BatchCreateTopicsResponse> {
-    return this.request('topic.batch_create', { cluster: clusterId, ...topics });
+    return this.request('topic.batch_create', { cluster_id: clusterId, ...topics });
   }
 
   async deleteTopic(clusterId: string, topicName: string): Promise<void> {
-    return this.request('topic.delete', { cluster: clusterId, topic: topicName });
+    return this.request('topic.delete', { cluster_id: clusterId, topic: topicName });
   }
 
   async batchDeleteTopics(
     clusterId: string,
     topics: BatchDeleteTopicsRequest
   ): Promise<BatchDeleteTopicsResponse> {
-    return this.request('topic.batch_delete', { cluster: clusterId, ...topics });
+    return this.request('topic.batch_delete', { cluster_id: clusterId, ...topics });
   }
 
   async getTopicOffsets(clusterId: string, topicName: string): Promise<TopicPartitionDetail[]> {
-    return this.request('topic.offsets', { cluster: clusterId, topic: topicName });
+    return this.request('topic.offsets', { cluster_id: clusterId, topic: topicName });
   }
 
   async addPartitions(clusterId: string, topicName: string, newPartitions: number): Promise<void> {
-    return this.request('topic.partitions.add', { cluster: clusterId, topic: topicName, new_partitions: newPartitions });
+    return this.request('topic.partitions.add', { cluster_id: clusterId, topic: topicName, new_partitions: newPartitions });
   }
 
   async refreshTopics(clusterId: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
-    return this.request('topic.refresh', { cluster: clusterId });
+    return this.request('topic.refresh', { cluster_id: clusterId });
   }
 
   async getSavedTopics(clusterId: string): Promise<string[]> {
-    const data = await this.request<{ topics: string[] }>('topic.saved', { cluster: clusterId });
+    const data = await this.request<{ topics: string[] }>('topic.saved', { cluster_id: clusterId });
     return data.topics || [];
   }
 
@@ -267,12 +267,12 @@ class ApiClient {
   }
 
   async getTopicCount(clusterId: string): Promise<number> {
-    const data = await this.request<{ count: number }>('topic.count', { cluster: clusterId });
+    const data = await this.request<{ count: number }>('topic.count', { cluster_id: clusterId });
     return data.count;
   }
 
   async getTopicConfig(clusterId: string, topicName: string): Promise<Record<string, string>> {
-    return this.request('topic.config.get', { cluster: clusterId, topic: topicName });
+    return this.request('topic.config.get', { cluster_id: clusterId, topic: topicName });
   }
 
   async alterTopicConfig(
@@ -280,24 +280,24 @@ class ApiClient {
     topicName: string,
     config: Record<string, string>
   ): Promise<void> {
-    return this.request('topic.config.alter', { cluster: clusterId, topic: topicName, config });
+    return this.request('topic.config.alter', { cluster_id: clusterId, topic: topicName, config });
   }
 
   // ==================== Consumer Groups ====================
   async getConsumerGroups(clusterId: string): Promise<ConsumerGroupSummary[]> {
-    const data = await this.request<ConsumerGroupListResponse>('consumer_group.list', { cluster: clusterId });
+    const data = await this.request<ConsumerGroupListResponse>('consumer_group.list', { cluster_id: clusterId });
     return data.groups;
   }
 
   async getAllConsumerOffsets(clusterId: string): Promise<ConsumerOffsetsListResponse> {
-    return this.request('consumer_group.consumer_offsets', { cluster: clusterId });
+    return this.request('consumer_group.consumer_offsets', { cluster_id: clusterId });
   }
 
   async getConsumerGroupDetail(
     clusterId: string,
     groupName: string
   ): Promise<ConsumerGroupDetailResponse> {
-    return this.request('consumer_group.get', { cluster: clusterId, group: groupName });
+    return this.request('consumer_group.get', { cluster_id: clusterId, group: groupName });
   }
 
   async getConsumerGroupOffsets(
@@ -305,7 +305,7 @@ class ApiClient {
     groupName: string,
     topic?: string
   ): Promise<ConsumerGroupOffsetDetailResponse> {
-    return this.request('consumer_group.offsets', { cluster: clusterId, group: groupName, topic });
+    return this.request('consumer_group.offsets', { cluster_id: clusterId, group: groupName, topic });
   }
 
   async resetConsumerGroupOffset(
@@ -314,21 +314,21 @@ class ApiClient {
     request: ResetConsumerGroupOffsetRequest
   ): Promise<void> {
     return this.request('consumer_group.offsets.reset', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       group: groupName,
       ...request
     });
   }
 
   async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
-    return this.request('consumer_group.delete', { cluster: clusterId, group: groupName });
+    return this.request('consumer_group.delete', { cluster_id: clusterId, group: groupName });
   }
 
   async batchDeleteConsumerGroups(
     clusterId: string,
     request: BatchDeleteConsumerGroupsRequest
   ): Promise<BatchDeleteConsumerGroupsResponse> {
-    return this.request('consumer_group.batch_delete', { cluster: clusterId, ...request });
+    return this.request('consumer_group.batch_delete', { cluster_id: clusterId, ...request });
   }
 
   async getConsumerLag(clusterId: string, topic: string): Promise<{
@@ -346,7 +346,7 @@ class ApiClient {
       }[];
     }[];
   }> {
-    return this.request('consumer_lag.get', { cluster: clusterId, topic });
+    return this.request('consumer_lag.get', { cluster_id: clusterId, topic });
   }
 
   async getConsumerLagHistory(clusterId: string, topic: string): Promise<{
@@ -362,18 +362,18 @@ class ApiClient {
       produced_series: number[];
     }[];
   }> {
-    return this.request('consumer_lag.history', { cluster: clusterId, topic });
+    return this.request('consumer_lag.history', { cluster_id: clusterId, topic });
   }
 
   // ==================== Cluster Stats ====================
   async getClusterStats(clusterId: string): Promise<ClusterStatsResponse> {
-    return this.request('cluster.stats', { cluster: clusterId });
+    return this.request('cluster.stats', { cluster_id: clusterId });
   }
 
   // ==================== Schema Registry ====================
   async getSchemaSubjects(clusterId: string, schemaRegistryUrl: string): Promise<string[]> {
     const data = await this.request<{ subjects: string[] }>('schema.subjects', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       schema_registry_url: schemaRegistryUrl
     });
     return data.subjects;
@@ -381,7 +381,7 @@ class ApiClient {
 
   async getSchemaSubjectVersions(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
     const data = await this.request<{ versions: number[] }>('schema.versions', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       subject,
       schema_registry_url: schemaRegistryUrl
     });
@@ -390,7 +390,7 @@ class ApiClient {
 
   async getSchema(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<import('@/types/api').SchemaInfo> {
     return this.request('schema.get', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       subject,
       version,
       schema_registry_url: schemaRegistryUrl
@@ -398,12 +398,12 @@ class ApiClient {
   }
 
   async registerSchema(clusterId: string, schema: import('@/types/api').RegisterSchemaRequest): Promise<{ id: number; subject: string; success: boolean }> {
-    return this.request('schema.register', { cluster: clusterId, ...schema });
+    return this.request('schema.register', { cluster_id: clusterId, ...schema });
   }
 
   async deleteSchema(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
     const data = await this.request<{ deleted_versions: number[] }>('schema.delete', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       subject,
       schema_registry_url: schemaRegistryUrl
     });
@@ -412,7 +412,7 @@ class ApiClient {
 
   async deleteSchemaVersion(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<number> {
     const data = await this.request<{ deleted_version: number }>('schema.version.delete', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       subject,
       version,
       schema_registry_url: schemaRegistryUrl
@@ -422,7 +422,7 @@ class ApiClient {
 
   async getCompatibilityLevel(clusterId: string, schemaRegistryUrl: string): Promise<string> {
     const data = await this.request<{ level: string }>('schema.compatibility_level', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       schema_registry_url: schemaRegistryUrl
     });
     return data.level;
@@ -499,7 +499,7 @@ class ApiClient {
     fetchMode?: 'oldest' | 'newest';
   }): Promise<import('@/types/api').MessageRecord[]> {
     const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       topic,
       ...params
     });
@@ -512,7 +512,7 @@ class ApiClient {
 
   async sendMessage(clusterId: string, topic: string, message: import('@/types/api').SendMessageRequest): Promise<import('@/types/api').SendMessageResponse> {
     return this.request('message.send', {
-      cluster: clusterId,
+      cluster_id: clusterId,
       topic,
       ...message
     });
@@ -553,20 +553,20 @@ class ApiClient {
 
   // ==================== 集群监控 ====================
   async getClusterInfo(clusterId: string): Promise<import('@/types/api').ClusterInfoResponse> {
-    return this.request('cluster.info', { cluster: clusterId });
+    return this.request('cluster.info', { cluster_id: clusterId });
   }
 
   async getClusterMetrics(clusterId: string): Promise<import('@/types/api').ClusterMetricsResponse> {
-    return this.request('cluster.metrics', { cluster: clusterId });
+    return this.request('cluster.metrics', { cluster_id: clusterId });
   }
 
   async getBrokers(clusterId: string): Promise<import('@/types/api').BrokerInfo[]> {
-    const data = await this.request<{ brokers: import('@/types/api').BrokerInfo[] }>('cluster.brokers', { cluster: clusterId });
+    const data = await this.request<{ brokers: import('@/types/api').BrokerInfo[] }>('cluster.brokers', { cluster_id: clusterId });
     return data.brokers;
   }
 
   async getBrokerDetail(clusterId: string, brokerId: number): Promise<import('@/types/api').BrokerDetailResponse> {
-    return this.request('cluster.broker.get', { cluster: clusterId, broker_id: brokerId });
+    return this.request('cluster.broker.get', { cluster_id: clusterId, broker_id: brokerId });
   }
 
   // ==================== 集群连接管理 ====================
