@@ -28,6 +28,7 @@ use axum::{
 };
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // 创建统一路由
 pub fn routes() -> Router<AppState> {
@@ -40,6 +41,75 @@ fn get_string_param(body: &Value, key: &str) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+}
+
+/// 获取或创建 admin 客户端
+/// 如果内存中不存在，则从数据库加载集群配置并建立连接
+async fn get_or_create_admin_client(
+    state: &AppState,
+    cluster_id: &str,
+) -> Result<Arc<crate::kafka::KafkaAdmin>> {
+    // 首先尝试从内存中获取
+    let clients = state.get_clients();
+    if let Some(admin) = clients.get_admin(cluster_id) {
+        return Ok(admin);
+    }
+
+    // 从数据库获取集群配置
+    let cluster = ClusterStore::get_by_name(state.db.inner(), cluster_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    // 建立连接池连接
+    state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
+
+    // 获取新的客户端
+    let new_clients = state.get_clients();
+    new_clients.get_admin(cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+}
+
+/// 获取或创建 admin 客户端和配置
+/// 如果内存中不存在，则从数据库加载集群配置并建立连接
+async fn get_or_create_admin_client_and_config(
+    state: &AppState,
+    cluster_id: &str,
+) -> Result<(Arc<crate::kafka::KafkaAdmin>, Arc<crate::config::KafkaConfig>)> {
+    // 首先尝试从内存中获取
+    let clients = state.get_clients();
+    if let Some(admin) = clients.get_admin(cluster_id) {
+        if let Some(config) = clients.get_config(cluster_id) {
+            return Ok((admin, config));
+        }
+    }
+
+    // 从数据库获取集群配置
+    let cluster = ClusterStore::get_by_name(state.db.inner(), cluster_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+    let config = Arc::new(config);
+
+    // 建立连接池连接
+    state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
+
+    // 获取新的客户端
+    let new_clients = state.get_clients();
+    let admin = new_clients.get_admin(cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))?;
+
+    Ok((admin, config))
 }
 
 fn get_i64_param(body: &Value, key: &str) -> Result<i64> {
@@ -500,10 +570,7 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     }
 
     // Cache miss, get from Kafka
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     // Use spawn_blocking to avoid blocking async runtime
     let admin_clone = admin.clone();
@@ -524,10 +591,7 @@ async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let name = get_string_param(&body, "name")?;
 
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     let topic_info = admin.get_topic_info(&name)?;
 
@@ -553,10 +617,7 @@ async fn handle_topic_create(state: AppState, body: Value) -> Result<Value> {
     let replication_factor = get_optional_i32_param(&body, "replication_factor").unwrap_or(1);
     let config = get_hashmap_param(&body, "config");
 
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     admin
         .create_topic(&name, num_partitions, replication_factor, config)
@@ -572,10 +633,7 @@ async fn handle_topic_delete(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let name = get_string_param(&body, "name")?;
 
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     admin.delete_topic(&name).await?;
 
@@ -593,10 +651,7 @@ async fn handle_topic_batch_create(state: AppState, body: Value) -> Result<Value
         .ok_or_else(|| AppError::BadRequest("Missing topics array".to_string()))?;
     let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
 
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     let mut created = Vec::new();
     let mut failed = Vec::new();
@@ -660,10 +715,7 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
     let topics = get_string_array_param(&body, "topics");
     let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
 
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     let mut deleted = Vec::new();
     let mut failed = Vec::new();
@@ -808,10 +860,32 @@ async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> 
 async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
 
+    // 首先尝试从内存中获取 admin 客户端
     let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    let admin = clients.get_admin(&cluster_id);
+
+    // 如果不存在，尝试从数据库获取集群配置并建立连接
+    let admin = if admin.is_none() {
+        let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+        let config = crate::config::KafkaConfig {
+            brokers: cluster.brokers,
+            request_timeout_ms: cluster.request_timeout_ms as u32,
+            operation_timeout_ms: cluster.operation_timeout_ms as u32,
+        };
+
+        // 建立连接池连接
+        let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
+
+        // 获取新的客户端（包含刚添加的集群）
+        let new_clients = state.get_clients();
+        new_clients.get_admin(&cluster_id)
+            .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))?
+    } else {
+        admin.unwrap()
+    };
 
     // Get current topics from Kafka (blocking operation)
     let current_topics = {
@@ -1410,20 +1484,88 @@ async fn handle_connection_health_check(state: AppState, body: Value) -> Result<
                 "error_message": error_message,
             }))
         }
-        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+        None => {
+            // 连接池中不存在，尝试从数据库获取集群配置并建立临时连接
+            let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+            let config = crate::config::KafkaConfig {
+                brokers: cluster.brokers,
+                request_timeout_ms: cluster.request_timeout_ms as u32,
+                operation_timeout_ms: cluster.operation_timeout_ms as u32,
+            };
+
+            // 临时建立连接进行健康检查
+            match state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await {
+                Ok(_) => {
+                    // 连接建立后再次检查
+                    let new_status = state.pools.check_connection(&cluster_id).await;
+                    let (healthy, status_str, error_message) = match new_status {
+                        Some(conn_status) => match conn_status {
+                            crate::pool::ConnectionStatus::Connected => {
+                                (true, "healthy".to_string(), None::<String>)
+                            }
+                            crate::pool::ConnectionStatus::Disconnected => {
+                                (false, "disconnected".to_string(), None)
+                            }
+                            crate::pool::ConnectionStatus::Error(msg) => {
+                                (false, "error".to_string(), Some(msg))
+                            }
+                        },
+                        None => (false, "error".to_string(), Some("Failed to check connection after adding cluster".to_string())),
+                    };
+
+                    Ok(serde_json::json!({
+                        "cluster_id": cluster_id,
+                        "healthy": healthy,
+                        "status": status_str,
+                        "error_message": error_message,
+                    }))
+                }
+                Err(e) => Ok(serde_json::json!({
+                    "cluster_id": cluster_id,
+                    "healthy": false,
+                    "status": "error",
+                    "error_message": format!("Failed to add cluster: {}", e),
+                })),
+            }
+        }
     }
 }
 
 async fn handle_connection_metrics(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
 
-    // Check cluster exists
-    let pools = state.pools.get_all_connections_status().await;
-    if !pools.iter().any(|(id, _)| id == &cluster_id) {
-        return Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id)));
+    // Get pool status
+    let consumer_pool_status = state
+        .pools
+        .get_consumer_pool(&cluster_id)
+        .await
+        .map(|pool| (pool.status().size, pool.status().available));
+    let producer_pool_status = state
+        .pools
+        .get_producer_pool(&cluster_id)
+        .await
+        .map(|pool| (pool.status().size, pool.status().available));
+
+    // 如果连接池中不存在，尝试从数据库获取集群配置并建立临时连接
+    if consumer_pool_status.is_none() && producer_pool_status.is_none() {
+        let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+        let config = crate::config::KafkaConfig {
+            brokers: cluster.brokers,
+            request_timeout_ms: cluster.request_timeout_ms as u32,
+            operation_timeout_ms: cluster.operation_timeout_ms as u32,
+        };
+
+        // 临时建立连接
+        let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
     }
 
-    // Get pool status
+    // 重新获取连接池状态
     let consumer_pool_status = state
         .pools
         .get_consumer_pool(&cluster_id)

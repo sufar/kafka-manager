@@ -172,7 +172,44 @@ async fn get_connection_status(
                 error_message,
             }))
         }
-        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+        None => {
+            // 连接池中不存在，尝试从数据库获取集群配置
+            let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+            let config = crate::config::KafkaConfig {
+                brokers: cluster.brokers,
+                request_timeout_ms: cluster.request_timeout_ms as u32,
+                operation_timeout_ms: cluster.operation_timeout_ms as u32,
+            };
+
+            // 临时建立连接进行状态检查
+            match state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await {
+                Ok(_) => {
+                    let new_status = state.pools.check_connection(&cluster_id).await;
+                    let (status_str, error_message) = match new_status {
+                        Some(conn_status) => match conn_status {
+                            ConnectionStatus::Connected => ("connected".to_string(), None),
+                            ConnectionStatus::Disconnected => ("disconnected".to_string(), None),
+                            ConnectionStatus::Error(msg) => ("error".to_string(), Some(msg)),
+                        },
+                        None => ("error".to_string(), Some("Failed to check connection after adding cluster".to_string())),
+                    };
+
+                    Ok(Json(ConnectionStatusResponse {
+                        cluster_id,
+                        status: status_str,
+                        error_message,
+                    }))
+                }
+                Err(e) => Ok(Json(ConnectionStatusResponse {
+                    cluster_id,
+                    status: "error".to_string(),
+                    error_message: Some(format!("Failed to add cluster: {}", e)),
+                })),
+            }
+        }
     }
 }
 
@@ -234,6 +271,7 @@ async fn health_check_cluster(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<HealthCheckResponse>> {
+    // 首先检查连接池中是否存在
     let status = state.pools.check_connection(&cluster_id).await;
 
     match status {
@@ -251,7 +289,47 @@ async fn health_check_cluster(
                 error_message,
             }))
         }
-        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+        None => {
+            // 连接池中不存在，尝试从数据库获取集群配置并建立临时连接
+            let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+            let config = crate::config::KafkaConfig {
+                brokers: cluster.brokers,
+                request_timeout_ms: cluster.request_timeout_ms as u32,
+                operation_timeout_ms: cluster.operation_timeout_ms as u32,
+            };
+
+            // 临时建立连接进行健康检查
+            match state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await {
+                Ok(_) => {
+                    // 连接建立后再次检查
+                    let new_status = state.pools.check_connection(&cluster_id).await;
+                    let (healthy, status_str, error_message) = match new_status {
+                        Some(conn_status) => match conn_status {
+                            ConnectionStatus::Connected => (true, "healthy".to_string(), None),
+                            ConnectionStatus::Disconnected => (false, "disconnected".to_string(), None),
+                            ConnectionStatus::Error(msg) => (false, "error".to_string(), Some(msg)),
+                        },
+                        None => (false, "error".to_string(), Some("Failed to check connection after adding cluster".to_string())),
+                    };
+
+                    Ok(Json(HealthCheckResponse {
+                        cluster_id,
+                        healthy,
+                        status: status_str,
+                        error_message,
+                    }))
+                }
+                Err(e) => Ok(Json(HealthCheckResponse {
+                    cluster_id,
+                    healthy: false,
+                    status: "error".to_string(),
+                    error_message: Some(format!("Failed to add cluster: {}", e)),
+                })),
+            }
+        }
     }
 }
 
@@ -260,13 +338,29 @@ async fn get_connection_metrics(
     State(state): State<AppState>,
     Path(cluster_id): Path<String>,
 ) -> Result<Json<ConnectionMetricsResponse>> {
-    // 检查集群是否存在
-    let pools = state.pools.get_all_connections_status().await;
-    if !pools.iter().any(|(id, _)| id == &cluster_id) {
-        return Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id)));
+    // 获取连接池状态
+    let consumer_pool_status = state.pools.get_consumer_pool(&cluster_id).await
+        .map(|pool| (pool.status().size, pool.status().available));
+    let producer_pool_status = state.pools.get_producer_pool(&cluster_id).await
+        .map(|pool| (pool.status().size, pool.status().available));
+
+    // 如果连接池中不存在，尝试从数据库获取集群配置并建立临时连接
+    if consumer_pool_status.is_none() && producer_pool_status.is_none() {
+        let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+
+        let config = crate::config::KafkaConfig {
+            brokers: cluster.brokers,
+            request_timeout_ms: cluster.request_timeout_ms as u32,
+            operation_timeout_ms: cluster.operation_timeout_ms as u32,
+        };
+
+        // 临时建立连接
+        let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
     }
 
-    // 获取连接池状态
+    // 重新获取连接池状态
     let consumer_pool_status = state.pools.get_consumer_pool(&cluster_id).await
         .map(|pool| (pool.status().size, pool.status().available));
     let producer_pool_status = state.pools.get_producer_pool(&cluster_id).await
