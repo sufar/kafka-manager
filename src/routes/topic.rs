@@ -531,16 +531,38 @@ async fn refresh_topics(
 
     // 在阻塞线程中执行 Kafka 操作
     let admin = admin.clone();
-    let current_topics = tokio::task::spawn_blocking(move || -> std::result::Result<Vec<String>, AppError> {
+    let (current_topics, topic_details) = tokio::task::spawn_blocking(move || -> std::result::Result<(Vec<String>, Vec<(String, i32)>), AppError> {
         // 从 Kafka 集群获取当前 Topic 列表
         let current_topics = admin.list_topics()?;
-        Ok(current_topics)
+
+        // 获取每个 topic 的分区信息
+        let mut topic_details = Vec::new();
+        for topic in &current_topics {
+            if let Ok(info) = admin.get_topic_info(topic) {
+                topic_details.push((topic.clone(), info.partitions.len() as i32));
+            }
+        }
+
+        Ok((current_topics, topic_details))
     })
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
-    // 同步到数据库（删除已不存在的 topics）
+    // 同步到数据库（删除已不存在的 topics，添加新增的 topics）
     let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
+
+    // 更新新增 topic 的详细信息（分区数等）
+    for (topic_name, partition_count) in topic_details {
+        let config = std::collections::HashMap::new();
+        let _ = TopicStore::upsert(
+            state.db.inner(),
+            &cluster_id,
+            &topic_name,
+            partition_count,
+            1, // replication_factor 默认值
+            &config,
+        ).await;
+    }
 
     // 获取更新后的总数
     let all_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
