@@ -335,7 +335,7 @@ class ApiClient {
     topic: string;
     total_lag: number;
     consumer_groups: {
-      group_name: string;
+      name: string;
       total_lag: number;
       partitions: {
         partition: number;
@@ -356,7 +356,7 @@ class ApiClient {
     data_points: number;
     timestamps: number[];
     consumer_groups: {
-      group_name: string;
+      name: string;
       lag_series: number[];
       consumed_series: number[];
       produced_series: number[];

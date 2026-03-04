@@ -46,7 +46,7 @@ impl<T> ApiResponse<T> {
 }
 
 /// 将 Result 转换为统一响应
-fn into_response<T: Serialize>(result: Result<T>) -> impl IntoResponse {
+fn into_response(result: Result<Value>) -> impl IntoResponse {
     match result {
         Ok(data) => (StatusCode::OK, Json(ApiResponse::success(data))),
         Err(e) => {
@@ -56,7 +56,7 @@ fn into_response<T: Serialize>(result: Result<T>) -> impl IntoResponse {
                 AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             };
-            (status, Json(ApiResponse::<Value>::error(message)))
+            (status, Json(ApiResponse::error(message)))
         }
     }
 }
@@ -110,7 +110,7 @@ async fn list_topics(
     let result = async {
         // 先尝试从缓存获取
         if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
-            return Ok(TopicListResponse { topics: cached_topics });
+            return Ok(serde_json::json!({ "topics": cached_topics }));
         }
 
         // 缓存未命中，从 Kafka 集群实时获取 topics
@@ -124,7 +124,7 @@ async fn list_topics(
         // 写入缓存
         state.cache.set_topic_list(&cluster_id, topics.clone()).await;
 
-        Ok(TopicListResponse { topics })
+        Ok(serde_json::json!({ "topics": topics }))
     }.await;
 
     into_response(result)

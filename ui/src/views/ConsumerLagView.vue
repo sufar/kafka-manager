@@ -85,8 +85,8 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="group in consumerGroups" :key="group.group_name">
-                  <td class="font-medium">{{ group.group_name }}</td>
+                <tr v-for="group in consumerGroups" :key="group.name">
+                  <td class="font-medium">{{ group.name }}</td>
                   <td class="text-right">
                     <span class="badge" :class="{
                       'badge-error text-error': group.total_lag > 10000,
@@ -148,7 +148,7 @@ const totalLag = ref(0);
 const partitionCount = ref(0);
 const maxLagGroup = ref('');
 const consumerGroups = ref<Array<{
-  group_name: string;
+  name: string;
   total_lag: number;
   partitions: Array<{ partition: number; lag: number; current_offset: number; log_end_offset: number; state: string }>;
 }>>([]);
@@ -171,7 +171,7 @@ async function loadConsumerLag() {
     // 找到 lag 最大的 group
     if (consumerGroups.value.length > 0) {
       const maxGroup = consumerGroups.value.reduce((max, g) => g.total_lag > (max?.total_lag ?? 0) ? g : max, consumerGroups.value[0]);
-      maxLagGroup.value = maxGroup ? maxGroup.group_name : '';
+      maxLagGroup.value = maxGroup ? maxGroup.name : '';
     }
 
     // 获取历史数据
@@ -180,7 +180,7 @@ async function loadConsumerLag() {
     chartData.value = historyData.timestamps.map((timestamp, idx) => ({
       timestamp,
       groups: historyData.consumer_groups.map(g => ({
-        group_id: g.group_name,
+        group_id: g.name,
         total_lag: g.lag_series[idx] || 0
       }))
     }));

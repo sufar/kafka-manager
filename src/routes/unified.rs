@@ -2805,7 +2805,7 @@ async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> 
             .collect();
 
         consumer_group_lags.push(serde_json::json!({
-            "group_name": group.name,
+            "name": group.name,
             "total_lag": group_lag,
             "partitions": partitions,
         }));
@@ -2866,7 +2866,7 @@ async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Val
                 .collect();
 
             serde_json::json!({
-                "group_id": g.group_name,
+                "name": g.group_name,
                 "total_lag": g.total_lag,
                 "partitions": partitions,
             })
