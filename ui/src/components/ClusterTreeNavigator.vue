@@ -295,6 +295,7 @@ const expandedClusters = ref(new Set<string>());
 const expandedTopics = ref(new Set<string>());
 const refreshingClusters = ref(new Set<string>()); // 正在刷新的集群
 const refreshingConsumerGroups = ref(new Set<string>()); // 正在刷新 Consumer Groups 的集群
+const loadingClusters = ref(new Set<string>()); // 正在加载 topics 的集群
 const expandedTopicsFolders = ref(new Set<string>()); // Topics 文件夹展开状态
 const expandedConsumerGroupsFolders = ref(new Set<string>()); // Consumer Groups 文件夹展开状态
 
@@ -454,35 +455,56 @@ function collapseAll() {
 }
 
 async function loadClusterTopics(clusterName: string) {
-  // 如果已经有 topics 数据，直接返回
-  if (clusterTopics[clusterName]) return;
+  // 如果已经有 topics 数据或正在加载中，直接返回
+  if (clusterTopics[clusterName] || loadingClusters.value.has(clusterName)) return;
 
-  try {
-    // 先从数据库获取已保存的 topics
-    const topics = await apiClient.getSavedTopics(clusterName);
+  loadingClusters.value.add(clusterName);
+  let retryCount = 0;
+  const maxRetries = 3;
 
-    // 如果数据库中没有 topics，从 Kafka 集群实时获取并保存到数据库
-    if (!topics || topics.length === 0) {
-      console.log('[ClusterTreeNavigator] No saved topics, fetching from Kafka cluster:', clusterName);
-      // 调用刷新接口，将集群 topics 同步到数据库
-      await apiClient.refreshTopics(clusterName);
-      // 刷新后重新获取完整的 topics 列表
-      const refreshedTopics = await apiClient.getSavedTopics(clusterName);
-      clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
-        name,
-        partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-      }));
-      topicCounts[clusterName] = refreshedTopics?.length || 0;
-    } else {
-      clusterTopics[clusterName] = topics.map((name: string) => ({
-        name,
-        partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-      }));
-      topicCounts[clusterName] = topics.length;
+  while (retryCount < maxRetries) {
+    try {
+      // 先从数据库获取已保存的 topics
+      const topics = await apiClient.getSavedTopics(clusterName);
+
+      // 如果数据库中没有 topics，从 Kafka 集群实时获取并保存到数据库
+      if (!topics || topics.length === 0) {
+        console.log('[ClusterTreeNavigator] No saved topics, fetching from Kafka cluster:', clusterName);
+        // 调用刷新接口，将集群 topics 同步到数据库
+        await apiClient.refreshTopics(clusterName);
+        // 刷新后重新获取完整的 topics 列表
+        const refreshedTopics = await apiClient.getSavedTopics(clusterName);
+        clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
+          name,
+          partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
+        }));
+        topicCounts[clusterName] = refreshedTopics?.length || 0;
+      } else {
+        clusterTopics[clusterName] = topics.map((name: string) => ({
+          name,
+          partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
+        }));
+        topicCounts[clusterName] = topics.length;
+      }
+      // 成功加载，跳出循环
+      break;
+    } catch (error: any) {
+      retryCount++;
+      console.warn(`[ClusterTreeNavigator] Failed to load topics for ${clusterName} (attempt ${retryCount}/${maxRetries}):`, error?.message || error);
+
+      // 如果是集群未找到错误，可能是后端还没准备好，等待后重试
+      if (error?.message?.includes('not found') && retryCount < maxRetries) {
+        console.log(`[ClusterTreeNavigator] Retrying in ${retryCount * 500}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryCount * 500));
+      } else {
+        // 其他错误或已达到最大重试次数，显示错误但继续
+        console.error('[ClusterTreeNavigator] Failed to load topics:', error);
+        break;
+      }
     }
-  } catch (error) {
-    console.error('Failed to load topics:', error);
   }
+
+  loadingClusters.value.delete(clusterName);
 }
 
 async function loadClusterConsumerGroups(clusterName: string) {
