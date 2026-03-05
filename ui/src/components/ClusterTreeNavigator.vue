@@ -136,6 +136,34 @@
 
             <!-- Topics List -->
             <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4">
+              <!-- Topic Search Box (shown when more than 100 topics) -->
+              <div v-if="getTotalTopics(cluster.name) > VISIBLE_ITEMS" class="mb-2">
+                <div class="relative">
+                  <input
+                    v-model="topicSearchQuery[cluster.name]"
+                    type="text"
+                    :placeholder="`Search ${getTotalTopics(cluster.name)} topics...`"
+                    class="input input-bordered input-xs w-full pr-8"
+                    @click.stop
+                  />
+                  <button
+                    v-if="topicSearchQuery[cluster.name]"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs p-0 w-5 h-5"
+                    @click.stop="setTopicSearch(cluster.name, '')"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <p v-if="!topicSearchQuery[cluster.name]" class="text-xs text-base-content/50 mt-1">
+                  Showing first {{ VISIBLE_ITEMS }} topics. Use search to find more.
+                </p>
+                <p v-else class="text-xs text-primary mt-1">
+                  Found {{ getClusterTopics(cluster.name).length }} matching topics
+                </p>
+              </div>
+
               <div
                 v-for="topic in getClusterTopics(cluster.name)"
                 :key="topic.name"
@@ -573,8 +601,30 @@ async function refreshClusterTopics(clusterName: string) {
   }
 }
 
+// 虚拟滚动相关
+const VISIBLE_ITEMS = 100; // 最大渲染 100 个 topic，超过的需要搜索
+const topicSearchQuery = reactive<Record<string, string>>({});
+
 function getClusterTopics(clusterName: string): Topic[] {
-  return clusterTopics[clusterName] || [];
+  const topics = clusterTopics[clusterName] || [];
+  const query = topicSearchQuery[clusterName];
+
+  if (query && query.trim()) {
+    // 搜索模式：过滤匹配的 topic
+    const lowerQuery = query.toLowerCase();
+    return topics.filter(t => t.name.toLowerCase().includes(lowerQuery));
+  }
+
+  // 默认只返回前 100 个
+  return topics.slice(0, VISIBLE_ITEMS);
+}
+
+function setTopicSearch(clusterName: string, query: string) {
+  topicSearchQuery[clusterName] = query;
+}
+
+function getTotalTopics(clusterName: string): number {
+  return (clusterTopics[clusterName] || []).length;
 }
 
 function getClusterConsumerGroups(clusterName: string): ConsumerGroup[] {

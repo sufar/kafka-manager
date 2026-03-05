@@ -261,8 +261,12 @@ class ApiClient {
     return data.topics || [];
   }
 
-  async searchTopics(): Promise<{ cluster: string; topic: string }[]> {
-    const data = await this.request<{ results: { cluster: string; topic: string }[] }>('topic.search', {});
+  async searchTopics(keyword?: string): Promise<{ cluster: string; topic: string }[]> {
+    const params: Record<string, any> = {};
+    if (keyword && keyword.trim()) {
+      params.keyword = keyword.trim();
+    }
+    const data = await this.request<{ results: { cluster: string; topic: string }[] }>('topic.search', params);
     return data.results || [];
   }
 

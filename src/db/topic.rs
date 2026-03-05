@@ -145,7 +145,7 @@ impl TopicStore {
     ) -> Result<Vec<(String, String)>> {
         let pattern = format!("%{}%", keyword);
         let results: Vec<(String, String)> = sqlx::query_as(
-            "SELECT cluster_id, topic_name FROM topic_metadata WHERE topic_name LIKE ? ORDER BY cluster_id, topic_name LIMIT 100",
+            "SELECT cluster_id, topic_name FROM topic_metadata WHERE topic_name LIKE ? ORDER BY cluster_id, topic_name LIMIT 10",
         )
         .bind(&pattern)
         .fetch_all(pool)

@@ -223,7 +223,8 @@ async function performSearch() {
   searchLoading.value = true;
   searchError.value = null;
   try {
-    searchResults.value = await apiClient.searchTopics();
+    // 传入搜索关键词，后端会模糊匹配并限制返回 100 条
+    searchResults.value = await apiClient.searchTopics(searchQuery.value);
   } catch (e) {
     searchError.value = (e as { message: string }).message;
   } finally {

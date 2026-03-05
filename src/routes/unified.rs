@@ -1253,6 +1253,10 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let offset = get_optional_i64_param(&body, "offset");
     let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
     let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
+    let start_time = get_optional_i64_param(&body, "start_time");
+    let end_time = get_optional_i64_param(&body, "end_time");
+    let search = get_optional_string_param(&body, "search");
+    let fetch_mode = get_optional_string_param(&body, "fetch_mode");
 
     let _config = state.get_clients()
         .get_config(&cluster_id)
@@ -1264,8 +1268,18 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
         .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
 
-    let messages = fetch_messages_from_pool(&consumer_pool, &topic, partition, offset, max_msgs)
-        .await?;
+    let messages = fetch_messages_from_pool_with_filter(
+        &consumer_pool,
+        &topic,
+        partition,
+        offset,
+        max_msgs,
+        start_time,
+        end_time,
+        search,
+        fetch_mode.as_deref(),
+    )
+    .await?;
 
     let records: Vec<Value> = messages
         .into_iter()
@@ -1283,13 +1297,17 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "messages": records }))
 }
 
-/// 使用连接池中的 consumer 获取消息
-async fn fetch_messages_from_pool(
+/// 使用连接池中的 consumer 获取消息（支持过滤）
+async fn fetch_messages_from_pool_with_filter(
     pool: &crate::pool::KafkaConsumerPool,
     topic: &str,
     partition: Option<i32>,
     offset: Option<i64>,
     max_messages: usize,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<&str>,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
     use rdkafka::consumer::Consumer;
     use rdkafka::Message;
@@ -1302,7 +1320,38 @@ async fn fetch_messages_from_pool(
 
     // 使用 assign 直接分配分区，避免重平衡延迟
     let target_partition = partition.unwrap_or(0);
-    let start_offset = offset.unwrap_or(0);
+
+    // 根据 fetch_mode 和 offset 确定起始 offset
+    let start_offset = if let Some(start_time) = start_time {
+        // 如果指定了开始时间，使用 offsets_for_times 定位
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
+            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+
+        match consumer.offsets_for_times(tpl, Duration::from_secs(5)) {
+            Ok(result) => {
+                // 从结果中获取 offset
+                result.elements_for_topic(topic)
+                    .first()
+                    .and_then(|e| e.offset().to_raw())
+                    .unwrap_or_else(|| offset.unwrap_or(0))
+            }
+            Err(_) => offset.unwrap_or(0),
+        }
+    } else if fetch_mode == Some("newest") {
+        // 从最新的消息开始
+        match consumer.fetch_watermarks(topic, target_partition, Duration::from_secs(5)) {
+            Ok((_, high)) if high > 0 => {
+                // 计算起始 offset，确保能获取到足够的消息
+                let desired_start = high.saturating_sub(max_messages as i64);
+                offset.unwrap_or(desired_start)
+            }
+            _ => offset.unwrap_or(0),
+        }
+    } else {
+        // 默认从最早的消息开始
+        offset.unwrap_or(0)
+    };
 
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_offset))
@@ -1311,6 +1360,7 @@ async fn fetch_messages_from_pool(
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
+    let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::new();
     let base_timeout = Duration::from_millis(200);
     let mut consecutive_timeouts = 0;
@@ -1321,12 +1371,42 @@ async fn fetch_messages_from_pool(
             Ok(Ok(msg)) => {
                 consecutive_timeouts = 0;
 
+                let timestamp = msg.timestamp().to_millis();
+
+                // 时间范围过滤
+                if let Some(start) = start_time {
+                    if let Some(ts) = timestamp {
+                        if ts < start {
+                            continue;
+                        }
+                    }
+                }
+                if let Some(end) = end_time {
+                    if let Some(ts) = timestamp {
+                        if ts > end {
+                            break; // 超过结束时间，停止获取
+                        }
+                    }
+                }
+
+                let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
+                let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
+
+                // 搜索过滤
+                if let Some(ref search_term) = search_lower {
+                    let key_match = key.as_ref().map_or(false, |k| k.to_lowercase().contains(search_term));
+                    let value_match = value.as_ref().map_or(false, |v| v.to_lowercase().contains(search_term));
+                    if !key_match && !value_match {
+                        continue;
+                    }
+                }
+
                 messages.push(crate::kafka::consumer::KafkaMessage {
                     partition: msg.partition(),
                     offset: msg.offset(),
-                    key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                    value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                    timestamp: msg.timestamp().to_millis(),
+                    key,
+                    value,
+                    timestamp,
                 });
             }
             Ok(Err(_)) | Err(_) => {

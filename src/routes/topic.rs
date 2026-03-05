@@ -589,23 +589,24 @@ pub struct SearchTopicsResponse {
 }
 
 /// 搜索所有集群中的 Topic（从数据库中搜索）
-/// 使用单次查询获取所有 Topic，避免 N+1 查询问题
+/// 支持关键词模糊匹配，限制返回 100 条结果
 async fn search_topics_all_clusters(
     State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<SearchTopicsResponse>> {
     use crate::db::topic::TopicStore;
 
-    // 单次查询获取所有 Topic（优化：避免 N+1 查询）
-    let all_topics = TopicStore::list_all(state.db.inner()).await?;
-
-    // 转换为搜索结果
-    let results: Vec<TopicSearchResult> = all_topics
-        .into_iter()
-        .map(|topic| TopicSearchResult {
-            cluster: topic.cluster_id,
-            topic: topic.topic_name,
-        })
-        .collect();
+    // 如果有关键词参数，使用模糊搜索
+    let results = if let Some(keyword) = params.get("keyword").filter(|k| !k.is_empty()) {
+        let search_results = TopicStore::search(state.db.inner(), keyword).await?;
+        search_results
+            .into_iter()
+            .map(|(cluster, topic)| TopicSearchResult { cluster, topic })
+            .collect()
+    } else {
+        // 空关键词时返回空列表（避免返回所有 topic 导致性能问题）
+        Vec::new()
+    };
 
     Ok(Json(SearchTopicsResponse { results }))
 }
