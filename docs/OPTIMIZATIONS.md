@@ -8,6 +8,9 @@
 
 1. [流式过滤优化](#流式过滤优化)
 2. [流式排序优化](#流式排序优化)
+3. [Kafka 查询性能优化](#kafka-查询性能优化)
+4. [Topic 搜索优化](#topic-搜索优化)
+5. [缓存优化](#缓存优化)
 
 ---
 
@@ -298,11 +301,98 @@ let messages = if need_sort {
 
 ---
 
+## Kafka 查询性能优化
+
+### 问题背景
+
+Kafka 的 AdminClient 查询是同步阻塞操作，如果在 tokio 异步运行时中直接调用，会阻塞整个线程池，导致其他请求无法处理。
+
+### 优化方案
+
+将所有同步 Kafka 操作包装在 `tokio::task::spawn_blocking` 中：
+
+```rust
+let admin = admin.clone();
+let result = tokio::task::spawn_blocking(move || {
+    admin.get_cluster_info()
+})
+.await
+.map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+```
+
+### 优化范围
+
+- `cluster_monitor.rs` - 5 个接口
+- `cluster_stats.rs` - 1 个接口
+- `topic.rs` - 2 个接口
+
+---
+
+## Topic 搜索优化
+
+### 问题背景
+
+原来的 Topic 搜索实现是 N+1 查询问题：
+
+```rust
+// 旧代码：N 次查询（N = 集群数量）
+for cluster in &clusters {
+    let topics = TopicStore::list_by_cluster(...).await?; // 每次查询数据库
+    ...
+}
+```
+
+### 优化方案
+
+改为单次查询所有 Topic：
+
+```rust
+// 新代码：1 次查询
+let topics = TopicStore::list_all(state.db.inner()).await?;
+```
+
+新增方法：
+- `TopicStore::list_all()` - 一次性查询所有 Topic
+- `TopicStore::search()` - 支持模糊搜索
+
+### 性能改进
+
+| 集群数量 | 优化前 | 优化后 | 改进 |
+|----------|--------|--------|------|
+| 10 个 | 10 次查询 | 1 次查询 | **90%** |
+| 100 个 | 100 次查询 | 1 次查询 | **99%** |
+
+---
+
+## 缓存优化
+
+### 问题背景
+
+原来的缓存时间过短（3-5秒），导致频繁查询 Kafka 集群，增加集群压力。
+
+### 优化方案
+
+延长缓存时间：
+
+| 缓存类型 | 优化前 | 优化后 |
+|----------|--------|--------|
+| Topic 元数据 | 5 秒 | 30 秒 |
+| Topic 列表 | 3 秒 | 30 秒 |
+| Consumer Group | 3 秒 | 30 秒 |
+| Broker 信息 | 10 秒 | 60 秒 |
+
+### 代码位置
+
+- `src/cache/mod.rs` - 缓存配置
+
+---
+
 ## 总结
 
-通过流式过滤和流式排序优化，Kafka Manager 在处理大量消息时的内存使用效率得到显著提升：
+通过以下优化，Kafka Manager 的性能得到显著提升：
 
-- **流式过滤**：在读取消息时立即过滤，避免加载无用数据
-- **流式排序**：使用堆维护 TopK 元素，避免全量排序
-
-两项优化结合使用，在典型场景下（搜索匹配率 1%，limit=100）可节省 **99%+** 的内存。
+1. **流式过滤** - 节省 90-99% 内存
+2. **流式排序** - 节省 99% 内存
+3. **异步化 Kafka 查询** - 避免阻塞 tokio 运行时
+4. **数据库查询优化** - 减少 N+1 查询
+5. **缓存优化** - 减少 Kafka 集群压力

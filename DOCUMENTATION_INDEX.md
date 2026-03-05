@@ -94,6 +94,13 @@ path = "kafka_manager.db"
 
 ## 更新日志
 
+### 2026-03-05
+- **Windows 打包修复** - 修复 Windows 打包后后端启动失败问题
+- **API 格式统一** - 统一响应格式为 `{success, data/error}`
+- **参数名统一** - 统一使用 `cluster_id` 作为参数名
+- **性能优化** - 缓存时间延长、阻塞调用改为异步、数据库查询优化
+- **字段名统一** - Consumer Lag 接口统一使用 `name` 字段
+
 ### 2026-02-26
 - 新增 Topic 元数据同步功能
 - 新增 `topic_metadata` 数据库表
