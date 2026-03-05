@@ -93,58 +93,7 @@
             </li>
           </ul>
 
-          <!-- Cluster-based navigation -->
-          <div class="mt-4">
-            <div class="flex items-center justify-between mb-2 px-2">
-              <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.mainLayout.clustersLabel }}</span>
-            </div>
-            <ul class="menu menu-md gap-1">
-              <li v-for="cluster in clusters" :key="cluster.id">
-                <details :open="isClusterExpanded(cluster.name)" @toggle="onClusterToggle(cluster.name, $event)">
-                  <summary class="cursor-pointer hover:bg-base-200 rounded-lg -mx-2 px-2 py-1 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-200" :class="isClusterExpanded(cluster.name) ? 'rotate-90' : ''">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                    <span
-                      class="w-2 h-2 rounded-full"
-                      :class="getHealthClass(cluster.name)"
-                    ></span>
-                    <span class="font-medium truncate">{{ cluster.name }}</span>
-                  </summary>
-                  <ul class="ml-4">
-                    <li>
-                      <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active">
-                        {{ t.mainLayout.topics }}
-                      </router-link>
-                    </li>
-                    <li>
-                      <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active">
-                        {{ t.mainLayout.consumerGroups }}
-                      </router-link>
-                    </li>
-                    <li>
-                      <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active">
-                        {{ t.mainLayout.messages }}
-                      </router-link>
-                    </li>
-                    <li>
-                      <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active">
-                        {{ t.mainLayout.schemaRegistry }}
-                      </router-link>
-                    </li>
-                    <li>
-                      <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active">
-                        {{ t.mainLayout.acls }}
-                      </router-link>
-                    </li>
-                  </ul>
-                </details>
-              </li>
-            </ul>
-          </div>
-        </nav>
-
-        <!-- Clusters List -->
+        <!-- Cluster Navigation & Selection (合并为一个列表) -->
         <div class="flex-1 overflow-y-auto px-4 py-2">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.mainLayout.clustersLabel }}</span>
@@ -165,43 +114,61 @@
               </button>
             </div>
           </div>
-          <ul class="menu w-full">
+          <ul class="menu w-full gap-1">
             <li v-for="cluster in clusters" :key="cluster.id">
-              <div
-                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer"
-                :class="{ 'bg-primary/10': selectedClusterIds.includes(cluster.name) }"
-              >
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-xs"
-                  :checked="selectedClusterIds.includes(cluster.name)"
-                  @change="toggleCluster(cluster.name)"
-                  @click.stop
-                />
-                <div
-                  class="flex-1 min-w-0"
-                  @click="toggleCluster(cluster.name)"
-                >
-                  <div class="flex items-center gap-2">
-                    <span
-                      class="w-2 h-2 rounded-full"
-                      :class="getHealthClass(cluster.name)"
-                    ></span>
-                    <span class="font-medium truncate">{{ cluster.name }}</span>
-                  </div>
-                  <div class="text-xs text-base-content/50 truncate">{{ cluster.brokers }}</div>
-                </div>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  @click="testConnection(cluster.id)"
-                  :disabled="testing.has(cluster.id)"
-                >
-                  <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-xs"></span>
-                  <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                </button>
-              </div>
+              <details :open="isClusterExpanded(cluster.name)" @toggle="onClusterToggle(cluster.name, $event)">
+                <summary class="cursor-pointer hover:bg-base-200 rounded-lg p-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs"
+                    :checked="selectedClusterIds.includes(cluster.name)"
+                    @change="toggleCluster(cluster.name)"
+                    @click.stop
+                  />
+                  <span
+                    class="w-2 h-2 rounded-full flex-shrink-0"
+                    :class="getHealthClass(cluster.name)"
+                  ></span>
+                  <span class="font-medium truncate flex-1">{{ cluster.name }}</span>
+                  <button
+                    class="btn btn-ghost btn-xs flex-shrink-0"
+                    @click.stop="testConnection(cluster.id)"
+                    :disabled="testing.has(cluster.id)"
+                  >
+                    <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-xs"></span>
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                  </button>
+                </summary>
+                <ul class="ml-4">
+                  <li>
+                    <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active">
+                      {{ t.mainLayout.topics }}
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active">
+                      {{ t.mainLayout.consumerGroups }}
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active">
+                      {{ t.mainLayout.messages }}
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active">
+                      {{ t.mainLayout.schemaRegistry }}
+                    </router-link>
+                  </li>
+                  <li>
+                    <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active">
+                      {{ t.mainLayout.acls }}
+                    </router-link>
+                  </li>
+                </ul>
+              </details>
             </li>
           </ul>
         </div>

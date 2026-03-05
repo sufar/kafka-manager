@@ -49,6 +49,9 @@ export const useClusterStore = defineStore('clusters', () => {
   });
 
   async function fetchClusters() {
+    // 如果正在加载，跳过重复请求
+    if (loading.value) return;
+
     loading.value = true;
     error.value = null;
     try {
@@ -60,15 +63,17 @@ export const useClusterStore = defineStore('clusters', () => {
           selectedClusterIds.value = [firstName];
         }
       }
-      // 初始化健康状态并获取统计数据
+      // 初始化健康状态（不阻塞，并行执行）
       for (const cluster of clusters.value) {
         if (!clusterHealth.value[cluster.name]) {
           clusterHealth.value[cluster.name] = {
             clusterId: cluster.name,
-            healthy: undefined, // 初始状态设为未知
+            healthy: undefined,
           };
         }
-        // 获取集群统计数据（即使健康状态未知也尝试获取）
+      }
+      // 并行获取统计数据（使用 Promise.all 限制并发）
+      const statsPromises = clusters.value.slice(0, 5).map(async (cluster) => { // 最多同时获取5个集群
         try {
           const stats = await apiClient.getClusterStats(cluster.name);
           const health = clusterHealth.value[cluster.name];
@@ -76,14 +81,13 @@ export const useClusterStore = defineStore('clusters', () => {
             health.stats = stats;
           }
         } catch (e) {
-          console.warn(`Failed to fetch stats for cluster ${cluster.name}:`, e);
+          // 静默失败，不阻塞其他请求
         }
-      }
+      });
+      await Promise.all(statsPromises);
     } catch (e) {
       error.value = (e as { message: string }).message;
       console.error('[ClusterStore] Failed to fetch clusters:', e);
-      // 不清除 clusters 数组，这样如果之前有数据还可以显示
-      // clusters.value = [];
     } finally {
       loading.value = false;
     }

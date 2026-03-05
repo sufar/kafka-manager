@@ -1,17 +1,11 @@
 <template>
-  <div class="p-6 relative overflow-hidden">
-    <!-- Animated background particles -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
-      <div class="particle particle-1"></div>
-      <div class="particle particle-2"></div>
-    </div>
-
+  <div class="p-6">
     <!-- Page Header -->
-    <div class="mb-8 relative">
+    <div class="mb-8">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-gradient flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
+          <h1 class="text-3xl font-bold flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10">
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
             </svg>
             {{ t.topics.title }}
@@ -630,7 +624,7 @@
 
 <script setup lang="ts">
 // 保持原有逻辑不变，只更新样式
-import { ref, reactive, computed, onMounted, watchEffect } from 'vue';
+import { ref, reactive, computed, onMounted, watch, onUnmounted } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -705,17 +699,33 @@ function getClusterHealth(clusterId: string) {
   return clusterStore.getClusterHealth(clusterId);
 }
 
-// Filtered topics based on search query
-const filteredTopicsByCluster = computed(() => {
-  if (!searchQuery.value) return topicsByCluster.value;
+// Filtered topics based on search query (使用防抖优化)
+const searchQueryDebounced = ref('');
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const query = searchQuery.value.toLowerCase();
+watch(searchQuery, (newVal) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    searchQueryDebounced.value = newVal;
+  }, 150); // 150ms 防抖
+});
+
+const filteredTopicsByCluster = computed(() => {
+  if (!searchQueryDebounced.value) return topicsByCluster.value;
+
+  const query = searchQueryDebounced.value.toLowerCase();
   const filtered: Record<string, TopicItem[]> = {};
 
   for (const [clusterName, topics] of Object.entries(topicsByCluster.value)) {
-    const filteredTopics = topics.filter(topic =>
-      topic.name.toLowerCase().includes(query)
-    );
+    // 使用更高效的搜索方式
+    const filteredTopics = [];
+    for (const topic of topics) {
+      if (topic.name.toLowerCase().includes(query)) {
+        filteredTopics.push(topic);
+      }
+      // 限制每个集群的搜索结果数量，避免渲染过多
+      if (filteredTopics.length >= 100) break;
+    }
     if (filteredTopics.length > 0) {
       filtered[clusterName] = filteredTopics;
     }
@@ -725,12 +735,18 @@ const filteredTopicsByCluster = computed(() => {
 });
 
 const filteredAllTopicsList = computed(() => {
-  if (!searchQuery.value) return allTopicsList.value;
+  if (!searchQueryDebounced.value) return allTopicsList.value;
 
-  const query = searchQuery.value.toLowerCase();
-  return allTopicsList.value.filter(topic =>
-    topic.name.toLowerCase().includes(query)
-  );
+  const query = searchQueryDebounced.value.toLowerCase();
+  const result = [];
+  for (const topic of allTopicsList.value) {
+    if (topic.name.toLowerCase().includes(query)) {
+      result.push(topic);
+    }
+    // 限制搜索结果数量
+    if (result.length >= 200) break;
+  }
+  return result;
 });
 
 const filteredClusterTopics = computed(() => {
