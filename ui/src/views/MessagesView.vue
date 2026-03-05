@@ -215,6 +215,7 @@
               <select v-model.number="messageForm.partition" class="select select-bordered w-full" required>
                 <option v-for="p in topicPartitions" :key="p" :value="p">{{ t.messages.partition }} {{ p }}</option>
               </select>
+              <p v-if="topicPartitions.length === 0" class="text-xs text-warning mt-1">Loading partitions...</p>
             </div>
             <!-- Key Input -->
             <div>
@@ -563,7 +564,12 @@ function handleSelectAll() {
   }
 }
 
-function openSendModal() {
+async function openSendModal() {
+  // 如果 topicPartitions 为空，先获取分区列表
+  if (topicPartitions.value.length === 0 && selectedClusterId.value && selectedTopic.value) {
+    await fetchTopicPartitions();
+  }
+
   // 如果有 partition 参数，使用它作为默认值
   let partition: number = 0;
   if (partitionParam.value !== undefined && topicPartitions.value.includes(partitionParam.value)) {
