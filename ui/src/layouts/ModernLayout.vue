@@ -209,11 +209,11 @@ let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(searchQuery, (newQuery) => {
   if (newQuery.trim()) {
-    // 防抖 200ms
+    // 防抖 300ms
     if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
       performSearch();
-    }, 200);
+    }, 300);
   } else {
     searchResults.value = [];
   }
@@ -222,22 +222,23 @@ watch(searchQuery, (newQuery) => {
 async function performSearch() {
   searchLoading.value = true;
   searchError.value = null;
+  const start = performance.now();
+  console.log('[search] starting search for:', searchQuery.value);
   try {
-    // 传入搜索关键词，后端会模糊匹配并限制返回 100 条
+    // 传入搜索关键词，后端会模糊匹配并限制返回 10 条
     searchResults.value = await apiClient.searchTopics(searchQuery.value);
+    console.log('[search] completed in', (performance.now() - start).toFixed(2), 'ms, found', searchResults.value.length, 'results');
   } catch (e) {
+    console.error('[search] error:', e);
     searchError.value = (e as { message: string }).message;
   } finally {
     searchLoading.value = false;
   }
 }
 
+// 前端不再需要过滤，因为后端已经返回了匹配的结果
 const filteredSearchResults = computed(() => {
-  if (!searchQuery.value.trim()) return searchResults.value;
-  const query = searchQuery.value.toLowerCase();
-  return searchResults.value.filter(result =>
-    result.topic.toLowerCase().includes(query)
-  );
+  return searchResults.value;
 });
 
 function highlightMatch(topic: string) {

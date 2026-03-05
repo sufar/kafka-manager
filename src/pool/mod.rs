@@ -98,16 +98,40 @@ impl ClusterPools {
             Ok(producer) => {
                 // 使用 producer 的 client 进行元数据请求
                 let client = producer.client();
-                match client.fetch_metadata(None, Duration::from_secs(2)) {
-                    Ok(metadata) => {
-                        if metadata.brokers().is_empty() {
-                            Some(ConnectionStatus::Error("No brokers in metadata".into()))
-                        } else {
-                            Some(ConnectionStatus::Connected)
+
+                // 最多重试 3 次，处理临时网络故障
+                let max_retries = 3;
+                for attempt in 1..=max_retries {
+                    match client.fetch_metadata(None, Duration::from_secs(2)) {
+                        Ok(metadata) => {
+                            if metadata.brokers().is_empty() {
+                                return Some(ConnectionStatus::Error("No brokers in metadata".into()));
+                            } else {
+                                return Some(ConnectionStatus::Connected);
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = format!("{}", e);
+                            // 如果是 BrokerTransportFailure 或超时错误，且不是最后一次尝试，则重试
+                            let is_transient = error_msg.contains("BrokerTransportFailure")
+                                || error_msg.contains("timed out")
+                                || error_msg.contains("Transport");
+
+                            if is_transient && attempt < max_retries {
+                                tracing::debug!(
+                                    "Health check attempt {}/{} failed for cluster '{}': {}, retrying...",
+                                    attempt, max_retries, cluster_id, error_msg
+                                );
+                                tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                                continue;
+                            }
+
+                            // 最后一次尝试或非临时错误，返回错误状态
+                            return Some(ConnectionStatus::Error(format!("Metadata fetch failed: {}", e)));
                         }
                     }
-                    Err(e) => Some(ConnectionStatus::Error(format!("Metadata fetch failed: {}", e))),
                 }
+                unreachable!()
             }
             Err(e) => Some(ConnectionStatus::Error(format!("Pool error: {}", e))),
         }

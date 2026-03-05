@@ -219,7 +219,7 @@ class ApiClient {
   }
 
   async getTopicDetail(clusterId: string, topicName: string): Promise<TopicDetailResponse> {
-    return this.request('topic.get', { cluster_id: clusterId, topic: topicName });
+    return this.request('topic.get', { cluster_id: clusterId, name: topicName });
   }
 
   async createTopic(clusterId: string, topic: CreateTopicRequest): Promise<CreateTopicResponse> {

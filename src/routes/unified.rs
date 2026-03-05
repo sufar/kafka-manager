@@ -245,7 +245,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.throughput" => handle_topic_throughput(state, body).await,
         "topic.refresh" => handle_topic_refresh(state, body).await,
         "topic.saved" => handle_topic_saved(state, body).await,
-        "topic.search" => handle_topic_search(state).await,
+        "topic.search" => handle_topic_search(state, body).await,
         "topic.count" => handle_topic_count(state, body).await,
 
         // Consumer Group
@@ -936,9 +936,24 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     }))
 }
 
-async fn handle_topic_search(state: AppState) -> Result<Value> {
-    // 一次性查询所有 topic
-    let topics = TopicStore::list_all(state.db.inner()).await?;
+async fn handle_topic_search(state: AppState, body: Value) -> Result<Value> {
+    use crate::db::topic::TopicStore;
+
+    // 获取搜索关键词（可选参数）
+    let keyword = body.get("keyword").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+
+    let start = std::time::Instant::now();
+    tracing::info!("[search] keyword: {:?}", keyword);
+
+    let topics = if let Some(kw) = keyword {
+        // 有搜索关键词时，使用模糊查询
+        TopicStore::search_topics(state.db.inner(), kw).await?
+    } else {
+        // 无关键词时，返回所有 topic（限制 100 条）
+        TopicStore::list_all_limit(state.db.inner(), 100).await?
+    };
+
+    tracing::info!("[search] found {} topics in {:?}", topics.len(), start.elapsed());
 
     // 转换为响应格式
     let results: Vec<Value> = topics

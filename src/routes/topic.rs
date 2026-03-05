@@ -589,7 +589,7 @@ pub struct SearchTopicsResponse {
 }
 
 /// 搜索所有集群中的 Topic（从数据库中搜索）
-/// 支持关键词模糊匹配，限制返回 100 条结果
+/// 支持关键词模糊匹配，限制返回 10 条结果
 async fn search_topics_all_clusters(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -598,10 +598,10 @@ async fn search_topics_all_clusters(
 
     // 如果有关键词参数，使用模糊搜索
     let results = if let Some(keyword) = params.get("keyword").filter(|k| !k.is_empty()) {
-        let search_results = TopicStore::search(state.db.inner(), keyword).await?;
+        let search_results = TopicStore::search_topics(state.db.inner(), keyword).await?;
         search_results
             .into_iter()
-            .map(|(cluster, topic)| TopicSearchResult { cluster, topic })
+            .map(|t| TopicSearchResult { cluster: t.cluster_id, topic: t.topic_name })
             .collect()
     } else {
         // 空关键词时返回空列表（避免返回所有 topic 导致性能问题）

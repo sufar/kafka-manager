@@ -210,12 +210,10 @@
             <div>
               <label class="label">
                 <span class="label-text font-medium">{{ t.messages.partition }}</span>
-                <span class="label-text-alt">{{ t.messages.targetPartition }}</span>
               </label>
-              <select v-model.number="messageForm.partition" class="select select-bordered w-full" required>
-                <option v-for="p in topicPartitions" :key="p" :value="p">{{ t.messages.partition }} {{ p }}</option>
+              <select v-model.number="messageForm.partition" class="select select-bordered w-32" required :disabled="topicPartitions.length === 0">
+                <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
               </select>
-              <p v-if="topicPartitions.length === 0" class="text-xs text-warning mt-1">Loading partitions...</p>
             </div>
             <!-- Key Input -->
             <div>
@@ -461,15 +459,23 @@ async function fetchTopics() {
 }
 
 async function fetchTopicPartitions() {
-  if (!selectedClusterId.value || !selectedTopic.value) return;
+  if (!selectedClusterId.value || !selectedTopic.value) {
+    console.warn('[fetchTopicPartitions] Missing cluster or topic:', { cluster: selectedClusterId.value, topic: selectedTopic.value });
+    topicPartitions.value = [0]; // 默认提供 partition 0
+    return;
+  }
   try {
+    console.log('[fetchTopicPartitions] Fetching for:', selectedClusterId.value, selectedTopic.value);
     const topicDetail = await apiClient.getTopicDetail(selectedClusterId.value, selectedTopic.value);
-    topicPartitions.value = topicDetail.partitions.map(p => p.id);
+    console.log('[fetchTopicPartitions] Result:', topicDetail);
+    const partitions = topicDetail.partitions?.map((p: { id: number }) => p.id) || [];
+    console.log('[fetchTopicPartitions] Partitions:', partitions);
+    topicPartitions.value = partitions.length > 0 ? partitions : [0];
     // 清空 partition 过滤，因为旧值可能不在新的分区列表中
     filters.partition = undefined;
   } catch (e) {
     console.error('Failed to fetch topic partitions:', e);
-    topicPartitions.value = [];
+    topicPartitions.value = [0]; // 降级方案：默认提供 partition 0
   }
 }
 
@@ -565,8 +571,8 @@ function handleSelectAll() {
 }
 
 async function openSendModal() {
-  // 如果 topicPartitions 为空，先获取分区列表
-  if (topicPartitions.value.length === 0 && selectedClusterId.value && selectedTopic.value) {
+  // 先获取分区列表（无论之前是否有数据，都重新获取以确保数据最新）
+  if (selectedClusterId.value && selectedTopic.value) {
     await fetchTopicPartitions();
   }
 

@@ -138,21 +138,47 @@ impl TopicStore {
         Ok(topics)
     }
 
-    /// 搜索 Topic（按名称模糊匹配）
-    pub async fn search(
+    /// 获取所有 Topic 元数据（限制数量，用于搜索）
+    pub async fn list_all_limit(
+        pool: &sqlx::SqlitePool,
+        limit: u32,
+    ) -> Result<Vec<TopicMetadata>> {
+        let topics = sqlx::query_as(
+            "SELECT * FROM topic_metadata ORDER BY cluster_id, topic_name LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(topics)
+    }
+
+    /// 搜索 Topic（按名称模糊匹配，返回最多 10 条）
+    pub async fn search_topics(
         pool: &sqlx::SqlitePool,
         keyword: &str,
-    ) -> Result<Vec<(String, String)>> {
+    ) -> Result<Vec<TopicMetadata>> {
+        let start = std::time::Instant::now();
+        tracing::info!("[TopicStore::search_topics] keyword: {}", keyword);
+
+        // 使用更高效的搜索：只搜索 cluster_id 和 topic_name 两个字段
         let pattern = format!("%{}%", keyword);
-        let results: Vec<(String, String)> = sqlx::query_as(
-            "SELECT cluster_id, topic_name FROM topic_metadata WHERE topic_name LIKE ? ORDER BY cluster_id, topic_name LIMIT 10",
+        let topics = sqlx::query_as::<_, TopicMetadata>(
+            "SELECT id, cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at
+             FROM topic_metadata
+             WHERE topic_name LIKE ?
+             ORDER BY cluster_id, topic_name
+             LIMIT 10",
         )
         .bind(&pattern)
         .fetch_all(pool)
         .await?;
 
-        Ok(results)
+        tracing::info!("[TopicStore::search_topics] found {} topics in {:?}", topics.len(), start.elapsed());
+
+        Ok(topics)
     }
+
     /// 返回新增和删除的 topic 名称列表
     pub async fn sync_topics(
         pool: &sqlx::SqlitePool,

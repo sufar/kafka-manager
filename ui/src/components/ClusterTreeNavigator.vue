@@ -92,7 +92,7 @@
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-secondary/5 hover:shadow-md relative"
               :class="{ 'bg-secondary/10 shadow-inner': expandedTopicsFolders.has(cluster.name) }"
-              @click.stop="handleTopicsFolderClick(cluster.name)"
+              @click.stop="handleTopicsFolderClickAndExpand(cluster.name)"
               @contextmenu.prevent="showTopicsFolderMenu($event, cluster.name)"
             >
               <div class="flex items-center gap-1.5 flex-1 min-w-0">
@@ -136,8 +136,8 @@
 
             <!-- Topics List -->
             <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4">
-              <!-- Topic Search Box (shown when more than 100 topics) -->
-              <div v-if="getTotalTopics(cluster.name) > VISIBLE_ITEMS" class="mb-2">
+              <!-- Topic Search Box -->
+              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2">
                 <div class="relative">
                   <input
                     v-model="topicSearchQuery[cluster.name]"
@@ -157,7 +157,7 @@
                   </button>
                 </div>
                 <p v-if="!topicSearchQuery[cluster.name]" class="text-xs text-base-content/50 mt-1">
-                  Showing first {{ VISIBLE_ITEMS }} topics. Use search to find more.
+                  Showing {{ getTotalTopics(cluster.name) }} topics
                 </p>
                 <p v-else class="text-xs text-primary mt-1">
                   Found {{ getClusterTopics(cluster.name).length }} matching topics
@@ -373,29 +373,53 @@ async function checkClusterHealth(clusterName: string) {
       const count = await apiClient.getTopicCount(clusterName);
       topicCounts[clusterName] = count;
     } else {
-      // 连接失败，显示错误对话框
+      // 连接失败，更新状态但不立即显示错误对话框
       clusterStore.clusterHealth[clusterName] = {
         clusterId: clusterName,
         healthy: false,
         lastChecked: Date.now(),
         error: health.error_message || 'Unknown error',
       };
-      showConnectionError(clusterName, health.error_message || 'Unknown error');
+      // 仍然展开集群，让用户可以看到缓存的数据
+      expandedClusters.value = new Set(expandedClusters.value.add(clusterName));
+      // 只在有错误信息时显示错误对话框
+      if (health.error_message) {
+        showConnectionError(clusterName, health.error_message);
+      }
     }
   } catch (e) {
-    // 连接失败，显示错误对话框
+    const errorMsg = (e as { message?: string }).message || 'Unknown error';
+    // 连接失败，更新状态
     clusterStore.clusterHealth[clusterName] = {
       clusterId: clusterName,
       healthy: false,
       lastChecked: Date.now(),
-      error: (e as { message: string }).message,
+      error: errorMsg,
     };
-    showConnectionError(clusterName, (e as { message: string }).message);
+    // 仍然展开集群，让用户可以看到缓存的数据
+    expandedClusters.value = new Set(expandedClusters.value.add(clusterName));
+    // 显示错误对话框
+    showConnectionError(clusterName, errorMsg);
   }
 }
 
 // 显示连接错误对话框
 function showConnectionError(clusterName: string, errorMsg: string) {
+  // 对于临时性网络故障，不显示错误对话框，只更新集群状态
+  // 这样用户可以继续查看缓存的数据
+  const isTransientError =
+    errorMsg.includes('BrokerTransportFailure') ||
+    errorMsg.includes('timed out') ||
+    errorMsg.includes('Transport') ||
+    errorMsg.includes('Metadata fetch failed');
+
+  if (isTransientError) {
+    // 临时性错误，不显示对话框，只更新 UI 状态（红色指示器已经显示）
+    console.warn(`[ClusterTreeNavigator] Transient connection error for cluster '${clusterName}': ${errorMsg}`);
+    return;
+  }
+
+  // 其他错误（如配置错误、认证失败等）显示错误对话框
   errorDialogClusterName.value = clusterName;
   errorDialogMessage.value = errorMsg;
   pendingClusterName.value = clusterName;
@@ -440,8 +464,13 @@ function handleTopicsFolderToggle(clusterName: string) {
   loadClusterTopics(clusterName);
 }
 
-function handleTopicsFolderClick(clusterName: string) {
-  // 点击 Topics 文件夹时，导航到 Topics 页面
+async function handleTopicsFolderClickAndExpand(clusterName: string) {
+  // 点击 Topics 文件夹时，先展开文件夹并加载 topics
+  if (!expandedTopicsFolders.value.has(clusterName)) {
+    expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
+    await loadClusterTopics(clusterName);
+  }
+  // 然后导航到 Topics 页面
   emit('navigate', { path: '/topics', query: { cluster: clusterName } });
 }
 
