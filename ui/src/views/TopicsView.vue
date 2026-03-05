@@ -764,16 +764,14 @@ onBeforeRouteUpdate((to) => {
   }
 });
 
-watchEffect(() => {
-  console.log('[TopicsView] watchEffect triggered, clusterParam:', clusterParam.value, 'selectedClusterIds:', selectedClusterIds.value);
-  if (clusterParam.value) {
-    console.log('[TopicsView] Fetching topics for cluster:', clusterParam.value);
+// 使用 watch 替代 watchEffect，精确监听特定依赖
+watch([clusterParam, selectedClusterIds], ([newClusterParam, newSelectedClusterIds]) => {
+  if (newClusterParam) {
     fetchTopics();
-  } else if (selectedClusterIds.value.length > 0) {
-    console.log('[TopicsView] Fetching topics for selected clusters:', selectedClusterIds.value);
+  } else if (newSelectedClusterIds.length > 0) {
     fetchTopics();
   }
-});
+}, { immediate: true });
 
 async function fetchTopics() {
   console.log('[TopicsView] fetchTopics called, clusterParam:', clusterParam.value);
