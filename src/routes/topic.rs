@@ -589,27 +589,23 @@ pub struct SearchTopicsResponse {
 }
 
 /// 搜索所有集群中的 Topic（从数据库中搜索）
+/// 使用单次查询获取所有 Topic，避免 N+1 查询问题
 async fn search_topics_all_clusters(
     State(state): State<AppState>,
 ) -> Result<Json<SearchTopicsResponse>> {
     use crate::db::topic::TopicStore;
-    use crate::db::cluster::ClusterStore;
 
-    // 获取所有集群
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    // 单次查询获取所有 Topic（优化：避免 N+1 查询）
+    let all_topics = TopicStore::list_all(state.db.inner()).await?;
 
-    // 搜索所有集群的 topics
-    let mut results = Vec::new();
-
-    for cluster in &clusters {
-        let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster.name).await?;
-        for topic in topics {
-            results.push(TopicSearchResult {
-                cluster: cluster.name.clone(),
-                topic: topic.topic_name,
-            });
-        }
-    }
+    // 转换为搜索结果
+    let results: Vec<TopicSearchResult> = all_topics
+        .into_iter()
+        .map(|topic| TopicSearchResult {
+            cluster: topic.cluster_id,
+            topic: topic.topic_name,
+        })
+        .collect();
 
     Ok(Json(SearchTopicsResponse { results }))
 }
