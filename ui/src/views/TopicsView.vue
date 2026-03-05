@@ -624,7 +624,7 @@
 
 <script setup lang="ts">
 // 保持原有逻辑不变，只更新样式
-import { ref, reactive, computed, onMounted, watch, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
