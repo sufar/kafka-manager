@@ -1271,7 +1271,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let start_time = get_optional_i64_param(&body, "start_time");
     let end_time = get_optional_i64_param(&body, "end_time");
     let search = get_optional_string_param(&body, "search");
-    let fetch_mode = get_optional_string_param(&body, "fetch_mode");
+    let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
     let _config = state.get_clients()
         .get_config(&cluster_id)
