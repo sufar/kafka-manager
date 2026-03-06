@@ -161,11 +161,9 @@ impl TopicStore {
         let start = std::time::Instant::now();
         tracing::info!("[TopicStore::search_topics] keyword: {}", keyword);
 
-        // 使用前缀匹配 + 后缀通配符，让 SQLite 能使用索引（如果有的话）
-        // 对于小数据量，SQLite 的 LIKE 应该很快
+        // 使用通配符匹配，支持任意位置匹配
         let pattern = format!("%{}%", keyword);
 
-        // 使用 query_as 的 fetch_all，避免不必要的分配
         let topics: Vec<TopicMetadata> = sqlx::query_as::<_, TopicMetadata>(
             "SELECT id, cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at
              FROM topic_metadata
