@@ -49,22 +49,62 @@ async fn get_or_create_admin_client(
     state: &AppState,
     cluster_id: &str,
 ) -> Result<Arc<crate::kafka::KafkaAdmin>> {
+    use tokio::time::Duration;
+
+    tracing::info!("get_or_create_admin_client called for cluster: {}", cluster_id);
+
     // 首先尝试从内存中获取
     let clients = state.get_clients();
     if let Some(admin) = clients.get_admin(cluster_id) {
+        tracing::info!("Found admin client in memory for cluster: {}", cluster_id);
         return Ok(admin);
     }
 
-    // 从数据库获取集群配置
-    let cluster = ClusterStore::get_by_name(state.db.inner(), cluster_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+    tracing::info!("Admin client not in memory, fetching from database for cluster: {}", cluster_id);
+
+    // 从数据库获取集群配置（带重试）
+    let mut cluster = None;
+    let mut last_db_error = None;
+
+    // 最多重试 3 次，因为数据库连接可能还没完全准备好
+    for attempt in 0..3 {
+        tracing::info!("Attempting to fetch cluster '{}' from database (attempt {}/{})", cluster_id, attempt + 1, 3);
+
+        match ClusterStore::get_by_name(state.db.inner(), cluster_id).await {
+            Ok(Some(c)) => {
+                tracing::info!("Successfully fetched cluster '{}' from database", cluster_id);
+                cluster = Some(c);
+                break;
+            }
+            Ok(None) => {
+                // 集群不存在，等待后重试
+                tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
+                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
+                last_db_error = Some(e);
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
+        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+    }))?;
 
     let config = crate::config::KafkaConfig {
         brokers: cluster.brokers,
         request_timeout_ms: cluster.request_timeout_ms as u32,
         operation_timeout_ms: cluster.operation_timeout_ms as u32,
     };
+
+    tracing::info!("Creating connection pool for cluster: {}", cluster_id);
 
     // 建立连接池连接
     state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
@@ -79,10 +119,14 @@ async fn get_or_create_admin_client(
 
     // 如果获取 admin 失败，等待连接建立后重试
     match updated_clients.get_admin(cluster_id) {
-        Some(admin) => Ok(admin),
+        Some(admin) => {
+            tracing::info!("Successfully created admin client for cluster: {}", cluster_id);
+            Ok(admin)
+        }
         None => {
+            tracing::warn!("Admin client not found after creation, waiting and retrying for cluster: {}", cluster_id);
             // 等待连接完全建立
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let retry_clients = state.get_clients();
             retry_clients.get_admin(cluster_id)
                 .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))

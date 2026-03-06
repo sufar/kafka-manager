@@ -153,7 +153,7 @@ impl TopicStore {
         Ok(topics)
     }
 
-    /// 搜索 Topic（按名称模糊匹配，返回最多 10 条）
+    /// 搜索 Topic（按名称模糊匹配，返回最多 50 条）
     pub async fn search_topics(
         pool: &sqlx::SqlitePool,
         keyword: &str,
@@ -169,7 +169,7 @@ impl TopicStore {
              FROM topic_metadata
              WHERE topic_name LIKE ?1
              ORDER BY cluster_id, topic_name
-             LIMIT 10",
+             LIMIT 50",
         )
         .bind(&pattern)
         .fetch_all(pool)

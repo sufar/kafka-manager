@@ -230,11 +230,13 @@ let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 watch(searchQuery, (newQuery) => {
   const trimmed = newQuery.trim();
   if (trimmed) {
-    // 防抖 100ms
+    // 显示下拉框
+    showSearchDropdown.value = true;
+    // 防抖 300ms（避免频繁请求）
     if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
       performSearch();
-    }, 100);
+    }, 300);
   } else {
     searchResults.value = [];
   }
@@ -574,7 +576,12 @@ onMounted(async () => {
 
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as HTMLElement;
-  if (!target.closest('.join') && !target.closest('.absolute')) {
+  // 检查是否点击在搜索框或下拉框外部
+  const searchInput = searchInputRef.value;
+  const isClickInsideSearch = searchInput && target.closest('input') === searchInput;
+  const isClickInsideDropdown = target.closest('.absolute') !== null;
+
+  if (!isClickInsideSearch && !isClickInsideDropdown) {
     showSearchDropdown.value = false;
   }
 }
