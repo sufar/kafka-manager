@@ -1426,7 +1426,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
     // 首先确保集群客户端已创建（如果未创建则自动创建）
-    let config = ensure_cluster_client(&state, &cluster_id).await?;
+    let _config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
@@ -1484,65 +1484,82 @@ async fn fetch_messages_from_pool_with_filter(
     let consumer = pool.get().await
         .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
 
-    // 使用 assign 直接分配分区，避免重平衡延迟
+    // 检查是否需要获取所有分区
+    let all_partitions = partition.is_none();
     let target_partition = partition.unwrap_or(0);
 
-    // 根据 fetch_mode 和 offset 确定起始 offset
-    let start_offset = if let Some(start_time) = start_time {
-        // 如果指定了开始时间，使用 offsets_for_times 定位
-        // 时间戳应该是正数，如果不合法则回退到指定的 offset 或 0
-        if start_time <= 0 {
-            offset.unwrap_or(0)
-        } else {
-            let mut tpl = TopicPartitionList::new();
-            // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
-            tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
-                .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+    // 获取所有分区的 metadata（当需要所有分区时）
+    let partitions_list: Vec<i32> = if all_partitions {
+        // 获取 topic 的元数据以获取所有分区
+        let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(500))
+            .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
+        metadata.topics()
+            .first()
+            .map(|t| t.partitions())
+            .map(|ps: &[rdkafka::metadata::MetadataPartition]| ps.iter().map(|p| p.id()).collect::<Vec<i32>>())
+            .unwrap_or_else(|| vec![0])
+    } else {
+        vec![target_partition]
+    };
 
-            match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
-                Ok(result) => {
-                    // 从结果中获取 offset
-                    result.elements_for_topic(topic)
-                        .first()
-                        .and_then(|e| e.offset().to_raw())
-                        .unwrap_or_else(|| offset.unwrap_or(0))
+    // 为每个分区计算起始 offset
+    let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
+
+    for &part_id in &partitions_list {
+        let start_offset = if let Some(start_time) = start_time {
+            // 如果指定了开始时间，使用 offsets_for_times 定位
+            if start_time <= 0 {
+                offset.unwrap_or(0)
+            } else {
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset(topic, part_id, rdkafka::Offset::Offset(start_time))
+                    .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+
+                match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                    Ok(result) => {
+                        result.elements_for_topic(topic)
+                            .iter()
+                            .find(|e| e.partition() == part_id)
+                            .and_then(|e| e.offset().to_raw())
+                            .unwrap_or_else(|| offset.unwrap_or(0))
+                    }
+                    Err(_) => offset.unwrap_or(0),
                 }
-                Err(_) => offset.unwrap_or(0),
             }
-        }
-    } else if fetch_mode == Some("newest") && offset.is_none() {
-        // 只有 newest 模式且没有指定 offset 时才查询 watermarks
-        match consumer.fetch_watermarks(topic, target_partition, Duration::from_millis(500)) {
-            Ok((_, high)) if high > 0 => {
-                // high 是下一个要写入的 offset，最后一条消息在 high - 1
-                // 计算起始 offset，确保能获取到足够的消息
-                let latest_offset = high - 1;
-                let desired_start = latest_offset.saturating_sub((max_messages - 1) as i64);
-                desired_start
+        } else if fetch_mode == Some("newest") && offset.is_none() {
+            // 只有 newest 模式且没有指定 offset 时才查询 watermarks
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+                Ok((_, high)) if high > 0 => {
+                    let latest_offset = high - 1;
+                    latest_offset.saturating_sub((max_messages - 1) as i64)
+                }
+                _ => 0,
             }
-            _ => 0,
-        }
-    } else if fetch_mode == Some("oldest") && offset.is_none() {
-        // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
-        match consumer.fetch_watermarks(topic, target_partition, Duration::from_millis(500)) {
-            Ok((low, _)) => low,
-            _ => 0,
-        }
-    } else {
-        // 默认从最早的消息开始或指定的 offset
-        offset.unwrap_or(0)
-    };
+        } else if fetch_mode == Some("oldest") && offset.is_none() {
+            // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+                Ok((low, _)) => low,
+                _ => 0,
+            }
+        } else {
+            // 默认从最早的消息开始或指定的 offset
+            offset.unwrap_or(0)
+        };
 
+        partition_offsets.push((part_id, start_offset));
+    }
+
+    // 为所有分区分配 offset
     let mut tpl = TopicPartitionList::new();
-    // 确保 offset 非负，rdkafka 不接受负数的 Offset::Offset
-    let safe_offset = if start_offset < 0 {
-        // 如果 offset 为负，使用 Beginning（最早）
-        rdkafka::Offset::Beginning
-    } else {
-        rdkafka::Offset::Offset(start_offset)
-    };
-    tpl.add_partition_offset(topic, target_partition, safe_offset)
-        .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+    for (part_id, start_offset) in &partition_offsets {
+        let safe_offset = if *start_offset < 0 {
+            rdkafka::Offset::Beginning
+        } else {
+            rdkafka::Offset::Offset(*start_offset)
+        };
+        tpl.add_partition_offset(topic, *part_id, safe_offset)
+            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+    }
 
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
@@ -1612,6 +1629,18 @@ async fn fetch_messages_from_pool_with_filter(
     // 重置 consumer 的分配，避免影响后续请求
     let empty_tpl = TopicPartitionList::new();
     let _ = consumer.assign(&empty_tpl);
+
+    // 如果是从所有分区获取消息，按时间戳排序
+    if all_partitions {
+        messages.sort_by(|a, b| {
+            match (a.timestamp, b.timestamp) {
+                (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.offset.cmp(&b.offset),
+            }
+        });
+    }
 
     Ok(messages)
 }
