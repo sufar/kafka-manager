@@ -1338,12 +1338,12 @@ async fn fetch_messages_from_pool_with_filter(
 
     // 根据 fetch_mode 和 offset 确定起始 offset
     let start_offset = if let Some(start_time) = start_time {
-        // 如果指定了开始时间，使用 offsets_for_times 定位
+        // 如果指定了开始时间，使用 offsets_for_times 定位（减少超时到 1 秒）
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
             .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
-        match consumer.offsets_for_times(tpl, Duration::from_secs(5)) {
+        match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
             Ok(result) => {
                 // 从结果中获取 offset
                 result.elements_for_topic(topic)
@@ -1353,18 +1353,18 @@ async fn fetch_messages_from_pool_with_filter(
             }
             Err(_) => offset.unwrap_or(0),
         }
-    } else if fetch_mode == Some("newest") {
-        // 从最新的消息开始
-        match consumer.fetch_watermarks(topic, target_partition, Duration::from_secs(5)) {
+    } else if fetch_mode == Some("newest") && offset.is_none() {
+        // 只有 newest 模式且没有指定 offset 时才查询 watermarks（减少超时到 500ms）
+        match consumer.fetch_watermarks(topic, target_partition, Duration::from_millis(500)) {
             Ok((_, high)) if high > 0 => {
                 // 计算起始 offset，确保能获取到足够的消息
                 let desired_start = high.saturating_sub(max_messages as i64);
-                offset.unwrap_or(desired_start)
+                desired_start
             }
-            _ => offset.unwrap_or(0),
+            _ => 0,
         }
     } else {
-        // 默认从最早的消息开始
+        // 默认从最早的消息开始或指定的 offset
         offset.unwrap_or(0)
     };
 
@@ -1377,14 +1377,17 @@ async fn fetch_messages_from_pool_with_filter(
 
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::new();
-    let base_timeout = Duration::from_millis(200);
+    // 优化：减少超时时间，让请求更快返回
+    let base_timeout = Duration::from_millis(50); // 从 200ms 减少到 50ms
     let mut consecutive_timeouts = 0;
-    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 1; // 从 2 减少到 1，更快退出
+    let mut had_message = false; // 标记是否已经获取到过消息
 
     while messages.len() < max_messages {
         match tokio::time::timeout(base_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 consecutive_timeouts = 0;
+                had_message = true;
 
                 let timestamp = msg.timestamp().to_millis();
 
@@ -1426,7 +1429,8 @@ async fn fetch_messages_from_pool_with_filter(
             }
             Ok(Err(_)) | Err(_) => {
                 consecutive_timeouts += 1;
-                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                // 如果已经获取到过消息，且发生超时，立即退出（没有更多消息了）
+                if had_message || consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
                     break;
                 }
             }

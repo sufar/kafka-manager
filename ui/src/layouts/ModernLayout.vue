@@ -273,10 +273,10 @@ function handleSearchKeydown(e: KeyboardEvent) {
 async function selectSearchResult(result: { cluster: string; topic: string }) {
   showSearchDropdown.value = false;
   searchQuery.value = '';
-  // 通知左侧树展开并选中对应的 topic
-  await clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
-  // 导航到消息页面
+  // 先立即导航到消息页面，让用户立即看到结果
   router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
+  // 然后异步展开左侧树（不阻塞导航）
+  clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
 }
 
 // Ctrl+K 快捷键聚焦搜索框
