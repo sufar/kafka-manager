@@ -43,6 +43,84 @@ fn get_string_param(body: &Value, key: &str) -> Result<String> {
         .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
 }
 
+/// 确保集群客户端已创建（如果未创建则自动创建）
+/// 如果内存中不存在，则从数据库加载集群配置并建立连接
+async fn ensure_cluster_client(
+    state: &AppState,
+    cluster_id: &str,
+) -> Result<Arc<crate::config::KafkaConfig>> {
+    use tokio::time::Duration;
+
+    tracing::info!("ensure_cluster_client called for cluster: {}", cluster_id);
+
+    // 首先尝试从内存中获取配置
+    let clients = state.get_clients();
+    if let Some(config) = clients.get_config(cluster_id) {
+        tracing::info!("Found config in memory for cluster: {}", cluster_id);
+        return Ok(config);
+    }
+
+    tracing::info!("Config not in memory, fetching from database for cluster: {}", cluster_id);
+
+    // 从数据库获取集群配置（带重试）
+    let mut cluster = None;
+    let mut last_db_error = None;
+
+    // 最多重试 3 次
+    for attempt in 0..3 {
+        tracing::info!("Attempting to fetch cluster '{}' from database (attempt {}/{})", cluster_id, attempt + 1, 3);
+
+        match ClusterStore::get_by_name(state.db.inner(), cluster_id).await {
+            Ok(Some(c)) => {
+                tracing::info!("Successfully fetched cluster '{}' from database", cluster_id);
+                cluster = Some(c);
+                break;
+            }
+            Ok(None) => {
+                tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
+                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
+                last_db_error = Some(e);
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
+        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+    }))?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    tracing::info!("Creating connection pool for cluster: {}", cluster_id);
+
+    // 建立连接池连接
+    state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
+
+    // 更新 Kafka 客户端
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(cluster_id, &config)?;
+    state.set_clients(new_clients.into());
+
+    // 等待连接建立
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let updated_clients = state.get_clients();
+    updated_clients.get_config(cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Failed to get config for cluster '{}'", cluster_id)))
+}
+
 /// 获取或创建 admin 客户端
 /// 如果内存中不存在，则从数据库加载集群配置并建立连接
 async fn get_or_create_admin_client(
@@ -634,7 +712,7 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     // Use spawn_blocking to avoid blocking async runtime
     // Add retry logic for initial connection establishment
     let mut last_error = None;
-    for attempt in 0..3 {
+    for attempt in 0..5 {
         let admin_clone = admin.clone();
         let result = tokio::task::spawn_blocking(move || admin_clone.list_topics())
             .await
@@ -652,9 +730,12 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
             }
             Err(e) => {
                 last_error = Some(e);
-                if attempt < 2 {
+                if attempt < 4 {
                     // Wait before retry (initial connection may need time to establish)
-                    tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt + 1) as u64)).await;
+                    // 使用递增的等待时间：500ms, 1000ms, 1500ms, 2000ms
+                    let wait_ms = 500 * (attempt + 1) as u64;
+                    tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().unwrap());
+                    tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
                 }
             }
         }
@@ -1344,9 +1425,8 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let search = get_optional_string_param(&body, "search");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
-    let _config = state.get_clients()
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    // 首先确保集群客户端已创建（如果未创建则自动创建）
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 

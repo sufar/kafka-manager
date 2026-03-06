@@ -143,27 +143,27 @@
                 </summary>
                 <ul class="ml-4">
                   <li>
-                    <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active">
+                    <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                       {{ t.mainLayout.topics }}
                     </router-link>
                   </li>
                   <li>
-                    <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active">
+                    <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                       {{ t.mainLayout.consumerGroups }}
                     </router-link>
                   </li>
                   <li>
-                    <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active">
+                    <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                       {{ t.mainLayout.messages }}
                     </router-link>
                   </li>
                   <li>
-                    <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active">
+                    <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                       {{ t.mainLayout.schemaRegistry }}
                     </router-link>
                   </li>
                   <li>
-                    <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active">
+                    <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                       {{ t.mainLayout.acls }}
                     </router-link>
                   </li>
@@ -192,6 +192,7 @@ import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
 
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
@@ -264,6 +265,21 @@ async function testConnection(id: number) {
     await clusterStore.testCluster(id);
   } finally {
     testing.value.delete(id);
+  }
+}
+
+// 连接集群（如果未连接）
+async function connectCluster(clusterName: string): Promise<void> {
+  const health = clusterStore.getClusterHealth(clusterName);
+  // 如果集群未连接或不健康，尝试重连
+  if (!health || !health.healthy) {
+    try {
+      await apiClient.reconnectCluster(clusterName);
+      // 重连后刷新健康状态
+      await clusterStore.refreshAllHealth();
+    } catch (e) {
+      console.error(`Failed to connect cluster ${clusterName}:`, e);
+    }
   }
 }
 
