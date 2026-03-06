@@ -1338,8 +1338,9 @@ async fn fetch_messages_from_pool_with_filter(
 
     // 根据 fetch_mode 和 offset 确定起始 offset
     let start_offset = if let Some(start_time) = start_time {
-        // 如果指定了开始时间，使用 offsets_for_times 定位（减少超时到 1 秒）
+        // 如果指定了开始时间，使用 offsets_for_times 定位
         let mut tpl = TopicPartitionList::new();
+        // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
         tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
             .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
@@ -1354,11 +1355,13 @@ async fn fetch_messages_from_pool_with_filter(
             Err(_) => offset.unwrap_or(0),
         }
     } else if fetch_mode == Some("newest") && offset.is_none() {
-        // 只有 newest 模式且没有指定 offset 时才查询 watermarks（减少超时到 500ms）
+        // 只有 newest 模式且没有指定 offset 时才查询 watermarks
         match consumer.fetch_watermarks(topic, target_partition, Duration::from_millis(500)) {
             Ok((_, high)) if high > 0 => {
+                // high 是下一个要写入的 offset，最后一条消息在 high - 1
                 // 计算起始 offset，确保能获取到足够的消息
-                let desired_start = high.saturating_sub(max_messages as i64);
+                let latest_offset = high - 1;
+                let desired_start = latest_offset.saturating_sub((max_messages - 1) as i64);
                 desired_start
             }
             _ => 0,
