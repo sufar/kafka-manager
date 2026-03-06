@@ -43,11 +43,7 @@ impl DbPool {
             .open(&abs_path)
             .map_err(|e| sqlx::Error::Protocol(format!("Cannot create database file: {}", e)))?;
 
-        // 构建 SQLite 连接 URL（添加性能优化参数）
-        // cache=shared: 共享缓存提高性能
-        // journal_mode=WAL: 使用 WAL 模式提高并发性能
-        // synchronous=NORMAL: 同步模式，平衡性能和数据安全
-        // temp_store=memory: 临时表存储在内存中
+        // 构建 SQLite 连接 URL
         let path_str = abs_path.to_string_lossy().to_string();
 
         // Windows 和 Unix 使用不同的 URL 格式
@@ -55,17 +51,11 @@ impl DbPool {
         let conn_url = {
             // Windows: 路径使用正斜杠，sqlite:///C:/path/to/db 格式
             let normalized_path = path_str.replace('\\', "/");
-            format!(
-                "sqlite:///{}?cache=shared&journal_mode=WAL&synchronous=NORMAL&temp_store=memory",
-                normalized_path
-            )
+            format!("sqlite:///{}", normalized_path)
         };
 
         #[cfg(not(target_os = "windows"))]
-        let conn_url = format!(
-            "sqlite:///{}?cache=shared&journal_mode=WAL&synchronous=NORMAL&temp_store=memory",
-            path_str
-        );
+        let conn_url = format!("sqlite:///{}", path_str);
 
         eprintln!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
 
