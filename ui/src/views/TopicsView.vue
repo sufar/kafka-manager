@@ -629,6 +629,7 @@ import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import { useToast } from '@/composables/useToast';
 import type { TopicDetailResponse, MessageRecord } from '@/types/api';
 
 // 定义本地类型
@@ -644,6 +645,7 @@ const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+const { showError, showSuccess } = useToast();
 
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
 
@@ -878,10 +880,11 @@ async function handleCreate() {
       num_partitions: newTopic.num_partitions,
       replication_factor: newTopic.replication_factor,
     });
+    showSuccess('Topic created successfully');
     closeCreateModal();
     fetchTopics();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     creating.value = false;
   }
@@ -893,7 +896,7 @@ async function viewTopicDetail(clusterId: string, topic: TopicItem) {
     selectedTopicDetail.value = await apiClient.getTopicDetail(clusterId, topic.name);
     detailModalRef.value?.showModal();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   }
 }
 
@@ -918,17 +921,18 @@ async function addPartitions() {
     closeDetailModal();
     fetchTopics();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   }
 }
 
 async function confirmDelete(clusterId: string, topicName: string) {
-  if (confirm(`Are you sure you want to delete topic "${topicName}" from cluster "${clusterId}"?`)) {
+  if (confirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topicName))) {
     try {
       await apiClient.deleteTopic(clusterId, topicName);
+      showSuccess('Topic deleted successfully');
       fetchTopics();
     } catch (e) {
-      alert((e as { message: string }).message);
+      showError((e as { message: string }).message);
     }
   }
 }
@@ -1083,8 +1087,9 @@ async function exportMessages() {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+    showSuccess('Export successful');
   } catch (e) {
-    alert(`Export failed: ${(e as { message: string }).message}`);
+    showError(`Export failed: ${(e as { message: string }).message}`);
   }
 }
 
@@ -1098,8 +1103,9 @@ async function refreshAllTopics() {
     );
     await Promise.all(promises);
     await fetchTopics();
+    showSuccess('Topics refreshed successfully');
   } catch (e) {
-    alert(`Refresh failed: ${(e as { message: string }).message}`);
+    showError(`Refresh failed: ${(e as { message: string }).message}`);
   } finally {
     refreshing.value = false;
   }

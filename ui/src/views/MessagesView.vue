@@ -260,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -270,6 +270,17 @@ const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+
+// 注入全局 showToast 方法
+const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => void>(
+  'showToast',
+  (type, message) => {
+    // 降级方案：如果是错误则 alert，其他类型忽略
+    if (type === 'error') {
+      alert(message);
+    }
+  }
+);
 
 // 从 URL 参数获取集群 ID
 const clusterParam = computed(() => route.query.cluster as string || '');
@@ -289,6 +300,16 @@ const fetchTime = ref<number>(0); // 获取消息耗时（毫秒）
 const messages = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
+
+// 显示错误提示
+function showError(message: string) {
+  showToast('error', message);
+}
+
+// 显示成功提示
+function showSuccess(message: string) {
+  showToast('success', message);
+}
 
 const filters = reactive({
   partition: undefined as number | undefined,
@@ -397,12 +418,7 @@ function formatKeyValue(key: string): string {
 async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text);
-    // 显示复制成功提示
-    const notification = document.createElement('div');
-    notification.className = 'toast toast-end z-50';
-    notification.innerHTML = '<div class="alert alert-success py-2"><span>Copied!</span></div>';
-    document.body.appendChild(notification);
-    setTimeout(() => notification.remove(), 2000);
+    showSuccess(t.value.messages.copied || 'Copied!');
   } catch (e) {
     // 降级方案：使用传统的 select + execCommand
     const textArea = document.createElement('textarea');
@@ -413,8 +429,10 @@ async function copyToClipboard(text: string) {
     textArea.select();
     try {
       document.execCommand('copy');
+      showSuccess(t.value.messages.copied || 'Copied!');
     } catch (e) {
       console.error('Failed to copy:', e);
+      showError(t.value.toast?.copyFailed || 'Failed to copy');
     }
     document.body.removeChild(textArea);
   }
@@ -520,7 +538,7 @@ async function fetchMessages() {
     if (error.message === 'AbortError' || error.message.includes('aborted')) {
       console.log('Fetch messages cancelled');
     } else {
-      alert(error.message);
+      showError(error.message);
     }
   } finally {
     loading.value = false;
@@ -624,7 +642,7 @@ async function handleSendMessage(keepOpen: boolean = false) {
       fetchMessages();
     }
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     sending.value = false;
   }
@@ -648,7 +666,7 @@ async function exportMessages() {
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   }
 }
 

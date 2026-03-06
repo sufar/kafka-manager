@@ -192,10 +192,12 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import type { NotificationConfig } from '@/types/api';
 
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+const { showError, showSuccess } = useToast();
 
 interface SlackConfig {
   webhook_url: string;
@@ -282,7 +284,7 @@ function openCreateModal() {
 }
 
 function editNotification(_notif: NotificationConfig) {
-  alert('Editing is not supported. Please delete and recreate the notification channel.');
+  showError('Editing is not supported. Please delete and recreate the notification channel.');
 }
 
 function closeModal() {
@@ -318,10 +320,11 @@ async function handleSubmit() {
   try {
     const config = buildConfig();
     await apiClient.createNotification({ ...formData, config });
+    showSuccess(t.value.notifications.created);
     closeModal();
     fetchNotifications();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     submitting.value = false;
   }
@@ -331,19 +334,22 @@ function toggleEnabled(notif: NotificationConfig) {
   if (notif.enabled) {
     apiClient.disableNotification(notif.id)
       .then(() => fetchNotifications())
-      .catch(e => alert((e as { message: string }).message));
+      .catch(e => showError((e as { message: string }).message));
   } else {
     apiClient.enableNotification(notif.id)
       .then(() => fetchNotifications())
-      .catch(e => alert((e as { message: string }).message));
+      .catch(e => showError((e as { message: string }).message));
   }
 }
 
 function confirmDelete(id: number) {
   if (confirm(t.value.notifications.confirmDelete)) {
     apiClient.deleteNotification(id)
-      .then(() => fetchNotifications())
-      .catch(e => alert((e as { message: string }).message));
+      .then(() => {
+        showSuccess(t.value.notifications.deleted);
+        fetchNotifications();
+      })
+      .catch(e => showError((e as { message: string }).message));
   }
 }
 

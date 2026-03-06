@@ -87,6 +87,9 @@ export interface Translation {
     connectedLabel: string;
     disconnectedLabel: string;
     connectingLabel: string;
+    updated: string;
+    created: string;
+    connected: string;
   };
   topics: {
     title: string;
@@ -225,6 +228,7 @@ export interface Translation {
     confirmDelete: string;
     updated: string;
     created: string;
+    deleted: string;
     updatedDesc: string;
     createdDesc: string;
   };
@@ -282,6 +286,7 @@ export interface Translation {
     cancel: string;
     update: string;
     create: string;
+    updated: string;
     password: string;
     selectRole: string;
   };
@@ -313,6 +318,17 @@ export interface Translation {
     topicNotFound: string;
     refreshFailed: string;
     refreshCancelled: string;
+  };
+  toast: {
+    error: string;
+    success: string;
+    warning: string;
+    info: string;
+    copySuccess: string;
+    copyFailed: string;
+    operationFailed: string;
+    clusterNotFound: string;
+    networkError: string;
   };
   topicContextMenu: {
     viewMessages: string;
@@ -432,6 +448,9 @@ export const translations: Record<Language, Translation> = {
       connectedLabel: '已连接',
       disconnectedLabel: '未连接',
       connectingLabel: '连接中',
+      updated: '集群已更新',
+      created: '集群已创建',
+      connected: '连接成功',
     },
     topics: {
       title: '主题',
@@ -570,6 +589,7 @@ export const translations: Record<Language, Translation> = {
       confirmDelete: '确定要删除此通知渠道吗？',
       updated: '通知已更新',
       created: '通知已创建',
+      deleted: '通知已删除',
       updatedDesc: '通知配置已成功更新',
       createdDesc: '通知配置已成功创建',
     },
@@ -627,6 +647,7 @@ export const translations: Record<Language, Translation> = {
       cancel: '取消',
       update: '更新',
       create: '创建',
+      updated: '用户已更新',
       password: '密码',
       selectRole: '选择角色',
     },
@@ -658,6 +679,17 @@ export const translations: Record<Language, Translation> = {
       topicNotFound: '主题不存在',
       refreshFailed: '刷新失败',
       refreshCancelled: '刷新已取消',
+    },
+    toast: {
+      error: '错误',
+      success: '成功',
+      warning: '警告',
+      info: '提示',
+      copySuccess: '复制成功',
+      copyFailed: '复制失败',
+      operationFailed: '操作失败',
+      clusterNotFound: '集群不存在',
+      networkError: '网络错误',
     },
     topicContextMenu: {
       viewMessages: '查看消息',
@@ -775,6 +807,9 @@ export const translations: Record<Language, Translation> = {
       connectedLabel: 'Connected',
       disconnectedLabel: 'Disconnected',
       connectingLabel: 'Connecting',
+      updated: 'Cluster updated',
+      created: 'Cluster created',
+      connected: 'Connection successful',
     },
     topics: {
       title: 'Topics',
@@ -913,6 +948,7 @@ export const translations: Record<Language, Translation> = {
       confirmDelete: 'Are you sure you want to delete this notification channel?',
       updated: 'Notification updated',
       created: 'Notification created',
+      deleted: 'Notification deleted',
       updatedDesc: 'Notification configuration has been updated successfully',
       createdDesc: 'Notification configuration has been created successfully',
     },
@@ -970,6 +1006,7 @@ export const translations: Record<Language, Translation> = {
       cancel: 'Cancel',
       update: 'Update',
       create: 'Create',
+      updated: 'User updated',
       password: 'Password',
       selectRole: 'Select Role',
     },
@@ -1001,6 +1038,17 @@ export const translations: Record<Language, Translation> = {
       topicNotFound: 'Topic not found',
       refreshFailed: 'Refresh failed',
       refreshCancelled: 'Refresh cancelled',
+    },
+    toast: {
+      error: 'Error',
+      success: 'Success',
+      warning: 'Warning',
+      info: 'Info',
+      copySuccess: 'Copied',
+      copyFailed: 'Copy failed',
+      operationFailed: 'Operation failed',
+      clusterNotFound: 'Cluster not found',
+      networkError: 'Network error',
     },
     topicContextMenu: {
       viewMessages: 'View Messages',

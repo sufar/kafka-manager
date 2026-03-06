@@ -163,11 +163,31 @@
       @close="closePartitionMenu"
       @action="handlePartitionAction"
     />
+
+    <!-- Global Toast Notifications -->
+    <div class="toast toast-end z-50">
+      <div v-for="toast in toasts" :key="toast.id" class="alert" :class="getToastClass(toast.type)">
+        <svg v-if="toast.type === 'error'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <svg v-else-if="toast.type === 'success'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <svg v-else-if="toast.type === 'warning'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>{{ toast.message }}</span>
+        <button class="btn btn-ghost btn-xs" @click="removeToast(toast.id)">✕</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue';
+import { ref, reactive, onMounted, computed, watch, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useThemeStore } from '@/stores/theme';
@@ -315,6 +335,44 @@ const contextMenus = reactive({
   }
 });
 
+// Toast notifications
+interface Toast {
+  id: number;
+  type: 'success' | 'error' | 'warning' | 'info';
+  message: string;
+}
+
+const toasts = ref<Toast[]>([]);
+let toastId = 0;
+
+function showToast(type: 'success' | 'error' | 'warning' | 'info', message: string, duration: number = 5000) {
+  const id = toastId++;
+  toasts.value.push({ id, type, message });
+  if (duration > 0) {
+    setTimeout(() => removeToast(id), duration);
+  }
+}
+
+function removeToast(id: number) {
+  const index = toasts.value.findIndex(t => t.id === id);
+  if (index > -1) {
+    toasts.value.splice(index, 1);
+  }
+}
+
+function getToastClass(type: string): string {
+  const classes = {
+    success: 'alert-success',
+    error: 'alert-error',
+    warning: 'alert-warning',
+    info: 'alert-info'
+  };
+  return classes[type as keyof typeof classes] || 'alert-info';
+}
+
+// 提供给所有子组件使用
+provide('showToast', showToast);
+
 function handleNavigate(route: { path: string; query?: Record<string, string> }) {
   router.push({ path: route.path, query: route.query });
 }
@@ -350,7 +408,7 @@ function handleClusterAction(action: string, cluster: string) {
         if (clusterId) {
           clusterStore.deleteCluster(clusterId);
         } else {
-          alert(t.value.layout.clusterNotFound);
+          showToast('error', t.value.layout.clusterNotFound);
         }
       }
       break;
@@ -395,7 +453,7 @@ async function refreshClusterTopics(cluster: string) {
     if (error.message === 'AbortError' || error.message.includes('aborted')) {
       console.log('Refresh topics cancelled');
     } else {
-      alert(`${t.value.layout.refreshFailed}: ${error.message}`);
+      showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
     }
   } finally {
     refreshing.value = false;

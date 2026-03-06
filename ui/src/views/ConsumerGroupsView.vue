@@ -519,6 +519,7 @@ import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import { useToast } from '@/composables/useToast';
 import type {
   ConsumerGroupDetailResponse,
   ConsumerGroupOffsetDetailResponse,
@@ -540,6 +541,7 @@ const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+const { showError, showSuccess } = useToast();
 
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
 
@@ -767,22 +769,23 @@ async function handleResetOffset() {
     );
 
     closeResetOffsetModal();
-    alert('Offset reset successful!');
+    showSuccess('Offset reset successful!');
     fetchGroups();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     resetting.value = false;
   }
 }
 
 async function confirmDelete(clusterId: string, groupName: string) {
-  if (confirm(`Are you sure you want to delete consumer group "${groupName}" from cluster "${clusterId}"?`)) {
+  if (confirm(t.value.layout.confirmDeleteTopic.replace('{topic}', groupName))) {
     try {
       await apiClient.deleteConsumerGroup(clusterId, groupName);
+      showSuccess('Consumer group deleted successfully');
       fetchGroups();
     } catch (e) {
-      alert((e as { message: string }).message);
+      showError((e as { message: string }).message);
     }
   }
 }
@@ -836,7 +839,7 @@ async function loadGroupDetail(groupName: string) {
       };
     }
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     loadingDetail.value = false;
   }

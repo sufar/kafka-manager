@@ -272,12 +272,14 @@ import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import type { Cluster } from '@/types/api';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
 const languageStore = useLanguageStore();
+const { showError, showSuccess } = useToast();
 
 const clusters = computed(() => clusterStore.clusters);
 const loading = computed(() => clusterStore.loading);
@@ -347,9 +349,10 @@ async function handleSubmit() {
         operation_timeout_ms: formData.operation_timeout_ms,
       });
     }
+    showSuccess(editingCluster.value ? t.value.clusters.updated : t.value.clusters.created);
     closeModal();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     submitting.value = false;
   }
@@ -360,12 +363,12 @@ async function testConnection(id: number) {
   try {
     const result = await clusterStore.testCluster(id);
     if (result.success) {
-      alert('Connection successful!');
+      showSuccess(t.value.clusters.connected);
     } else {
-      alert('Connection failed!');
+      showError(t.value.clusters.connectionError);
     }
   } catch (e) {
-    alert(`Connection failed: ${(e as { message: string }).message}`);
+    showError(`${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
   } finally {
     testing.value.delete(id);
   }
@@ -394,13 +397,14 @@ async function refreshConnectionStatus(clusterName: string) {
 }
 
 async function disconnectCluster(clusterName: string) {
-  if (confirm(`Are you sure you want to disconnect cluster "${clusterName}"?`)) {
+  if (confirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
     disconnecting.value.add(clusterName);
     try {
       await connectionStore.disconnectCluster(clusterName);
       await connectionStore.fetchAllConnections();
+      showSuccess('Cluster disconnected successfully');
     } catch (e) {
-      alert(`Disconnect failed: ${(e as { message: string }).message}`);
+      showError(`Disconnect failed: ${(e as { message: string }).message}`);
     } finally {
       disconnecting.value.delete(clusterName);
     }
@@ -413,8 +417,9 @@ async function reconnectCluster(clusterName: string) {
     await connectionStore.reconnectCluster(clusterName);
     await connectionStore.fetchAllConnections();
     await clusterStore.fetchClusters();
+    showSuccess('Cluster reconnected successfully');
   } catch (e) {
-    alert(`Reconnect failed: ${(e as { message: string }).message}`);
+    showError(`Reconnect failed: ${(e as { message: string }).message}`);
   } finally {
     reconnecting.value.delete(clusterName);
   }

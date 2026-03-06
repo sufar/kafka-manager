@@ -220,10 +220,12 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import type { UserResponse, RoleResponse } from '@/types/api';
 
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+const { showError, showSuccess } = useToast();
 
 const loading = ref(false);
 const showRoles = ref(false);
@@ -349,10 +351,11 @@ async function handleUserSubmit() {
         role_id: userForm.role_id,
       });
     }
+    showSuccess(t.value.users.updated);
     closeUserModal();
     fetchUsers();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     userSubmitting.value = false;
   }
@@ -374,10 +377,11 @@ async function handleRoleSubmit() {
         permissions: roleForm.permissions,
       });
     }
+    showSuccess(t.value.users.updated);
     closeRoleModal();
     fetchRoles();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     roleSubmitting.value = false;
   }
@@ -386,9 +390,10 @@ async function handleRoleSubmit() {
 async function toggleUserStatus(user: UserResponse) {
   try {
     await apiClient.updateUser(user.id, { is_active: !user.is_active });
+    showSuccess(user.is_active ? t.value.users.deactivate : t.value.users.activate);
     fetchUsers();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   }
 }
 

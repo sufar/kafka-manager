@@ -189,12 +189,14 @@ import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import { useToast } from '@/composables/useToast';
 import type { SchemaInfo } from '@/types/api';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+const { showError, showSuccess } = useToast();
 
 // 从 URL 参数获取集群 ID
 const clusterParam = computed(() => route.query.cluster as string || '');
@@ -294,10 +296,11 @@ async function handleRegisterSchema() {
   registering.value = true;
   try {
     await apiClient.registerSchema(selectedClusterId.value, newSchema.value);
+    showSuccess('Schema registered successfully');
     closeRegisterModal();
     fetchSubjects();
   } catch (e) {
-    alert((e as { message: string }).message);
+    showError((e as { message: string }).message);
   } finally {
     registering.value = false;
   }
@@ -308,7 +311,7 @@ function confirmDeleteSubject(subject: string) {
   if (confirm(t.value.schemaRegistry.confirmDeleteSubject.replace('{subject}', subject))) {
     apiClient.deleteSchema(selectedClusterId.value, subject, schemaRegistryUrl.value)
       .then(() => fetchSubjects())
-      .catch(e => alert((e as { message: string }).message));
+      .catch(e => showError((e as { message: string }).message));
   }
 }
 
@@ -325,7 +328,7 @@ function confirmDeleteVersion() {
           closeDetailModal();
         }
       })
-      .catch(e => alert((e as { message: string }).message));
+      .catch(e => showError((e as { message: string }).message));
   }
 }
 
@@ -340,7 +343,7 @@ function closeDetailModal() {
 function copySchema() {
   if (selectedSchema.value) {
     navigator.clipboard.writeText(selectedSchema.value.schema);
-    alert(t.value.schemaRegistry.schemaCopied);
+    showSuccess(t.value.schemaRegistry.schemaCopied);
   }
 }
 
