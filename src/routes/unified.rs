@@ -43,28 +43,146 @@ fn get_string_param(body: &Value, key: &str) -> Result<String> {
         .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
 }
 
-/// 获取或创建 admin 客户端
+/// 确保集群客户端已创建（如果未创建则自动创建）
 /// 如果内存中不存在，则从数据库加载集群配置并建立连接
-async fn get_or_create_admin_client(
+async fn ensure_cluster_client(
     state: &AppState,
     cluster_id: &str,
-) -> Result<Arc<crate::kafka::KafkaAdmin>> {
-    // 首先尝试从内存中获取
+) -> Result<Arc<crate::config::KafkaConfig>> {
+    use tokio::time::Duration;
+
+    tracing::info!("ensure_cluster_client called for cluster: {}", cluster_id);
+
+    // 首先尝试从内存中获取配置
     let clients = state.get_clients();
-    if let Some(admin) = clients.get_admin(cluster_id) {
-        return Ok(admin);
+    if let Some(config) = clients.get_config(cluster_id) {
+        tracing::info!("Found config in memory for cluster: {}", cluster_id);
+        return Ok(config);
     }
 
-    // 从数据库获取集群配置
-    let cluster = ClusterStore::get_by_name(state.db.inner(), cluster_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+    tracing::info!("Config not in memory, fetching from database for cluster: {}", cluster_id);
+
+    // 从数据库获取集群配置（带重试）
+    let mut cluster = None;
+    let mut last_db_error = None;
+
+    // 最多重试 3 次
+    for attempt in 0..3 {
+        tracing::info!("Attempting to fetch cluster '{}' from database (attempt {}/{})", cluster_id, attempt + 1, 3);
+
+        match ClusterStore::get_by_name(state.db.inner(), cluster_id).await {
+            Ok(Some(c)) => {
+                tracing::info!("Successfully fetched cluster '{}' from database", cluster_id);
+                cluster = Some(c);
+                break;
+            }
+            Ok(None) => {
+                tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
+                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
+                last_db_error = Some(e);
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
+        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+    }))?;
 
     let config = crate::config::KafkaConfig {
         brokers: cluster.brokers,
         request_timeout_ms: cluster.request_timeout_ms as u32,
         operation_timeout_ms: cluster.operation_timeout_ms as u32,
     };
+
+    tracing::info!("Creating connection pool for cluster: {}", cluster_id);
+
+    // 建立连接池连接
+    state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
+
+    // 更新 Kafka 客户端
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(cluster_id, &config)?;
+    state.set_clients(new_clients.into());
+
+    // 等待连接建立
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let updated_clients = state.get_clients();
+    updated_clients.get_config(cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Failed to get config for cluster '{}'", cluster_id)))
+}
+
+/// 获取或创建 admin 客户端
+/// 如果内存中不存在，则从数据库加载集群配置并建立连接
+async fn get_or_create_admin_client(
+    state: &AppState,
+    cluster_id: &str,
+) -> Result<Arc<crate::kafka::KafkaAdmin>> {
+    use tokio::time::Duration;
+
+    tracing::info!("get_or_create_admin_client called for cluster: {}", cluster_id);
+
+    // 首先尝试从内存中获取
+    let clients = state.get_clients();
+    if let Some(admin) = clients.get_admin(cluster_id) {
+        tracing::info!("Found admin client in memory for cluster: {}", cluster_id);
+        return Ok(admin);
+    }
+
+    tracing::info!("Admin client not in memory, fetching from database for cluster: {}", cluster_id);
+
+    // 从数据库获取集群配置（带重试）
+    let mut cluster = None;
+    let mut last_db_error = None;
+
+    // 最多重试 3 次，因为数据库连接可能还没完全准备好
+    for attempt in 0..3 {
+        tracing::info!("Attempting to fetch cluster '{}' from database (attempt {}/{})", cluster_id, attempt + 1, 3);
+
+        match ClusterStore::get_by_name(state.db.inner(), cluster_id).await {
+            Ok(Some(c)) => {
+                tracing::info!("Successfully fetched cluster '{}' from database", cluster_id);
+                cluster = Some(c);
+                break;
+            }
+            Ok(None) => {
+                // 集群不存在，等待后重试
+                tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
+                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
+                last_db_error = Some(e);
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
+        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+    }))?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    tracing::info!("Creating connection pool for cluster: {}", cluster_id);
 
     // 建立连接池连接
     state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
@@ -76,8 +194,22 @@ async fn get_or_create_admin_client(
 
     // 获取新的客户端
     let updated_clients = state.get_clients();
-    updated_clients.get_admin(cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+
+    // 如果获取 admin 失败，等待连接建立后重试
+    match updated_clients.get_admin(cluster_id) {
+        Some(admin) => {
+            tracing::info!("Successfully created admin client for cluster: {}", cluster_id);
+            Ok(admin)
+        }
+        None => {
+            tracing::warn!("Admin client not found after creation, waiting and retrying for cluster: {}", cluster_id);
+            // 等待连接完全建立
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let retry_clients = state.get_clients();
+            retry_clients.get_admin(cluster_id)
+                .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+        }
+    }
 }
 
 /// 获取或创建 admin 客户端和配置
@@ -578,18 +710,38 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     // Use spawn_blocking to avoid blocking async runtime
-    let admin_clone = admin.clone();
-    let topics = tokio::task::spawn_blocking(move || admin_clone.list_topics())
-        .await
-        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
+    // Add retry logic for initial connection establishment
+    let mut last_error = None;
+    for attempt in 0..5 {
+        let admin_clone = admin.clone();
+        let result = tokio::task::spawn_blocking(move || admin_clone.list_topics())
+            .await
+            .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
 
-    // Write to cache
-    state
-        .cache
-        .set_topic_list(&cluster_id, topics.clone())
-        .await;
+        match result {
+            Ok(topics) => {
+                // Write to cache
+                state
+                    .cache
+                    .set_topic_list(&cluster_id, topics.clone())
+                    .await;
 
-    Ok(serde_json::json!({ "topics": topics }))
+                return Ok(serde_json::json!({ "topics": topics }));
+            }
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < 4 {
+                    // Wait before retry (initial connection may need time to establish)
+                    // 使用递增的等待时间：500ms, 1000ms, 1500ms, 2000ms
+                    let wait_ms = 500 * (attempt + 1) as u64;
+                    tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().unwrap());
+                    tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap())
 }
 
 async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
@@ -1273,9 +1425,8 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let search = get_optional_string_param(&body, "search");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
-    let _config = state.get_clients()
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    // 首先确保集群客户端已创建（如果未创建则自动创建）
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
@@ -1339,20 +1490,25 @@ async fn fetch_messages_from_pool_with_filter(
     // 根据 fetch_mode 和 offset 确定起始 offset
     let start_offset = if let Some(start_time) = start_time {
         // 如果指定了开始时间，使用 offsets_for_times 定位
-        let mut tpl = TopicPartitionList::new();
-        // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
-        tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
-            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+        // 时间戳应该是正数，如果不合法则回退到指定的 offset 或 0
+        if start_time <= 0 {
+            offset.unwrap_or(0)
+        } else {
+            let mut tpl = TopicPartitionList::new();
+            // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
+            tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
+                .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
-        match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
-            Ok(result) => {
-                // 从结果中获取 offset
-                result.elements_for_topic(topic)
-                    .first()
-                    .and_then(|e| e.offset().to_raw())
-                    .unwrap_or_else(|| offset.unwrap_or(0))
+            match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                Ok(result) => {
+                    // 从结果中获取 offset
+                    result.elements_for_topic(topic)
+                        .first()
+                        .and_then(|e| e.offset().to_raw())
+                        .unwrap_or_else(|| offset.unwrap_or(0))
+                }
+                Err(_) => offset.unwrap_or(0),
             }
-            Err(_) => offset.unwrap_or(0),
         }
     } else if fetch_mode == Some("newest") && offset.is_none() {
         // 只有 newest 模式且没有指定 offset 时才查询 watermarks
@@ -1378,7 +1534,14 @@ async fn fetch_messages_from_pool_with_filter(
     };
 
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_offset))
+    // 确保 offset 非负，rdkafka 不接受负数的 Offset::Offset
+    let safe_offset = if start_offset < 0 {
+        // 如果 offset 为负，使用 Beginning（最早）
+        rdkafka::Offset::Beginning
+    } else {
+        rdkafka::Offset::Offset(start_offset)
+    };
+    tpl.add_partition_offset(topic, target_partition, safe_offset)
         .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
     consumer.assign(&tpl)

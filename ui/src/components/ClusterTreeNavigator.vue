@@ -660,18 +660,39 @@ function getClusterConsumerGroups(clusterName: string): ConsumerGroup[] {
   return clusterConsumerGroups[clusterName] || [];
 }
 
-function selectTopic(topic: Topic, clusterName: string) {
+async function selectTopic(topic: Topic, clusterName: string) {
   selectedTopic.value = { name: topic.name, cluster: clusterName };
   selectedPartition.value = null;
   selectedConsumerGroup.value = null;
+
+  // 确保集群已连接
+  await connectClusterIfNeeded(clusterName);
+
   emit('navigate', { path: '/messages', query: { cluster: clusterName, topic: topic.name } });
 }
 
-function selectPartition(partitionId: number, topic: Topic, clusterName: string) {
+async function selectPartition(partitionId: number, topic: Topic, clusterName: string) {
   selectedTopic.value = { name: topic.name, cluster: clusterName };
   selectedPartition.value = { topic: topic.name, partition: partitionId, cluster: clusterName };
   selectedConsumerGroup.value = null;
+
+  // 确保集群已连接
+  await connectClusterIfNeeded(clusterName);
+
   emit('navigate', { path: '/messages', query: { cluster: clusterName, topic: topic.name, partition: String(partitionId) } });
+}
+
+async function connectClusterIfNeeded(clusterName: string) {
+  const health = getClusterHealth(clusterName);
+  if (!health || health.healthy !== true) {
+    try {
+      await apiClient.reconnectCluster(clusterName);
+      // 静默刷新健康状态
+      await clusterStore.refreshAllHealth();
+    } catch (e) {
+      console.error(`Failed to connect cluster ${clusterName}:`, e);
+    }
+  }
 }
 
 function selectConsumerGroup(group: ConsumerGroup, clusterName: string) {
