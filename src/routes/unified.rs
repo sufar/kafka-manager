@@ -76,8 +76,18 @@ async fn get_or_create_admin_client(
 
     // 获取新的客户端
     let updated_clients = state.get_clients();
-    updated_clients.get_admin(cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+
+    // 如果获取 admin 失败，等待连接建立后重试
+    match updated_clients.get_admin(cluster_id) {
+        Some(admin) => Ok(admin),
+        None => {
+            // 等待连接完全建立
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let retry_clients = state.get_clients();
+            retry_clients.get_admin(cluster_id)
+                .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+        }
+    }
 }
 
 /// 获取或创建 admin 客户端和配置
@@ -578,18 +588,35 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     // Use spawn_blocking to avoid blocking async runtime
-    let admin_clone = admin.clone();
-    let topics = tokio::task::spawn_blocking(move || admin_clone.list_topics())
-        .await
-        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
+    // Add retry logic for initial connection establishment
+    let mut last_error = None;
+    for attempt in 0..3 {
+        let admin_clone = admin.clone();
+        let result = tokio::task::spawn_blocking(move || admin_clone.list_topics())
+            .await
+            .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
 
-    // Write to cache
-    state
-        .cache
-        .set_topic_list(&cluster_id, topics.clone())
-        .await;
+        match result {
+            Ok(topics) => {
+                // Write to cache
+                state
+                    .cache
+                    .set_topic_list(&cluster_id, topics.clone())
+                    .await;
 
-    Ok(serde_json::json!({ "topics": topics }))
+                return Ok(serde_json::json!({ "topics": topics }));
+            }
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < 2 {
+                    // Wait before retry (initial connection may need time to establish)
+                    tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt + 1) as u64)).await;
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap())
 }
 
 async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
@@ -1339,20 +1366,25 @@ async fn fetch_messages_from_pool_with_filter(
     // 根据 fetch_mode 和 offset 确定起始 offset
     let start_offset = if let Some(start_time) = start_time {
         // 如果指定了开始时间，使用 offsets_for_times 定位
-        let mut tpl = TopicPartitionList::new();
-        // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
-        tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
-            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+        // 时间戳应该是正数，如果不合法则回退到指定的 offset 或 0
+        if start_time <= 0 {
+            offset.unwrap_or(0)
+        } else {
+            let mut tpl = TopicPartitionList::new();
+            // 注意：offsets_for_times 需要将时间戳包装在 Offset::Offset 中
+            tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_time))
+                .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
-        match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
-            Ok(result) => {
-                // 从结果中获取 offset
-                result.elements_for_topic(topic)
-                    .first()
-                    .and_then(|e| e.offset().to_raw())
-                    .unwrap_or_else(|| offset.unwrap_or(0))
+            match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                Ok(result) => {
+                    // 从结果中获取 offset
+                    result.elements_for_topic(topic)
+                        .first()
+                        .and_then(|e| e.offset().to_raw())
+                        .unwrap_or_else(|| offset.unwrap_or(0))
+                }
+                Err(_) => offset.unwrap_or(0),
             }
-            Err(_) => offset.unwrap_or(0),
         }
     } else if fetch_mode == Some("newest") && offset.is_none() {
         // 只有 newest 模式且没有指定 offset 时才查询 watermarks
@@ -1372,7 +1404,14 @@ async fn fetch_messages_from_pool_with_filter(
     };
 
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(topic, target_partition, rdkafka::Offset::Offset(start_offset))
+    // 确保 offset 非负，rdkafka 不接受负数的 Offset::Offset
+    let safe_offset = if start_offset < 0 {
+        // 如果 offset 为负，使用 Beginning（最早）
+        rdkafka::Offset::Beginning
+    } else {
+        rdkafka::Offset::Offset(start_offset)
+    };
+    tpl.add_partition_offset(topic, target_partition, safe_offset)
         .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
     consumer.assign(&tpl)
