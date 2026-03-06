@@ -208,26 +208,26 @@ const searchInputRef = ref<HTMLInputElement>();
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(searchQuery, (newQuery) => {
-  if (newQuery.trim()) {
-    // 防抖 300ms
+  const trimmed = newQuery.trim();
+  if (trimmed) {
+    // 防抖 100ms
     if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
       performSearch();
-    }, 300);
+    }, 100);
   } else {
     searchResults.value = [];
   }
 });
 
 async function performSearch() {
+  const query = searchQuery.value.trim();
+  if (!query) return;
+
   searchLoading.value = true;
   searchError.value = null;
-  const start = performance.now();
-  console.log('[search] starting search for:', searchQuery.value);
   try {
-    // 传入搜索关键词，后端会模糊匹配并限制返回 10 条
-    searchResults.value = await apiClient.searchTopics(searchQuery.value);
-    console.log('[search] completed in', (performance.now() - start).toFixed(2), 'ms, found', searchResults.value.length, 'results');
+    searchResults.value = await apiClient.searchTopics(query);
   } catch (e) {
     console.error('[search] error:', e);
     searchError.value = (e as { message: string }).message;

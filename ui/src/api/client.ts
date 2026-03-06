@@ -122,7 +122,7 @@ class ApiClient {
     }
 
     // 在 Tauri 环境下，添加更多重试
-    const maxRetries = isTauri() ? 10 : 1; // Tauri 下最多重试 10 次
+    const maxRetries = isTauri() ? 3 : 1; // Tauri 下最多重试 3 次（原来是 10 次）
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -160,7 +160,7 @@ class ApiClient {
               error.message?.includes('fetch') ||
               error.type === 'TypeError') {
             console.log(`[ApiClient] Retrying request (${attempt + 1}/${maxRetries})...`);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待 1 秒
+            await new Promise(resolve => setTimeout(resolve, 100)); // 从 1 秒减少到 100ms
             lastError = e as Error;
             continue;
           }
