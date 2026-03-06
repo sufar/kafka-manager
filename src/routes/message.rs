@@ -110,15 +110,19 @@ async fn get_messages(
             Ok(Some(offset)) => Some(offset),
             Ok(None) | Err(_) => params.offset,
         }
-    } else if params.fetch_mode.as_deref() == Some("newest") {
-        // fetch_mode=newest: 从最新的 offset 开始获取
+    } else if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() {
+        // fetch_mode=newest 且未指定 offset: 从最新的 offset 开始获取
         let target_partition = params.partition.unwrap_or(0);
         match consumer.get_offset_for_time(&config, &topic, target_partition, i64::MAX).await {
             Ok(Some(offset)) => Some(offset),
             Ok(None) | Err(_) => None, // fallback 到 earliest
         }
+    } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
+        // fetch_mode=oldest 且未指定 offset: 查询 low watermark 作为起始位置
+        let target_partition = params.partition.unwrap_or(0);
+        consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
     } else {
-        // fetch_mode=oldest 或未指定：从最早的 offset 开始
+        // 默认从最早的 offset 开始或指定的 offset
         params.offset
     };
 

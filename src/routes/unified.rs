@@ -1366,6 +1366,12 @@ async fn fetch_messages_from_pool_with_filter(
             }
             _ => 0,
         }
+    } else if fetch_mode == Some("oldest") && offset.is_none() {
+        // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
+        match consumer.fetch_watermarks(topic, target_partition, Duration::from_millis(500)) {
+            Ok((low, _)) => low,
+            _ => 0,
+        }
     } else {
         // 默认从最早的消息开始或指定的 offset
         offset.unwrap_or(0)
