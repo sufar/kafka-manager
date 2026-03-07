@@ -60,8 +60,22 @@
       </select>
 
       <!-- Time Range Filter -->
-      <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" />
-      <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" />
+      <div style="position: relative; display: inline-block;">
+        <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" />
+        <button v-if="filters.startTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''" title="Clear start time">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div style="position: relative; display: inline-block;">
+        <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" />
+        <button v-if="filters.endTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''" title="Clear end time">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
       <button class="btn btn-primary btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading">
         {{ t.messages.fetch }}
