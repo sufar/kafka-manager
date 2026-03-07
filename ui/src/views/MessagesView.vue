@@ -497,11 +497,8 @@ async function fetchTopicPartitions() {
     return;
   }
   try {
-    console.log('[fetchTopicPartitions] Fetching for:', selectedClusterId.value, selectedTopic.value);
     const topicDetail = await apiClient.getTopicDetail(selectedClusterId.value, selectedTopic.value);
-    console.log('[fetchTopicPartitions] Result:', topicDetail);
     const partitions = topicDetail.partitions?.map((p: { id: number }) => p.id) || [];
-    console.log('[fetchTopicPartitions] Partitions:', partitions);
     topicPartitions.value = partitions.length > 0 ? partitions : [0];
     // 清空 partition 过滤，因为旧值可能不在新的分区列表中
     filters.partition = undefined;
@@ -553,7 +550,6 @@ async function fetchMessages() {
     const error = e as { message: string };
     // 如果是取消请求，不显示错误
     if (error.message === 'AbortError' || error.message.includes('aborted')) {
-      console.log('Fetch messages cancelled');
     } else {
       showError(error.message);
     }

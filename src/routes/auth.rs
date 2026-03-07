@@ -81,7 +81,7 @@ async fn create_api_key(
     let expires_at = if let Some(days) = req.expires_in_days {
         let expires = chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(days))
-            .unwrap()
+            .ok_or_else(|| crate::error::AppError::Internal("Invalid date calculation".to_string()))?
             .to_rfc3339();
         Some(expires)
     } else {

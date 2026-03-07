@@ -69,7 +69,10 @@ impl NotificationStore {
         req: &CreateNotificationConfigRequest,
     ) -> Result<i64> {
         let now = chrono::Utc::now().to_rfc3339();
-        let email_json = req.email_recipients.as_ref().map(|r| serde_json::to_string(r).unwrap());
+        let email_json = req.email_recipients.as_ref()
+            .map(|r| serde_json::to_string(r))
+            .transpose()
+            .map_err(|e| crate::error::AppError::Internal(format!("Failed to serialize email recipients: {}", e)))?;
 
         let result = sqlx::query(
             r#"
@@ -173,7 +176,9 @@ impl NotificationStore {
         notification_configs: Option<&[i64]>,
     ) -> Result<i64> {
         let now = chrono::Utc::now().to_rfc3339();
-        let configs_json = notification_configs.map(|c| serde_json::to_string(&c).unwrap());
+        let configs_json = notification_configs.map(|c| serde_json::to_string(&c))
+            .transpose()
+            .map_err(|e| crate::error::AppError::Internal(format!("Failed to serialize notification configs: {}", e)))?;
 
         let result = sqlx::query(
             r#"

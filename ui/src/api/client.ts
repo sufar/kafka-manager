@@ -78,7 +78,6 @@ class ApiClient {
         const response = await this.request('health', {});
         if (response) {
           this.backendReady = true;
-          console.log('[ApiClient] Backend is ready after', i + 1, 'attempts');
           return true;
         }
       } catch (e) {
@@ -159,7 +158,6 @@ class ApiClient {
               error.message?.includes('NetworkError') ||
               error.message?.includes('fetch') ||
               error.type === 'TypeError') {
-            console.log(`[ApiClient] Retrying request (${attempt + 1}/${maxRetries})...`);
             await new Promise(resolve => setTimeout(resolve, 100)); // 从 1 秒减少到 100ms
             lastError = e as Error;
             continue;

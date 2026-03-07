@@ -447,7 +447,7 @@ async fn get_topic_consumer_lag_history(
     // 获取当前时间戳
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("SystemTime before UNIX epoch")
         .as_millis() as i64;
 
     // 构建单点历史数据响应

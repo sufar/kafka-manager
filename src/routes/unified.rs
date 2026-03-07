@@ -7,7 +7,7 @@ use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterReques
 use crate::db::cluster_connection::ClusterConnectionStore;
 use crate::db::notification::{CreateNotificationConfigRequest, NotificationStore};
 use crate::db::settings::SettingStore;
-use crate::db::tag::{BatchTagsRequest, TagRequest, TagStore};
+use crate::db::tag::{TagStore};
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
     CreateTopicTemplateRequest, TopicTemplateStore,
@@ -734,14 +734,17 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
                     // Wait before retry (initial connection may need time to establish)
                     // 使用递增的等待时间：500ms, 1000ms, 1500ms, 2000ms
                     let wait_ms = 500 * (attempt + 1) as u64;
-                    tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().unwrap());
+                    tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().map(|e| format!("{}", e)).unwrap_or_default());
                     tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
                 }
             }
         }
     }
 
-    Err(last_error.unwrap())
+    last_error.map_or_else(
+        || Err(AppError::Internal("Unknown error occurred".to_string())),
+        Err
+    )
 }
 
 async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
@@ -1022,7 +1025,9 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     let admin = clients.get_admin(&cluster_id);
 
     // 如果不存在，尝试从数据库获取集群配置并建立连接
-    let admin = if admin.is_none() {
+    let admin = if let Some(existing_admin) = admin {
+        existing_admin
+    } else {
         let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
@@ -1040,8 +1045,6 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
         let new_clients = state.get_clients();
         new_clients.get_admin(&cluster_id)
             .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))?
-    } else {
-        admin.unwrap()
     };
 
     // Get current topics from Kafka (blocking operation)
@@ -1571,12 +1574,15 @@ async fn fetch_messages_from_pool_with_filter(
     let mut consecutive_timeouts = 0;
     const MAX_CONSECUTIVE_TIMEOUTS: u32 = 1; // 从 2 减少到 1，更快退出
     let mut had_message = false; // 标记是否已经获取到过消息
+    let mut total_read = 0; // 总共读取的消息数（包括被过滤的）
+    let mut filtered_count = 0; // 被过滤掉的消息数
 
     while messages.len() < max_messages {
         match tokio::time::timeout(base_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 consecutive_timeouts = 0;
                 had_message = true;
+                total_read += 1;
 
                 let timestamp = msg.timestamp().to_millis();
 
@@ -1584,6 +1590,7 @@ async fn fetch_messages_from_pool_with_filter(
                 if let Some(start) = start_time {
                     if let Some(ts) = timestamp {
                         if ts < start {
+                            filtered_count += 1;
                             continue;
                         }
                     }
@@ -1591,7 +1598,13 @@ async fn fetch_messages_from_pool_with_filter(
                 if let Some(end) = end_time {
                     if let Some(ts) = timestamp {
                         if ts > end {
-                            break; // 超过结束时间，停止获取
+                            // 对于单分区模式，可以提前退出（假设时间戳大致递增）
+                            // 对于多分区模式，使用 continue 而不是 break，因为不同分区的消息是交错的
+                            if !all_partitions {
+                                break; // 超过结束时间，停止获取（单分区模式）
+                            }
+                            filtered_count += 1;
+                            continue; // 多分区模式下继续检查其他消息
                         }
                     }
                 }
@@ -1604,6 +1617,7 @@ async fn fetch_messages_from_pool_with_filter(
                     let key_match = key.as_ref().map_or(false, |k| k.to_lowercase().contains(search_term));
                     let value_match = value.as_ref().map_or(false, |v| v.to_lowercase().contains(search_term));
                     if !key_match && !value_match {
+                        filtered_count += 1;
                         continue;
                     }
                 }
@@ -1615,6 +1629,15 @@ async fn fetch_messages_from_pool_with_filter(
                     value,
                     timestamp,
                 });
+
+                // 保护机制：如果过滤掉太多消息，提前退出避免无限读取
+                if filtered_count >= max_messages * 20 && total_read >= max_messages * 50 {
+                    tracing::warn!(
+                        "Too many filtered messages: read {}, matched {}, filtered {}",
+                        total_read, messages.len(), filtered_count
+                    );
+                    break;
+                }
             }
             Ok(Err(_)) | Err(_) => {
                 consecutive_timeouts += 1;
@@ -3022,15 +3045,18 @@ async fn handle_tag_topics(state: AppState, body: Value) -> Result<Value> {
     let store = TagStore::new(state.db.inner().clone());
 
     // If no filter, return empty list
-    if resource_type.is_none() || resource_name.is_none() {
+    let Some(resource_type) = resource_type else {
         return Ok(serde_json::json!({ "tags": [] }));
-    }
+    };
+    let Some(resource_name) = resource_name else {
+        return Ok(serde_json::json!({ "tags": [] }));
+    };
 
     let tags = store
         .get_tags(
             &cluster_id,
-            &resource_type.unwrap(),
-            &resource_name.unwrap(),
+            &resource_type,
+            &resource_name,
         )
         .await?;
 
@@ -3147,7 +3173,7 @@ async fn handle_audit_log_list(state: AppState, body: Value) -> Result<Value> {
         .map(|log| {
             // Parse timestamp
             let timestamp = DateTime::parse_from_rfc3339(&log.timestamp)
-                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).unwrap().into())
+                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).expect("valid epoch timestamp").into())
                 .with_timezone(&Utc);
 
             serde_json::json!({
@@ -3209,7 +3235,7 @@ async fn handle_auth_api_key_create(state: AppState, body: Value) -> Result<Valu
     let expires_at = if let Some(days) = expires_in_days {
         let expires = chrono::Utc::now()
             .checked_add_signed(chrono::Duration::days(days))
-            .unwrap()
+            .ok_or_else(|| AppError::Internal("Invalid date calculation".to_string()))?
             .to_rfc3339();
         Some(expires)
     } else {
@@ -3349,7 +3375,7 @@ async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Val
     // 获取当前时间戳
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("SystemTime before UNIX epoch")
         .as_millis() as i64;
 
     let groups: Vec<Value> = snapshot

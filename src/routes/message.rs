@@ -570,7 +570,7 @@ async fn export_messages(
 
         let temp_config = ClientConfig::new()
             .set("bootstrap.servers", &config.brokers)
-            .set("group.id", &format!("kafka-manager-watermark-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()))
+            .set("group.id", &format!("kafka-manager-watermark-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()))
             .create::<rdkafka::consumer::StreamConsumer>()
             .ok();
 
@@ -675,7 +675,7 @@ async fn export_messages(
     let mut headers = HeaderMap::new();
     headers.insert(
         "Content-Type",
-        export_format.content_type().parse().unwrap(),
+        export_format.content_type().parse().expect("valid content type"),
     );
 
     let filename = params.filename.unwrap_or_else(|| {
@@ -690,7 +690,7 @@ async fn export_messages(
 
     headers.insert(
         "Content-Disposition",
-        format!("attachment; filename=\"{}.{}\"", filename, extension).parse().unwrap(),
+        format!("attachment; filename=\"{}.{}\"", filename, extension).parse().expect("valid disposition"),
     );
 
     let mut response = Response::new(content.into());

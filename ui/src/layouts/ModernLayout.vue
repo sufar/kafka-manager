@@ -386,7 +386,6 @@ function handleSelectTopicInTree(topicName: string, clusterName: string) {
 }
 
 function handleClusterAction(action: string, cluster: string) {
-  console.log('Cluster action:', action, cluster);
 
   switch (action) {
     case 'viewBrokers':
@@ -438,7 +437,6 @@ async function refreshClusterTopics(cluster: string) {
     apiClient.cancelRequest();
     refreshing.value = false;
     refreshingCluster.value = null;
-    console.log('Refresh cancelled for cluster:', cluster);
     return;
   }
 
@@ -452,7 +450,6 @@ async function refreshClusterTopics(cluster: string) {
     const error = e as { message: string };
     // 如果是取消请求，不显示错误
     if (error.message === 'AbortError' || error.message.includes('aborted')) {
-      console.log('Refresh topics cancelled');
     } else {
       showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
     }
@@ -463,7 +460,6 @@ async function refreshClusterTopics(cluster: string) {
 }
 
 function handleTopicAction(action: string, topic: string, cluster: string) {
-  console.log('Topic action:', action, topic, cluster);
 
   switch (action) {
     case 'viewMessages':
@@ -490,7 +486,6 @@ function handleTopicAction(action: string, topic: string, cluster: string) {
 }
 
 function handlePartitionAction(action: string, topic: string, cluster: string, partitionId: number) {
-  console.log('Partition action:', action, topic, cluster, partitionId);
 
   switch (action) {
     case 'viewMessages':
@@ -535,14 +530,12 @@ function showTopicsFolderMenuFromTree(event: MouseEvent, clusterName: string) {
 }
 
 function showTopicMenuFromTree(event: MouseEvent, topicName: string, clusterName: string) {
-  console.log('[ModernLayout] showTopicMenuFromTree called:', topicName, clusterName, event.clientX, event.clientY);
   contextMenus.topic = {
     visible: true,
     topicName,
     clusterName,
     position: { x: event.clientX, y: event.clientY }
   };
-  console.log('[ModernLayout] contextMenus.topic:', contextMenus.topic);
 }
 
 function showPartitionMenuFromTree(event: MouseEvent, topicName: string, clusterName: string, partitionId: number) {

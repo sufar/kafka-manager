@@ -45,15 +45,18 @@ async fn list_all_tags(
 ) -> Result<Json<Vec<crate::db::tag::TagResponse>>> {
     let store = TagStore::new(state.db.inner().clone());
 
-    // 如果没有过滤条件，返回空列表或所有标签
-    if query.resource_type.is_none() || query.resource_name.is_none() {
+    // 如果没有过滤条件，返回空列表
+    let Some(ref resource_type) = query.resource_type else {
         return Ok(Json(vec![]));
-    }
+    };
+    let Some(ref resource_name) = query.resource_name else {
+        return Ok(Json(vec![]));
+    };
 
     let tags = store.get_tags(
         &cluster_id,
-        &query.resource_type.unwrap(),
-        &query.resource_name.unwrap(),
+        resource_type,
+        resource_name,
     ).await?;
 
     Ok(Json(tags.into_iter().map(|t| t.into()).collect()))

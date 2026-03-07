@@ -92,7 +92,7 @@ async fn list_audit_logs(
         .map(|log| {
             // 解析时间戳
             let timestamp = DateTime::parse_from_rfc3339(&log.timestamp)
-                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).unwrap().into())
+                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).expect("valid epoch timestamp").into())
                 .with_timezone(&Utc);
 
             AuditLogInfo {

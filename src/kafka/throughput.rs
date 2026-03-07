@@ -99,8 +99,8 @@ impl KafkaThroughputCalculator {
         let (messages_per_second, window_seconds) = if all_timestamps.is_empty() {
             (0.0, 0i64)
         } else {
-            let min_time = *all_timestamps.iter().min().unwrap();
-            let max_time = *all_timestamps.iter().max().unwrap();
+            let min_time = *all_timestamps.iter().min().expect("non-empty timestamps");
+            let max_time = *all_timestamps.iter().max().expect("non-empty timestamps");
             let window = ((max_time - min_time) / 1000).max(1);
             let rate = if window > 0 {
                 total_messages as f64 / window as f64
@@ -288,7 +288,7 @@ impl OffsetCache {
     pub fn record(&mut self, key: String, offset: i64) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("SystemTime before UNIX epoch")
             .as_secs();
         self.cache.insert(key, OffsetCacheEntry { offset, timestamp: now });
     }
@@ -298,7 +298,7 @@ impl OffsetCache {
         if let Some(entry) = self.cache.get(key) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("SystemTime before UNIX epoch")
                 .as_secs();
             let elapsed = (now - entry.timestamp) as f64;
             if elapsed > 0.0 {

@@ -124,7 +124,7 @@ impl TaskStore {
             task.message = Some("Task completed".to_string());
             task.result = Some(result);
             task.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            task.updated_at = task.completed_at.unwrap();
+            task.updated_at = task.completed_at.expect("completed_at should be set");
         }
     }
 
@@ -135,7 +135,7 @@ impl TaskStore {
             task.status = TaskStatus::Failed;
             task.error = Some(error);
             task.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            task.updated_at = task.completed_at.unwrap();
+            task.updated_at = task.completed_at.expect("completed_at should be set");
         }
     }
 

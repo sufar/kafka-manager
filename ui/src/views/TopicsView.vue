@@ -788,15 +788,12 @@ watch([clusterParam, selectedClusterIds], ([newClusterParam, newSelectedClusterI
 }, { immediate: true });
 
 async function fetchTopics() {
-  console.log('[TopicsView] fetchTopics called, clusterParam:', clusterParam.value);
   loading.value = true;
   error.value = null;
 
   if (clusterParam.value) {
-    console.log('[TopicsView] Fetching from API:', `/api/clusters/${clusterParam.value}/topics`);
     try {
       const topicNames = await apiClient.getTopics(clusterParam.value);
-      console.log('[TopicsView] Topics received:', topicNames);
       clusterTopics.value = topicNames.map((name) => ({
         name,
         cluster: clusterParam.value as string,

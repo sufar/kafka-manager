@@ -185,7 +185,7 @@ impl ClusterConnectionStore {
     ) -> Result<i64> {
         let cutoff = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::hours(hours))
-            .unwrap()
+            .ok_or_else(|| crate::error::AppError::Internal("Invalid time calculation".to_string()))?
             .to_rfc3339();
 
         let result = sqlx::query(

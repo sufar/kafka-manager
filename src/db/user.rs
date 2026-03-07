@@ -326,7 +326,9 @@ impl RoleStore {
         description: Option<&str>,
         permissions: Option<&[String]>,
     ) -> Result<()> {
-        let permissions_json = permissions.map(|p| serde_json::to_string(p).unwrap());
+        let permissions_json = permissions.map(|p| serde_json::to_string(p))
+            .transpose()
+            .map_err(|e| crate::error::AppError::Internal(format!("Failed to serialize permissions: {}", e)))?;
 
         sqlx::query(
             "UPDATE roles SET name = COALESCE(?, name), description = COALESCE(?, description), permissions = COALESCE(?, permissions) WHERE id = ?"

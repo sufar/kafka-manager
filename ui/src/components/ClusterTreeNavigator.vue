@@ -531,7 +531,6 @@ async function loadClusterTopics(clusterName: string) {
 
       // 如果数据库中没有 topics，从 Kafka 集群实时获取并保存到数据库
       if (!topics || topics.length === 0) {
-        console.log('[ClusterTreeNavigator] No saved topics, fetching from Kafka cluster:', clusterName);
         // 调用刷新接口，将集群 topics 同步到数据库
         await apiClient.refreshTopics(clusterName);
         // 刷新后重新获取完整的 topics 列表
@@ -578,7 +577,6 @@ async function loadClusterTopics(clusterName: string) {
 
       // 如果是集群未找到错误，可能是后端还没准备好，等待后重试
       if (error?.message?.includes('not found') && retryCount < maxRetries) {
-        console.log(`[ClusterTreeNavigator] Retrying in ${retryCount * 500}ms...`);
         await new Promise(resolve => setTimeout(resolve, retryCount * 500));
       } else {
         // 其他错误或已达到最大重试次数，显示错误但继续
@@ -821,7 +819,6 @@ function showTopicsFolderMenu(event: MouseEvent, clusterName: string) {
 }
 
 function showContextMenu(event: MouseEvent, topicName: string, clusterName: string) {
-  console.log('[ClusterTreeNavigator] Right click on topic:', topicName, 'cluster:', clusterName);
   emit('topic-context-menu', event, topicName, clusterName);
 }
 
@@ -833,7 +830,6 @@ function showPartitionMenu(event: MouseEvent, topicName: string, clusterName: st
 async function handleTopicsRefreshed(event: Event) {
   const customEvent = event as CustomEvent<{ cluster: string }>;
   const { cluster } = customEvent.detail;
-  console.log('[ClusterTreeNavigator] Received cluster-topics-refreshed event for cluster:', cluster);
   if (cluster) {
     // 等待一小段时间让后端完成数据库更新
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -841,7 +837,6 @@ async function handleTopicsRefreshed(event: Event) {
     // 直接获取最新的 topics 并更新
     try {
       const topics = await apiClient.getSavedTopics(cluster);
-      console.log('[ClusterTreeNavigator] getSavedTopics returned:', topics?.length, 'topics');
       clusterTopics[cluster] = await Promise.all(
         (topics || []).map(async (name: string) => {
           try {
@@ -857,7 +852,6 @@ async function handleTopicsRefreshed(event: Event) {
         })
       );
       topicCounts[cluster] = topics?.length || 0;
-      console.log('[ClusterTreeNavigator] Topics updated for cluster:', cluster, 'count:', topicCounts[cluster]);
     } catch (error) {
       console.error('[ClusterTreeNavigator] Failed to refresh topics:', error);
     }

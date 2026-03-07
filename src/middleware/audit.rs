@@ -116,7 +116,7 @@ fn extract_path_info(path: &str) -> (Option<String>, Option<String>) {
             // 下一个部分是集群 ID（如果不是路径关键词）
             let next = parts.get(i + 1);
             if !matches!(next, Some(&"topics" | &"consumer-groups" | &"brokers" | &"info" | &"metrics")) {
-                cluster_id = Some(next.unwrap().to_string());
+                cluster_id = next.cloned().map(|s| s.to_string());
             }
         }
 
@@ -124,14 +124,14 @@ fn extract_path_info(path: &str) -> (Option<String>, Option<String>) {
         if *part == "topics" && i + 1 < parts.len() {
             let next = parts.get(i + 1);
             if !matches!(next, Some(&"config" | &"offsets" | &"partitions" | &"messages")) {
-                resource = Some(format!("topic:{}", next.unwrap()));
+                resource = next.map(|s| format!("topic:{}", s));
             }
         }
 
         if *part == "consumer-groups" && i + 1 < parts.len() {
             let next = parts.get(i + 1);
             if !matches!(next, Some(&"offsets" | &"offsets-reset")) {
-                resource = Some(format!("consumer-group:{}", next.unwrap()));
+                resource = next.map(|s| format!("consumer-group:{}", s));
             }
         }
     }
@@ -233,16 +233,16 @@ pub struct MemoryAuditLogStore {
 
 impl MemoryAuditLogStore {
     pub fn get_logs(&self) -> Vec<AuditLog> {
-        self.logs.lock().unwrap().clone()
+        self.logs.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     pub fn clear(&self) {
-        self.logs.lock().unwrap().clear();
+        let _ = self.logs.lock().map(|mut g| g.clear());
     }
 }
 
 impl AuditLogStore for MemoryAuditLogStore {
     async fn save(&self, log: AuditLog) {
-        self.logs.lock().unwrap().push(log);
+        let _ = self.logs.lock().map(|mut g| g.push(log));
     }
 }

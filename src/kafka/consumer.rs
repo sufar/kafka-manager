@@ -456,7 +456,7 @@ impl KafkaConsumer {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         // 使用唯一的 group.id 避免与现有 consumer group 冲突
-        client_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+        client_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()));
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
         // 优化：增加超时时间，减少频繁切换时的超时错误

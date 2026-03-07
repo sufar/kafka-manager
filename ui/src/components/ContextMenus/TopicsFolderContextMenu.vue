@@ -54,10 +54,6 @@ const emit = defineEmits<{
   action: [action: string, clusterName: string];
 }>();
 
-// Watch for prop changes and log for debugging
-watch(() => props.visible, (val) => {
-  console.log('[TopicsFolderContextMenu] visible prop changed:', val);
-});
 
 function close() {
   emit('close');
