@@ -122,17 +122,17 @@
             <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4 overflow-y-auto max-h-[500px]">
               <!-- Topic Search Box - sticky under Topics folder -->
               <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2 sticky top-0 bg-base-100 z-10 py-1">
-                <div class="relative">
+                <div class="join w-full">
                   <input
                     v-model="topicSearchQuery[cluster.name]"
                     type="text"
                     :placeholder="`Search ${getTotalTopics(cluster.name)} topics...`"
-                    class="input input-bordered input-xs w-full pr-8"
+                    class="input input-bordered input-xs join-item w-full"
                     @click.stop
                   />
                   <button
                     v-if="topicSearchQuery[cluster.name]"
-                    class="absolute right-1 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs p-0 w-5 h-5"
+                    class="btn join-item btn-ghost btn-xs"
                     @click.stop="setTopicSearch(cluster.name, '')"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
