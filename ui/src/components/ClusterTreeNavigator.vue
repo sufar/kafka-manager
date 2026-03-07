@@ -34,7 +34,7 @@
       <div v-for="cluster in clusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div
-          class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md"
+          class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 backdrop-blur-sm"
           :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
           @contextmenu.prevent="showClusterMenu($event, cluster.name)"
           @dblclick="toggleCluster(cluster.name)"
@@ -72,7 +72,7 @@
         <!-- Cluster Children -->
         <div v-show="expandedClusters.has(cluster.name)" class="flex flex-col">
           <!-- Topics Folder -->
-          <div class="mb-1 flex-shrink-0">
+          <div class="mb-1 sticky top-0 z-20 bg-base-100/95 backdrop-blur-sm flex-shrink-0">
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-secondary/5 hover:shadow-md relative"
               :class="{ 'bg-secondary/10 shadow-inner': expandedTopicsFolders.has(cluster.name) }"
@@ -119,8 +119,8 @@
             </div>
 
             <!-- Topics Scrollable Container (includes search box + topics list) -->
-            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4 max-h-[calc(100vh-280px)] overflow-y-auto">
-              <!-- Topic Search Box -->
+            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4 overflow-y-auto max-h-[500px]">
+              <!-- Topic Search Box - sticky under Topics folder -->
               <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2 sticky top-0 bg-base-100 z-10 py-1">
                 <div class="relative">
                   <input
@@ -253,8 +253,8 @@
               </button>
             </div>
 
-            <!-- Consumer Groups List (scrollable) -->
-            <div v-show="expandedConsumerGroupsFolders.has(cluster.name)" class="pl-4 max-h-[200px] overflow-y-auto">
+            <!-- Consumer Groups List -->
+            <div v-show="expandedConsumerGroupsFolders.has(cluster.name)" class="pl-4 overflow-y-auto max-h-[150px]">
               <div
                 v-for="group in getClusterConsumerGroups(cluster.name)"
                 :key="group.groupId"
