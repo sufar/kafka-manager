@@ -7,7 +7,7 @@
 当前采用 **Tauri + 独立后端** 的架构：
 - **前端**: Vue 3 + Tauri 2
 - **后端**: Rust + axum (独立进程)
-- **通信**: HTTP (localhost:3000)
+- **通信**: HTTP (localhost:9732)
 
 ## 开发环境要求
 
@@ -109,7 +109,7 @@ kafka-manager/
 ## 故障排除
 
 ### 问题：Tauri 窗口无法加载
-检查后端是否在 `http://localhost:3000` 运行
+检查后端是否在 `http://localhost:9732` 运行
 
 ### 问题：构建失败
 尝试清理缓存：

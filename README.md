@@ -46,7 +46,7 @@ cd kafka-manager
 cargo run
 ```
 
-后端服务将在 `http://localhost:3000` 启动。
+后端服务将在 `http://localhost:9732` 启动。
 
 ### 方法二：运行桌面应用
 
@@ -139,19 +139,19 @@ kafka-manager/
 
 本项目采用**统一的 POST API**设计，所有请求都通过 `POST /api` 发送：
 
-- **请求 URL**: `POST http://localhost:3000/api`
+- **请求 URL**: `POST http://localhost:9732/api`
 - **Method Header**: `X-API-Method: <method_name>`
 - **请求 Body**: JSON 格式参数
 
 **示例**:
 ```bash
 # 获取集群列表
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "X-API-Method: cluster.list" \
   -H "Content-Type: application/json"
 
 # 创建 Topic
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "X-API-Method: topic.create" \
   -H "Content-Type: application/json" \
   -d '{
@@ -162,7 +162,7 @@ curl -X POST http://localhost:3000/api \
   }'
 
 # 获取消息列表
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "X-API-Method: message.list" \
   -H "Content-Type: application/json" \
   -d '{

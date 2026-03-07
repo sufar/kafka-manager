@@ -161,7 +161,7 @@ Kafka Manager 是一个功能齐全的 Kafka 集群管理工具，采用 Rust + 
 
 **请求示例**:
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "X-API-Method: cluster.list" \
   -H "Content-Type: application/json"
 ```

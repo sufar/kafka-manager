@@ -116,14 +116,14 @@ impl TopicStore {
 
 ```bash
 # 刷新指定集群的 Topic 列表
-curl -X POST http://localhost:3000/api/clusters/cluster-1/topics/refresh
+curl -X POST http://localhost:9732/api/clusters/cluster-1/topics/refresh
 ```
 
 ### 2. 添加集群时自动同步
 
 ```bash
 # 创建集群时会自动同步 Topic
-curl -X POST http://localhost:3000/api/clusters \
+curl -X POST http://localhost:9732/api/clusters \
   -H "Content-Type: application/json" \
   -d '{
     "name": "cluster-1",
@@ -137,7 +137,7 @@ curl -X POST http://localhost:3000/api/clusters \
 
 ```bash
 # 更新集群配置时会自动同步 Topic
-curl -X PUT http://localhost:3000/api/clusters/1 \
+curl -X PUT http://localhost:9732/api/clusters/1 \
   -H "Content-Type: application/json" \
   -d '{
     "brokers": "localhost:9092,localhost:9093"

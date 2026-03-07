@@ -8,7 +8,7 @@ Kafka Manager 采用**统一的 POST API**设计，所有 API 请求都通过 `P
 
 ```http
 POST /api HTTP/1.1
-Host: localhost:3000
+Host: localhost:9732
 Content-Type: application/json
 X-API-Method: {method_name}
 
@@ -261,7 +261,7 @@ X-API-Method: {method_name}
 ### 创建集群
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: cluster.create" \
   -d '{
@@ -288,7 +288,7 @@ curl -X POST http://localhost:3000/api \
 ### 获取 Topic 列表
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: topic.list" \
   -d '{
@@ -309,7 +309,7 @@ curl -X POST http://localhost:3000/api \
 ### 创建 Topic
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: topic.create" \
   -d '{
@@ -323,7 +323,7 @@ curl -X POST http://localhost:3000/api \
 ### 删除 Topic
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: topic.delete" \
   -d '{
@@ -335,7 +335,7 @@ curl -X POST http://localhost:3000/api \
 ### 发送消息
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: message.send" \
   -d '{
@@ -349,7 +349,7 @@ curl -X POST http://localhost:3000/api \
 ### 获取消息列表
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: message.list" \
   -d '{
@@ -366,7 +366,7 @@ curl -X POST http://localhost:3000/api \
 ### 重置 Consumer Group Offset
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: consumer_group.offsets_reset" \
   -d '{
@@ -382,7 +382,7 @@ curl -X POST http://localhost:3000/api \
 ### 使用模板创建 Topic
 
 ```bash
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: template.create_topic" \
   -d '{
@@ -396,7 +396,7 @@ curl -X POST http://localhost:3000/api \
 
 ```bash
 # 批量创建 Topic
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: topic.batch_create" \
   -d '{
@@ -409,7 +409,7 @@ curl -X POST http://localhost:3000/api \
   }'
 
 # 批量删除 Consumer Group
-curl -X POST http://localhost:3000/api \
+curl -X POST http://localhost:9732/api \
   -H "Content-Type: application/json" \
   -H "X-API-Method: consumer_group.batch_delete" \
   -d '{

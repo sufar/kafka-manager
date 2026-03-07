@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-开发服务器将在 http://localhost:5173 启动
+开发服务器将在 http://localhost:9733 启动
 
 ### 构建生产版本
 
@@ -87,8 +87,8 @@ cp .env.example .env.local
 
 开发环境下，API 请求通过 Vite 代理到后端服务。默认配置：
 
-- 前端：http://localhost:5173
-- 后端 API: http://localhost:8000
+- 前端：http://localhost:9733
+- 后端 API: http://localhost:9732
 
 如需修改后端地址，编辑 `vite.config.ts`：
 
@@ -97,7 +97,7 @@ server: {
   port: 5173,
   proxy: {
     '/api': {
-      target: 'http://localhost:8000',  // 修改这里
+      target: 'http://localhost:9732',  // 修改这里
       changeOrigin: true,
     },
   },
