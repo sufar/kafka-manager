@@ -1088,21 +1088,28 @@ async function exportMessages() {
       params.end_time = new Date(messageFilters.endTime).getTime();
     }
 
-    const blob = await apiClient.exportMessages(
+    const result = await apiClient.exportMessages(
       selectedMessageCluster.value,
       selectedMessageTopic.value,
       params
     );
 
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${selectedMessageTopic.value}_export_${Date.now()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-    showSuccess('Export successful');
+    // 使用 Tauri API 保存文件
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+
+    const filePath = await save({
+      filters: [{
+        name: 'JSON Files',
+        extensions: ['json']
+      }],
+      defaultPath: `${selectedMessageTopic.value}_export_${Date.now()}.json`
+    });
+
+    if (filePath) {
+      await writeTextFile(filePath, JSON.stringify(result.messages, null, 2));
+      showSuccess('Export successful');
+    }
   } catch (e) {
     showError(`Export failed: ${(e as { message: string }).message}`);
   }

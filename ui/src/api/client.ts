@@ -528,31 +528,18 @@ class ApiClient {
     fetchMode?: 'oldest' | 'newest';
     start_time?: number;
     end_time?: number;
-  }): Promise<Blob> {
-    // 导出功能需要通过原始URL获取
-    const queryParams = new URLSearchParams();
-    if (params?.format) queryParams.append('format', params.format);
-    if (params?.partition !== undefined) queryParams.append('partition', params.partition.toString());
-    if (params?.max_messages) queryParams.append('max_messages', params.max_messages.toString());
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.fetchMode) queryParams.append('fetch_mode', params.fetchMode);
-    if (params?.start_time) queryParams.append('start_time', params.start_time.toString());
-    if (params?.end_time) queryParams.append('end_time', params.end_time.toString());
-
-    const queryString = queryParams.toString();
-    const url = `${this.baseURL}/api/clusters/${clusterId}/${topic}/messages/_export${queryString ? `?${queryString}` : ''}`;
-
-    const response = await fetch(url, {
-      headers: this.apiKey ? { 'X-API-Key': this.apiKey } : {},
+  }): Promise<{ topic: string; format: string; messages: any[]; count: number }> {
+    return this.request('message.export', {
+      cluster_id: clusterId,
+      topic,
+      partition: params?.partition,
+      max_messages: params?.max_messages,
+      search: params?.search,
+      fetch_mode: params?.fetchMode,
+      start_time: params?.start_time,
+      end_time: params?.end_time,
     });
-
-    if (!response.ok) {
-      throw { message: `HTTP ${response.status}: ${response.statusText}`, status: response.status };
-    }
-
-    return response.blob();
   }
-
   // ==================== 集群监控 ====================
   async getClusterInfo(clusterId: string): Promise<import('@/types/api').ClusterInfoResponse> {
     return this.request('cluster.info', { cluster_id: clusterId });

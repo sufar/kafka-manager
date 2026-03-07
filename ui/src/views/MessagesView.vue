@@ -664,21 +664,32 @@ async function exportMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
   try {
-    const blob = await apiClient.exportMessages(selectedClusterId.value, selectedTopic.value, {
+    const result = await apiClient.exportMessages(selectedClusterId.value, selectedTopic.value, {
       format: 'json',
       partition: filters.partition,
       max_messages: filters.max_messages,
       search: filters.search || undefined,
       fetchMode: filters.fetchMode,
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${selectedTopic.value}_export_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    // 使用 Tauri API 保存文件
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+
+    const filePath = await save({
+      filters: [{
+        name: 'JSON Files',
+        extensions: ['json']
+      }],
+      defaultPath: `${selectedTopic.value}_export_${Date.now()}.json`
+    });
+
+    if (filePath) {
+      await writeTextFile(filePath, JSON.stringify(result.messages, null, 2));
+      showSuccess('Export successful');
+    }
   } catch (e) {
-    showError((e as { message: string }).message);
+    showError(`Export failed: ${(e as { message: string }).message}`);
   }
 }
 
