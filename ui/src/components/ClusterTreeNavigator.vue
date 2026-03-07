@@ -512,8 +512,8 @@ function collapseAll() {
 }
 
 async function loadClusterTopics(clusterName: string) {
-  // 如果已经有 topics 数据或正在加载中，直接返回
-  if (clusterTopics[clusterName] || loadingClusters.value.has(clusterName)) return;
+  // 如果正在加载中，直接返回
+  if (loadingClusters.value.has(clusterName)) return;
 
   loadingClusters.value.add(clusterName);
   let retryCount = 0;
@@ -815,13 +815,51 @@ function showPartitionMenu(event: MouseEvent, topicName: string, clusterName: st
   emit('partition-context-menu', event, topicName, clusterName, partitionId);
 }
 
-// 注意：不再需要 handleTopicsRefreshed 事件监听，因为刷新逻辑在 refreshClusterTopics 中直接处理
+// 处理 Topics 刷新事件（从 ModernLayout 的 Refresh Topics 按钮触发）
+async function handleTopicsRefreshed(event: Event) {
+  const customEvent = event as CustomEvent<{ cluster: string }>;
+  const { cluster } = customEvent.detail;
+  console.log('[ClusterTreeNavigator] Received cluster-topics-refreshed event for cluster:', cluster);
+  if (cluster) {
+    // 等待一小段时间让后端完成数据库更新
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 直接获取最新的 topics 并更新
+    try {
+      const topics = await apiClient.getSavedTopics(cluster);
+      console.log('[ClusterTreeNavigator] getSavedTopics returned:', topics?.length, 'topics');
+      clusterTopics[cluster] = await Promise.all(
+        (topics || []).map(async (name: string) => {
+          try {
+            const detail = await apiClient.getTopicDetail(cluster, name);
+            return {
+              name,
+              partitions: detail.partitions.map(p => ({ id: p.id }))
+            };
+          } catch (e) {
+            console.warn(`Failed to get partitions for topic ${name}:`, e);
+            return { name, partitions: [] };
+          }
+        })
+      );
+      topicCounts[cluster] = topics?.length || 0;
+      console.log('[ClusterTreeNavigator] Topics updated for cluster:', cluster, 'count:', topicCounts[cluster]);
+    } catch (error) {
+      console.error('[ClusterTreeNavigator] Failed to refresh topics:', error);
+    }
+
+    // 如果 Topics 文件夹还没有展开，先展开它
+    expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(cluster));
+  }
+}
 
 onMounted(() => {
-  // 不再需要事件监听
+  // 监听刷新事件（从 ModernLayout 的 Refresh Topics 按钮触发）
+  window.addEventListener('cluster-topics-refreshed', handleTopicsRefreshed);
 });
 
 onUnmounted(() => {
-  // 不再需要事件监听清理
+  // 清理事件监听
+  window.removeEventListener('cluster-topics-refreshed', handleTopicsRefreshed);
 });
 </script>
