@@ -338,20 +338,23 @@
     <Teleport to="body">
       <dialog ref="createModalRef" class="modal">
         <div class="modal-box">
-          <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-          </form>
-          <h3 class="text-lg font-bold mb-4">{{ t.topics.createTopic }}</h3>
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">{{ t.topics.createTopic }}</h3>
+            <form method="dialog">
+              <button class="btn btn-sm btn-circle btn-ghost">✕</button>
+            </form>
+          </div>
           <form @submit.prevent="handleCreate" class="space-y-4">
             <div class="form-control">
               <label class="label">
                 <span class="label-text">{{ t.dashboard.clusters }}</span>
               </label>
-              <select v-model="targetCluster" class="select select-bordered" required>
-                <option v-for="cluster in selectedClusterIds" :key="cluster" :value="cluster">
-                  {{ cluster }}
-                </option>
-              </select>
+              <input
+                v-model="targetCluster"
+                type="text"
+                class="input input-bordered"
+                readonly
+              />
             </div>
 
             <div class="form-control">

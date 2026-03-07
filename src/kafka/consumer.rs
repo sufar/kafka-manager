@@ -59,13 +59,17 @@ impl KafkaConsumer {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
+        // 优化：增加超时时间，减少频繁切换时的超时错误
+        client_config.set("request.timeout.ms", "10000");
+        client_config.set("socket.timeout.ms", "10000");
+        client_config.set("socket.connection.setup.timeout.ms", "10000");
 
         let consumer: StreamConsumer = client_config.create()?;
 
         // 使用 offsets_for_timestamp 方法查找 offset
         match consumer.offsets_for_timestamp(
             timestamp_ms,
-            Duration::from_secs(3),
+            Duration::from_secs(5),
         ) {
             Ok(tpl) => {
                 // 查找指定 topic 和 partition 的 offset
@@ -455,13 +459,15 @@ impl KafkaConsumer {
         client_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
+        // 优化：增加超时时间，减少频繁切换时的超时错误
+        client_config.set("request.timeout.ms", "10000");
+        client_config.set("socket.timeout.ms", "10000");
+        client_config.set("socket.connection.setup.timeout.ms", "10000");
         // 优化：增加批量获取参数
         client_config.set("fetch.wait.max.ms", "100");      // 增加到 100ms，让 broker 有更多时间批量消息
         client_config.set("fetch.min.bytes", "10240");      // 增加到 10KB，减少网络往返
         client_config.set("fetch.max.bytes", "10485760");   // 10MB
         client_config.set("session.timeout.ms", "10000");
-        client_config.set("request.timeout.ms", "5000");
-        client_config.set("socket.timeout.ms", "5000");
         // 注意：max.poll.records 是 Kafka Consumer 配置，不是 librdkafka 配置
         // 我们在消费循环中手动控制获取的消息数量
 

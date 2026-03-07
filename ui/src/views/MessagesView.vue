@@ -500,6 +500,9 @@ async function fetchTopicPartitions() {
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
+  // 取消上一次的请求，避免并发请求导致超时
+  apiClient.cancelGetMessages();
+
   loading.value = true;
   selectedMessageIndex.value = -1;
   const startTime = performance.now();
@@ -678,11 +681,18 @@ watch(selectedClusterId, () => {
   fetchTopics();
 });
 
+// 标志设置是否已加载
+let settingsLoaded = false;
+
 // 监听 topic 参数变化
-watch(topicParam, (newTopic) => {
+watch(topicParam, async (newTopic) => {
   if (newTopic) {
     selectedTopic.value = newTopic;
     fetchTopicPartitions();
+    // 确保设置已加载后再获取消息
+    if (!settingsLoaded) {
+      await loadSettings();
+    }
     fetchMessages();
   }
 }, { immediate: true });
@@ -734,13 +744,9 @@ async function saveMaxMessagesSetting() {
   }
 }
 
-// 监听 max_messages 变化，自动保存
-watch(() => filters.max_messages, () => {
-  saveMaxMessagesSetting();
-});
-
-onMounted(async () => {
-  // 加载全局设置
+// 加载设置
+async function loadSettings() {
+  if (settingsLoaded) return;
   try {
     const settings = await apiClient.getSettings(['messages.max_messages', 'ui.language']);
     for (const setting of settings) {
@@ -750,12 +756,21 @@ onMounted(async () => {
           filters.max_messages = savedMax;
         }
       }
-      // 将来可以加载 ui.language 设置
-      // if (setting.key === 'ui.language') { ... }
     }
   } catch (e) {
     console.error('Failed to load settings:', e);
   }
+  settingsLoaded = true;
+}
+
+// 监听 max_messages 变化，自动保存
+watch(() => filters.max_messages, () => {
+  saveMaxMessagesSetting();
+});
+
+onMounted(async () => {
+  // 加载全局设置
+  await loadSettings();
 
   fetchTopics();
 });

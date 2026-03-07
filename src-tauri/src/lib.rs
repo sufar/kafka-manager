@@ -107,10 +107,9 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
 
     log(&format!("Server will bind to {}:{}", config.server.host, config.server.port));
 
-    // 创建数据库路径
-    let db_path = if cfg!(debug_assertions) {
-        "kafka_manager.db".to_string()
-    } else {
+    // 创建数据库路径 - 开发模式和生产模式都使用用户目录
+    // 避免在 src-tauri 目录下创建数据库文件导致 Tauri 热重载循环
+    let db_path = {
         // 使用应用数据目录
         let db_filename = "kafka_manager.db";
 
