@@ -531,16 +531,38 @@ async function loadClusterTopics(clusterName: string) {
         await apiClient.refreshTopics(clusterName);
         // 刷新后重新获取完整的 topics 列表
         const refreshedTopics = await apiClient.getSavedTopics(clusterName);
-        clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
-          name,
-          partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-        }));
+        // 获取每个 topic 的分区信息
+        clusterTopics[clusterName] = await Promise.all(
+          (refreshedTopics || []).map(async (name: string) => {
+            try {
+              const detail = await apiClient.getTopicDetail(clusterName, name);
+              return {
+                name,
+                partitions: detail.partitions.map(p => ({ id: p.id }))
+              };
+            } catch (e) {
+              console.warn(`Failed to get partitions for topic ${name}:`, e);
+              return { name, partitions: [] };
+            }
+          })
+        );
         topicCounts[clusterName] = refreshedTopics?.length || 0;
       } else {
-        clusterTopics[clusterName] = topics.map((name: string) => ({
-          name,
-          partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-        }));
+        // 获取每个 topic 的分区信息
+        clusterTopics[clusterName] = await Promise.all(
+          topics.map(async (name: string) => {
+            try {
+              const detail = await apiClient.getTopicDetail(clusterName, name);
+              return {
+                name,
+                partitions: detail.partitions.map(p => ({ id: p.id }))
+              };
+            } catch (e) {
+              console.warn(`Failed to get partitions for topic ${name}:`, e);
+              return { name, partitions: [] };
+            }
+          })
+        );
         topicCounts[clusterName] = topics.length;
       }
       // 成功加载，跳出循环
@@ -614,10 +636,21 @@ async function refreshClusterTopics(clusterName: string) {
 
     // 刷新后重新获取完整的 topics 列表
     const savedTopics = await apiClient.getSavedTopics(clusterName);
-    clusterTopics[clusterName] = (savedTopics || []).map((name: string) => ({
-      name,
-      partitions: Array.from({ length: 1 }, (_, i) => ({ id: i }))
-    }));
+    // 获取每个 topic 的分区信息
+    clusterTopics[clusterName] = await Promise.all(
+      (savedTopics || []).map(async (name: string) => {
+        try {
+          const detail = await apiClient.getTopicDetail(clusterName, name);
+          return {
+            name,
+            partitions: detail.partitions.map(p => ({ id: p.id }))
+          };
+        } catch (e) {
+          console.warn(`Failed to get partitions for topic ${name}:`, e);
+          return { name, partitions: [] };
+        }
+      })
+    );
     topicCounts[clusterName] = savedTopics?.length || refreshResult.total || 0;
 
     // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
