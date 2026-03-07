@@ -650,8 +650,7 @@ async function handleSendMessage(keepOpen: boolean = false) {
     sentCount.value += 1;
 
     if (keepOpen) {
-      // 清空 value 字段，方便下次发送
-      messageForm.value = '';
+      // 不清空输入框，保留当前值方便继续发送相同内容
       sendSuccess.value = true;
     } else {
       // 关闭弹框，刷新消息列表
