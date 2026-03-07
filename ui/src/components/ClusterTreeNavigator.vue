@@ -512,8 +512,8 @@ function collapseAll() {
 }
 
 async function loadClusterTopics(clusterName: string) {
-  // 如果正在加载中，直接返回
-  if (loadingClusters.value.has(clusterName)) return;
+  // 如果正在加载中，直接返回 false
+  if (loadingClusters.value.has(clusterName)) return false;
 
   loadingClusters.value.add(clusterName);
   let retryCount = 0;
@@ -784,7 +784,16 @@ async function highlightAndSelectTopic(topicName: string, clusterName: string) {
   // 展开 Topics 文件夹
   expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
   // 加载 Topics（从数据库加载缓存的 topic 列表）
-  await loadClusterTopics(clusterName);
+  // 如果正在加载中，等待加载完成
+  const isLoading = await loadClusterTopics(clusterName);
+  if (isLoading) {
+    // 等待加载完成（最多等待 5 秒）
+    let waitCount = 0;
+    while (loadingClusters.value.has(clusterName) && waitCount < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+  }
   // 设置选中状态
   selectedTopic.value = { name: topicName, cluster: clusterName };
   selectedPartition.value = null;

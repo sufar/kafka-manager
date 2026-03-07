@@ -698,8 +698,8 @@ watch(selectedClusterId, () => {
 // 标志设置是否已加载
 let settingsLoaded = false;
 
-// 监听 topic 参数变化
-watch(topicParam, async (newTopic) => {
+// 监听 topic 和 cluster 参数变化（支持跨集群切换）
+watch([topicParam, clusterParam], async ([newTopic, newCluster]) => {
   if (newTopic) {
     selectedTopic.value = newTopic;
     fetchTopicPartitions();
