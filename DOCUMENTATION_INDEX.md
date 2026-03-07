@@ -5,17 +5,23 @@
 | 文档 | 说明 |
 |------|------|
 | [README.md](./README.md) | 项目概述、快速开始 |
-| [API.md](./API.md) | 统一风格 API 文档 (POST /api + X-API-Method) |
+| [API.md](./API.md) | 统一 API 接口文档 (POST /api + X-API-Method) |
 | [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) | 技术实现总结 |
 
-## 详细文档
+## 其他文档
 
 | 文档 | 说明 |
 |------|------|
-| [docs/API_EXAMPLES.md](./docs/API_EXAMPLES.md) | API 使用示例 |
-| [docs/OPTIMIZATIONS.md](./docs/OPTIMIZATIONS.md) | 性能优化记录 |
+| [TAURI_README.md](./TAURI_README.md) | Tauri 桌面应用开发指南 |
+| [TOPIC_REFRESH_FEATURE.md](./TOPIC_REFRESH_FEATURE.md) | Topic 刷新功能说明 |
+| [WINDOWS_BUILD_GUIDE.md](./WINDOWS_BUILD_GUIDE.md) | Windows 构建指南 |
 
 ## 变更日志
+
+### 2026-03-07
+- 清理所有 REST 风格 API 文档
+- 统一为 POST /api + X-API-Method 风格
+- 移除不必要的 console.log 和 unwrap()
 
 ### 2026-03-05
 - Windows 打包修复
