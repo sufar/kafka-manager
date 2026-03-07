@@ -41,7 +41,6 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue';
 
 const props = defineProps<{
   visible: boolean;

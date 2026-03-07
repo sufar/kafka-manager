@@ -694,7 +694,7 @@ watch(selectedClusterId, () => {
 let settingsLoaded = false;
 
 // 监听 topic 和 cluster 参数变化（支持跨集群切换）
-watch([topicParam, clusterParam], async ([newTopic, newCluster]) => {
+watch([topicParam, clusterParam], async ([newTopic]) => {
   if (newTopic) {
     selectedTopic.value = newTopic;
     fetchTopicPartitions();

@@ -319,6 +319,7 @@ const emit = defineEmits<{
   'topics-folder-context-menu': [event: MouseEvent, clusterName: string];
   'topic-context-menu': [event: MouseEvent, topicName: string, clusterName: string];
   'partition-context-menu': [event: MouseEvent, topicName: string, clusterName: string, partitionId: number];
+  toast: [type: 'success' | 'error' | 'warning' | 'info', message: string];
 }>();
 
 const clusterStore = useClusterStore();
@@ -383,14 +384,12 @@ async function checkClusterHealth(clusterName: string) {
         clusterId: clusterName,
         healthy: false,
         lastChecked: Date.now(),
-        error: health.error_message || 'Unknown error',
+        error: health.error_message || 'Cluster unavailable',
       };
       // 仍然展开集群，让用户可以看到缓存的数据
       expandedClusters.value = new Set(expandedClusters.value.add(clusterName));
-      // 只在有错误信息时显示错误对话框
-      if (health.error_message) {
-        showConnectionError(clusterName, health.error_message);
-      }
+      // 显示错误（只要有错误状态就显示）
+      showConnectionError(clusterName, health.error_message || 'Cluster unavailable');
     }
   } catch (e) {
     const errorMsg = (e as { message?: string }).message || 'Unknown error';
@@ -410,7 +409,7 @@ async function checkClusterHealth(clusterName: string) {
 
 // 显示连接错误对话框
 function showConnectionError(clusterName: string, errorMsg: string) {
-  // 对于临时性网络故障，不显示错误对话框，只更新集群状态
+  // 对于临时性网络故障，不显示错误对话框，只更新集群状态 + 显示 Toast
   // 这样用户可以继续查看缓存的数据
   const isTransientError =
     errorMsg.includes('BrokerTransportFailure') ||
@@ -419,8 +418,9 @@ function showConnectionError(clusterName: string, errorMsg: string) {
     errorMsg.includes('Metadata fetch failed');
 
   if (isTransientError) {
-    // 临时性错误，不显示对话框，只更新 UI 状态（红色指示器已经显示）
+    // 临时性错误，不显示对话框，但显示 Toast 提示并更新 UI 状态
     console.warn(`[ClusterTreeNavigator] Transient connection error for cluster '${clusterName}': ${errorMsg}`);
+    emit('toast', 'error', `Cluster "${clusterName}" connection failed: ${errorMsg}`);
     return;
   }
 

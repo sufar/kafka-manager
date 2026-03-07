@@ -111,6 +111,7 @@
             @topic-context-menu="showTopicMenuFromTree"
             @partition-context-menu="showPartitionMenuFromTree"
             @topics-folder-context-menu="showTopicsFolderMenuFromTree"
+            @toast="handleToast"
           />
         </div>
       </aside>
@@ -378,6 +379,10 @@ provide('showToast', showToast);
 
 function handleNavigate(route: { path: string; query?: Record<string, string> }) {
   router.push({ path: route.path, query: route.query });
+}
+
+function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: string) {
+  showToast(type, message);
 }
 
 // 从 TopicsView 调用：展开并选中左侧树中的特定 Topic
