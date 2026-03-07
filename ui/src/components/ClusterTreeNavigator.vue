@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col">
     <!-- Header -->
-    <div class="flex items-center justify-between p-2 mb-2">
+    <div class="flex items-center justify-between p-2 mb-2 flex-shrink-0">
       <div class="flex items-center gap-2">
         <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center glow-primary animate-float">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-primary">
@@ -29,24 +29,8 @@
       </div>
     </div>
 
-    <!-- Connection Error Dialog -->
-    <dialog ref="errorDialogRef" class="modal modal-bottom sm:modal-middle">
-      <form method="dialog" class="modal-box">
-        <h3 class="font-bold text-lg mb-2">Connection Failed</h3>
-        <p class="text-sm text-base-content/70 mb-1">Cluster: <span class="font-mono">{{ errorDialogClusterName }}</span></p>
-        <p class="text-sm text-error mb-4">{{ errorDialogMessage }}</p>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-ghost btn-sm" @click="handleErrorDialogClose">Cancel</button>
-          <button class="btn btn-error btn-sm" @click="handleErrorDialogRetry">Retry</button>
-        </div>
-      </form>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="handleErrorDialogClose">close</button>
-      </form>
-    </dialog>
-
-    <!-- Tree Content -->
-    <div class="p-2 flex-1 overflow-y-auto">
+    <!-- Tree Content - Scrollable Area -->
+    <div class="flex-1 overflow-hidden p-2">
       <div v-for="cluster in clusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div
@@ -86,9 +70,9 @@
         </div>
 
         <!-- Cluster Children -->
-        <div v-show="expandedClusters.has(cluster.name)" class="pl-4">
+        <div v-show="expandedClusters.has(cluster.name)" class="flex flex-col">
           <!-- Topics Folder -->
-          <div class="mb-1">
+          <div class="mb-1 flex-shrink-0">
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-secondary/5 hover:shadow-md relative"
               :class="{ 'bg-secondary/10 shadow-inner': expandedTopicsFolders.has(cluster.name) }"
@@ -134,10 +118,10 @@
               </button>
             </div>
 
-            <!-- Topics List -->
-            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4">
+            <!-- Topics Scrollable Container (includes search box + topics list) -->
+            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4 max-h-[calc(100vh-280px)] overflow-y-auto">
               <!-- Topic Search Box -->
-              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2">
+              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2 sticky top-0 bg-base-100 z-10 py-1">
                 <div class="relative">
                   <input
                     v-model="topicSearchQuery[cluster.name]"
@@ -224,7 +208,7 @@
           </div>
 
           <!-- Consumer Groups Folder -->
-          <div class="mb-1">
+          <div class="mb-1 flex-shrink-0">
             <div
               class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-success/5 hover:shadow-md relative"
               :class="{ 'bg-success/10 shadow-inner': expandedConsumerGroupsFolders.has(cluster.name) }"
@@ -269,20 +253,25 @@
               </button>
             </div>
 
-            <!-- Consumer Groups List -->
-            <div v-show="expandedConsumerGroupsFolders.has(cluster.name)" class="pl-4">
+            <!-- Consumer Groups List (scrollable) -->
+            <div v-show="expandedConsumerGroupsFolders.has(cluster.name)" class="pl-4 max-h-[200px] overflow-y-auto">
               <div
                 v-for="group in getClusterConsumerGroups(cluster.name)"
                 :key="group.groupId"
-                class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-success/5 hover:shadow-md"
-                :class="{ 'bg-success/10 shadow-inner text-success': selectedConsumerGroup?.groupId === group.groupId && selectedConsumerGroup?.cluster === cluster.name }"
-                @click="selectConsumerGroup(group, cluster.name)"
+                class="mb-1"
               >
-                <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-success flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.941-3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.625 2.625 0 11-4.5 0 2.625 2.625 0 014.5 0z" />
-                  </svg>
-                  <span class="text-sm truncate">{{ group.groupId }}</span>
+                <!-- Consumer Group Node -->
+                <div
+                  class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-success/5 hover:shadow-md"
+                  :class="{ 'bg-success/10 shadow-inner text-success': selectedConsumerGroup?.groupId === group.groupId && selectedConsumerGroup?.cluster === cluster.name }"
+                  @click="selectConsumerGroup(group, cluster.name)"
+                >
+                  <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-success flex-shrink-0">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.941-3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.625 2.625 0 11-4.5 0 2.625 2.625 0 014.5 0z" />
+                    </svg>
+                    <span class="text-sm truncate">{{ group.groupId }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -290,6 +279,22 @@
         </div>
       </div>
     </div>
+
+    <!-- Connection Error Dialog -->
+    <dialog ref="errorDialogRef" class="modal modal-bottom sm:modal-middle">
+      <form method="dialog" class="modal-box">
+        <h3 class="font-bold text-lg mb-2">Connection Failed</h3>
+        <p class="text-sm text-base-content/70 mb-1">Cluster: <span class="font-mono">{{ errorDialogClusterName }}</span></p>
+        <p class="text-sm text-error mb-4">{{ errorDialogMessage }}</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-ghost btn-sm" @click="handleErrorDialogClose">Cancel</button>
+          <button class="btn btn-error btn-sm" @click="handleErrorDialogRetry">Retry</button>
+        </div>
+      </form>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="handleErrorDialogClose">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
