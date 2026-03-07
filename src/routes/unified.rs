@@ -1691,28 +1691,37 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
 }
 
 async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
-    // For export, we'll return JSON data that can be formatted by the client
-    // The actual file download handling would need special treatment
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
     let partition = get_optional_i32_param(&body, "partition");
     let offset = get_optional_i64_param(&body, "offset");
     let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
+    let start_time = get_optional_i64_param(&body, "start_time");
+    let end_time = get_optional_i64_param(&body, "end_time");
+    let search = get_optional_string_param(&body, "search");
+    let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
-    let clients = state.get_clients();
-    let consumer = clients
-        .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
-
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+    // 首先确保集群客户端已创建（如果未创建则自动创建）
+    let _config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let max_msgs = max_messages.unwrap_or(1000);
 
-    let messages = consumer
-        .fetch_messages(&config, &topic, partition, offset, max_msgs)
-        .await?;
+    // 使用连接池中的 consumer 获取消息（支持过滤）
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+
+    let messages = fetch_messages_from_pool_with_filter(
+        &consumer_pool,
+        &topic,
+        partition,
+        offset,
+        max_msgs,
+        start_time,
+        end_time,
+        search,
+        fetch_mode.as_deref(),
+    )
+    .await?;
 
     let records: Vec<Value> = messages
         .into_iter()

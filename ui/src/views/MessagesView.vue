@@ -15,14 +15,13 @@
 
       <div class="w-px h-6 bg-base-content/20" />
 
-      <button class="btn btn-ghost btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading" :title="t.common.refresh">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': loading }">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      </button>
-      <button class="btn btn-ghost btn-sm" @click="stopFetching" :disabled="!loading" :title="t.common.cancel">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+      <!-- Refresh/Stop Button -->
+      <button class="btn btn-ghost btn-sm" @click="loading ? stopFetching() : fetchMessages()" :disabled="!selectedTopic" :title="loading ? t.common.cancel : t.common.refresh">
+        <svg v-if="loading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': loading }">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       </button>
       <button class="btn btn-ghost btn-sm" @click="openSendModal" :disabled="!selectedTopic" :title="t.messages.sendMessage">
@@ -51,35 +50,31 @@
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-sm w-32" :placeholder="t.messages.filter" @keyup.enter="fetchMessages" />
+      <input v-model="filters.search" type="text" class="input input-bordered input-sm w-32" :placeholder="t.messages.filter" @change="fetchMessages" />
 
       <!-- Fetch Mode -->
-      <select v-model="filters.fetchMode" class="select select-bordered select-sm w-24">
+      <select v-model="filters.fetchMode" class="select select-bordered select-sm w-auto" @change="fetchMessages">
         <option value="oldest">{{ t.messages.oldest }}</option>
         <option value="newest">{{ t.messages.newest }}</option>
       </select>
 
       <!-- Time Range Filter -->
       <div style="position: relative; display: inline-block;">
-        <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" />
-        <button v-if="filters.startTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''" title="Clear start time">
+        <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" @change="fetchMessages" />
+        <button v-if="filters.startTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''; fetchMessages()" title="Clear start time">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
       <div style="position: relative; display: inline-block;">
-        <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" />
-        <button v-if="filters.endTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''" title="Clear end time">
+        <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" @change="fetchMessages" />
+        <button v-if="filters.endTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''; fetchMessages()" title="Clear end time">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
-
-      <button class="btn btn-primary btn-sm" @click="fetchMessages" :disabled="!selectedTopic || loading">
-        {{ t.messages.fetch }}
-      </button>
     </div>
 
     <!-- Messages List (Top Panel) -->
@@ -202,7 +197,7 @@
       </div>
       <div class="flex items-center gap-2">
         <span>{{ t.messages.maxMessages }}</span>
-        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-16" min="1" max="1000" />
+        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-16" min="1" max="1000" @change="fetchMessages" />
       </div>
     </div>
 
@@ -670,7 +665,12 @@ async function exportMessages() {
       max_messages: filters.max_messages,
       search: filters.search || undefined,
       fetchMode: filters.fetchMode,
+      start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
+      end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
     });
+
+    // 确保返回的数据包含 messages 数组
+    const messagesToExport = result?.messages || result?.data?.messages || [];
 
     // 使用 Tauri API 保存文件
     const { save } = await import('@tauri-apps/plugin-dialog');
@@ -685,7 +685,7 @@ async function exportMessages() {
     });
 
     if (filePath) {
-      await writeTextFile(filePath, JSON.stringify(result.messages, null, 2));
+      await writeTextFile(filePath, JSON.stringify(messagesToExport, null, 2));
       showSuccess('Export successful');
     }
   } catch (e) {

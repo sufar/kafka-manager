@@ -30,7 +30,7 @@
     </div>
 
     <!-- Tree Content - Scrollable Area -->
-    <div class="flex-1 overflow-hidden p-2">
+    <div class="flex-1 overflow-y-auto p-2">
       <div v-for="cluster in clusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div

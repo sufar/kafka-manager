@@ -1094,6 +1094,9 @@ async function exportMessages() {
       params
     );
 
+    // 确保返回的数据包含 messages 数组
+    const messagesToExport = result?.messages || result?.data?.messages || [];
+
     // 使用 Tauri API 保存文件
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
@@ -1107,7 +1110,7 @@ async function exportMessages() {
     });
 
     if (filePath) {
-      await writeTextFile(filePath, JSON.stringify(result.messages, null, 2));
+      await writeTextFile(filePath, JSON.stringify(messagesToExport, null, 2));
       showSuccess('Export successful');
     }
   } catch (e) {

@@ -443,19 +443,12 @@ onMounted(() => {
 });
 
 // 监听路由参数变化
-watch(() => route.query.action, (action) => {
-  if (action === 'create') {
+watch(() => route.fullPath, (newPath, oldPath) => {
+  if (newPath !== oldPath && route.query.action === 'create') {
     // 确保 modal 完全关闭后再打开
     setTimeout(() => {
       openCreateModal();
     }, 50);
-  }
-});
-
-// 监听路由参数变化，关闭 modal
-watch(() => route.fullPath, (newPath, oldPath) => {
-  if (newPath !== oldPath && modalRef.value?.open) {
-    modalRef.value?.close();
   }
 });
 </script>
