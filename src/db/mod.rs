@@ -11,6 +11,7 @@ pub mod user;
 
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
+use tracing;
 
 /// 数据库连接池
 #[derive(Clone)]
@@ -57,7 +58,7 @@ impl DbPool {
         #[cfg(not(target_os = "windows"))]
         let conn_url = format!("sqlite:///{}", path_str);
 
-        eprintln!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
+        tracing::info!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -66,7 +67,7 @@ impl DbPool {
             .connect(&conn_url)
             .await?;
 
-        eprintln!("[KAFKA-MANAGER] Database pool created successfully");
+        tracing::info!("[KAFKA-MANAGER] Database pool created successfully");
 
         Ok(Self {
             pool: Arc::new(pool),
@@ -80,7 +81,7 @@ impl DbPool {
 
     /// 初始化数据库表
     pub async fn init(&self) -> Result<(), sqlx::Error> {
-        eprintln!("[KAFKA-MANAGER] Initializing database tables...");
+        tracing::info!("[KAFKA-MANAGER] Initializing database tables...");
 
         // 运行迁移
         sqlx::query(
@@ -355,7 +356,7 @@ impl DbPool {
         // 初始化默认角色
         self.init_default_roles().await?;
 
-        eprintln!("[KAFKA-MANAGER] Database tables initialized successfully");
+        tracing::info!("[KAFKA-MANAGER] Database tables initialized successfully");
 
         Ok(())
     }
