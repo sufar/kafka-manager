@@ -102,8 +102,8 @@
     <!-- Main Layout Container -->
     <div class="flex h-screen pt-[4.5rem] overflow-hidden p-2 gap-2">
       <!-- Left Sidebar - Tree Navigator -->
-      <aside class="w-72 glass gradient-border overflow-y-auto">
-        <div class="p-2">
+      <aside class="w-72 glass gradient-border overflow-hidden">
+        <div class="p-2 h-full overflow-y-auto">
           <ClusterTreeNavigator
             ref="clusterTreeNavigatorRef"
             @navigate="handleNavigate"
@@ -134,6 +134,7 @@
     <!-- Topics Folder Context Menu -->
     <TopicsFolderContextMenu
       v-if="contextMenus.topicsFolder.visible"
+      :key="`topics-folder-${contextMenus.topicsFolder.clusterName}`"
       :visible="contextMenus.topicsFolder.visible"
       :cluster-name="contextMenus.topicsFolder.clusterName"
       :position="contextMenus.topicsFolder.position"
@@ -418,8 +419,6 @@ function handleClusterAction(action: string, cluster: string) {
 }
 
 function handleTopicsFolderAction(action: string, cluster: string) {
-  console.log('Topics Folder action:', action, cluster);
-
   switch (action) {
     case 'refreshTopics':
       refreshClusterTopics(cluster);

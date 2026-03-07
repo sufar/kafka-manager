@@ -204,7 +204,7 @@
           <div class="flex gap-2">
             <button
               class="btn btn-primary btn-xs"
-              @click="createCluster = clusterName; openCreateModal()"
+              @click="targetCluster = clusterName; openCreateModal()"
             >
               {{ t.topics.createTopic }}
             </button>
@@ -343,7 +343,7 @@
           </form>
           <h3 class="text-lg font-bold mb-4">{{ t.topics.createTopic }}</h3>
           <form @submit.prevent="handleCreate" class="space-y-4">
-            <div v-if="!createCluster" class="form-control">
+            <div class="form-control">
               <label class="label">
                 <span class="label-text">{{ t.dashboard.clusters }}</span>
               </label>
@@ -654,6 +654,11 @@ const clusterParam = computed(() => {
   return Array.isArray(val) ? val[0] : (val || '');
 });
 
+const actionParam = computed(() => {
+  const val = route.query.action;
+  return Array.isArray(val) ? val[0] : (val || '');
+});
+
 const viewMode = ref<'by-cluster' | 'all-topics'>('by-cluster');
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -665,7 +670,6 @@ const allTopicsList = ref<TopicItem[]>([]);
 const clusterTopics = ref<TopicItem[]>([]);
 
 const creating = ref(false);
-const createCluster = ref<string | undefined>(undefined);
 const targetCluster = ref<string | undefined>(undefined);
 
 const newTopic = reactive({
@@ -764,6 +768,11 @@ onBeforeRouteUpdate((to) => {
   if (to.query.cluster) {
     fetchTopics();
   }
+  // 检查是否有 action=create 参数，打开创建模态框
+  const action = Array.isArray(to.query.action) ? to.query.action[0] : (to.query.action || '');
+  if (action === 'create') {
+    openCreateModal();
+  }
 });
 
 // 使用 watch 替代 watchEffect，精确监听特定依赖
@@ -845,11 +854,18 @@ function viewAllTopics(topics: TopicItem[]) {
 }
 
 function openCreateModal() {
+  // 设置 targetCluster 的值
   if (selectedClusterIds.value.length === 1) {
+    // 只有一个集群被选中时，使用该集群
     targetCluster.value = selectedClusterIds.value[0];
-  } else if (createCluster.value) {
-    targetCluster.value = createCluster.value;
+  } else if (selectedClusterIds.value.length > 1) {
+    // 多个集群被选中时，使用第一个
+    targetCluster.value = selectedClusterIds.value[0];
+  } else if (clusterParam.value) {
+    // 从路由参数中获取集群
+    targetCluster.value = clusterParam.value;
   }
+
   newTopic.name = '';
   newTopic.num_partitions = 3;
   newTopic.replication_factor = 1;
@@ -866,11 +882,10 @@ function selectTopicInTree(clusterName: string, topic: TopicItem) {
 
 function closeCreateModal() {
   createModalRef.value?.close();
-  createCluster.value = undefined;
 }
 
 async function handleCreate() {
-  const cluster = targetCluster.value || createCluster.value;
+  const cluster = targetCluster.value;
   if (!cluster) return;
 
   creating.value = true;
@@ -1116,6 +1131,10 @@ onMounted(() => {
     fetchTopics();
   } else if (selectedClusterIds.value.length > 0) {
     fetchTopics();
+  }
+  // 检查是否有 action=create 参数，打开创建模态框
+  if (actionParam.value === 'create') {
+    openCreateModal();
   }
 });
 </script>

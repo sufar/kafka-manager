@@ -1,5 +1,5 @@
 <template>
-  <div v-if="visible" class="fixed inset-0 z-[9999]" @click="close" @contextmenu.prevent="close">
+  <div v-if="props.visible" class="fixed inset-0 z-[9999]" @click="close" @contextmenu.prevent="close">
     <div
       class="absolute z-[10000] min-w-[180px] rounded-lg bg-base-100 border border-base-200 shadow-xl p-1"
       :style="{ top: position.y + 'px', left: position.x + 'px' }"
@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { watch } from 'vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -54,10 +54,9 @@ const emit = defineEmits<{
   action: [action: string, clusterName: string];
 }>();
 
-const visible = ref(props.visible);
-
+// Watch for prop changes and log for debugging
 watch(() => props.visible, (val) => {
-  visible.value = val;
+  console.log('[TopicsFolderContextMenu] visible prop changed:', val);
 });
 
 function close() {
