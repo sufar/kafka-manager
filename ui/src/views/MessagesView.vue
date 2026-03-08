@@ -85,7 +85,17 @@
             <tr>
               <th class="text-left w-20 bg-gradient-to-r from-primary/10 to-transparent">{{ t.messages.offset }}</th>
               <th class="text-left w-32 bg-gradient-to-r from-secondary/10 to-transparent">{{ t.messages.partition }}</th>
-              <th class="text-left w-40 bg-gradient-to-r from-accent/10 to-transparent">{{ t.messages.timestampLabel }}</th>
+              <th class="text-left w-40 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5" @click="toggleTimestampSort">
+                <div class="flex items-center gap-1">
+                  <span>{{ t.messages.timestampLabel }}</span>
+                  <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                  </svg>
+                  <svg v-else-if="sortOrder === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </div>
+              </th>
               <th class="text-left w-48 bg-gradient-to-r from-info/10 to-transparent">{{ t.messages.key }}</th>
               <th class="text-left bg-gradient-to-r from-success/10 to-transparent">{{ t.messages.value }}</th>
             </tr>
@@ -100,7 +110,7 @@
             </td>
           </tr>
           <tr
-            v-for="(msg, index) in messages"
+            v-for="(msg, index) in sortedMessages"
             :key="`${msg.partition}-${msg.offset}`"
             class="cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-sm border-b border-base-content/5 last:border-0"
             :class="{ 'bg-primary/10 shadow-inner': selectedMessageIndex === index }"
@@ -309,6 +319,7 @@ const fetchTime = ref<number>(0); // 获取消息耗时（毫秒）
 const messages = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
+const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
 
 // 显示错误提示
 function showError(message: string) {
@@ -388,10 +399,10 @@ function stopResize() {
 }
 
 const selectedMessage = computed(() => {
-  if (selectedMessageIndex.value < 0 || selectedMessageIndex.value >= messages.value.length) {
+  if (selectedMessageIndex.value < 0 || selectedMessageIndex.value >= sortedMessages.value.length) {
     return null;
   }
-  return messages.value[selectedMessageIndex.value];
+  return sortedMessages.value[selectedMessageIndex.value];
 });
 
 const selectedMessageSize = computed(() => {
@@ -399,6 +410,29 @@ const selectedMessageSize = computed(() => {
   const valueSize = selectedMessage.value.value?.length || 0;
   const keySize = selectedMessage.value.key?.length || 0;
   return valueSize + keySize;
+});
+
+// 切换时间戳排序
+function toggleTimestampSort() {
+  if (sortOrder.value === 'desc') {
+    sortOrder.value = 'asc';
+  } else if (sortOrder.value === 'asc') {
+    sortOrder.value = '';
+  } else {
+    sortOrder.value = 'desc';
+  }
+}
+
+// 排序后的消息列表
+const sortedMessages = computed(() => {
+  if (sortOrder.value === '') {
+    return messages.value;
+  }
+  return [...messages.value].sort((a, b) => {
+    const tsA = a.timestamp || 0;
+    const tsB = b.timestamp || 0;
+    return sortOrder.value === 'asc' ? tsA - tsB : tsB - tsA;
+  });
 });
 
 function selectMessage(index: number) {
