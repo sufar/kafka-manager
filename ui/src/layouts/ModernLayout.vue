@@ -102,8 +102,8 @@
     <!-- Main Layout Container -->
     <div class="flex h-screen pt-[4.5rem] overflow-hidden p-2 gap-2">
       <!-- Left Sidebar - Tree Navigator -->
-      <aside class="w-72 glass gradient-border overflow-hidden">
-        <div class="p-2 h-full overflow-y-auto">
+      <aside class="w-72 glass gradient-border overflow-hidden flex flex-col">
+        <div class="flex-1 overflow-y-auto p-2">
           <ClusterTreeNavigator
             ref="clusterTreeNavigatorRef"
             @navigate="handleNavigate"
@@ -117,8 +117,10 @@
       </aside>
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-y-auto">
-        <router-view />
+      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col">
+        <div class="flex-1 overflow-y-auto p-2">
+          <router-view />
+        </div>
       </main>
     </div>
 
