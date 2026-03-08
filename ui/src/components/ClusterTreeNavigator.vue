@@ -72,33 +72,33 @@
         <!-- Cluster Children -->
         <div v-show="expandedClusters.has(cluster.name)" class="flex flex-col">
           <!-- Topics Folder -->
-          <div class="mb-1 sticky top-0 z-20 bg-base-100/95 backdrop-blur-sm flex-shrink-0">
+          <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 backdrop-blur-sm flex-shrink-0">
             <div
-              class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-secondary/5 hover:shadow-md relative"
-              :class="{ 'bg-secondary/10 shadow-inner': expandedTopicsFolders.has(cluster.name) }"
+              class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
+              :class="{ 'bg-secondary/10': expandedTopicsFolders.has(cluster.name) }"
               @click.stop="handleTopicsFolderClickAndExpand(cluster.name)"
               @contextmenu.prevent="showTopicsFolderMenu($event, cluster.name)"
             >
-              <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="handleTopicsFolderToggle(cluster.name)" tabindex="-1">
+              <div class="flex items-center gap-1 flex-1 min-w-0">
+                <button class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0" @click.stop="handleTopicsFolderToggle(cluster.name)" tabindex="-1">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke-width="2"
                     stroke="currentColor"
-                    class="w-3 h-3 transition-transform duration-200"
+                    class="w-2.5 h-2.5 transition-transform duration-200"
                     :class="{ 'rotate-90': expandedTopicsFolders.has(cluster.name) }"
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                   </svg>
                 </button>
-                <span class="text-sm truncate">{{ topicCounts[cluster.name] || 0 }}</span>
-                <span class="text-sm truncate">Topics</span>
+                <span class="text-xs truncate">{{ topicCounts[cluster.name] || 0 }}</span>
+                <span class="text-xs truncate">Topics</span>
               </div>
               <!-- Topics Refresh Button -->
               <button
-                class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 ml-1 opacity-0 hover:opacity-100 transition-opacity"
+                class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-0 hover:opacity-100 transition-opacity"
                 :class="{ 'opacity-100': refreshingClusters.has(cluster.name) }"
                 @click.stop="refreshClusterTopics(cluster.name)"
                 :disabled="refreshingClusters.has(cluster.name)"
@@ -110,7 +110,7 @@
                   viewBox="0 0 24 24"
                   stroke-width="1.5"
                   stroke="currentColor"
-                  class="w-3.5 h-3.5"
+                  class="w-3 h-3"
                   :class="{ 'animate-spin': refreshingClusters.has(cluster.name) }"
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />

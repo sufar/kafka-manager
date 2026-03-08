@@ -692,38 +692,109 @@ async function handleSendMessage(keepOpen: boolean = false) {
 async function exportMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
+  // 导出当前已加载的消息，按照当前页面的排序方式排序
+  const messagesToExport = sortOrder.value === ''
+    ? messages.value
+    : [...messages.value].sort((a, b) => {
+        const tsA = a.timestamp || 0;
+        const tsB = b.timestamp || 0;
+        return sortOrder.value === 'asc' ? tsA - tsB : tsB - tsA;
+      });
+
+  if (!messagesToExport || messagesToExport.length === 0) {
+    showError('No messages to export');
+    return;
+  }
+
   try {
-    const result = await apiClient.exportMessages(selectedClusterId.value, selectedTopic.value, {
-      format: 'json',
-      partition: filters.partition,
-      max_messages: filters.max_messages,
-      search: filters.search || undefined,
-      fetchMode: filters.fetchMode,
-      start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
-      end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
-    });
+    // 检测是否在 Tauri 环境下运行（使用与 apiClient 相同的检测逻辑）
+    const isTauriApp = !!(
+      (window as any).__TAURI__ ||
+      (window as any).__TAURI_INTERNALS__ ||
+      (window as any).__TAURI_IPC__ ||
+      (window as any)._TAURI_VERSION_ ||
+      window.navigator?.userAgent?.includes('Tauri')
+    );
+    console.log('[exportMessages] Is Tauri:', isTauriApp);
 
-    // 确保返回的数据包含 messages 数组
-    const messagesToExport = result?.messages || result?.data?.messages || [];
+    if (isTauriApp) {
+      // Tauri 桌面应用：使用文件系统保存
+      console.log('[exportMessages] Attempting Tauri save...');
+      try {
+        const dialog = await import('@tauri-apps/plugin-dialog');
+        console.log('[exportMessages] Dialog module loaded, save function exists:', typeof dialog.save);
 
-    // 使用 Tauri API 保存文件
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+        const filePath = await dialog.save({
+          filters: [{
+            name: 'JSON Files',
+            extensions: ['json']
+          }],
+          defaultPath: `${selectedTopic.value}_export_${Date.now()}.json`
+        });
 
-    const filePath = await save({
-      filters: [{
-        name: 'JSON Files',
-        extensions: ['json']
-      }],
-      defaultPath: `${selectedTopic.value}_export_${Date.now()}.json`
-    });
+        console.log('[exportMessages] File path:', filePath);
 
-    if (filePath) {
-      await writeTextFile(filePath, JSON.stringify(messagesToExport, null, 2));
+        if (filePath) {
+          const fs = await import('@tauri-apps/plugin-fs');
+          await fs.writeTextFile(filePath, JSON.stringify(messagesToExport, null, 2));
+          showSuccess('Export successful');
+        }
+      } catch (tauriError) {
+        console.error('[exportMessages] Tauri save failed, falling back to download:', tauriError);
+        // Tauri 失败时降级到浏览器下载
+        throw tauriError;
+      }
+    } else {
+      // 浏览器环境：使用 Blob 下载
+      console.log('[exportMessages] Using browser download mode');
+      const blob = new Blob([JSON.stringify(messagesToExport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedTopic.value}_export_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       showSuccess('Export successful');
     }
   } catch (e) {
-    showError(`Export failed: ${(e as { message: string }).message}`);
+    console.error('[exportMessages] Full error:', e);
+    console.error('[exportMessages] Error name:', (e as Error).name);
+    console.error('[exportMessages] Error message:', (e as Error).message);
+    console.error('[exportMessages] Error stack:', (e as Error).stack);
+
+    // 如果 Tauri 保存失败，降级到浏览器下载
+    const isTauriApp = !!(
+      (window as any).__TAURI__ ||
+      (window as any).__TAURI_INTERNALS__ ||
+      (window as any).__TAURI_IPC__ ||
+      (window as any)._TAURI_VERSION_ ||
+      window.navigator?.userAgent?.includes('Tauri')
+    );
+
+    if (isTauriApp) {
+      console.log('[exportMessages] Falling back to browser download mode');
+      try {
+        const blob = new Blob([JSON.stringify(messagesToExport, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${selectedTopic.value}_export_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showSuccess('Export successful (browser download)');
+        return;
+      } catch (fallbackError) {
+        console.error('[exportMessages] Fallback download also failed:', fallbackError);
+      }
+    }
+
+    const error = e as { message?: string; code?: string; stack?: string };
+    const errorMessage = error.message || error.code || 'Unknown error';
+    showError(`Export failed: ${errorMessage}`);
   }
 }
 
