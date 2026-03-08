@@ -119,14 +119,14 @@
             </div>
 
             <!-- Topics Scrollable Container (includes search box + topics list) -->
-            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-4 overflow-y-auto max-h-[500px]">
+            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-3 overflow-y-auto max-h-[500px]">
               <!-- Topic Search Box - sticky under Topics folder -->
-              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-2 sticky top-0 bg-base-100 z-10 py-1">
+              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-1 sticky top-0 bg-base-100 z-10 py-1">
                 <div class="join w-full">
                   <input
                     v-model="topicSearchQuery[cluster.name]"
                     type="text"
-                    :placeholder="`Search ${getTotalTopics(cluster.name)} topics...`"
+                    :placeholder="`Search ${getTotalTopics(cluster.name)}...`"
                     class="input input-bordered input-xs join-item w-full"
                     @click.stop
                   />
@@ -140,30 +140,30 @@
                     </svg>
                   </button>
                 </div>
-                <p v-if="!topicSearchQuery[cluster.name]" class="text-xs text-base-content/50 mt-1">
-                  Showing {{ getTotalTopics(cluster.name) }} topics
+                <p v-if="!topicSearchQuery[cluster.name]" class="text-[10px] text-base-content/50 mt-0.5">
+                  {{ getTotalTopics(cluster.name) }} topics
                 </p>
-                <p v-else class="text-xs text-primary mt-1">
-                  Found {{ getClusterTopics(cluster.name).length }} matching topics
+                <p v-else class="text-[10px] text-primary mt-0.5">
+                  {{ getClusterTopics(cluster.name).length }} matching
                 </p>
               </div>
 
               <div
                 v-for="topic in getClusterTopics(cluster.name)"
                 :key="topic.name"
-                class="mb-1"
+                class="mb-0.5"
                 ref="el => setTopicElementRef(`${cluster.name}:${topic.name}`, el)"
               >
                 <!-- Topic Node -->
                 <div
-                  class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-accent/5 hover:shadow-md"
-                  :class="{ 'bg-accent/10 shadow-inner text-accent': selectedTopic?.name === topic.name && selectedTopic?.cluster === cluster.name }"
+                  class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-accent/5"
+                  :class="{ 'bg-accent/10 text-accent': selectedTopic?.name === topic.name && selectedTopic?.cluster === cluster.name }"
                   @contextmenu.prevent="showContextMenu($event, topic.name, cluster.name)"
                   @click="selectTopic(topic, cluster.name)"
                 >
-                  <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                  <div class="flex items-center gap-1 flex-1 min-w-0">
                     <button
-                      class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0"
+                      class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0"
                       @click.stop="toggleTopic(topic.name, cluster.name)"
                       tabindex="-1"
                     >
@@ -173,34 +173,34 @@
                         viewBox="0 0 24 24"
                         stroke-width="2"
                         stroke="currentColor"
-                        class="w-3 h-3 transition-transform duration-200"
+                        class="w-2.5 h-2.5 transition-transform duration-200"
                         :class="{ 'rotate-90': expandedTopics.has(`${cluster.name}:${topic.name}`) }"
                       >
                         <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                       </svg>
                     </button>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary flex-shrink-0">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                     </svg>
-                    <span class="text-sm truncate">{{ topic.name }}</span>
+                    <span class="text-xs truncate">{{ topic.name }}</span>
                   </div>
                 </div>
 
                 <!-- Partitions List -->
-                <div v-show="expandedTopics.has(`${cluster.name}:${topic.name}`)" class="pl-4">
+                <div v-show="expandedTopics.has(`${cluster.name}:${topic.name}`)" class="pl-3">
                   <div
                     v-for="partition in topic.partitions || []"
                     :key="partition.id"
-                    class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-base-200/50 hover:shadow-md"
-                    :class="{ 'bg-accent/10 shadow-inner text-accent': selectedPartition?.topic === topic.name && selectedPartition?.partition === partition.id && selectedPartition?.cluster === cluster.name }"
+                    class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-base-200/50"
+                    :class="{ 'bg-accent/10 text-accent': selectedPartition?.topic === topic.name && selectedPartition?.partition === partition.id && selectedPartition?.cluster === cluster.name }"
                     @click="selectPartition(partition.id, topic, cluster.name)"
                     @contextmenu.prevent="showPartitionMenu($event, topic.name, cluster.name, partition.id)"
                   >
-                    <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-base-content/40 flex-shrink-0">
+                    <div class="flex items-center gap-1 flex-1 min-w-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
                       </svg>
-                      <span class="text-xs truncate text-base-content/70">Partition {{ partition.id }}</span>
+                      <span class="text-[10px] truncate text-base-content/70">#{{ partition.id }}</span>
                     </div>
                   </div>
                 </div>
