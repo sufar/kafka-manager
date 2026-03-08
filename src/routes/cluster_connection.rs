@@ -176,7 +176,7 @@ async fn get_connection_status(
             // 连接池中不存在，尝试从数据库获取集群配置
             let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
                 .await?
-                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
             let config = crate::config::KafkaConfig {
                 brokers: cluster.brokers,
@@ -242,7 +242,7 @@ async fn reconnect_cluster(
     // 从数据库获取集群配置
     let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_name)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_name)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_name)))?;
 
     let config = crate::config::KafkaConfig {
         brokers: cluster.brokers,
@@ -293,7 +293,7 @@ async fn health_check_cluster(
             // 连接池中不存在，尝试从数据库获取集群配置并建立临时连接
             let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
                 .await?
-                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
             let config = crate::config::KafkaConfig {
                 brokers: cluster.brokers,
@@ -348,7 +348,7 @@ async fn get_connection_metrics(
     if consumer_pool_status.is_none() && producer_pool_status.is_none() {
         let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+            .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
         let config = crate::config::KafkaConfig {
             brokers: cluster.brokers,
@@ -535,7 +535,7 @@ async fn batch_reconnect(
                 Ok(None) => BatchResultItem {
                     cluster_name: cluster_name.clone(),
                     success: false,
-                    message: Some("Cluster not found in database".to_string()),
+                    message: Some("Cluster is not connected".to_string()),
                 },
                 Err(e) => BatchResultItem {
                     cluster_name: cluster_name.clone(),

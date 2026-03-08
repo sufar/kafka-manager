@@ -41,7 +41,7 @@ async fn get_cluster_stats(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 在阻塞线程中执行所有 Kafka 操作
     let admin = admin.clone();

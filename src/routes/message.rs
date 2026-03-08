@@ -86,11 +86,11 @@ async fn get_messages(
     let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let max_messages = params.max_messages.unwrap_or(100);
     let limit = params.limit.unwrap_or(max_messages);
@@ -326,11 +326,11 @@ async fn get_messages_enhanced(
     let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let max_messages = params.max_messages.unwrap_or(100);
     let format = MessageFormat::from_str(params.format.as_deref());
@@ -485,7 +485,7 @@ async fn send_message(
     let clients = state.get_clients();
     let producer = clients
         .get_producer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let (partition, offset) = producer
         .send_to_partition(&topic, req.partition, req.key.as_deref(), &req.value)
@@ -552,11 +552,11 @@ async fn export_messages(
     let clients = state.get_clients();
     let consumer = clients
         .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let max_messages = params.max_messages.unwrap_or(1000);
     let export_format = ExportFormat::from_str(params.format.as_deref());

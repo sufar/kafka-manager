@@ -151,9 +151,10 @@
           <button
             class="btn btn-sm btn-outline"
             @click="refreshConnectionStatus(cluster.name)"
-            :disabled="connectionLoading"
+            :disabled="refreshing.has(cluster.name)"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <span v-if="refreshing.has(cluster.name)" class="loading loading-spinner loading-sm"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             Refresh
@@ -170,6 +171,10 @@
             @click="reconnectCluster(cluster.name)"
             :disabled="reconnecting.has(cluster.name)"
           >
+            <span v-if="reconnecting.has(cluster.name)" class="loading loading-spinner loading-sm"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
             Reconnect
           </button>
           <button
@@ -194,9 +199,13 @@
         <div class="modal-box">
           <!-- close button -->
           <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
           </form>
-          <h3 class="font-bold text-lg mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
+          <h3 class="font-bold text-xl mt-2 mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
           <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
             <div class="form-control">
               <label class="label">
@@ -225,26 +234,26 @@
                 <span class="label-text-alt text-base-content/60">Comma-separated list of broker addresses</span>
               </label>
             </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div class="form-control">
+            <div class="flex flex-wrap gap-4">
+              <div class="form-control w-auto">
                 <label class="label">
                   <span class="label-text font-medium">{{ t.clusters.requestTimeout }}</span>
                 </label>
                 <input
                   v-model.number="formData.request_timeout_ms"
                   type="number"
-                  class="input input-bordered w-full"
+                  class="input input-bordered w-40"
                   placeholder="30000"
                 />
               </div>
-              <div class="form-control">
+              <div class="form-control w-auto">
                 <label class="label">
                   <span class="label-text font-medium">{{ t.clusters.operationTimeout }}</span>
                 </label>
                 <input
                   v-model.number="formData.operation_timeout_ms"
                   type="number"
-                  class="input input-bordered w-full"
+                  class="input input-bordered w-40"
                   placeholder="30000"
                 />
               </div>
@@ -292,6 +301,7 @@ const t = computed(() => languageStore.t);
 
 const editingCluster = ref<Cluster | null>(null);
 const testing = ref(new Set<number>());
+const refreshing = ref(new Set<string>());
 const disconnecting = ref(new Set<string>());
 const reconnecting = ref(new Set<string>());
 const submitting = ref(false);
@@ -396,7 +406,18 @@ function getConnectionStatus(clusterName: string) {
 }
 
 async function refreshConnectionStatus(clusterName: string) {
-  await connectionStore.fetchConnectionStatus(clusterName);
+  refreshing.value.add(clusterName);
+  try {
+    const status = await connectionStore.fetchConnectionStatus(clusterName);
+    const statusText = status.status === 'connected' ? t.value.clusters.connected :
+                       status.status === 'error' ? t.value.clusters.connectionError :
+                       status.status;
+    showSuccess(`Status: ${statusText}`);
+  } catch (e) {
+    showError(`Refresh failed: ${(e as { message: string }).message}`);
+  } finally {
+    refreshing.value.delete(clusterName);
+  }
 }
 
 async function disconnectCluster(clusterName: string) {
@@ -420,7 +441,11 @@ async function reconnectCluster(clusterName: string) {
     await connectionStore.reconnectCluster(clusterName);
     await connectionStore.fetchAllConnections();
     await clusterStore.fetchClusters();
-    showSuccess('Cluster reconnected successfully');
+    const status = connectionStore.getConnectionStatus(clusterName);
+    const statusText = status?.status === 'connected' ? t.value.clusters.connected :
+                       status?.status === 'error' ? t.value.clusters.connectionError :
+                       status?.status || 'unknown';
+    showSuccess(`Reconnected: ${statusText}`);
   } catch (e) {
     showError(`Reconnect failed: ${(e as { message: string }).message}`);
   } finally {
