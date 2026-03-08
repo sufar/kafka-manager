@@ -8,7 +8,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
           </svg>
         </div>
-        <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Clusters</span>
+        <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider hidden sm:block">Clusters</span>
       </div>
       <div class="flex gap-0.5">
         <button class="btn btn-ghost btn-xs" @click="handleAddCluster" title="Add cluster">
@@ -16,12 +16,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
         </button>
-        <button class="btn btn-ghost btn-xs" @click="expandAll" title="Expand all">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-        <button class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all">
+        <button class="btn btn-ghost btn-xs sm:hidden" @click="collapseAll" title="Collapse all">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
           </svg>
@@ -34,7 +29,7 @@
       <div v-for="cluster in clusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div
-          class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 backdrop-blur-sm"
+          class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md"
           :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
           @contextmenu.prevent="showClusterMenu($event, cluster.name)"
           @dblclick="toggleCluster(cluster.name)"
@@ -54,7 +49,7 @@
               </svg>
             </button>
             <div
-              class="w-2 h-2 rounded-full transition-colors duration-300"
+              class="w-2 h-2 rounded-full transition-colors duration-300 flex-shrink-0"
               :class="{
                 'bg-success shadow-[0_0_4px_rgba(16,185,129,0.4)]': getClusterHealth(cluster.name)?.healthy === true && !refreshingClusters.has(cluster.name),
                 'bg-error shadow-[0_0_4px_rgba(239,68,68,0.4)]': getClusterHealth(cluster.name)?.healthy === false && !refreshingClusters.has(cluster.name),
@@ -65,14 +60,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary flex-shrink-0">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
             </svg>
-            <span class="text-sm font-semibold truncate">{{ cluster.name }}</span>
+            <span class="text-sm font-semibold truncate flex-1">{{ cluster.name }}</span>
           </div>
         </div>
 
         <!-- Cluster Children -->
         <div v-show="expandedClusters.has(cluster.name)" class="flex flex-col">
           <!-- Topics Folder -->
-          <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 backdrop-blur-sm flex-shrink-0">
+          <div class="mb-0.5 flex-shrink-0">
             <div
               class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
               :class="{ 'bg-secondary/10': expandedTopicsFolders.has(cluster.name) }"
@@ -94,7 +89,7 @@
                   </svg>
                 </button>
                 <span class="text-xs truncate">{{ topicCounts[cluster.name] || 0 }}</span>
-                <span class="text-xs truncate">Topics</span>
+                <span class="text-xs truncate hidden sm:inline">Topics</span>
               </div>
               <!-- Topics Refresh Button -->
               <button
@@ -230,7 +225,7 @@
                   </svg>
                 </button>
                 <span class="text-sm truncate">{{ consumerGroupCounts[cluster.name] || 0 }}</span>
-                <span class="text-sm truncate">Consumer Groups</span>
+                <span class="text-sm truncate hidden sm:inline">Consumer Groups</span>
               </div>
               <!-- Consumer Groups Refresh Button -->
               <button
@@ -505,7 +500,7 @@ function handleAddCluster() {
   window.dispatchEvent(new CustomEvent('open-create-cluster-modal'));
 }
 
-function expandAll() {
+function _expandAll() {
   expandedClusters.value = new Set(clusters.value.map(c => c.name));
   expandedTopicsFolders.value = new Set(clusters.value.map(c => c.name));
   expandedConsumerGroupsFolders.value = new Set(clusters.value.map(c => c.name));
@@ -675,6 +670,7 @@ const topicSearchQuery = reactive<Record<string, string>>({});
 // 存储每个 topic 元素的 ref
 const topicElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function setTopicElementRef(key: string, el: HTMLDivElement | null) {
   topicElementRefs[key] = el;
 }

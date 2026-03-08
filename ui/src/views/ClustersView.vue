@@ -1,5 +1,5 @@
 <template>
-  <div class="p-6 relative overflow-hidden">
+  <div class="p-4 sm:p-6 relative overflow-hidden">
     <!-- Animated background particles -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="particle particle-1"></div>
@@ -7,22 +7,23 @@
     </div>
 
     <!-- Page Header -->
-    <div class="mb-8 relative">
-      <div class="flex items-center justify-between">
+    <div class="mb-6 sm:mb-8 relative">
+      <div class="flex items-center justify-between gap-2 sm:gap-4">
         <div>
-          <h1 class="text-3xl font-bold text-gradient flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
+          <h1 class="text-2xl sm:text-3xl font-bold text-gradient flex items-center gap-2 sm:gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 sm:w-10 sm:h-10 animate-float">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
-            {{ t.clusters.title }}
+            <span class="hidden sm:inline">{{ t.clusters.title }}</span>
+            <span class="sm:hidden">Clusters</span>
           </h1>
-          <p class="text-base-content/60 mt-2 text-lg">{{ t.clusters.description }}</p>
+          <p class="text-base-content/60 mt-2 text-sm sm:text-lg">{{ t.clusters.description }}</p>
         </div>
-        <button class="btn btn-primary" @click="openCreateModal">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+        <button class="btn btn-primary btn-sm sm:btn-md" @click="openCreateModal">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 sm:w-5 sm:h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          {{ t.clusters.addCluster }}
+          <span class="hidden sm:inline">{{ t.clusters.addCluster }}</span>
         </button>
       </div>
     </div>
@@ -78,13 +79,13 @@
     </div>
 
     <!-- Clusters Grid -->
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
       <div
         v-for="cluster in clusters"
         :key="cluster.id"
         class="card glass gradient-border hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
       >
-        <div class="flex items-center justify-between p-5 border-b border-base-content/10">
+        <div class="flex items-center justify-between p-4 sm:p-5 border-b border-base-content/10">
           <div class="flex items-center gap-3">
             <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 glow-primary text-primary">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
@@ -190,14 +191,14 @@
 
     <!-- Create/Edit Modal using Teleport and DaisyUI modal -->
     <Teleport to="body">
-      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box">
+      <dialog ref="modalRef" class="modal">
+        <div class="modal-box w-11/12 max-w-lg">
           <!-- close button -->
           <form method="dialog">
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           </form>
           <h3 class="font-bold text-lg mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
-          <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
+          <form @submit.prevent="handleSubmit" class="flex flex-col gap-3 sm:gap-4">
             <div class="form-control">
               <label class="label">
                 <span class="label-text font-medium">{{ t.clusters.clusterName }}</span>
@@ -222,10 +223,10 @@
                 required
               />
               <label class="label">
-                <span class="label-text-alt text-base-content/60">Comma-separated list of broker addresses</span>
+                <span class="label-text-alt text-base-content/60 whitespace-normal">Comma-separated list of broker addresses</span>
               </label>
             </div>
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
               <div class="form-control">
                 <label class="label">
                   <span class="label-text font-medium">{{ t.clusters.requestTimeout }}</span>
@@ -250,8 +251,8 @@
               </div>
             </div>
             <div class="modal-action mt-4">
-              <button type="button" class="btn btn-outline" @click="closeModal">{{ t.common.cancel }}</button>
-              <button type="submit" class="btn btn-primary" :disabled="submitting">
+              <button type="button" class="btn btn-outline btn-sm sm:btn-md" @click="closeModal">{{ t.common.cancel }}</button>
+              <button type="submit" class="btn btn-primary btn-sm sm:btn-md" :disabled="submitting">
                 <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
                 {{ editingCluster ? t.common.edit : t.common.create }}
               </button>

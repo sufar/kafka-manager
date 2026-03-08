@@ -1095,7 +1095,7 @@ async function exportMessages() {
     );
 
     // 确保返回的数据包含 messages 数组
-    const messagesToExport = result?.messages || result?.data?.messages || [];
+    const messagesToExport = result?.messages || [];
 
     // 使用 Tauri API 保存文件
     const { save } = await import('@tauri-apps/plugin-dialog');
