@@ -189,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch, provide } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useThemeStore } from '@/stores/theme';
@@ -569,6 +569,22 @@ onMounted(async () => {
     const { topicName, clusterName } = event.detail;
     handleSelectTopicInTree(topicName, clusterName);
   }) as EventListener);
+
+  // 监听打开创建集群弹窗事件
+  window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+});
+
+function handleOpenCreateClusterModal() {
+  // 导航到 clusters 页面并打开创建弹窗
+  // 添加时间戳避免路由参数相同时无法触发更新
+  router.push({ path: '/clusters', query: { action: 'create', t: String(Date.now()) } });
+}
+
+// 清理事件监听
+onUnmounted(() => {
+  window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('click', handleClickOutside);
 });
 
 function handleClickOutside(e: MouseEvent) {

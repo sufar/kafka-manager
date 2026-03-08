@@ -268,7 +268,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useLanguageStore } from '@/stores/language';
@@ -276,6 +276,7 @@ import { useToast } from '@/composables/useToast';
 import type { Cluster } from '@/types/api';
 
 const route = useRoute();
+const router = useRouter();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
 const languageStore = useLanguageStore();
@@ -329,6 +330,8 @@ function closeModal() {
   formData.brokers = '';
   formData.request_timeout_ms = 30000;
   formData.operation_timeout_ms = 30000;
+  // 清除路由参数
+  router.replace({ path: '/clusters', query: {} });
 }
 
 async function handleSubmit() {
