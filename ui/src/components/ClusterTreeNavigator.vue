@@ -152,6 +152,7 @@
                 v-for="topic in getClusterTopics(cluster.name)"
                 :key="topic.name"
                 class="mb-1"
+                ref="el => setTopicElementRef(`${cluster.name}:${topic.name}`, el)"
               >
                 <!-- Topic Node -->
                 <div
@@ -670,6 +671,13 @@ async function refreshClusterTopics(clusterName: string) {
 const VISIBLE_ITEMS = 100; // 最大渲染 100 个 topic，超过的需要搜索
 const topicSearchQuery = reactive<Record<string, string>>({});
 
+// 存储每个 topic 元素的 ref
+const topicElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
+
+function setTopicElementRef(key: string, el: HTMLDivElement | null) {
+  topicElementRefs[key] = el;
+}
+
 function getClusterTopics(clusterName: string): Topic[] {
   const topics = clusterTopics[clusterName] || [];
   const query = topicSearchQuery[clusterName];
@@ -801,6 +809,15 @@ async function highlightAndSelectTopic(topicName: string, clusterName: string) {
   selectedTopic.value = { name: topicName, cluster: clusterName };
   selectedPartition.value = null;
   selectedConsumerGroup.value = null;
+
+  // 滚动到选中的 topic（等待 DOM 更新后执行）
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const topicKey = `${clusterName}:${topicName}`;
+  const topicElement = topicElementRefs[topicKey];
+  if (topicElement) {
+    topicElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
   // 导航到消息页面（如果集群不可用，消息页面会显示错误提示）
   emit('navigate', { path: '/messages', query: { cluster: clusterName, topic: topicName } });
 }
