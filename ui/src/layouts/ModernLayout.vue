@@ -117,7 +117,7 @@
       </aside>
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden">
+      <main class="flex-1 glass gradient-border overflow-y-auto">
         <router-view />
       </main>
     </div>
