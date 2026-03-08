@@ -176,7 +176,6 @@ body {
 }
 
 .card:hover {
-  transform: translateY(-4px) scale(1.01);
   box-shadow:
     0 20px 40px rgba(0, 0, 0, 0.3),
     0 0 30px rgba(99, 102, 241, 0.2);

@@ -501,7 +501,8 @@ function handleConsumerGroupsFolderClick(clusterName: string) {
 
 // 处理添加集群
 function handleAddCluster() {
-  emit('navigate', { path: '/clusters', query: { action: 'create' } });
+  // 直接触发打开创建弹窗的事件，无论当前路由是什么
+  window.dispatchEvent(new CustomEvent('open-create-cluster-modal'));
 }
 
 function expandAll() {

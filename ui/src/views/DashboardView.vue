@@ -117,7 +117,7 @@
           <div
             v-for="cluster in clusters"
             :key="cluster.id"
-            class="card glass gradient-border hover:glow-primary transition-all duration-300 cursor-pointer"
+            class="card glass gradient-border transition-all duration-300 cursor-pointer"
             :class="{
               'ring-2 ring-primary ring-offset-2 ring-offset-base-100': selectedClusterIds.includes(cluster.name),
               'opacity-70': !getClusterHealth(cluster.name)?.healthy
