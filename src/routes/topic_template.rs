@@ -103,7 +103,7 @@ async fn create_topic_from_template(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&query.cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", query.cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", query.cluster_id)))?;
 
     let store = TopicTemplateStore::new(state.db.inner().clone());
 

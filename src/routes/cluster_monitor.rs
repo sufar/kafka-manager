@@ -28,7 +28,7 @@ async fn get_cluster_info(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
         .await
@@ -58,7 +58,7 @@ async fn get_cluster_metrics(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let metrics = tokio::task::spawn_blocking(move || admin.get_cluster_metrics())
         .await
@@ -81,7 +81,7 @@ async fn list_brokers(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
         .await
@@ -107,7 +107,7 @@ async fn get_broker(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let broker = tokio::task::spawn_blocking(move || admin.get_broker_info(broker_id))
         .await
@@ -145,7 +145,7 @@ async fn get_broker_logdirs(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 在阻塞线程中执行所有 Kafka 操作
     let admin = admin.clone();
@@ -211,7 +211,7 @@ async fn get_broker_metrics(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 在阻塞线程中执行所有 Kafka 操作
     let admin = admin.clone();

@@ -828,8 +828,8 @@ async function loadClusterTopics(clusterName: string) {
       retryCount++;
       console.warn(`[ClusterTreeNavigator] Failed to load topics for ${clusterName} (attempt ${retryCount}/${maxRetries}):`, error?.message || error);
 
-      // 如果是集群未找到错误，可能是后端还没准备好，等待后重试
-      if (error?.message?.includes('not found') && retryCount < maxRetries) {
+      // 如果是集群未连接错误，可能是后端还没准备好，等待后重试
+      if ((error?.message?.includes('not connected') || error?.message?.includes('not found')) && retryCount < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, retryCount * 500));
       } else {
         // 其他错误或已达到最大重试次数，显示错误但继续

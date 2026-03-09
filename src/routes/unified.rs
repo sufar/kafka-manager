@@ -78,7 +78,7 @@ async fn ensure_cluster_client(
             }
             Ok(None) => {
                 tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
-                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                last_db_error = Some(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)));
                 if attempt < 2 {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -94,7 +94,7 @@ async fn ensure_cluster_client(
     }
 
     let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
-        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+        AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id))
     }))?;
 
     let config = crate::config::KafkaConfig {
@@ -157,7 +157,7 @@ async fn get_or_create_admin_client(
             Ok(None) => {
                 // 集群不存在，等待后重试
                 tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
-                last_db_error = Some(AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)));
+                last_db_error = Some(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)));
                 if attempt < 2 {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -173,7 +173,7 @@ async fn get_or_create_admin_client(
     }
 
     let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
-        AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id))
+        AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id))
     }))?;
 
     let config = crate::config::KafkaConfig {
@@ -229,7 +229,7 @@ async fn get_or_create_admin_client_and_config(
     // 从数据库获取集群配置
     let cluster = ClusterStore::get_by_name(state.db.inner(), cluster_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = crate::config::KafkaConfig {
         brokers: cluster.brokers,
@@ -916,7 +916,7 @@ async fn handle_topic_offsets(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let offset_manager = KafkaOffsetManager::new(&config);
     let partition_offsets = offset_manager.get_topic_partition_offsets(&config, &name)?;
@@ -948,7 +948,7 @@ async fn handle_topic_config_get(state: AppState, body: Value) -> Result<Value> 
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = admin.get_topic_config(&name).await?;
 
@@ -963,7 +963,7 @@ async fn handle_topic_config_alter(state: AppState, body: Value) -> Result<Value
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.alter_topic_config(&name, config).await?;
 
@@ -978,7 +978,7 @@ async fn handle_topic_partitions_add(state: AppState, body: Value) -> Result<Val
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.create_partitions(&name, new_partitions).await?;
 
@@ -992,7 +992,7 @@ async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> 
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let calculator = KafkaThroughputCalculator::new(&config);
     let throughput = calculator.calculate_topic_throughput(&config, &name)?;
@@ -1030,7 +1030,7 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     } else {
         let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+            .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
         let config = crate::config::KafkaConfig {
             brokers: cluster.brokers,
@@ -1154,10 +1154,10 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let groups = admin.list_consumer_groups(&config)?;
     let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
@@ -1188,10 +1188,10 @@ async fn handle_consumer_group_get(state: AppState, body: Value) -> Result<Value
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let group_info = admin.get_consumer_group_info(&config, &name)?;
 
@@ -1218,7 +1218,7 @@ async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Va
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.delete_consumer_group(&name).await?;
 
@@ -1233,7 +1233,7 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let offset_manager = KafkaOffsetManager::new(&config);
     let offsets =
@@ -1284,10 +1284,10 @@ async fn handle_consumer_group_offsets_reset(state: AppState, body: Value) -> Re
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     if let Some(partition) = partition {
         admin
@@ -1310,7 +1310,7 @@ async fn handle_consumer_group_throughput(state: AppState, body: Value) -> Resul
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let calculator = KafkaThroughputCalculator::new(&config);
     let throughput = calculator.calculate_consumer_group_throughput(&config, &group_name, &topic)?;
@@ -1343,7 +1343,7 @@ async fn handle_consumer_group_batch_delete(state: AppState, body: Value) -> Res
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let mut deleted = Vec::new();
     let mut failed = Vec::new();
@@ -1380,7 +1380,7 @@ async fn handle_consumer_group_consumer_offsets(state: AppState, body: Value) ->
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let offset_manager = KafkaOffsetManager::new(&config);
     let all_offsets = offset_manager.get_all_consumer_offsets(&config)?;
@@ -1435,7 +1435,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
 
     // 使用连接池中的 consumer 获取消息
     let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let messages = fetch_messages_from_pool_with_filter(
         &consumer_pool,
@@ -1678,7 +1678,7 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let producer = clients
         .get_producer(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let (partition_result, offset) = producer
         .send_to_partition(&topic, partition, key.as_deref(), &value)
@@ -1708,7 +1708,7 @@ async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
 
     // 使用连接池中的 consumer 获取消息（支持过滤）
     let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let messages = fetch_messages_from_pool_with_filter(
         &consumer_pool,
@@ -1795,7 +1795,7 @@ async fn handle_connection_get(state: AppState, body: Value) -> Result<Value> {
                 "error_message": error_message,
             }))
         }
-        None => Err(AppError::NotFound(format!("Cluster '{}' not found", cluster_id))),
+        None => Err(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id))),
     }
 }
 
@@ -1825,7 +1825,7 @@ async fn handle_connection_reconnect(state: AppState, body: Value) -> Result<Val
     let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_name)
         .await?
         .ok_or_else(|| {
-            AppError::NotFound(format!("Cluster '{}' not found in database", cluster_name))
+            AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_name))
         })?;
 
     let config = crate::config::KafkaConfig {
@@ -1882,7 +1882,7 @@ async fn handle_connection_health_check(state: AppState, body: Value) -> Result<
             // 连接池中不存在，尝试从数据库获取集群配置并建立临时连接
             let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
                 .await?
-                .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
             let config = crate::config::KafkaConfig {
                 brokers: cluster.brokers,
@@ -1947,7 +1947,7 @@ async fn handle_connection_metrics(state: AppState, body: Value) -> Result<Value
     if consumer_pool_status.is_none() && producer_pool_status.is_none() {
         let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found in database", cluster_id)))?;
+            .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
         let config = crate::config::KafkaConfig {
             brokers: cluster.brokers,
@@ -2136,7 +2136,7 @@ async fn handle_connection_batch_reconnect(state: AppState, body: Value) -> Resu
                 results.push(serde_json::json!({
                     "cluster_name": cluster_name,
                     "success": false,
-                    "message": "Cluster not found in database"
+                    "message": "Cluster is not connected"
                 }));
             }
             Err(e) => {
@@ -2506,7 +2506,7 @@ async fn handle_schema_register(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // Get Schema Registry URL from env or construct from brokers
     let registry_url = std::env::var("SCHEMA_REGISTRY_URL").unwrap_or_else(|_| {
@@ -2624,7 +2624,7 @@ async fn handle_monitor_stats(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // Get all info in blocking thread
     let admin = admin.clone();
@@ -2698,7 +2698,7 @@ async fn handle_monitor_info(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
         .await
@@ -2723,7 +2723,7 @@ async fn handle_monitor_metrics(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let metrics = admin.get_cluster_metrics()?;
 
@@ -2742,7 +2742,7 @@ async fn handle_monitor_brokers(state: AppState, body: Value) -> Result<Value> {
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
         .await
@@ -2764,7 +2764,7 @@ async fn handle_monitor_broker_get(state: AppState, body: Value) -> Result<Value
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let broker = tokio::task::spawn_blocking(move || admin.get_broker_info(broker_id))
         .await
@@ -2935,7 +2935,7 @@ async fn handle_template_create_topic(state: AppState, body: Value) -> Result<Va
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let store = TopicTemplateStore::new(state.db.inner().clone());
 
@@ -3302,10 +3302,10 @@ async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> 
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 获取所有 consumer groups
     let groups = admin.list_consumer_groups(&config)?;
@@ -3373,10 +3373,10 @@ async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Val
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let calculator = KafkaThroughputCalculator::new(&config);
     let snapshot = calculator.get_topic_consumer_lag_snapshot(&config, &topic, &admin)?;

@@ -117,7 +117,7 @@ async fn list_topics(
         let clients = state.get_clients();
         let admin = clients
             .get_admin(&cluster_id)
-            .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+            .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
         let topics = admin.list_topics()?;
 
@@ -166,7 +166,7 @@ async fn create_topic(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin
         .create_topic(
@@ -190,7 +190,7 @@ async fn get_topic(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let topic_info = tokio::task::spawn_blocking(move || admin.get_topic_info(&name))
         .await
@@ -218,7 +218,7 @@ async fn delete_topic(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.delete_topic(&name).await?;
 
@@ -236,7 +236,7 @@ async fn add_partitions(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.create_partitions(&name, req.new_partitions).await?;
     Ok(())
@@ -249,7 +249,7 @@ async fn get_config(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let config = admin.get_topic_config(&name).await?;
     Ok(Json(config))
@@ -263,7 +263,7 @@ async fn alter_config(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.alter_topic_config(&name, req.config).await?;
     Ok(())
@@ -276,7 +276,7 @@ async fn get_topic_offsets(
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let offset_manager = KafkaOffsetManager::new(&config);
 
@@ -361,7 +361,7 @@ async fn batch_create_topics(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let mut created = Vec::new();
     let mut failed = Vec::new();
@@ -411,7 +411,7 @@ async fn batch_delete_topics(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 如果不需要在错误时继续，则使用串行删除
     if !req.continue_on_error {
@@ -498,7 +498,7 @@ async fn get_topic_throughput(
     let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let calculator = KafkaThroughputCalculator::new(&config);
     let throughput = calculator.calculate_topic_throughput(&config, &name)?;
@@ -527,7 +527,7 @@ async fn refresh_topics(
     let clients = state.get_clients();
     let admin = clients
         .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 在阻塞线程中执行 Kafka 操作
     let admin = admin.clone();

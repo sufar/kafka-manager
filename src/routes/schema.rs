@@ -127,7 +127,7 @@ async fn register_schema(
 ) -> Result<Json<serde_json::Value>> {
     let clients = state.get_clients();
     let config = clients.get_config(&req.cluster_id)
-        .ok_or_else(|| AppError::NotFound(format!("Cluster '{}' not found", req.cluster_id)))?;
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", req.cluster_id)))?;
 
     // 从配置中获取 Schema Registry URL
     let registry_url = std::env::var("SCHEMA_REGISTRY_URL")
