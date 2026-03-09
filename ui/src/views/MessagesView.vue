@@ -281,7 +281,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -341,6 +341,11 @@ const filters = reactive({
   startTime: '' as string,
   endTime: '' as string,
 });
+
+// 防抖定时器
+let fetchDebounceTimer: number | null = null;
+// 当前请求的序列号，用于处理竞态条件
+let currentFetchRequestId = 0;
 
 const showSendModal = ref(false);
 const sending = ref(false);
@@ -542,55 +547,86 @@ async function fetchTopicPartitions() {
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
-  // 取消上一次的请求，避免并发请求导致超时
-  apiClient.cancelGetMessages();
-
-  loading.value = true;
-  selectedMessageIndex.value = -1;
-  const startTime = performance.now();
-  try {
-    const params: {
-      partition?: number;
-      max_messages: number;
-      search: string;
-      fetchMode?: 'oldest' | 'newest';
-      start_time?: number;
-      end_time?: number;
-    } = {
-      max_messages: filters.max_messages,
-      search: filters.search,
-      fetchMode: filters.fetchMode,
-    };
-
-    // 只有当 partition 有值时才传递，不传递表示不过滤
-    if (filters.partition !== undefined) {
-      params.partition = filters.partition;
-    }
-
-    // 传递时间范围过滤（转换为毫秒时间戳）
-    if (filters.startTime) {
-      params.start_time = new Date(filters.startTime).getTime();
-    }
-    if (filters.endTime) {
-      params.end_time = new Date(filters.endTime).getTime();
-    }
-
-    messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
-    fetchTime.value = Math.round(performance.now() - startTime);
-  } catch (e) {
-    const error = e as { message: string };
-    // 如果是取消请求，不显示错误
-    if (error.message === 'AbortError' || error.message.includes('aborted')) {
-    } else {
-      showError(error.message);
-    }
-  } finally {
-    loading.value = false;
+  // 清除之前的防抖定时器
+  if (fetchDebounceTimer) {
+    clearTimeout(fetchDebounceTimer);
+    fetchDebounceTimer = null;
   }
+
+  // 使用防抖，避免用户快速切换条件时频繁请求
+  fetchDebounceTimer = window.setTimeout(async () => {
+    // 在回调中再次检查，因为 TypeScript 无法追踪 setTimeout 中的类型收窄
+    if (!selectedClusterId.value || !selectedTopic.value) return;
+
+    // 增加请求序列号，用于处理竞态条件
+    currentFetchRequestId++;
+    const requestId = currentFetchRequestId;
+
+    // 取消上一次的请求，避免并发请求导致超时
+    apiClient.cancelGetMessages();
+
+    loading.value = true;
+    selectedMessageIndex.value = -1;
+    const startTime = performance.now();
+    try {
+      const params: {
+        partition?: number;
+        max_messages: number;
+        search: string;
+        fetchMode?: 'oldest' | 'newest';
+        start_time?: number;
+        end_time?: number;
+      } = {
+        max_messages: filters.max_messages,
+        search: filters.search,
+        fetchMode: filters.fetchMode,
+      };
+
+      // 只有当 partition 有值时才传递，不传递表示不过滤
+      if (filters.partition !== undefined) {
+        params.partition = filters.partition;
+      }
+
+      // 传递时间范围过滤（转换为毫秒时间戳）
+      if (filters.startTime) {
+        params.start_time = new Date(filters.startTime).getTime();
+      }
+      if (filters.endTime) {
+        params.end_time = new Date(filters.endTime).getTime();
+      }
+
+      messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
+      fetchTime.value = Math.round(performance.now() - startTime);
+    } catch (e) {
+      const error = e as { message: string };
+      // 如果是取消请求，不显示错误
+      if (error.message === 'AbortError' || error.message.includes('aborted')) {
+        // 只有在是最后一次请求时才忽略错误
+        if (requestId !== currentFetchRequestId) {
+          return;
+        }
+      } else {
+        showError(error.message);
+      }
+    } finally {
+      // 只有在是最后一次请求时才更新状态
+      if (requestId === currentFetchRequestId) {
+        loading.value = false;
+      }
+    }
+  }, 300); // 300ms 防抖延迟
 }
 
 function stopFetching() {
+  // 清除防抖定时器
+  if (fetchDebounceTimer) {
+    clearTimeout(fetchDebounceTimer);
+    fetchDebounceTimer = null;
+  }
+  // 取消请求
   apiClient.cancelGetMessages();
+  // 增加请求序列号，使之前的请求回调失效
+  currentFetchRequestId++;
   loading.value = false;
 }
 
@@ -900,5 +936,15 @@ onMounted(async () => {
   await loadSettings();
 
   fetchTopics();
+});
+
+onBeforeUnmount(() => {
+  // 清理防抖定时器
+  if (fetchDebounceTimer) {
+    clearTimeout(fetchDebounceTimer);
+    fetchDebounceTimer = null;
+  }
+  // 取消请求
+  apiClient.cancelGetMessages();
 });
 </script>
