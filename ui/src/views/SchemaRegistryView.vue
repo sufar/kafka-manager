@@ -1,12 +1,12 @@
 <template>
   <div>
-    <div class="flex justify-between items-center mb-6">
+    <div class="flex justify-between items-center mb-4">
       <div>
-        <h2 class="text-3xl font-bold">{{ t.schemaRegistry.title }}</h2>
-        <p class="text-base-content/60 mt-1">{{ t.schemaRegistry.description }}</p>
+        <h2 class="text-xl font-bold">{{ t.schemaRegistry.title }}</h2>
+        <p class="text-base-content/60 mt-1 text-sm">{{ t.schemaRegistry.description }}</p>
       </div>
-      <button class="btn btn-primary" @click="openRegisterModal" :disabled="!selectedClusterId">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+      <button class="btn btn-primary btn-xs" @click="openRegisterModal" :disabled="!selectedClusterId">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
         {{ t.schemaRegistry.registerSchema }}
@@ -22,47 +22,47 @@
     </div>
 
     <!-- Loading state -->
-    <div v-else-if="loading" class="flex justify-center py-12">
-      <span class="loading loading-spinner loading-lg text-primary"></span>
+    <div v-else-if="loading" class="flex justify-center py-8">
+      <span class="loading loading-spinner loading-md text-primary"></span>
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="alert alert-error">
-      <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+    <div v-else-if="error" class="alert alert-error py-2">
+      <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <span>{{ error }}</span>
+      <span class="text-sm">{{ error }}</span>
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="subjects.length === 0" class="text-center py-12">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-24 h-24 mx-auto text-base-content/30 mb-4">
+    <div v-else-if="subjects.length === 0" class="text-center py-8">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto text-base-content/30 mb-3">
         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
       </svg>
-      <h3 class="text-xl font-semibold mb-2">{{ t.schemaRegistry.noSchemasFound }}</h3>
-      <p class="text-base-content/60 mb-4">{{ t.schemaRegistry.noSchemasFoundDesc }}</p>
-      <button class="btn btn-primary" @click="openRegisterModal">{{ t.schemaRegistry.registerSchema }}</button>
+      <h3 class="text-lg font-semibold mb-2">{{ t.schemaRegistry.noSchemasFound }}</h3>
+      <p class="text-base-content/60 mb-4 text-sm">{{ t.schemaRegistry.noSchemasFoundDesc }}</p>
+      <button class="btn btn-primary btn-xs" @click="openRegisterModal">{{ t.schemaRegistry.registerSchema }}</button>
     </div>
 
     <!-- Schema Subjects Grid -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div
         v-for="subject in subjects"
         :key="subject"
         class="card bg-base-100 shadow hover:shadow-lg transition-shadow cursor-pointer"
         @click="viewSubject(subject)"
       >
-        <div class="card-body">
+        <div class="card-body p-3">
           <div class="flex items-center justify-between">
-            <h3 class="card-title text-base truncate">{{ subject }}</h3>
-            <div class="badge badge-primary">{{ getVersionsCount(subject) }} {{ t.schemaRegistry.versions }}</div>
+            <h3 class="card-title text-sm truncate">{{ subject }}</h3>
+            <div class="badge badge-primary badge-xs">{{ getVersionsCount(subject) }} {{ t.schemaRegistry.versions }}</div>
           </div>
-          <div class="text-sm text-base-content/60 truncate">
+          <div class="text-xs text-base-content/60 truncate">
             {{ t.schemaRegistry.type }}: {{ getSchemaType(subject) }}
           </div>
-          <div class="card-actions justify-end mt-4">
-            <button class="btn btn-sm btn-ghost" @click.stop="viewSubject(subject)">{{ t.schemaRegistry.view }}</button>
-            <button class="btn btn-sm btn-ghost text-error" @click.stop="confirmDeleteSubject(subject)">{{ t.schemaRegistry.deleteSchema }}</button>
+          <div class="card-actions justify-end mt-3">
+            <button class="btn btn-xs btn-ghost" @click.stop="viewSubject(subject)">{{ t.schemaRegistry.view }}</button>
+            <button class="btn btn-xs btn-ghost text-error" @click.stop="confirmDeleteSubject(subject)">{{ t.schemaRegistry.deleteSchema }}</button>
           </div>
         </div>
       </div>
@@ -70,49 +70,49 @@
 
     <!-- Register Schema Modal -->
     <dialog ref="registerModalRef" class="modal">
-      <div class="modal-box max-w-3xl">
-        <h3 class="font-bold text-lg mb-4">{{ t.schemaRegistry.registerSchema }}</h3>
+      <div class="modal-box max-w-3xl p-4">
+        <h3 class="font-bold text-base mb-3">{{ t.schemaRegistry.registerSchema }}</h3>
         <form @submit.prevent="handleRegisterSchema">
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text font-semibold">{{ t.schemaRegistry.subjectName }}</span>
+          <div class="form-control mb-3">
+            <label class="label py-1">
+              <span class="label-text font-semibold text-sm">{{ t.schemaRegistry.subjectName }}</span>
             </label>
             <input
               v-model="newSchema.subject"
               type="text"
               placeholder="my-topic-value"
-              class="input input-bordered font-mono"
+              class="input input-bordered input-sm font-mono"
               required
             />
           </div>
 
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text font-semibold">{{ t.schemaRegistry.schemaType }}</span>
+          <div class="form-control mb-3">
+            <label class="label py-1">
+              <span class="label-text font-semibold text-sm">{{ t.schemaRegistry.schemaType }}</span>
             </label>
-            <select v-model="newSchema.schema_type" class="select select-bordered">
+            <select v-model="newSchema.schema_type" class="select select-bordered select-sm">
               <option value="AVRO">Avro</option>
               <option value="JSON">JSON Schema</option>
               <option value="PROTOBUF">Protobuf</option>
             </select>
           </div>
 
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text font-semibold">{{ t.schemaRegistry.schemaDefinition }}</span>
+          <div class="form-control mb-3">
+            <label class="label py-1">
+              <span class="label-text font-semibold text-sm">{{ t.schemaRegistry.schemaDefinition }}</span>
             </label>
             <textarea
               v-model="newSchema.schema"
-              class="textarea textarea-bordered font-mono h-64"
+              class="textarea textarea-bordered font-mono h-48 text-sm"
               placeholder='{"type": "record", "name": "MyRecord", "fields": [{"name": "field1", "type": "string"}]}'
               required
             ></textarea>
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn" @click="closeRegisterModal">{{ t.schemaRegistry.close }}</button>
-            <button type="submit" class="btn btn-primary" :disabled="registering">
-              <span v-if="registering" class="loading loading-spinner loading-sm"></span>
+          <div class="modal-action py-3">
+            <button type="button" class="btn btn-xs" @click="closeRegisterModal">{{ t.schemaRegistry.close }}</button>
+            <button type="submit" class="btn btn-primary btn-xs" :disabled="registering">
+              <span v-if="registering" class="loading loading-spinner loading-xs"></span>
               {{ t.schemaRegistry.registerSchema }}
             </button>
           </div>
@@ -125,27 +125,27 @@
 
     <!-- Subject Detail Modal -->
     <dialog ref="detailModalRef" class="modal">
-      <div class="modal-box max-w-4xl">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-lg">Subject: {{ selectedSubject }}</h3>
+      <div class="modal-box max-w-4xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-bold text-base">Subject: {{ selectedSubject }}</h3>
           <div class="flex gap-2">
-            <button class="btn btn-sm btn-ghost" @click="copySchema">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <button class="btn btn-xs btn-ghost" @click="copySchema">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
               </svg>
               {{ t.schemaRegistry.copy }}
             </button>
-            <button class="btn btn-sm btn-error" @click="confirmDeleteSubject(selectedSubject)">{{ t.schemaRegistry.deleteSchema }}</button>
+            <button class="btn btn-xs btn-error" @click="confirmDeleteSubject(selectedSubject)">{{ t.schemaRegistry.deleteSchema }}</button>
           </div>
         </div>
 
         <!-- Version Tabs -->
-        <div role="tablist" class="tabs tabs-boxed mb-4">
+        <div role="tablist" class="tabs tabs-boxed mb-3">
           <a
             v-for="version in selectedSubjectVersions"
             :key="version"
             role="tab"
-            class="tab"
+            class="tab tab-xs"
             :class="{ 'tab-active': selectedVersion === version }"
             @click="selectVersion(version)"
           >
@@ -154,24 +154,24 @@
         </div>
 
         <!-- Schema Content -->
-        <div v-if="selectedSchema" class="mockup-code bg-base-200 mb-4">
+        <div v-if="selectedSchema" class="mockup-code bg-base-200 mb-3 text-xs">
           <pre><code>{{ selectedSchema.schema }}</code></pre>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="grid grid-cols-2 gap-3 text-xs">
           <div>
-            <span class="text-base-content/60">{{ t.schemaRegistry.schemaId }}</span>
-            <p class="font-mono">{{ selectedSchema?.id }}</p>
+            <span class="text-base-content/60 text-xs">{{ t.schemaRegistry.schemaId }}</span>
+            <p class="font-mono text-xs">{{ selectedSchema?.id }}</p>
           </div>
           <div>
-            <span class="text-base-content/60">{{ t.schemaRegistry.type }}</span>
-            <p class="font-semibold">{{ selectedSchema?.schema_type }}</p>
+            <span class="text-base-content/60 text-xs">{{ t.schemaRegistry.type }}</span>
+            <p class="font-semibold text-xs">{{ selectedSchema?.schema_type }}</p>
           </div>
         </div>
 
-        <div class="modal-action">
-          <button class="btn" @click="closeDetailModal">{{ t.schemaRegistry.close }}</button>
-          <button class="btn btn-error" @click="confirmDeleteVersion" :disabled="!selectedVersion">
+        <div class="modal-action py-3">
+          <button class="btn btn-xs" @click="closeDetailModal">{{ t.schemaRegistry.close }}</button>
+          <button class="btn btn-error btn-xs" @click="confirmDeleteVersion" :disabled="!selectedVersion">
             {{ t.schemaRegistry.deleteVersion }}
           </button>
         </div>
