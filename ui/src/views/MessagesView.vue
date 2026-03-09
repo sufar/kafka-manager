@@ -78,8 +78,8 @@
     </div>
 
     <!-- Messages List (Top Panel) -->
-    <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative">
-      <div class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden">
+    <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
+      <div class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: sortedMessages.length * ROW_HEIGHT + 'px', position: 'relative' }">
         <table class="table table-sm w-full">
           <thead class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
@@ -101,7 +101,7 @@
             </tr>
           </thead>
           <tbody>
-          <tr v-if="messages.length === 0">
+          <tr v-if="sortedMessages.length === 0">
             <td colspan="5" class="text-center py-8 text-base-content/60">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mx-auto mb-2 opacity-50">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
@@ -109,21 +109,34 @@
               {{ t.messages.noMessages }}
             </td>
           </tr>
-          <tr
-            v-for="(msg, index) in sortedMessages"
-            :key="`${msg.partition}-${msg.offset}`"
-            class="cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-sm border-b border-base-content/5 last:border-0"
-            :class="{ 'bg-primary/10 shadow-inner': selectedMessageIndex === index }"
-            @click="selectMessage(index)"
-          >
-            <td class="font-mono text-xs px-4 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
-            <td class="py-1 px-3">
-              <span class="badge badge-ghost badge-sm">{{ msg.partition }}</span>
-            </td>
-            <td class="text-xs text-base-content/60">{{ formatTimestamp(msg.timestamp) }}</td>
-            <td class="font-mono text-xs px-4">{{ msg.key || '-' }}</td>
-            <td class="font-mono text-xs px-4 last:rounded-br-xl">{{ formatMessagePreview(msg.value) }}</td>
-          </tr>
+          <template v-else>
+            <!-- 虚拟滚动：顶部占位 -->
+            <tr v-if="virtualStartIndex > 0" :style="{ height: virtualStartIndex * ROW_HEIGHT + 'px' }">
+              <td colspan="5" style="padding: 0; border: 0;"></td>
+            </tr>
+            <!-- 可见区域的行 -->
+            <tr
+              v-for="(msg, idx) in visibleMessages"
+              :key="`${msg.partition}-${msg.offset}`"
+              :data-index="virtualStartIndex + idx"
+              class="cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-sm border-b border-base-content/5 last:border-0"
+              :class="{ 'bg-primary/10 shadow-inner': selectedMessageIndex === virtualStartIndex + idx }"
+              @click="selectMessage(virtualStartIndex + idx)"
+              :style="{ height: ROW_HEIGHT + 'px' }"
+            >
+              <td class="font-mono text-xs px-4 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
+              <td class="py-1 px-3">
+                <span class="badge badge-ghost badge-sm">{{ msg.partition }}</span>
+              </td>
+              <td class="text-xs text-base-content/60">{{ formatTimestamp(msg.timestamp) }}</td>
+              <td class="font-mono text-xs px-4">{{ msg.key || '-' }}</td>
+              <td class="font-mono text-xs px-4 last:rounded-br-xl">{{ formatMessagePreview(msg.value) }}</td>
+            </tr>
+            <!-- 虚拟滚动：底部占位 -->
+            <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
+              <td colspan="5" style="padding: 0; border: 0;"></td>
+            </tr>
+          </template>
           </tbody>
         </table>
       </div>
@@ -323,6 +336,10 @@ const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
 
+// 虚拟滚动配置
+const ROW_HEIGHT = 32; // 每行高度（像素）
+const virtualStartIndex = ref(0);
+
 // 显示错误提示
 function showError(message: string) {
   showToast('error', message);
@@ -441,6 +458,28 @@ const sortedMessages = computed(() => {
     return sortOrder.value === 'asc' ? tsA - tsB : tsB - tsA;
   });
 });
+
+// 虚拟滚动：可见区域的消息
+const visibleMessages = computed(() => {
+  const start = virtualStartIndex.value;
+  // 根据容器高度动态计算可见行数
+  const containerHeight = messagesListRef.value?.clientHeight || 600;
+  const buffer = 5; // 额外渲染的行数
+  const visibleRows = Math.ceil(containerHeight / ROW_HEIGHT) + buffer;
+  const end = Math.min(start + visibleRows, sortedMessages.value.length);
+  return sortedMessages.value.slice(start, end);
+});
+
+// 处理滚动事件
+function handleScroll(event: Event) {
+  const target = event.target as HTMLElement;
+  if (!target || !sortedMessages.value.length) return;
+
+  const scrollTop = target.scrollTop;
+  const newVirtualStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
+  const maxIndex = Math.max(0, sortedMessages.value.length - Math.ceil((messagesListRef.value?.clientHeight || 600) / ROW_HEIGHT));
+  virtualStartIndex.value = Math.min(Math.max(0, newVirtualStartIndex), maxIndex);
+}
 
 function selectMessage(index: number) {
   selectedMessageIndex.value = index;
