@@ -553,17 +553,17 @@ async function fetchMessages() {
     fetchDebounceTimer = null;
   }
 
+  // 取消上一次的请求，避免并发请求导致超时
+  apiClient.cancelGetMessages();
+
+  // 增加请求序列号，用于处理竞态条件
+  currentFetchRequestId++;
+  const requestId = currentFetchRequestId;
+
   // 使用防抖，避免用户快速切换条件时频繁请求
   fetchDebounceTimer = window.setTimeout(async () => {
     // 在回调中再次检查，因为 TypeScript 无法追踪 setTimeout 中的类型收窄
     if (!selectedClusterId.value || !selectedTopic.value) return;
-
-    // 增加请求序列号，用于处理竞态条件
-    currentFetchRequestId++;
-    const requestId = currentFetchRequestId;
-
-    // 取消上一次的请求，避免并发请求导致超时
-    apiClient.cancelGetMessages();
 
     loading.value = true;
     selectedMessageIndex.value = -1;
