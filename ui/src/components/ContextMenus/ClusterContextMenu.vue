@@ -2,7 +2,7 @@
   <div v-if="visible" class="fixed inset-0 z-[9999]" @click="close" @contextmenu.prevent="close">
     <div
       class="absolute z-[10000] min-w-[200px] rounded-lg bg-base-100 border border-base-200 shadow-xl p-1"
-      :style="{ top: position.y + 'px', left: position.x + 'px' }"
+      :style="{ top: adjustedPosition.top + 'px', left: adjustedPosition.left + 'px' }"
       @click.stop
     >
       <!-- Menu Title -->
@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -131,6 +131,27 @@ const emit = defineEmits<{
 }>();
 
 const visible = ref(props.visible);
+
+// Menu dimensions for boundary detection
+const MENU_WIDTH = 200;
+const MENU_HEIGHT = 450;
+
+// Calculate adjusted position with boundary detection
+const adjustedPosition = computed(() => {
+  const viewportHeight = window.innerHeight;
+  const viewportWidth = window.innerWidth;
+
+  // Check if menu would overflow at bottom
+  const fitsBelow = props.position.y + MENU_HEIGHT <= viewportHeight;
+
+  // Check if menu would overflow at right
+  const fitsRight = props.position.x + MENU_WIDTH <= viewportWidth;
+
+  return {
+    top: fitsBelow ? props.position.y : props.position.y - MENU_HEIGHT,
+    left: fitsRight ? props.position.x : props.position.x - MENU_WIDTH
+  };
+});
 
 watch(() => props.visible, (val) => {
   visible.value = val;

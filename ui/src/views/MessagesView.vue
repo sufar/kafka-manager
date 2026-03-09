@@ -79,9 +79,19 @@
 
     <!-- Messages List (Top Panel) -->
     <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
-      <div class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: sortedMessages.length * ROW_HEIGHT + 'px', position: 'relative' }">
+      <!-- 空状态提示 -->
+      <div v-if="sortedMessages.length === 0" class="flex-1 flex items-center justify-center text-base-content/60">
+        <div class="text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto mb-2 opacity-50">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
+          </svg>
+          <p class="text-sm">{{ t.messages.noMessages }}</p>
+        </div>
+      </div>
+      <!-- 消息列表 -->
+      <div v-else class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: sortedMessages.length * ROW_HEIGHT + 'px', position: 'relative' }">
         <table class="table table-xs w-full">
-          <thead class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
+          <thead v-if="sortedMessages.length > 0" class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
               <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs">{{ t.messages.offset }}</th>
               <th class="text-left w-24 bg-gradient-to-r from-secondary/10 to-transparent text-xs">{{ t.messages.partition }}</th>
@@ -101,15 +111,6 @@
             </tr>
           </thead>
           <tbody>
-          <tr v-if="sortedMessages.length === 0">
-            <td colspan="5" class="text-center py-4 text-base-content/60">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 mx-auto mb-1 opacity-50">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
-              </svg>
-              <span class="text-xs">{{ t.messages.noMessages }}</span>
-            </td>
-          </tr>
-          <template v-else>
             <!-- 虚拟滚动：顶部占位 -->
             <tr v-if="virtualStartIndex > 0" :style="{ height: virtualStartIndex * ROW_HEIGHT + 'px' }">
               <td colspan="5" style="padding: 0; border: 0;"></td>
@@ -136,7 +137,6 @@
             <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
               <td colspan="5" style="padding: 0; border: 0;"></td>
             </tr>
-          </template>
           </tbody>
         </table>
       </div>
@@ -206,7 +206,7 @@
         </div>
       </div>
       <div v-else class="flex items-center justify-center h-full text-base-content/40 text-sm">
-        {{ t.messages.selectTopic }}
+        {{ !selectedTopic ? t.messages.selectTopic : t.messages.selectMessage }}
       </div>
     </div>
 

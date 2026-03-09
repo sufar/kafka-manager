@@ -140,6 +140,7 @@ export interface Translation {
     startTime: string;
     endTime: string;
     selectTopic: string;
+    selectMessage: string;
     noTopicSelected: string;
     noMessages: string;
     offsetLabel: string;
@@ -501,6 +502,7 @@ export const translations: Record<Language, Translation> = {
       startTime: '开始时间',
       endTime: '结束时间',
       selectTopic: '选择主题',
+      selectMessage: '选择消息',
       noTopicSelected: '未选择主题',
       noMessages: '暂无消息',
       offsetLabel: '偏移量',
@@ -860,6 +862,7 @@ export const translations: Record<Language, Translation> = {
       startTime: 'Start Time',
       endTime: 'End Time',
       selectTopic: 'Select Topic',
+      selectMessage: 'Select Message',
       noTopicSelected: 'No topic selected',
       noMessages: 'No messages',
       offsetLabel: 'Offset',
