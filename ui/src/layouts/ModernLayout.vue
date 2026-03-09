@@ -28,7 +28,7 @@
           <!-- Search Results Dropdown -->
           <div
             v-if="showSearchDropdown && (searchQuery || searchResults.length > 0)"
-            class="absolute top-full mt-1 w-96 bg-base-100 border border-base-200 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto"
+            class="absolute top-full mt-1 w-[28rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto"
           >
             <div v-if="searchLoading" class="p-4 text-center">
               <span class="loading loading-spinner loading-sm"></span>
@@ -53,7 +53,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                     </svg>
-                    <span class="font-mono text-sm truncate" v-html="highlightMatch(result.topic)"></span>
+                    <span class="font-mono text-sm truncate" :title="result.topic" v-html="highlightMatch(result.topic)"></span>
                   </div>
                 </div>
                 <div class="badge badge-ghost badge-xs ml-2">
@@ -388,6 +388,52 @@ function getToastClass(type: string): string {
 // 提供给所有子组件使用
 provide('showToast', showToast);
 
+// ==================== 状态持久化 ====================
+const STORAGE_KEY = 'kafka-manager-last-state';
+
+interface LastState {
+  path: string;
+  query?: Record<string, string>;
+  timestamp: number;
+}
+
+// 保存当前状态
+function saveCurrentState() {
+  try {
+    const state: LastState = {
+      path: router.currentRoute.value.path,
+      query: router.currentRoute.value.query as Record<string, string>,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn('[State] Failed to save state:', e);
+  }
+}
+
+// 恢复上次的状态
+function restorePreviousState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    const state: LastState = JSON.parse(saved);
+    // 只恢复非默认路径（不是 / 或 /dashboard）
+    if (state.path && state.path !== '/' && state.path !== '/dashboard') {
+      router.replace({ path: state.path, query: state.query });
+    }
+  } catch (e) {
+    console.warn('[State] Failed to restore state:', e);
+  }
+}
+
+// 监听路由变化，保存状态
+router.afterEach(() => {
+  saveCurrentState();
+});
+
+// ==================== Navigation ====================
+
 function handleNavigate(route: { path: string; query?: Record<string, string> }) {
   router.push({ path: route.path, query: route.query });
 }
@@ -672,6 +718,9 @@ onMounted(async () => {
   themeStore.initTheme();
   languageStore.initLanguage();
   await clusterStore.fetchClusters();
+
+  // 恢复上次浏览的状态
+  restorePreviousState();
 
   // 注册全局键盘事件
   document.addEventListener('keydown', handleGlobalKeydown);

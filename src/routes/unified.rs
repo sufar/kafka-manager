@@ -1541,14 +1541,27 @@ async fn fetch_messages_from_pool_with_filter(
         } else if fetch_mode == Some("oldest") && offset.is_none() {
             // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
             match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((low, _)) => low,
-                _ => 0,
+                Ok((low, high)) => {
+                    tracing::info!(
+                        "oldest mode: topic={}, partition={}, watermarks=({}, {}), max_messages={}",
+                        topic, part_id, low, high, max_messages
+                    );
+                    low
+                }
+                Err(e) => {
+                    tracing::warn!("fetch_watermarks error for topic={} partition={}: {}", topic, part_id, e);
+                    0
+                }
             }
         } else {
             // 默认从最早的消息开始或指定的 offset
             offset.unwrap_or(0)
         };
 
+        tracing::info!(
+            "Partition {}: start_offset={}, fetch_mode={:?}",
+            part_id, start_offset, fetch_mode
+        );
         partition_offsets.push((part_id, start_offset));
     }
 
@@ -1567,12 +1580,17 @@ async fn fetch_messages_from_pool_with_filter(
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
+    tracing::info!(
+        "Consumer assigned to topic={}, partitions={:?}, starting fetch",
+        topic, partitions_list
+    );
+
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::new();
-    // 优化：减少超时时间，让请求更快返回
-    let base_timeout = Duration::from_millis(50); // 从 200ms 减少到 50ms
+    // 优化：使用更合理的超时时间，确保能拉取到消息
+    let base_timeout = Duration::from_millis(200);
     let mut consecutive_timeouts = 0;
-    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 1; // 从 2 减少到 1，更快退出
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3; // 允许更多连续超时，确保消息被拉取
     let mut had_message = false; // 标记是否已经获取到过消息
     let mut total_read = 0; // 总共读取的消息数（包括被过滤的）
     let mut filtered_count = 0; // 被过滤掉的消息数
@@ -1585,6 +1603,12 @@ async fn fetch_messages_from_pool_with_filter(
                 total_read += 1;
 
                 let timestamp = msg.timestamp().to_millis();
+
+                // 调试日志：每收到 10 条消息记录一次
+                if total_read % 10 == 1 {
+                    tracing::debug!("Fetched {} messages so far, partition={}, offset={}",
+                        total_read, msg.partition(), msg.offset());
+                }
 
                 // 时间范围过滤
                 if let Some(start) = start_time {
@@ -1639,15 +1663,38 @@ async fn fetch_messages_from_pool_with_filter(
                     break;
                 }
             }
-            Ok(Err(_)) | Err(_) => {
+            Ok(Err(e)) => {
+                // Kafka 错误
                 consecutive_timeouts += 1;
+                tracing::debug!("Consumer Kafka error (consecutive_timeouts={}): {}", consecutive_timeouts, e);
+                if had_message || consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    tracing::info!(
+                        "Breaking consume loop due to Kafka error: had_message={}, consecutive_timeouts={}, messages_collected={}",
+                        had_message, consecutive_timeouts, messages.len()
+                    );
+                    break;
+                }
+            }
+            Err(_) => {
+                // 超时错误
+                consecutive_timeouts += 1;
+                tracing::debug!("Consumer timeout (consecutive_timeouts={})", consecutive_timeouts);
                 // 如果已经获取到过消息，且发生超时，立即退出（没有更多消息了）
                 if had_message || consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    tracing::info!(
+                        "Breaking consume loop due to timeout: had_message={}, consecutive_timeouts={}, messages_collected={}",
+                        had_message, consecutive_timeouts, messages.len()
+                    );
                     break;
                 }
             }
         }
     }
+
+    tracing::info!(
+        "Fetch complete: topic={}, total_read={}, messages_matched={}, filtered={}",
+        topic, total_read, messages.len(), filtered_count
+    );
 
     // 重置 consumer 的分配，避免影响后续请求
     let empty_tpl = TopicPartitionList::new();
