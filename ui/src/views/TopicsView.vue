@@ -1,16 +1,16 @@
 <template>
-  <div class="p-6">
+  <div class="p-3">
     <!-- Page Header -->
-    <div class="mb-8">
+    <div class="mb-4">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10">
+          <h1 class="text-xl font-bold flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
             </svg>
             {{ t.topics.title }}
           </h1>
-          <p class="text-base-content/60 mt-2 text-lg">
+          <p class="text-base-content/60 mt-1 text-sm">
             <span v-if="clusterParam">{{ t.dashboard.clusters }}: <span class="font-medium">{{ clusterParam }}</span></span>
             <span v-else>{{ t.topics.description }}</span>
           </p>
@@ -18,7 +18,7 @@
         <div class="flex gap-2">
           <button
             v-if="!clusterParam && selectedClusterIds.length > 0"
-            class="btn btn-sm"
+            class="btn btn-xs"
             :class="viewMode === 'by-cluster' ? 'btn-primary' : 'btn-outline'"
             @click="viewMode = 'by-cluster'"
           >
@@ -26,28 +26,28 @@
           </button>
           <button
             v-if="!clusterParam && selectedClusterIds.length > 0"
-            class="btn btn-sm"
+            class="btn btn-xs"
             :class="viewMode === 'all-topics' ? 'btn-primary' : 'btn-outline'"
             @click="viewMode = 'all-topics'"
           >
             {{ t.topics.allTopics }}
           </button>
           <button
-            class="btn btn-sm btn-outline"
+            class="btn btn-xs btn-outline"
             @click="refreshAllTopics"
             :disabled="refreshing || selectedClusterIds.length === 0"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': refreshing }">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             {{ t.common.refresh }}
           </button>
           <button
-            class="btn btn-sm btn-primary"
+            class="btn btn-xs btn-primary"
             @click="() => openCreateModal()"
             :disabled="selectedClusterIds.length === 0 && !clusterParam"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
             {{ t.topics.createTopic }}
@@ -57,47 +57,47 @@
     </div>
 
     <!-- No cluster selected -->
-    <div v-if="!clusterParam && selectedClusterIds.length === 0" class="flex flex-col items-center justify-center py-12 text-center">
+    <div v-if="!clusterParam && selectedClusterIds.length === 0" class="flex flex-col items-center justify-center py-8 text-center">
       <div class="text-base-content/30 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
       </div>
       <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
-      <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
+      <p class="text-base-content/60 mb-4 text-sm">{{ t.topics.description }}</p>
     </div>
 
     <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && !filteredClusterTopics.length && !loading" class="flex flex-col items-center justify-center py-12 text-center">
+    <div v-else-if="clusterParam && !filteredClusterTopics.length && !loading" class="flex flex-col items-center justify-center py-8 text-center">
       <div class="text-base-content/30 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
       </div>
       <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
-      <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
-      <button class="btn btn-primary" @click="() => openCreateModal()">{{ t.topics.createTopic }}</button>
+      <p class="text-base-content/60 mb-4 text-sm">{{ t.topics.description }}</p>
+      <button class="btn btn-primary btn-sm" @click="() => openCreateModal()">{{ t.topics.createTopic }}</button>
     </div>
 
     <!-- Loading state -->
-    <div v-else-if="loading" class="flex justify-center py-12">
-      <span class="loading loading-spinner loading-lg text-primary"></span>
-      <p class="ml-4 text-base-content/60">{{ t.common.loading }}...</p>
+    <div v-else-if="loading" class="flex justify-center py-8">
+      <span class="loading loading-spinner loading-md text-primary"></span>
+      <p class="ml-4 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
     </div>
 
     <!-- Error state -->
     <div v-else-if="error" class="alert alert-error">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
       </svg>
-      <span>{{ error }}</span>
+      <span class="text-sm">{{ error }}</span>
     </div>
 
     <!-- Single cluster view (from URL param) -->
     <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl">
       <div class="overflow-x-auto">
         <!-- Search Bar -->
-        <div class="p-4">
+        <div class="p-3">
           <div class="relative">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
               <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />

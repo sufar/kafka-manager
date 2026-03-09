@@ -1,11 +1,11 @@
 <template>
   <div class="messages-browser h-full flex flex-col">
     <!-- Top Toolbar -->
-    <div class="toolbar flex items-center gap-2 p-2 border-b border-base-content/10 glass rounded-t-xl">
+    <div class="toolbar flex items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl">
       <!-- Topic Indicator -->
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-secondary/10 to-accent/10 glow-primary">
-        <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-secondary/20 to-accent/20 flex items-center justify-center animate-float">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary">
+      <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gradient-to-r from-secondary/10 to-accent/10 glow-primary">
+        <div class="w-5 h-5 rounded-md bg-gradient-to-br from-secondary/20 to-accent/20 flex items-center justify-center animate-float">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </div>
@@ -13,24 +13,24 @@
         <span v-if="selectedTopic" class="text-xs font-mono text-accent">: {{ selectedTopic }}</span>
       </div>
 
-      <div class="w-px h-6 bg-base-content/20" />
+      <div class="w-px h-5 bg-base-content/20" />
 
       <!-- Refresh/Stop Button -->
-      <button class="btn btn-ghost btn-sm" @click="loading ? stopFetching() : fetchMessages()" :disabled="!selectedTopic" :title="loading ? t.common.cancel : t.common.refresh">
-        <svg v-if="loading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+      <button class="btn btn-ghost btn-xs" @click="loading ? stopFetching() : fetchMessages()" :disabled="!selectedTopic" :title="loading ? t.common.cancel : t.common.refresh">
+        <svg v-if="loading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
         </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': loading }">
+        <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }">
           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       </button>
-      <button class="btn btn-ghost btn-sm" @click="openSendModal" :disabled="!selectedTopic" :title="t.messages.sendMessage">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+      <button class="btn btn-ghost btn-xs" @click="openSendModal" :disabled="!selectedTopic" :title="t.messages.sendMessage">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
         </svg>
       </button>
-      <button class="btn btn-ghost btn-sm" @click="exportMessages" :disabled="!selectedTopic" :title="t.topics.exportData">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+      <button class="btn btn-ghost btn-xs" @click="exportMessages" :disabled="!selectedTopic" :title="t.topics.exportData">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
         </svg>
       </button>
@@ -38,39 +38,39 @@
       <div class="flex-1 min-w-0" />
 
       <!-- Topic Selector -->
-      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-sm max-w-xs" @change="fetchMessages">
+      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-xs max-w-xs" @change="fetchMessages">
         <option value="">{{ t.messages.selectTopic }}</option>
         <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
       </select>
 
       <!-- Partition Filter -->
-      <select v-model.number="filters.partition" class="select select-bordered select-sm w-auto" @change="fetchMessages">
+      <select v-model.number="filters.partition" class="select select-bordered select-xs w-auto" @change="fetchMessages">
         <option :value="undefined">All</option>
         <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-sm w-32" :placeholder="t.messages.filter" @change="fetchMessages" />
+      <input v-model="filters.search" type="text" class="input input-bordered input-xs w-28" :placeholder="t.messages.filter" @change="fetchMessages" />
 
       <!-- Fetch Mode -->
-      <select v-model="filters.fetchMode" class="select select-bordered select-sm w-auto" @change="fetchMessages">
+      <select v-model="filters.fetchMode" class="select select-bordered select-xs w-auto" @change="fetchMessages">
         <option value="oldest">{{ t.messages.oldest }}</option>
         <option value="newest">{{ t.messages.newest }}</option>
       </select>
 
       <!-- Time Range Filter -->
       <div style="position: relative; display: inline-block;">
-        <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.startTime" @change="fetchMessages" />
-        <button v-if="filters.startTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''; fetchMessages()" title="Clear start time">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+        <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-xs w-36" :placeholder="t.messages.startTime" @change="fetchMessages" />
+        <button v-if="filters.startTime" style="position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''; fetchMessages()" title="Clear start time">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
       <div style="position: relative; display: inline-block;">
-        <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-sm w-40" :placeholder="t.messages.endTime" @change="fetchMessages" />
-        <button v-if="filters.endTime" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''; fetchMessages()" title="Clear end time">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+        <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-xs w-36" :placeholder="t.messages.endTime" @change="fetchMessages" />
+        <button v-if="filters.endTime" style="position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''; fetchMessages()" title="Clear end time">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
@@ -80,33 +80,33 @@
     <!-- Messages List (Top Panel) -->
     <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
       <div class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: sortedMessages.length * ROW_HEIGHT + 'px', position: 'relative' }">
-        <table class="table table-sm w-full">
+        <table class="table table-xs w-full">
           <thead class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
-              <th class="text-left w-20 bg-gradient-to-r from-primary/10 to-transparent">{{ t.messages.offset }}</th>
-              <th class="text-left w-32 bg-gradient-to-r from-secondary/10 to-transparent">{{ t.messages.partition }}</th>
-              <th class="text-left w-40 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5" @click="toggleTimestampSort">
-                <div class="flex items-center gap-1">
+              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs">{{ t.messages.offset }}</th>
+              <th class="text-left w-24 bg-gradient-to-r from-secondary/10 to-transparent text-xs">{{ t.messages.partition }}</th>
+              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs" @click="toggleTimestampSort">
+                <div class="flex items-center gap-0.5">
                   <span>{{ t.messages.timestampLabel }}</span>
-                  <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
                   </svg>
-                  <svg v-else-if="sortOrder === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <svg v-else-if="sortOrder === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                   </svg>
                 </div>
               </th>
-              <th class="text-left w-48 bg-gradient-to-r from-info/10 to-transparent">{{ t.messages.key }}</th>
-              <th class="text-left bg-gradient-to-r from-success/10 to-transparent">{{ t.messages.value }}</th>
+              <th class="text-left w-40 bg-gradient-to-r from-info/10 to-transparent text-xs">{{ t.messages.key }}</th>
+              <th class="text-left bg-gradient-to-r from-success/10 to-transparent text-xs">{{ t.messages.value }}</th>
             </tr>
           </thead>
           <tbody>
           <tr v-if="sortedMessages.length === 0">
-            <td colspan="5" class="text-center py-8 text-base-content/60">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mx-auto mb-2 opacity-50">
+            <td colspan="5" class="text-center py-4 text-base-content/60">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 mx-auto mb-1 opacity-50">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872-.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872-.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
               </svg>
-              {{ t.messages.noMessages }}
+              <span class="text-xs">{{ t.messages.noMessages }}</span>
             </td>
           </tr>
           <template v-else>
@@ -124,13 +124,13 @@
               @click="selectMessage(virtualStartIndex + idx)"
               :style="{ height: ROW_HEIGHT + 'px' }"
             >
-              <td class="font-mono text-[10px] px-2 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
-              <td class="py-0 px-2">
+              <td class="font-mono text-[9px] px-1.5 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
+              <td class="py-0 px-1.5">
                 <span class="badge badge-ghost badge-xs">{{ msg.partition }}</span>
               </td>
-              <td class="text-[10px] text-base-content/60 px-2">{{ formatTimestamp(msg.timestamp) }}</td>
-              <td class="font-mono text-[10px] px-2 truncate max-w-xs">{{ msg.key || '-' }}</td>
-              <td class="font-mono text-[10px] px-2 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
+              <td class="text-[9px] text-base-content/60 px-1.5">{{ formatTimestamp(msg.timestamp) }}</td>
+              <td class="font-mono text-[9px] px-1.5 truncate max-w-xs">{{ msg.key || '-' }}</td>
+              <td class="font-mono text-[9px] px-1.5 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
             </tr>
             <!-- 虚拟滚动：底部占位 -->
             <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
@@ -161,17 +161,17 @@
       @keydown.meta.a.prevent="handleSelectAll"
       tabindex="-1"
     >
-      <div v-if="selectedMessage" class="p-2">
-        <div class="flex items-center justify-between mb-2 pb-2 border-b border-base-content/10">
-          <div class="flex items-center gap-4 text-xs">
+      <div v-if="selectedMessage" class="p-1.5">
+        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10">
+          <div class="flex items-center gap-2 text-[10px]">
             <span class="text-base-content/60">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
             <span class="text-base-content/60">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
             <span class="text-base-content/60">Timestamp: <span class="font-mono">{{ formatTimestamp(selectedMessage.timestamp) }}</span></span>
             <span class="text-base-content/60">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
           </div>
-          <div class="flex items-center gap-2 whitespace-nowrap">
-            <label class="text-xs text-base-content/60 whitespace-nowrap">View As:</label>
-            <select v-model="messageViewFormat" class="select select-bordered select-xs">
+          <div class="flex items-center gap-1.5 whitespace-nowrap">
+            <label class="text-[10px] text-base-content/60 whitespace-nowrap">View As:</label>
+            <select v-model="messageViewFormat" class="select select-bordered select-[10px]">
               <option value="json">JSON</option>
               <option value="raw">Raw</option>
               <option value="hex">Hex</option>
@@ -180,24 +180,24 @@
         </div>
 
         <!-- Key -->
-        <div v-if="selectedMessage.key" class="mb-3">
-          <div class="flex items-center justify-between mb-1">
-            <div class="text-xs font-semibold text-base-content/60">Key</div>
-            <button class="btn btn-ghost btn-xs" @click="copyToClipboard(formatKeyValue(selectedMessage.key))" title="Copy Key">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+        <div v-if="selectedMessage.key" class="mb-2">
+          <div class="flex items-center justify-between mb-0.5">
+            <div class="text-[10px] font-semibold text-base-content/60">Key</div>
+            <button class="btn btn-ghost btn-[10px]" @click="copyToClipboard(formatKeyValue(selectedMessage.key))" title="Copy Key">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
               </svg>
             </button>
           </div>
-          <pre ref="keyPreRef" class="bg-base-200/50 backdrop-blur-sm p-2 rounded-xl text-xs font-mono overflow-auto cursor-text select-text border border-base-content/5" tabindex="0">{{ formatKeyValue(selectedMessage.key) }}</pre>
+          <pre ref="keyPreRef" class="bg-base-200/50 backdrop-blur-sm p-1.5 rounded-lg text-[10px] font-mono overflow-auto cursor-text select-text border border-base-content/5" tabindex="0">{{ formatKeyValue(selectedMessage.key) }}</pre>
         </div>
 
         <!-- Value -->
         <div>
-          <div class="flex items-center justify-between mb-1">
-            <div class="text-xs font-semibold text-base-content/60">Value</div>
-            <button class="btn btn-ghost btn-xs" @click="copyToClipboard(formatMessageValue(selectedMessage.value))" title="Copy Value">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+          <div class="flex items-center justify-between mb-0.5">
+            <div class="text-[10px] font-semibold text-base-content/60">Value</div>
+            <button class="btn btn-ghost btn-[10px]" @click="copyToClipboard(formatMessageValue(selectedMessage.value))" title="Copy Value">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
               </svg>
             </button>
@@ -211,16 +211,16 @@
     </div>
 
     <!-- Status Bar -->
-    <div class="status-bar flex items-center justify-between px-3 py-2 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md">
-      <div class="flex items-center gap-4">
+    <div class="status-bar flex items-center justify-between px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md">
+      <div class="flex items-center gap-2">
         <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
         <span v-if="fetchTime > 0">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <span>{{ t.messages.maxMessages }}</span>
-        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-16" min="1" max="1000" @change="fetchMessages" />
+        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-14" min="1" max="1000" @change="fetchMessages" />
       </div>
     </div>
 

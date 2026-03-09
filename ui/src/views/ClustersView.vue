@@ -1,5 +1,5 @@
 <template>
-  <div class="p-6 relative overflow-hidden">
+  <div class="p-3 relative overflow-hidden">
     <!-- Animated background particles -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="particle particle-1"></div>
@@ -7,19 +7,19 @@
     </div>
 
     <!-- Page Header -->
-    <div class="mb-8 relative">
+    <div class="mb-4 relative">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-gradient flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 animate-float">
+          <h1 class="text-xl font-bold text-gradient flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 animate-float">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
             {{ t.clusters.title }}
           </h1>
-          <p class="text-base-content/60 mt-2 text-lg">{{ t.clusters.description }}</p>
+          <p class="text-base-content/60 mt-1 text-sm">{{ t.clusters.description }}</p>
         </div>
-        <button class="btn btn-primary" @click="openCreateModal">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+        <button class="btn btn-primary btn-sm" @click="openCreateModal">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
           {{ t.clusters.addCluster }}
@@ -28,31 +28,31 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex justify-center items-center py-20">
+    <div v-if="loading" class="flex justify-center items-center py-8">
       <div class="flex flex-col items-center">
-        <span class="loading loading-spinner loading-lg text-primary"></span>
-        <p class="mt-4 text-base-content/60">{{ t.common.loading }}...</p>
+        <span class="loading loading-spinner loading-md text-primary"></span>
+        <p class="mt-2 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
       </div>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="flex flex-col items-center justify-center py-16 text-center">
-      <div class="text-base-content/40 mb-6">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-20 h-20">
+    <div v-else-if="error" class="flex flex-col items-center justify-center py-8 text-center">
+      <div class="text-base-content/40 mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
         </svg>
       </div>
-      <h3 class="text-xl font-semibold mb-2">{{ t.clusters.connectionError }}</h3>
-      <p class="text-base-content/60 mb-4 max-w-md">{{ error }}</p>
-      <div class="flex gap-3">
-        <button class="btn btn-primary" @click="refreshClusters">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+      <h3 class="text-lg font-semibold mb-1">{{ t.clusters.connectionError }}</h3>
+      <p class="text-base-content/60 mb-3 max-w-md text-sm">{{ error }}</p>
+      <div class="flex gap-2">
+        <button class="btn btn-primary btn-sm" @click="refreshClusters">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
           </svg>
           {{ t.clusters.retry }}
         </button>
-        <button class="btn btn-outline" @click="openCreateModal">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+        <button class="btn btn-outline btn-sm" @click="openCreateModal">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
           {{ t.clusters.addCluster }}
@@ -61,16 +61,16 @@
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="clusters.length === 0" class="flex flex-col items-center justify-center py-16 text-center">
-      <div class="text-base-content/40 mb-6">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-20 h-20">
+    <div v-else-if="clusters.length === 0" class="flex flex-col items-center justify-center py-8 text-center">
+      <div class="text-base-content/40 mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
         </svg>
       </div>
-      <h3 class="text-xl font-semibold mb-2">{{ t.common.noData }}</h3>
-      <p class="text-base-content/60 mb-6">{{ t.clusters.description }}</p>
-      <button class="btn btn-primary" @click="openCreateModal">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+      <h3 class="text-lg font-semibold mb-1">{{ t.common.noData }}</h3>
+      <p class="text-base-content/60 mb-3 text-sm">{{ t.clusters.description }}</p>
+      <button class="btn btn-primary btn-sm" @click="openCreateModal">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
         {{ t.clusters.addCluster }}
@@ -78,26 +78,26 @@
     </div>
 
     <!-- Clusters Grid -->
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <div
         v-for="cluster in clusters"
         :key="cluster.id"
         class="card glass gradient-border hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
       >
-        <div class="flex items-center justify-between p-5 border-b border-base-content/10">
-          <div class="flex items-center gap-3">
-            <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 glow-primary text-primary">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+        <div class="flex items-center justify-between p-3 border-b border-base-content/10">
+          <div class="flex items-center gap-2">
+            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 glow-primary text-primary">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
             </div>
             <div>
               <h3 class="font-semibold text-sm">{{ cluster.name }}</h3>
-              <p class="text-xs text-base-content/60">Created {{ formatDate(cluster.created_at) }}</p>
+              <p class="text-[10px] text-base-content/60">Created {{ formatDate(cluster.created_at) }}</p>
             </div>
           </div>
           <div
-            class="badge gap-1.5"
+            class="badge gap-1 badge-xs"
             :class="{
               'badge-success': getConnectionStatus(cluster.name)?.status === 'connected',
               'badge-error': getConnectionStatus(cluster.name)?.status === 'error',
@@ -105,7 +105,7 @@
             }"
           >
             <div
-              class="w-2 h-2 rounded-full"
+              class="w-1.5 h-1.5 rounded-full"
               :class="{
                 'bg-success animate-pulse': getConnectionStatus(cluster.name)?.status === 'connected',
                 'bg-error': getConnectionStatus(cluster.name)?.status === 'error',
@@ -115,64 +115,64 @@
           </div>
         </div>
 
-        <div class="card-body p-5">
-          <div class="mb-3">
+        <div class="card-body p-3">
+          <div class="mb-2">
             <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Brokers</div>
-            <div class="text-sm font-mono">{{ cluster.brokers }}</div>
+            <div class="text-xs font-mono truncate">{{ cluster.brokers }}</div>
           </div>
-          <div class="mb-3">
+          <div class="mb-2">
             <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Timeouts</div>
-            <div class="text-sm">
+            <div class="text-xs">
               <div>Request: <span class="font-mono">{{ cluster.request_timeout_ms }}ms</span></div>
               <div>Operation: <span class="font-mono">{{ cluster.operation_timeout_ms }}ms</span></div>
             </div>
           </div>
 
-          <div v-if="getConnectionStatus(cluster.name)?.error_message" class="alert alert-error py-2 px-3 mt-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <div v-if="getConnectionStatus(cluster.name)?.error_message" class="alert alert-error py-1.5 px-2 mt-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
-            <span class="text-sm">{{ getConnectionStatus(cluster.name)?.error_message }}</span>
+            <span class="text-xs truncate">{{ getConnectionStatus(cluster.name)?.error_message }}</span>
           </div>
         </div>
 
-        <div class="card-actions justify-start p-4 bg-base-200">
+        <div class="card-actions justify-start p-2 bg-base-200 gap-1">
           <button
-            class="btn btn-sm btn-outline"
+            class="btn btn-xs btn-outline"
             @click="testConnection(cluster.id)"
             :disabled="testing.has(cluster.id)"
           >
-            <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-sm"></span>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-xs"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
             </svg>
             Test
           </button>
           <button
-            class="btn btn-sm btn-outline"
+            class="btn btn-xs btn-outline"
             @click="refreshConnectionStatus(cluster.name)"
             :disabled="refreshing.has(cluster.name)"
           >
-            <span v-if="refreshing.has(cluster.name)" class="loading loading-spinner loading-sm"></span>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <span v-if="refreshing.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             Refresh
           </button>
           <button
-            class="btn btn-sm btn-ghost"
+            class="btn btn-xs btn-ghost"
             @click="disconnectCluster(cluster.name)"
             :disabled="disconnecting.has(cluster.name)"
           >
             Disconnect
           </button>
           <button
-            class="btn btn-sm btn-ghost"
+            class="btn btn-xs btn-ghost"
             @click="reconnectCluster(cluster.name)"
             :disabled="reconnecting.has(cluster.name)"
           >
-            <span v-if="reconnecting.has(cluster.name)" class="loading loading-spinner loading-sm"></span>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <span v-if="reconnecting.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             Reconnect
