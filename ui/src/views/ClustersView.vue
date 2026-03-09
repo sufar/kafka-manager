@@ -443,6 +443,15 @@ onMounted(() => {
       openCreateModal();
     }, 50);
   }
+  // 检查路由参数，如果 action=edit 则打开编辑模态框
+  if (route.query.action === 'edit' && route.query.cluster) {
+    const clusterToEdit = clusters.value.find(c => c.name === route.query.cluster);
+    if (clusterToEdit) {
+      setTimeout(() => {
+        editCluster(clusterToEdit);
+      }, 50);
+    }
+  }
 });
 
 // 监听路由参数变化
@@ -452,6 +461,15 @@ watch(() => route.fullPath, (newPath, oldPath) => {
     setTimeout(() => {
       openCreateModal();
     }, 50);
+  }
+  // 监听编辑集群
+  if (newPath !== oldPath && route.query.action === 'edit' && route.query.cluster) {
+    const clusterToEdit = clusters.value.find(c => c.name === route.query.cluster);
+    if (clusterToEdit) {
+      setTimeout(() => {
+        editCluster(clusterToEdit);
+      }, 50);
+    }
   }
 });
 </script>

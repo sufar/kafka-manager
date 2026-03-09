@@ -44,7 +44,7 @@
           </button>
           <button
             class="btn btn-sm btn-primary"
-            @click="openCreateModal"
+            @click="() => openCreateModal()"
             :disabled="selectedClusterIds.length === 0 && !clusterParam"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -76,7 +76,7 @@
       </div>
       <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
       <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
-      <button class="btn btn-primary" @click="openCreateModal">{{ t.topics.createTopic }}</button>
+      <button class="btn btn-primary" @click="() => openCreateModal()">{{ t.topics.createTopic }}</button>
     </div>
 
     <!-- Loading state -->
@@ -204,7 +204,7 @@
           <div class="flex gap-2">
             <button
               class="btn btn-primary btn-xs"
-              @click="targetCluster = clusterName; openCreateModal()"
+              @click="() => { targetCluster = clusterName; openCreateModal() }"
             >
               {{ t.topics.createTopic }}
             </button>
@@ -628,7 +628,7 @@
 <script setup lang="ts">
 // 保持原有逻辑不变，只更新样式
 import { ref, reactive, computed, onMounted, watch } from 'vue';
-import { useRoute, onBeforeRouteUpdate } from 'vue-router';
+import { useRoute, onBeforeRouteUpdate, useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -645,6 +645,7 @@ interface TopicItem {
 }
 
 const route = useRoute();
+const router = useRouter();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
@@ -774,7 +775,7 @@ onBeforeRouteUpdate((to) => {
   // 检查是否有 action=create 参数，打开创建模态框
   const action = Array.isArray(to.query.action) ? to.query.action[0] : (to.query.action || '');
   if (action === 'create') {
-    openCreateModal();
+    openCreateModal(true); // 传入 true，避免重复设置 URL 参数
   }
 });
 
@@ -853,7 +854,7 @@ function viewAllTopics(topics: TopicItem[]) {
   viewMode.value = 'all-topics';
 }
 
-function openCreateModal() {
+function openCreateModal(skipUrlUpdate = false) {
   // 设置 targetCluster 的值
   if (selectedClusterIds.value.length === 1) {
     // 只有一个集群被选中时，使用该集群
@@ -869,6 +870,10 @@ function openCreateModal() {
   newTopic.name = '';
   newTopic.num_partitions = 3;
   newTopic.replication_factor = 1;
+  // 设置 URL 参数（如果通过按钮点击打开）
+  if (!skipUrlUpdate) {
+    router.push({ query: { ...route.query, action: 'create', cluster: targetCluster.value || undefined } });
+  }
   createModalRef.value?.showModal();
 }
 
@@ -882,6 +887,8 @@ function selectTopicInTree(clusterName: string, topic: TopicItem) {
 
 function closeCreateModal() {
   createModalRef.value?.close();
+  // 清除 URL 中的 action 参数
+  router.replace({ query: { ...route.query, action: undefined } });
 }
 
 async function handleCreate() {
@@ -1144,7 +1151,7 @@ onMounted(() => {
   }
   // 检查是否有 action=create 参数，打开创建模态框
   if (actionParam.value === 'create') {
-    openCreateModal();
+    openCreateModal(true); // 传入 true，避免重复设置 URL 参数
   }
 });
 </script>

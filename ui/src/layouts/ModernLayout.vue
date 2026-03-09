@@ -130,6 +130,10 @@
       :visible="contextMenus.cluster.visible"
       :cluster-name="contextMenus.cluster.clusterName"
       :position="contextMenus.cluster.position"
+      :refreshing="refreshingCluster === contextMenus.cluster.clusterName"
+      :testing="testingCluster === contextMenus.cluster.clusterName"
+      :disconnecting="disconnectingCluster === contextMenus.cluster.clusterName"
+      :reconnecting="reconnectingCluster === contextMenus.cluster.clusterName"
       @close="closeClusterMenu"
       @action="handleClusterAction"
     />
@@ -194,6 +198,7 @@
 import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
+import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -205,12 +210,16 @@ import PartitionContextMenu from '@/components/ContextMenus/PartitionContextMenu
 
 const router = useRouter();
 const clusterStore = useClusterStore();
+const connectionStore = useClusterConnectionStore();
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 
 const refreshing = ref(false);
 const refreshingCluster = ref<string | null>(null);
+const testingCluster = ref<string | null>(null);
+const disconnectingCluster = ref<string | null>(null);
+const reconnectingCluster = ref<string | null>(null);
 
 // Ref for ClusterTreeNavigator
 const clusterTreeNavigatorRef = ref<InstanceType<typeof ClusterTreeNavigator>>();
@@ -393,7 +402,6 @@ function handleSelectTopicInTree(topicName: string, clusterName: string) {
 }
 
 function handleClusterAction(action: string, cluster: string) {
-
   switch (action) {
     case 'viewBrokers':
       router.push({ path: '/dashboard', query: { cluster } });
@@ -404,11 +412,26 @@ function handleClusterAction(action: string, cluster: string) {
     case 'refreshTopics':
       refreshClusterTopics(cluster);
       break;
+    case 'refreshConnection':
+      refreshConnectionStatus(cluster);
+      break;
     case 'viewConsumers':
       router.push({ path: '/consumer-groups', query: { cluster } });
       break;
     case 'createTopic':
       router.push({ path: '/topics', query: { cluster, action: 'create' } });
+      break;
+    case 'testConnection':
+      testConnection(cluster);
+      break;
+    case 'disconnect':
+      disconnectCluster(cluster);
+      break;
+    case 'reconnect':
+      reconnectCluster(cluster);
+      break;
+    case 'edit':
+      editCluster(cluster);
       break;
     case 'deleteCluster':
       if (confirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
@@ -422,6 +445,96 @@ function handleClusterAction(action: string, cluster: string) {
       }
       break;
   }
+}
+
+async function testConnection(clusterName: string) {
+  const cluster = clusterStore.clusters.find((c) => c.name === clusterName);
+  if (!cluster) return;
+
+  testingCluster.value = clusterName;
+  try {
+    const result = await clusterStore.testCluster(cluster.id);
+    if (result.success) {
+      showToast('success', t.value.clusters.connected);
+    } else {
+      showToast('error', t.value.clusters.connectionError);
+    }
+  } catch (e) {
+    showToast('error', `${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
+  } finally {
+    testingCluster.value = null;
+  }
+}
+
+async function refreshConnectionStatus(clusterName: string) {
+  refreshingCluster.value = clusterName;
+  try {
+    const health = await apiClient.healthCheckCluster(clusterName);
+    clusterStore.clusterHealth[clusterName] = {
+      clusterId: clusterName,
+      healthy: health.healthy,
+      lastChecked: Date.now(),
+      error: health.error_message,
+    };
+    if (health.healthy) {
+      showToast('success', 'Cluster status refreshed');
+    } else {
+      showToast('error', `Cluster connection issue: ${health.error_message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    showToast('error', `Refresh failed: ${(e as { message: string }).message}`);
+  } finally {
+    refreshingCluster.value = null;
+  }
+}
+
+async function disconnectCluster(clusterName: string) {
+  if (confirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
+    disconnectingCluster.value = clusterName;
+    try {
+      await connectionStore.disconnectCluster(clusterName);
+      // 更新集群健康状态为断开 - 这样会同步更新左侧菜单的绿点状态
+      clusterStore.clusterHealth[clusterName] = {
+        clusterId: clusterName,
+        healthy: false,
+        lastChecked: Date.now(),
+        error: 'Disconnected',
+      };
+      await connectionStore.fetchAllConnections();
+      showToast('success', 'Cluster disconnected successfully');
+    } catch (e) {
+      showToast('error', `Disconnect failed: ${(e as { message: string }).message}`);
+    } finally {
+      disconnectingCluster.value = null;
+    }
+  }
+}
+
+async function reconnectCluster(clusterName: string) {
+  reconnectingCluster.value = clusterName;
+  try {
+    await connectionStore.reconnectCluster(clusterName);
+    // 重新检查集群健康状态 - 这样会同步更新左侧菜单的绿点状态
+    const health = await apiClient.healthCheckCluster(clusterName);
+    clusterStore.clusterHealth[clusterName] = {
+      clusterId: clusterName,
+      healthy: health.healthy,
+      lastChecked: Date.now(),
+      error: health.error_message,
+    };
+    await connectionStore.fetchAllConnections();
+    await clusterStore.fetchClusters();
+    showToast('success', 'Cluster reconnected successfully');
+  } catch (e) {
+    showToast('error', `Reconnect failed: ${(e as { message: string }).message}`);
+  } finally {
+    reconnectingCluster.value = null;
+  }
+}
+
+function editCluster(clusterName: string) {
+  // 导航到 clusters 页面并打开编辑弹窗
+  router.push({ path: '/clusters', query: { action: 'edit', cluster: clusterName } });
 }
 
 function handleTopicsFolderAction(action: string, cluster: string) {
