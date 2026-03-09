@@ -1581,46 +1581,24 @@ async fn fetch_messages_from_pool_with_filter(
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
     tracing::info!(
-        "Consumer assigned to topic={}, partitions={:?}, starting fetch",
-        topic, partitions_list
+        "Consumer assigned to topic={}, partitions={:?}, starting fetch (max_messages={})",
+        topic, partitions_list, max_messages
     );
 
     let search_lower = search.map(|s| s.to_lowercase());
-    let mut messages = Vec::new();
-    // 动态超时策略：根据已获取的消息数量调整超时
-    // 大量消息读取时需要更长的超时时间
-    let mut consecutive_timeouts = 0;
-    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 5; // 增加连续超时次数，允许读取更多消息
-    let mut had_message = false;
+    let mut messages = Vec::with_capacity(max_messages);
     let mut total_read = 0;
     let mut filtered_count = 0;
 
+    // 优化：使用更短的超时和更高效的循环策略
+    // 目标：1 万条消息在 1 秒内完成
+    let poll_timeout = Duration::from_millis(50);
+
     while messages.len() < max_messages {
-        // 动态超时：根据已获取的消息数量调整
-        // 如果正在读取大量消息，使用更长的超时避免提前退出
-        let current_timeout = if total_read > 1000 {
-            Duration::from_millis(200)  // 大量读取时使用更长超时
-        } else if total_read > 100 {
-            Duration::from_millis(150)
-        } else if !had_message {
-            Duration::from_millis(100)  // 首次获取使用 100ms
-        } else {
-            Duration::from_millis(50)   // 正常情况使用 50ms
-        };
-
-        match tokio::time::timeout(current_timeout, consumer.recv()).await {
+        match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
-                consecutive_timeouts = 0;
-                had_message = true;
                 total_read += 1;
-
                 let timestamp = msg.timestamp().to_millis();
-
-                // 调试日志：每收到 10 条消息记录一次
-                if total_read % 10 == 1 {
-                    tracing::debug!("Fetched {} messages so far, partition={}, offset={}",
-                        total_read, msg.partition(), msg.offset());
-                }
 
                 // 时间范围过滤
                 if let Some(start) = start_time {
@@ -1634,24 +1612,22 @@ async fn fetch_messages_from_pool_with_filter(
                 if let Some(end) = end_time {
                     if let Some(ts) = timestamp {
                         if ts > end {
-                            // 对于单分区模式，可以提前退出（假设时间戳大致递增）
-                            // 对于多分区模式，使用 continue 而不是 break，因为不同分区的消息是交错的
                             if !all_partitions {
-                                break; // 超过结束时间，停止获取（单分区模式）
+                                break;
                             }
                             filtered_count += 1;
-                            continue; // 多分区模式下继续检查其他消息
+                            continue;
                         }
                     }
                 }
 
-                let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
-                let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
+                let key = msg.key().and_then(|k: &[u8]| std::str::from_utf8(k).ok().map(String::from));
+                let value = msg.payload().and_then(|p: &[u8]| std::str::from_utf8(p).ok().map(String::from));
 
                 // 搜索过滤
                 if let Some(ref search_term) = search_lower {
-                    let key_match = key.as_ref().map_or(false, |k| k.to_lowercase().contains(search_term));
-                    let value_match = value.as_ref().map_or(false, |v| v.to_lowercase().contains(search_term));
+                    let key_match = key.as_ref().map_or(false, |k: &String| k.to_lowercase().contains(search_term));
+                    let value_match = value.as_ref().map_or(false, |v: &String| v.to_lowercase().contains(search_term));
                     if !key_match && !value_match {
                         filtered_count += 1;
                         continue;
@@ -1665,40 +1641,10 @@ async fn fetch_messages_from_pool_with_filter(
                     value,
                     timestamp,
                 });
-
-                // 保护机制：如果过滤掉太多消息，提前退出避免无限读取
-                if filtered_count >= max_messages * 20 && total_read >= max_messages * 50 {
-                    tracing::warn!(
-                        "Too many filtered messages: read {}, matched {}, filtered {}",
-                        total_read, messages.len(), filtered_count
-                    );
-                    break;
-                }
             }
-            Ok(Err(e)) => {
-                // Kafka 错误
-                consecutive_timeouts += 1;
-                tracing::debug!("Consumer Kafka error (consecutive_timeouts={}): {}", consecutive_timeouts, e);
-                if had_message || consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
-                    tracing::info!(
-                        "Breaking consume loop due to Kafka error: had_message={}, consecutive_timeouts={}, messages_collected={}",
-                        had_message, consecutive_timeouts, messages.len()
-                    );
-                    break;
-                }
-            }
-            Err(_) => {
-                // 超时错误
-                consecutive_timeouts += 1;
-                tracing::debug!("Consumer timeout (consecutive_timeouts={})", consecutive_timeouts);
-                // 如果已经获取到过消息，且发生超时，立即退出（没有更多消息了）
-                if had_message || consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
-                    tracing::info!(
-                        "Breaking consume loop due to timeout: had_message={}, consecutive_timeouts={}, messages_collected={}",
-                        had_message, consecutive_timeouts, messages.len()
-                    );
-                    break;
-                }
+            Ok(Err(_)) | Err(_) => {
+                // Kafka 错误或超时，没有更多消息
+                break;
             }
         }
     }

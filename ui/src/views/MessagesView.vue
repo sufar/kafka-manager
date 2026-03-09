@@ -220,7 +220,7 @@
       </div>
       <div class="flex items-center gap-1.5">
         <span>{{ t.messages.maxMessages }}</span>
-        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-14" min="1" max="1000" @change="fetchMessages" />
+        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20" min="1" max="10000" @change="fetchMessages" />
       </div>
     </div>
 
@@ -352,7 +352,7 @@ function showSuccess(message: string) {
 
 const filters = reactive({
   partition: undefined as number | undefined,
-  max_messages: 100,
+  max_messages: 1000,
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
