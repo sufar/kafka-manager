@@ -125,13 +125,13 @@
               @click="selectMessage(virtualStartIndex + idx)"
               :style="{ height: ROW_HEIGHT + 'px' }"
             >
-              <td class="font-mono text-[9px] px-1.5 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
-              <td class="py-0 px-1.5">
+              <td class="font-mono text-xs px-2 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
+              <td class="py-0 px-2">
                 <span class="badge badge-ghost badge-xs">{{ msg.partition }}</span>
               </td>
-              <td class="text-[9px] text-base-content/60 px-1.5">{{ formatTimestamp(msg.timestamp) }}</td>
-              <td class="font-mono text-[9px] px-1.5 truncate max-w-xs">{{ msg.key || '-' }}</td>
-              <td class="font-mono text-[9px] px-1.5 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
+              <td class="text-xs text-base-content/60 px-2">{{ formatTimestamp(msg.timestamp) }}</td>
+              <td class="font-mono text-xs px-2 truncate max-w-xs">{{ msg.key || '-' }}</td>
+              <td class="font-mono text-xs px-2 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
             </tr>
             <!-- 虚拟滚动：底部占位 -->
             <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
@@ -337,7 +337,7 @@ const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
 
 // 虚拟滚动配置
-const ROW_HEIGHT = 24; // 每行高度（像素）
+const ROW_HEIGHT = 32; // 每行高度（像素）
 const virtualStartIndex = ref(0);
 
 // 显示错误提示
