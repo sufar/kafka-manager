@@ -412,9 +412,11 @@
     <Teleport to="body">
       <dialog ref="detailModalRef" class="modal">
         <div class="modal-box modal-box-lg">
-          <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-          </form>
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeDetailModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
           <h3 class="text-lg font-bold mb-2">
             Topic: {{ selectedTopicDetail?.name }}
             <span v-if="selectedTopicCluster" class="text-sm font-normal text-base-content/60 ml-2">
@@ -454,7 +456,7 @@
             </button>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
+        <form method="dialog" class="modal-backdrop" @click="closeDetailModal">
           <button>close</button>
         </form>
       </dialog>
@@ -464,9 +466,11 @@
     <Teleport to="body">
       <dialog ref="messagesModalRef" class="modal">
         <div class="modal-box modal-box-xl">
-          <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-          </form>
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeMessagesModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
           <h3 class="text-lg font-bold mb-4">
             {{ t.topics.viewMessages }}: {{ selectedMessageTopic }}
             <span v-if="selectedMessageCluster" class="text-sm font-normal text-base-content/60 ml-2">
@@ -617,7 +621,7 @@
             </button>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
+        <form method="dialog" class="modal-backdrop" @click="closeMessagesModal">
           <button>close</button>
         </form>
       </dialog>
@@ -1102,7 +1106,7 @@ async function exportMessages() {
     );
 
     // 确保返回的数据包含 messages 数组
-    const messagesToExport = result?.messages || result?.data?.messages || [];
+    const messagesToExport = result?.messages || [];
 
     // 使用 Tauri API 保存文件
     const { save } = await import('@tauri-apps/plugin-dialog');

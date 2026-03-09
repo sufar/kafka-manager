@@ -181,7 +181,7 @@
           </div>
         </form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="modal-backdrop" @click="closeModal">
         <button>close</button>
       </form>
     </dialog>

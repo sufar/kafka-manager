@@ -926,6 +926,7 @@ const topicSearchQuery = reactive<Record<string, string>>({});
 // 存储每个 topic 元素的 ref
 const topicElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
 
+// @ts-ignore - used in template
 function setTopicElementRef(key: string, el: HTMLDivElement | null) {
   topicElementRefs[key] = el;
 }

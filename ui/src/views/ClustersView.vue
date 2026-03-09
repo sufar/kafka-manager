@@ -198,13 +198,11 @@
       <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box">
           <!-- close button -->
-          <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </form>
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
           <h3 class="font-bold text-xl mt-2 mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
           <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
             <div class="form-control">
@@ -294,7 +292,6 @@ const { showError, showSuccess } = useToast();
 const clusters = computed(() => clusterStore.clusters);
 const loading = computed(() => clusterStore.loading);
 const error = computed(() => clusterStore.error);
-const connectionLoading = computed(() => connectionStore.loading);
 
 // 翻译
 const t = computed(() => languageStore.t);
