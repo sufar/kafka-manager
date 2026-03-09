@@ -1587,21 +1587,25 @@ async fn fetch_messages_from_pool_with_filter(
 
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::new();
-    // 动态超时策略：首次超时 100ms，后续 50ms
-    let initial_timeout = Duration::from_millis(100);
-    let subsequent_timeout = Duration::from_millis(50);
+    // 动态超时策略：根据已获取的消息数量调整超时
+    // 大量消息读取时需要更长的超时时间
     let mut consecutive_timeouts = 0;
-    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 5; // 增加连续超时次数，允许读取更多消息
     let mut had_message = false;
     let mut total_read = 0;
     let mut filtered_count = 0;
 
     while messages.len() < max_messages {
-        // 动态超时：首次超时 100ms，后续 50ms
-        let current_timeout = if !had_message && consecutive_timeouts == 0 {
-            initial_timeout
+        // 动态超时：根据已获取的消息数量调整
+        // 如果正在读取大量消息，使用更长的超时避免提前退出
+        let current_timeout = if total_read > 1000 {
+            Duration::from_millis(200)  // 大量读取时使用更长超时
+        } else if total_read > 100 {
+            Duration::from_millis(150)
+        } else if !had_message {
+            Duration::from_millis(100)  // 首次获取使用 100ms
         } else {
-            subsequent_timeout
+            Duration::from_millis(50)   // 正常情况使用 50ms
         };
 
         match tokio::time::timeout(current_timeout, consumer.recv()).await {
