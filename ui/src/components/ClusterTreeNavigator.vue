@@ -292,7 +292,14 @@
 
                 <!-- Partitions List -->
                 <div v-show="expandedTopics.has(`${cluster.name}:${topic.name}`)" class="pl-3">
+                  <!-- Loading State -->
+                  <div v-if="loadingTopicPartitions.has(`${cluster.name}:${topic.name}`)" class="flex items-center py-2">
+                    <span class="loading loading-spinner loading-xs text-primary"></span>
+                    <span class="text-[10px] text-base-content/50 ml-2">Loading partitions...</span>
+                  </div>
+                  <!-- Partitions -->
                   <div
+                    v-else
                     v-for="partition in topic.partitions || []"
                     :key="partition.id"
                     class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-base-200/50"
@@ -307,7 +314,21 @@
                       <span class="text-[10px] truncate text-base-content/70">#{{ partition.id }}</span>
                     </div>
                   </div>
+                  <!-- No Partitions -->
+                  <div v-if="!loadingTopicPartitions.has(`${cluster.name}:${topic.name}`) && (!topic.partitions || topic.partitions.length === 0)" class="text-[10px] text-base-content/50 py-2 pl-2">
+                    No partitions available
+                  </div>
                 </div>
+              </div>
+
+              <!-- Load More Button -->
+              <div v-if="!topicSearchQuery[cluster.name] && hasMoreTopics(cluster.name)" class="py-1">
+                <button
+                  class="btn btn-xs btn-ghost w-full text-primary"
+                  @click.stop="loadMoreTopics(cluster.name)"
+                >
+                  Load more ({{ getTotalTopics(cluster.name) - getClusterTopics(cluster.name).length }} remaining)
+                </button>
               </div>
             </div>
           </div>
@@ -564,13 +585,43 @@ function handleErrorDialogRetry() {
   }
 }
 
+// 存储正在加载分区的 topic
+const loadingTopicPartitions = reactive<Set<string>>(new Set());
+
 function toggleTopic(topicName: string, clusterName: string) {
   const key = `${clusterName}:${topicName}`;
   if (expandedTopics.value.has(key)) {
     expandedTopics.value.delete(key);
     expandedTopics.value = new Set(expandedTopics.value);
   } else {
+    // 展开时懒加载分区信息
+    loadTopicPartitions(clusterName, topicName);
     expandedTopics.value = new Set(expandedTopics.value.add(key));
+  }
+}
+
+async function loadTopicPartitions(clusterName: string, topicName: string) {
+  const key = `${clusterName}:${topicName}`;
+
+  // 如果正在加载，直接返回
+  if (loadingTopicPartitions.has(key)) return;
+
+  // 检查是否已经加载过分区
+  const topic = clusterTopics[clusterName]?.find(t => t.name === topicName);
+  if (topic && topic.partitions && topic.partitions.length > 0) return;
+
+  loadingTopicPartitions.add(key);
+
+  try {
+    const detail = await apiClient.getTopicDetail(clusterName, topicName);
+    const topicData = clusterTopics[clusterName]?.find(t => t.name === topicName);
+    if (topicData) {
+      topicData.partitions = detail.partitions.map(p => ({ id: p.id }));
+    }
+  } catch (e) {
+    console.warn(`Failed to get partitions for topic ${topicName}:`, e);
+  } finally {
+    loadingTopicPartitions.delete(key);
   }
 }
 
@@ -788,38 +839,18 @@ async function loadClusterTopics(clusterName: string) {
         await apiClient.refreshTopics(clusterName);
         // 刷新后重新获取完整的 topics 列表
         const refreshedTopics = await apiClient.getSavedTopics(clusterName);
-        // 获取每个 topic 的分区信息
-        clusterTopics[clusterName] = await Promise.all(
-          (refreshedTopics || []).map(async (name: string) => {
-            try {
-              const detail = await apiClient.getTopicDetail(clusterName, name);
-              return {
-                name,
-                partitions: detail.partitions.map(p => ({ id: p.id }))
-              };
-            } catch (e) {
-              console.warn(`Failed to get partitions for topic ${name}:`, e);
-              return { name, partitions: [] };
-            }
-          })
-        );
+        // 只存储 topic 名称，分区信息在展开时懒加载
+        clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
+          name,
+          partitions: [] // 初始为空，展开时再加载
+        }));
         topicCounts[clusterName] = refreshedTopics?.length || 0;
       } else {
-        // 获取每个 topic 的分区信息
-        clusterTopics[clusterName] = await Promise.all(
-          topics.map(async (name: string) => {
-            try {
-              const detail = await apiClient.getTopicDetail(clusterName, name);
-              return {
-                name,
-                partitions: detail.partitions.map(p => ({ id: p.id }))
-              };
-            } catch (e) {
-              console.warn(`Failed to get partitions for topic ${name}:`, e);
-              return { name, partitions: [] };
-            }
-          })
-        );
+        // 只存储 topic 名称，分区信息在展开时懒加载
+        clusterTopics[clusterName] = topics.map((name: string) => ({
+          name,
+          partitions: [] // 初始为空，展开时再加载
+        }));
         topicCounts[clusterName] = topics.length;
       }
       // 成功加载，跳出循环
@@ -892,22 +923,15 @@ async function refreshClusterTopics(clusterName: string) {
 
     // 刷新后重新获取完整的 topics 列表
     const savedTopics = await apiClient.getSavedTopics(clusterName);
-    // 获取每个 topic 的分区信息
-    clusterTopics[clusterName] = await Promise.all(
-      (savedTopics || []).map(async (name: string) => {
-        try {
-          const detail = await apiClient.getTopicDetail(clusterName, name);
-          return {
-            name,
-            partitions: detail.partitions.map(p => ({ id: p.id }))
-          };
-        } catch (e) {
-          console.warn(`Failed to get partitions for topic ${name}:`, e);
-          return { name, partitions: [] };
-        }
-      })
-    );
+    // 只存储 topic 名称，分区信息在展开时懒加载
+    clusterTopics[clusterName] = (savedTopics || []).map((name: string) => ({
+      name,
+      partitions: [] // 初始为空，展开时再加载
+    }));
     topicCounts[clusterName] = savedTopics?.length || refreshResult.total || 0;
+
+    // 重置分页限制
+    topicDisplayLimits[clusterName] = VISIBLE_ITEMS;
 
     // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
     expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
@@ -920,8 +944,11 @@ async function refreshClusterTopics(clusterName: string) {
 }
 
 // 虚拟滚动相关
-const VISIBLE_ITEMS = 100; // 最大渲染 100 个 topic，超过的需要搜索
+const VISIBLE_ITEMS = 1000; // 默认显示 1000 个 topic，超过的需要搜索
 const topicSearchQuery = reactive<Record<string, string>>({});
+
+// 存储每个 cluster 的 topic 显示数量（用于分页加载）
+const topicDisplayLimits = reactive<Record<string, number>>({});
 
 // 存储每个 topic 元素的 ref
 const topicElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
@@ -936,13 +963,30 @@ function getClusterTopics(clusterName: string): Topic[] {
   const query = topicSearchQuery[clusterName];
 
   if (query && query.trim()) {
-    // 搜索模式：过滤匹配的 topic
+    // 搜索模式：过滤匹配的 topic（搜索结果全部显示）
     const lowerQuery = query.toLowerCase();
     return topics.filter(t => t.name.toLowerCase().includes(lowerQuery));
   }
 
-  // 默认只返回前 100 个
-  return topics.slice(0, VISIBLE_ITEMS);
+  // 默认返回前 N 个（支持加载更多）
+  const limit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
+  return topics.slice(0, limit);
+}
+
+function loadMoreTopics(clusterName: string) {
+  const currentLimit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
+  const totalTopics = (clusterTopics[clusterName] || []).length;
+
+  if (currentLimit < totalTopics) {
+    // 每次多加载 500 个
+    topicDisplayLimits[clusterName] = Math.min(currentLimit + 500, totalTopics);
+  }
+}
+
+function hasMoreTopics(clusterName: string): boolean {
+  const currentLimit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
+  const totalTopics = (clusterTopics[clusterName] || []).length;
+  return currentLimit < totalTopics;
 }
 
 function setTopicSearch(clusterName: string, query: string) {
@@ -1107,21 +1151,15 @@ async function handleTopicsRefreshed(event: Event) {
     // 直接获取最新的 topics 并更新
     try {
       const topics = await apiClient.getSavedTopics(cluster);
-      clusterTopics[cluster] = await Promise.all(
-        (topics || []).map(async (name: string) => {
-          try {
-            const detail = await apiClient.getTopicDetail(cluster, name);
-            return {
-              name,
-              partitions: detail.partitions.map(p => ({ id: p.id }))
-            };
-          } catch (e) {
-            console.warn(`Failed to get partitions for topic ${name}:`, e);
-            return { name, partitions: [] };
-          }
-        })
-      );
+      // 只存储 topic 名称，分区信息在展开时懒加载
+      clusterTopics[cluster] = (topics || []).map((name: string) => ({
+        name,
+        partitions: [] // 初始为空，展开时再加载
+      }));
       topicCounts[cluster] = topics?.length || 0;
+
+      // 重置分页限制
+      topicDisplayLimits[cluster] = VISIBLE_ITEMS;
     } catch (error) {
       console.error('[ClusterTreeNavigator] Failed to refresh topics:', error);
     }
