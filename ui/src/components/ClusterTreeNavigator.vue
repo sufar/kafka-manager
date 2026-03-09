@@ -34,12 +34,15 @@
       <div v-for="cluster in clusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div
-          class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 backdrop-blur-sm group"
-          :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
-          @contextmenu.prevent="showClusterMenu($event, cluster.name)"
-          @dblclick="toggleCluster(cluster.name)"
+          class="relative z-40"
         >
-          <div class="flex items-center gap-1.5 flex-1 min-w-0">
+          <div
+            class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 backdrop-blur-sm group overflow-visible"
+            :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
+            @contextmenu.prevent="showClusterMenu($event, cluster.name)"
+            @dblclick="toggleCluster(cluster.name)"
+          >
+            <div class="flex items-center gap-1.5 flex-1 min-w-0">
             <button class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0" @click.stop="toggleCluster(cluster.name)" tabindex="-1">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -69,6 +72,7 @@
           </div>
           <!-- Three dots menu button -->
           <button
+            :ref="(el) => { if (el) (clusterActionButtons.value as any)[cluster.name] = el }"
             class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity"
             @click.stop="toggleClusterActionsDropdown(cluster.name)"
             title="Cluster Actions"
@@ -80,7 +84,8 @@
           <!-- Cluster Actions Dropdown -->
           <div
             v-if="openActionsDropdown === cluster.name"
-            class="absolute right-2 top-full mt-1 z-50 min-w-[180px] rounded-lg bg-base-100 border border-base-200 shadow-xl p-1"
+            class="fixed z-[1000] min-w-[180px] rounded-lg bg-base-100 border border-base-200 shadow-xl p-1 cluster-actions-dropdown"
+            :style="{ top: `${dropdownPositions[cluster.name]?.top || 0}px`, right: `${dropdownPositions[cluster.name]?.right || 0}px` }"
             @click.stop
           >
             <!-- Menu Title -->
@@ -171,6 +176,7 @@
               </li>
             </ul>
           </div>
+        </div>
         </div>
 
         <!-- Cluster Children -->
@@ -425,7 +431,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, shallowRef } from 'vue';
 import { useClusterStore } from '@/stores/cluster';
 import { apiClient } from '@/api/client';
 
@@ -480,13 +486,32 @@ const openActionsDropdown = ref<string | null>(null);
 const testing = ref(new Set<string>());
 const disconnecting = ref(new Set<string>());
 const reconnecting = ref(new Set<string>());
+const clusterActionButtons = shallowRef<Record<string, HTMLElement>>({});
+const dropdownPositions = ref<Record<string, { top: number; right: number }>>({});
 
 function toggleClusterActionsDropdown(clusterName: string) {
-  openActionsDropdown.value = openActionsDropdown.value === clusterName ? null : clusterName;
+  if (openActionsDropdown.value === clusterName) {
+    openActionsDropdown.value = null;
+  } else {
+    openActionsDropdown.value = clusterName;
+    // Calculate dropdown position
+    nextTick(() => {
+      const button = clusterActionButtons.value[clusterName];
+      if (button) {
+        const rect = button.getBoundingClientRect();
+        dropdownPositions.value[clusterName] = {
+          top: rect.bottom + 4,
+          right: window.innerWidth - rect.right
+        };
+      }
+    });
+  }
 }
 
 function closeActionsDropdown() {
   openActionsDropdown.value = null;
+  // Clear position data
+  dropdownPositions.value = {};
 }
 
 function getClusterHealth(clusterId: string) {
@@ -1176,6 +1201,9 @@ onMounted(() => {
   document.addEventListener('click', handleOutsideClick);
   // 监听编辑集群事件
   window.addEventListener('edit-cluster-from-menu', handleEditClusterFromMenu);
+  // 监听滚动和窗口大小改变，关闭下拉菜单并更新位置
+  window.addEventListener('scroll', handleScroll, true);
+  window.addEventListener('resize', handleResize);
 });
 
 onUnmounted(() => {
@@ -1183,12 +1211,28 @@ onUnmounted(() => {
   window.removeEventListener('cluster-topics-refreshed', handleTopicsRefreshed);
   document.removeEventListener('click', handleOutsideClick);
   window.removeEventListener('edit-cluster-from-menu', handleEditClusterFromMenu);
+  window.removeEventListener('scroll', handleScroll, true);
+  window.removeEventListener('resize', handleResize);
 });
 
 function handleOutsideClick(event: MouseEvent) {
   const target = event.target as HTMLElement;
   // 如果点击的不是三个点按钮或其子菜单，关闭下拉菜单
   if (!target.closest('[title="Cluster Actions"]') && openActionsDropdown.value) {
+    closeActionsDropdown();
+  }
+}
+
+function handleScroll() {
+  // 滚动时关闭下拉菜单并清除位置
+  if (openActionsDropdown.value) {
+    closeActionsDropdown();
+  }
+}
+
+function handleResize() {
+  // 窗口大小改变时关闭下拉菜单
+  if (openActionsDropdown.value) {
     closeActionsDropdown();
   }
 }
@@ -1202,3 +1246,11 @@ function handleEditClusterFromMenu(event: Event) {
   }));
 }
 </script>
+
+<style scoped>
+/* Cluster actions dropdown positioning fix */
+.cluster-actions-dropdown {
+  position: fixed;
+  z-index: 1000;
+}
+</style>
