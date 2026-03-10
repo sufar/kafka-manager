@@ -714,7 +714,9 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
             tokio::spawn(async move {
                 let _ = sync_topics_from_kafka(state_clone, &cluster_id_clone).await;
             });
-            return Ok(serde_json::json!({ "topics": topics }));
+            // 只返回 topic 名称字符串数组
+            let topic_names: Vec<String> = topics.into_iter().map(|t| t.topic_name).collect();
+            return Ok(serde_json::json!({ "topics": topic_names }));
         }
     }
 

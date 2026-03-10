@@ -121,15 +121,13 @@
                   {{ t.topics.topicName }}
                 </div>
               </th>
-              <th>{{ t.topics.partitions }}</th>
-              <th>{{ t.topics.replicationFactor }}</th>
               <th>{{ t.common.actions }}</th>
             </tr>
           </thead>
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
             <tr v-if="singleClusterVirtualStartIndex > 0" :style="{ height: singleClusterVirtualStartIndex * ROW_HEIGHT + 'px' }">
-              <td colspan="4" style="padding: 0; border: 0;"></td>
+              <td colspan="2" style="padding: 0; border: 0;"></td>
             </tr>
             <!-- 可见区域的行 -->
             <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer" :style="{ height: ROW_HEIGHT + 'px' }">
@@ -142,12 +140,6 @@
                   </div>
                   <span class="font-medium">{{ topic.name }}</span>
                 </div>
-              </td>
-              <td>
-                <div class="badge badge-neutral">{{ topic.partition_count || '-' }}</div>
-              </td>
-              <td>
-                <span class="text-base-content/60">{{ topic.replication_factor || '-' }}</span>
               </td>
               <td>
                 <div class="flex gap-1">
@@ -175,7 +167,7 @@
             </tr>
             <!-- 虚拟滚动：底部占位 -->
             <tr v-if="singleClusterVirtualStartIndex + singleClusterVisibleTopics.length < filteredClusterTopics.length" :style="{ height: (filteredClusterTopics.length - singleClusterVirtualStartIndex - singleClusterVisibleTopics.length) * ROW_HEIGHT + 'px' }">
-              <td colspan="4" style="padding: 0; border: 0;"></td>
+              <td colspan="2" style="padding: 0; border: 0;"></td>
             </tr>
           </tbody>
         </table>
@@ -241,7 +233,6 @@
               <thead class="sticky top-0 bg-base-100 z-10">
                 <tr>
                   <th>{{ t.topics.topicName }}</th>
-                  <th>{{ t.topics.partitions }}</th>
                   <th>{{ t.common.actions }}</th>
                 </tr>
               </thead>
@@ -258,7 +249,6 @@
                         <span class="font-medium">{{ topic.name }}</span>
                       </div>
                     </td>
-                    <td><div class="badge badge-neutral">{{ topic.partition_count || '-' }}</div></td>
                     <td>
                       <div class="flex gap-1">
                         <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(clusterName, topic)">{{ t.topics.viewDetails }}</button>
@@ -312,7 +302,6 @@
               <tr>
                 <th>{{ t.dashboard.clusters }}</th>
                 <th>{{ t.topics.topicName }}</th>
-                <th>{{ t.topics.partitions }}</th>
                 <th>{{ t.common.actions }}</th>
               </tr>
             </thead>
@@ -339,7 +328,6 @@
                     <span class="font-medium">{{ item.name }}</span>
                   </div>
                 </td>
-                <td><div class="badge badge-neutral">{{ item.partition_count || '-' }}</div></td>
                 <td>
                   <div class="flex gap-1">
                     <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(item.cluster, item)">{{ t.topics.viewDetails }}</button>

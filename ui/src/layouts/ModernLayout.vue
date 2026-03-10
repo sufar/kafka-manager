@@ -129,7 +129,7 @@
 
       <!-- Main Content -->
       <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0">
-        <div class="flex-1 overflow-y-auto p-2">
+        <div class="flex-1 overflow-auto p-2">
           <router-view />
         </div>
       </main>

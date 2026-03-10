@@ -1134,6 +1134,10 @@ async function highlightAndSelectTopic(topicName: string, clusterName: string) {
       waitCount++;
     }
   }
+
+  // 自动在搜索框中填入 topic 名称，方便用户定位（尤其是 topic 数量很多时）
+  topicSearchQuery[clusterName] = topicName;
+
   // 设置选中状态
   selectedTopic.value = { name: topicName, cluster: clusterName };
   selectedPartition.value = null;

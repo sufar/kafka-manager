@@ -1,7 +1,7 @@
 <template>
-  <div class="messages-browser h-full flex flex-col">
+  <div class="messages-browser h-full flex flex-col min-w-0">
     <!-- Top Toolbar -->
-    <div class="toolbar flex items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl">
+    <div class="toolbar flex items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl overflow-x-auto flex-nowrap min-w-full">
       <!-- Topic Indicator -->
       <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gradient-to-r from-secondary/10 to-accent/10 glow-primary">
         <div class="w-5 h-5 rounded-md bg-gradient-to-br from-secondary/20 to-accent/20 flex items-center justify-center animate-float">
@@ -38,28 +38,28 @@
       <div class="flex-1 min-w-0" />
 
       <!-- Topic Selector -->
-      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-xs max-w-xs" @change="fetchMessages">
+      <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-xs max-w-xs flex-shrink-0" @change="fetchMessages">
         <option value="">{{ t.messages.selectTopic }}</option>
         <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
       </select>
 
       <!-- Partition Filter -->
-      <select v-model.number="filters.partition" class="select select-bordered select-xs w-auto" @change="fetchMessages">
+      <select v-model.number="filters.partition" class="select select-bordered select-xs w-auto flex-shrink-0" @change="fetchMessages">
         <option :value="undefined">All</option>
         <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-xs w-28" :placeholder="t.messages.filter" @change="fetchMessages" />
+      <input v-model="filters.search" type="text" class="input input-bordered input-xs w-28 flex-shrink-0" :placeholder="t.messages.filter" @change="fetchMessages" />
 
       <!-- Fetch Mode -->
-      <select v-model="filters.fetchMode" class="select select-bordered select-xs w-auto" @change="fetchMessages">
+      <select v-model="filters.fetchMode" class="select select-bordered select-xs w-auto flex-shrink-0" @change="fetchMessages">
         <option value="oldest">{{ t.messages.oldest }}</option>
         <option value="newest">{{ t.messages.newest }}</option>
       </select>
 
       <!-- Time Range Filter -->
-      <div style="position: relative; display: inline-block;">
+      <div style="position: relative; display: inline-block;" class="flex-shrink-0">
         <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-xs w-36" :placeholder="t.messages.startTime" @change="fetchMessages" />
         <button v-if="filters.startTime" style="position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''; fetchMessages()" title="Clear start time">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -67,7 +67,7 @@
           </svg>
         </button>
       </div>
-      <div style="position: relative; display: inline-block;">
+      <div style="position: relative; display: inline-block;" class="flex-shrink-0">
         <input v-model="filters.endTime" type="datetime-local" class="input input-bordered input-xs w-36" :placeholder="t.messages.endTime" @change="fetchMessages" />
         <button v-if="filters.endTime" style="position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.endTime = ''; fetchMessages()" title="Clear end time">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -80,7 +80,7 @@
     <!-- Messages List (Top Panel) -->
     <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
       <!-- 空状态提示 -->
-      <div v-if="sortedMessages.length === 0" class="flex-1 flex items-center justify-center text-base-content/60">
+      <div v-if="sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60">
         <div class="text-center">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto mb-2 opacity-50">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
@@ -154,24 +154,24 @@
 
     <!-- Message Detail (Bottom Panel) -->
     <div
-      class="message-detail overflow-auto glass min-h-0 backdrop-blur-md"
+      class="message-detail overflow-x-auto overflow-y-auto glass min-h-0 backdrop-blur-md"
       :style="{ height: detailHeight + 'px', flex: 'none' }"
       @selectstart="handleSelectStart"
       @keydown.ctrl.a.prevent="handleSelectAll"
       @keydown.meta.a.prevent="handleSelectAll"
       tabindex="-1"
     >
-      <div v-if="selectedMessage" class="p-1.5">
-        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10">
-          <div class="flex items-center gap-2 text-[10px]">
+      <div v-if="selectedMessage" class="p-1.5 min-w-max">
+        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10 overflow-x-auto flex-nowrap">
+          <div class="flex items-center gap-2 text-[10px] flex-shrink-0">
             <span class="text-base-content/60">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
             <span class="text-base-content/60">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
             <span class="text-base-content/60">Timestamp: <span class="font-mono">{{ formatTimestamp(selectedMessage.timestamp) }}</span></span>
             <span class="text-base-content/60">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
           </div>
-          <div class="flex items-center gap-1.5 whitespace-nowrap">
-            <label class="text-[10px] text-base-content/60 whitespace-nowrap">View As:</label>
-            <select v-model="messageViewFormat" class="select select-bordered select-[10px]">
+          <div class="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+            <label class="text-[10px] text-base-content/60 whitespace-nowrap flex-shrink-0">View As:</label>
+            <select v-model="messageViewFormat" class="select select-bordered select-[10px] flex-shrink-0">
               <option value="json">JSON</option>
               <option value="raw">Raw</option>
               <option value="hex">Hex</option>
@@ -211,21 +211,21 @@
     </div>
 
     <!-- Status Bar -->
-    <div class="status-bar flex items-center justify-between px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md">
-      <div class="flex items-center gap-2">
+    <div class="status-bar flex items-center justify-between px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md overflow-x-auto flex-nowrap min-w-full">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
         <span v-if="fetchTime > 0">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
-      <div class="flex items-center gap-1.5">
-        <label class="label cursor-pointer" :title="t.messages.perPartitionMax">
-          <span class="label-text text-xs">{{ t.messages.perPartitionMax }}</span>
+      <div class="flex items-center gap-1.5 flex-shrink-0">
+        <label class="label cursor-pointer flex-shrink-0" :title="t.messages.perPartitionMax">
+          <span class="label-text text-xs flex-shrink-0">{{ t.messages.perPartitionMax }}</span>
           <input v-model="filters.per_partition_max" type="checkbox" class="checkbox checkbox-xs" @change="fetchMessages" />
         </label>
-        <span class="divider divider-horizontal mx-2"></span>
-        <span>{{ t.messages.maxMessages }}</span>
-        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20" min="1" max="10000" @change="fetchMessages" />
+        <span class="divider divider-horizontal mx-2 flex-shrink-0"></span>
+        <span class="flex-shrink-0">{{ t.messages.maxMessages }}</span>
+        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
       </div>
     </div>
 
