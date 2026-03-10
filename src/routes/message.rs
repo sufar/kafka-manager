@@ -192,10 +192,11 @@ async fn get_messages(
                         Ok(None) | Err(_) => None,
                     }
                 } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
-                    match consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, i64::MAX).await {
-                        Ok(Some(offset)) => Some(offset),
-                        Ok(None) | Err(_) => None,
-                    }
+                    // fetch_mode=newest：从该 partition 的最新 N 条消息开始读取
+                    // 需要获取 watermarks 来计算起始 offset
+                    // 注意：这里不传入 brokers，因为 async 闭包中无法访问 state
+                    // 让 fetch_messages_filtered 自动处理：从 low watermark 开始，但限制读取数量
+                    None
                 } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
                     consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, 0).await.ok().flatten()
                 } else {
@@ -231,17 +232,35 @@ async fn get_messages(
         all_messages
     } else {
         // 单 partition 模式或指定了 partition
-        let start_offset = if let Some(start_time) = params.start_time {
+        // 先获取 watermarks 来确定起始 offset
+        let start_offset = if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none() {
+            // fetch_mode=newest 且未指定 offset 和时间：从最新的 N 条消息开始读取
+            let target_partition = params.partition.unwrap_or(0);
+            // 获取 watermarks
+            let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
+            if let Some(admin_ref) = admin {
+                // 从数据库获取集群 brokers
+                match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+                    Ok(Some(cluster)) => {
+                        match admin_ref.get_partition_watermarks(&topic, target_partition, &cluster.brokers) {
+                            Ok((low, high)) => {
+                                // 从 high - limit 开始读取，但不能小于 low
+                                let start = std::cmp::max(low, high - limit as i64);
+                                Some(start)
+                            }
+                            Err(_) => Some(0),
+                        }
+                    }
+                    _ => Some(0),
+                }
+            } else {
+                Some(0)
+            }
+        } else if let Some(start_time) = params.start_time {
             let target_partition = params.partition.unwrap_or(0);
             match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
                 Ok(Some(offset)) => Some(offset),
                 Ok(None) | Err(_) => params.offset,
-            }
-        } else if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() {
-            let target_partition = params.partition.unwrap_or(0);
-            match consumer.get_offset_for_time(&config, &topic, target_partition, i64::MAX).await {
-                Ok(Some(offset)) => Some(offset),
-                Ok(None) | Err(_) => None,
             }
         } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
             let target_partition = params.partition.unwrap_or(0);

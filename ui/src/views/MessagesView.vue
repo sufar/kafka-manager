@@ -358,7 +358,7 @@ function showSuccess(message: string) {
 const filters = reactive({
   partition: undefined as number | undefined,
   max_messages: 100,
-  per_partition_max: false,  // Per-partition 模式
+  per_partition_max: true,  // Per-partition 模式（默认启用）
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
