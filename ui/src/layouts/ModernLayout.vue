@@ -102,7 +102,11 @@
     <!-- Main Layout Container -->
     <div class="flex h-screen pt-12 overflow-hidden p-2 gap-2">
       <!-- Left Sidebar - Tree Navigator -->
-      <aside class="w-80 glass gradient-border overflow-hidden flex flex-col">
+      <aside
+        ref="leftSidebarRef"
+        class="glass gradient-border overflow-hidden flex flex-col relative"
+        :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
+      >
         <div class="flex-1 overflow-y-auto p-2">
           <ClusterTreeNavigator
             ref="clusterTreeNavigatorRef"
@@ -116,8 +120,15 @@
         </div>
       </aside>
 
+      <!-- Resizer Handle -->
+      <div
+        ref="resizerRef"
+        class="resizer w-1 cursor-col-resize hover:w-1.5 hover:bg-primary/50 transition-all z-50 flex-shrink-0"
+        @mousedown="startResize"
+      ></div>
+
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col">
+      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0">
         <div class="flex-1 overflow-y-auto p-2">
           <router-view />
         </div>
@@ -749,6 +760,8 @@ onUnmounted(() => {
   window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
   document.removeEventListener('keydown', handleGlobalKeydown);
   document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('mousemove', resize);
+  document.removeEventListener('mouseup', stopResize);
 });
 
 function handleClickOutside(e: MouseEvent) {
@@ -762,4 +775,104 @@ function handleClickOutside(e: MouseEvent) {
     showSearchDropdown.value = false;
   }
 }
+
+// ==================== 可调整宽度的侧边栏 ====================
+const leftSidebarRef = ref<HTMLElement | null>(null);
+const resizerRef = ref<HTMLElement | null>(null);
+void leftSidebarRef;
+void resizerRef;
+const leftSidebarWidth = ref(320); // 默认 320px
+let isResizing = false;
+let startX = 0;
+let startWidth = 0;
+
+// 从 localStorage 恢复宽度
+function restoreSidebarWidth() {
+  const saved = localStorage.getItem('sidebar-width');
+  if (saved) {
+    const width = parseInt(saved, 10);
+    if (width >= 200 && width <= 1200) {
+      leftSidebarWidth.value = width;
+    }
+  }
+}
+
+// 保存宽度到 localStorage
+function saveSidebarWidth(width: number) {
+  localStorage.setItem('sidebar-width', width.toString());
+}
+
+function startResize(e: MouseEvent) {
+  isResizing = true;
+  startX = e.clientX;
+  startWidth = leftSidebarWidth.value;
+  document.addEventListener('mousemove', resize);
+  document.addEventListener('mouseup', stopResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function resize(e: MouseEvent) {
+  if (!isResizing) return;
+  const diff = e.clientX - startX;
+  const newWidth = startWidth + diff;
+  // 限制最小和最大宽度
+  leftSidebarWidth.value = Math.min(Math.max(newWidth, 200), window.innerWidth * 0.8);
+}
+
+function stopResize() {
+  isResizing = false;
+  document.removeEventListener('mousemove', resize);
+  document.removeEventListener('mouseup', stopResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  saveSidebarWidth(leftSidebarWidth.value);
+}
+
+onMounted(async () => {
+  themeStore.initTheme();
+  languageStore.initLanguage();
+  await clusterStore.fetchClusters();
+
+  // 恢复上次浏览的状态
+  restorePreviousState();
+
+  // 恢复侧边栏宽度
+  restoreSidebarWidth();
+
+  // 注册全局键盘事件
+  document.addEventListener('keydown', handleGlobalKeydown);
+
+  // 监听点击外部关闭搜索下拉框
+  document.addEventListener('click', handleClickOutside);
+
+  // 监听 TopicsView 的双击 Topic 事件
+  window.addEventListener('select-topic-in-tree', ((event: CustomEvent) => {
+    const { topicName, clusterName } = event.detail;
+    handleSelectTopicInTree(topicName, clusterName);
+  }) as EventListener);
+
+  // 监听打开创建集群弹窗事件
+  window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+});
 </script>
+
+<style scoped>
+/* Resizer 样式 */
+.resizer {
+  background-color: transparent;
+  transition: background-color 0.2s;
+  border-right: 1px solid transparent;
+}
+
+.resizer:hover {
+  background-color: rgba(100, 100, 255, 0.3);
+  border-right-color: rgba(100, 100, 255, 0.5);
+}
+
+/* 拖动时全局样式 */
+body.resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+</style>
