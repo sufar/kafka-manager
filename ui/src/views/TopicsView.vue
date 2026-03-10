@@ -222,7 +222,12 @@
           <p class="text-base-content/60 text-center p-8">{{ t.common.noData }}</p>
         </div>
         <div v-else class="card glass gradient-border">
-          <div class="overflow-auto" ref="clusterContainerRef" @scroll="handleClusterScroll" style="max-height: calc(100vh - 300px);">
+          <div
+            class="overflow-auto"
+            :ref="(el: Element | ComponentPublicInstance | null) => setClusterContainerRef(el as HTMLElement | null, clusterName)"
+            @scroll="(e: Event) => handleClusterScroll(e, clusterName)"
+            style="max-height: calc(100vh - 300px);"
+          >
             <table class="table">
               <thead class="sticky top-0 bg-base-100 z-10">
                 <tr>
@@ -232,7 +237,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="topic in visibleClusterTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
+                <tr v-for="topic in getVisibleClusterTopics(clusterName)" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
                   <td>
                     <div class="flex items-center gap-3">
                       <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
@@ -252,10 +257,10 @@
                     </div>
                   </td>
                 </tr>
-                <tr v-if="visibleClusterTopics.length === 0" style="height: 1px;"></tr>
+                <tr v-if="getVisibleClusterTopics(clusterName).length === 0" style="height: 1px;"></tr>
               </tbody>
             </table>
-            <div :style="{ height: `${clusterBottomPadding}px` }"></div>
+            <div :style="{ height: `${getClusterBottomPadding(clusterName)}px` }"></div>
           </div>
         </div>
       </div>
@@ -867,7 +872,7 @@
 
 <script setup lang="ts">
 // 保持原有逻辑不变，只更新样式
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, onBeforeRouteUpdate, useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -966,7 +971,8 @@ const messagesModalRef = ref<HTMLDialogElement>();
 // 虚拟滚动相关
 const ROW_HEIGHT = 52; // 每行高度（像素）
 const VISIBLE_OFFSET = 20; // 额外渲染的行数
-const containerRef = ref<HTMLElement | null>(null);
+const containerRef = ref<HTMLElement | null>(null); // used in template
+void containerRef; // prevent ts-unused warning
 const clusterContainerRefs = ref<Record<string, HTMLElement | null>>({});
 const scrollTop = ref(0);
 const containerHeight = ref(0);
@@ -1016,42 +1022,38 @@ const bottomPadding = computed(() => {
   return hiddenBottom * ROW_HEIGHT;
 });
 
-// 创建计算可见行的工厂函数
-function createVisibleTopicsGetter(clusterName: string) {
-  return computed(() => {
-    const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
-    if (!clusterTopics.length) return [];
+// 获取可见的集群主题列表（用于模板中的 v-for）
+function getVisibleClusterTopics(clusterName: string): TopicItem[] {
+  const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
+  if (!clusterTopics.length) return [];
 
-    const scrollY = clusterScrollTops.value[clusterName] || 0;
-    const containerH = clusterContainerHeights.value[clusterName] || 600;
+  const scrollY = clusterScrollTops.value[clusterName] || 0;
+  const containerH = clusterContainerHeights.value[clusterName] || 600;
 
-    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
+  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+  const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
 
-    return clusterTopics.slice(startIndex, endIndex);
-  });
+  return clusterTopics.slice(startIndex, endIndex);
 }
 
-// 计算底部占位高度的工厂函数
-function createBottomPaddingGetter(clusterName: string) {
-  return computed(() => {
-    const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
-    if (!clusterTopics.length) return 0;
+// 获取底部占位高度（用于模板中的底部占位元素）
+function getClusterBottomPadding(clusterName: string): number {
+  const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
+  if (!clusterTopics.length) return 0;
 
-    const scrollY = clusterScrollTops.value[clusterName] || 0;
-    const containerH = clusterContainerHeights.value[clusterName] || 600;
+  const scrollY = clusterScrollTops.value[clusterName] || 0;
+  const containerH = clusterContainerHeights.value[clusterName] || 600;
 
-    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
-    const visibleTopics = clusterTopics.slice(startIndex, endIndex);
+  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+  const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
+  const visibleTopics = clusterTopics.slice(startIndex, endIndex);
 
-    if (visibleTopics.length === 0) return 0;
+  if (visibleTopics.length === 0) return 0;
 
-    const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
-    return hiddenBottom * ROW_HEIGHT;
-  });
+  const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
+  return hiddenBottom * ROW_HEIGHT;
 }
 
 function getClusterHealth(clusterId: string) {
