@@ -100,11 +100,11 @@
     </header>
 
     <!-- Main Layout Container -->
-    <div class="flex h-screen pt-12 overflow-hidden p-2 gap-2">
+    <div class="flex h-screen pt-12 overflow-hidden p-2">
       <!-- Left Sidebar - Tree Navigator -->
       <aside
         ref="leftSidebarRef"
-        class="glass gradient-border overflow-hidden flex flex-col relative"
+        class="glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
         :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
       >
         <div class="flex-1 overflow-y-auto p-2">
@@ -123,12 +123,12 @@
       <!-- Resizer Handle -->
       <div
         ref="resizerRef"
-        class="resizer w-1 cursor-col-resize hover:w-1.5 hover:bg-primary/50 transition-all z-50 flex-shrink-0"
+        class="resizer w-px cursor-col-resize hover:w-1.5 hover:bg-primary/50 transition-all z-50 flex-shrink-0"
         @mousedown="startResize"
       ></div>
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0">
+      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl">
         <div class="flex-1 overflow-auto p-2">
           <router-view />
         </div>
