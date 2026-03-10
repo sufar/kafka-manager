@@ -195,7 +195,7 @@
             <div
               class="w-2 h-2 rounded-full"
               :class="[
-                getClusterHealth(clusterName)?.healthy ? 'bg-success animate-pulse' : 'bg-error'
+                clusterHealthCache[clusterName]?.healthy ? 'bg-success animate-pulse' : 'bg-error'
               ]"
             ></div>
             <h3 class="text-lg font-semibold">{{ clusterName }}</h3>
@@ -237,7 +237,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="topic in getVisibleClusterTopics(clusterName)" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
+                <tr v-for="topic in visibleClusterTopicsMap[clusterName] || []" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
                   <td>
                     <div class="flex items-center gap-3">
                       <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
@@ -257,10 +257,10 @@
                     </div>
                   </td>
                 </tr>
-                <tr v-if="getVisibleClusterTopics(clusterName).length === 0" style="height: 1px;"></tr>
+                <tr v-if="(visibleClusterTopicsMap[clusterName] || []).length === 0" style="height: 1px;"></tr>
               </tbody>
             </table>
-            <div :style="{ height: `${getClusterBottomPadding(clusterName)}px` }"></div>
+            <div :style="{ height: `${clusterBottomPaddingMap[clusterName] || 0}px` }"></div>
           </div>
         </div>
       </div>
@@ -1055,6 +1055,34 @@ function getClusterBottomPadding(clusterName: string): number {
   const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
   return hiddenBottom * ROW_HEIGHT;
 }
+
+// 集群健康状态缓存（避免频繁调用）
+const clusterHealthCache = computed(() => {
+  const result: Record<string, { healthy: boolean }> = {};
+  for (const clusterName of Object.keys(topicsByCluster.value)) {
+    const health = clusterStore.getClusterHealth(clusterName);
+    result[clusterName] = { healthy: health?.healthy ?? false };
+  }
+  return result;
+});
+
+// 可见的集群主题列表（computed 缓存）
+const visibleClusterTopicsMap = computed(() => {
+  const result: Record<string, TopicItem[]> = {};
+  for (const clusterName of Object.keys(filteredTopicsByCluster.value)) {
+    result[clusterName] = getVisibleClusterTopics(clusterName);
+  }
+  return result;
+});
+
+// 集群底部占位高度（computed 缓存）
+const clusterBottomPaddingMap = computed(() => {
+  const result: Record<string, number> = {};
+  for (const clusterName of Object.keys(filteredTopicsByCluster.value)) {
+    result[clusterName] = getClusterBottomPadding(clusterName);
+  }
+  return result;
+});
 
 function getClusterHealth(clusterId: string) {
   return clusterStore.getClusterHealth(clusterId);

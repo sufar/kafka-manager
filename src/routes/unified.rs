@@ -1509,11 +1509,14 @@ async fn fetch_messages_with_temp_consumer(
     client_config.set("group.id", "kafka-manager-temp-viewer");
     client_config.set("enable.auto.commit", "false");
     client_config.set("auto.offset.reset", "earliest");
-    client_config.set("request.timeout.ms", "10000");
+    client_config.set("request.timeout.ms", "5000");
+    client_config.set("socket.timeout.ms", "5000");
+    client_config.set("session.timeout.ms", "6000");
     // 不设置 fetch.min.bytes，立即返回可用消息
     client_config.set("fetch.wait.max.ms", "100");
     client_config.set("fetch.max.bytes", "52428800");
     client_config.set("fetch.message.max.bytes", "10485760");
+    client_config.set("metadata.max.age.ms", "5000");
 
     let consumer: BaseConsumer<DefaultConsumerContext> = client_config
         .create()
@@ -1525,7 +1528,7 @@ async fn fetch_messages_with_temp_consumer(
 
     // 获取所有分区的 metadata（当需要所有分区时）
     let partitions_list: Vec<i32> = if all_partitions {
-        let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(500))
+        let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(3000))
             .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
         metadata.topics()
             .first()
@@ -1548,7 +1551,7 @@ async fn fetch_messages_with_temp_consumer(
                 tpl.add_partition_offset(topic, part_id, rdkafka::Offset::Offset(start_time))
                     .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
 
-                match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                match consumer.offsets_for_times(tpl, Duration::from_millis(3000)) {
                     Ok(result) => {
                         result.elements_for_topic(topic)
                             .iter()
@@ -1560,7 +1563,7 @@ async fn fetch_messages_with_temp_consumer(
                 }
             }
         } else if fetch_mode == Some("newest") && offset.is_none() {
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(3000)) {
                 Ok((_, high)) if high > 0 => {
                     let latest_offset = high - 1;
                     latest_offset.saturating_sub((max_messages - 1) as i64)
@@ -1568,7 +1571,7 @@ async fn fetch_messages_with_temp_consumer(
                 _ => 0,
             }
         } else if fetch_mode == Some("oldest") && offset.is_none() {
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(3000)) {
                 Ok((low, _)) => low,
                 Err(_) => 0,
             }
@@ -1599,10 +1602,17 @@ async fn fetch_messages_with_temp_consumer(
 
     // 使用较短的超时快速获取消息
     let mut empty_polls = 0;
-    let max_empty_polls = 3;
+    let max_empty_polls = 5;
+    let mut total_wait_ms = 0;
+    let max_total_wait_ms = 5000; // 最多等待 5 秒
 
-    while messages.len() < max_messages && empty_polls < max_empty_polls {
-        match consumer.poll(Duration::from_millis(10)) {
+    // 使用阻塞模式 poll，减少空转
+    loop {
+        if messages.len() >= max_messages || empty_polls >= max_empty_polls || total_wait_ms >= max_total_wait_ms {
+            break;
+        }
+
+        match consumer.poll(Duration::from_millis(100)) {
             Some(Ok(msg)) => {
                 empty_polls = 0;
                 let timestamp = msg.timestamp().to_millis();
@@ -1629,10 +1639,14 @@ async fn fetch_messages_with_temp_consumer(
                 let key = msg.key().and_then(|k: &[u8]| std::str::from_utf8(k).ok().map(String::from));
                 let value = msg.payload().and_then(|p: &[u8]| std::str::from_utf8(p).ok().map(String::from));
 
-                // 搜索过滤
+                // 搜索过滤（避免重复 to_lowercase）
                 if let Some(ref search_term) = search_lower {
-                    let key_match = key.as_ref().map_or(false, |k: &String| k.to_lowercase().contains(search_term));
-                    let value_match = value.as_ref().map_or(false, |v: &String| v.to_lowercase().contains(search_term));
+                    let key_match = key.as_ref().map_or(false, |k| {
+                        k.len() <= 1000 && k.to_lowercase().contains(search_term)
+                    });
+                    let value_match = value.as_ref().map_or(false, |v| {
+                        v.len() <= 1000 && v.to_lowercase().contains(search_term)
+                    });
                     if !key_match && !value_match {
                         continue;
                     }
@@ -1646,8 +1660,14 @@ async fn fetch_messages_with_temp_consumer(
                     timestamp,
                 });
             }
-            Some(Err(_)) | None => {
+            Some(Err(_)) => {
                 empty_polls += 1;
+                total_wait_ms += 100;
+            }
+            None => {
+                // 没有消息返回，增加空 poll 计数
+                empty_polls += 1;
+                total_wait_ms += 100;
             }
         }
     }
