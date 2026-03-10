@@ -1451,16 +1451,13 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
     // 首先确保集群客户端已创建（如果未创建则自动创建）
-    let _config = ensure_cluster_client(&state, &cluster_id).await?;
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 使用连接池中的 consumer 获取消息
-    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let messages = fetch_messages_from_pool_with_filter(
-        &consumer_pool,
+    // 使用临时 consumer 获取消息（避免连接池配置影响）
+    let messages = fetch_messages_with_temp_consumer(
+        &config.brokers,
         &topic,
         partition,
         offset,
@@ -1486,6 +1483,192 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         .collect();
 
     Ok(serde_json::json!({ "messages": records }))
+}
+
+/// 使用临时 consumer 获取消息（支持过滤）
+async fn fetch_messages_with_temp_consumer(
+    brokers: &str,
+    topic: &str,
+    partition: Option<i32>,
+    offset: Option<i64>,
+    max_messages: usize,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<&str>,
+) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
+    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
+    use rdkafka::Message;
+    use rdkafka::TopicPartitionList;
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
+
+    // 创建临时 consumer，使用适合查看消息的配置
+    let mut client_config = ClientConfig::new();
+    client_config.set("bootstrap.servers", brokers);
+    client_config.set("group.id", "kafka-manager-temp-viewer");
+    client_config.set("enable.auto.commit", "false");
+    client_config.set("auto.offset.reset", "earliest");
+    client_config.set("request.timeout.ms", "10000");
+    // 不设置 fetch.min.bytes，立即返回可用消息
+    client_config.set("fetch.wait.max.ms", "100");
+    client_config.set("fetch.max.bytes", "52428800");
+    client_config.set("fetch.message.max.bytes", "10485760");
+
+    let consumer: BaseConsumer<DefaultConsumerContext> = client_config
+        .create()
+        .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
+
+    // 检查是否需要获取所有分区
+    let all_partitions = partition.is_none();
+    let target_partition = partition.unwrap_or(0);
+
+    // 获取所有分区的 metadata（当需要所有分区时）
+    let partitions_list: Vec<i32> = if all_partitions {
+        let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(500))
+            .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
+        metadata.topics()
+            .first()
+            .map(|t| t.partitions())
+            .map(|ps: &[rdkafka::metadata::MetadataPartition]| ps.iter().map(|p| p.id()).collect::<Vec<i32>>())
+            .unwrap_or_else(|| vec![0])
+    } else {
+        vec![target_partition]
+    };
+
+    // 为每个分区计算起始 offset
+    let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
+
+    for &part_id in &partitions_list {
+        let start_offset = if let Some(start_time) = start_time {
+            if start_time <= 0 {
+                offset.unwrap_or(0)
+            } else {
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset(topic, part_id, rdkafka::Offset::Offset(start_time))
+                    .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+
+                match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                    Ok(result) => {
+                        result.elements_for_topic(topic)
+                            .iter()
+                            .find(|e| e.partition() == part_id)
+                            .and_then(|e| e.offset().to_raw())
+                            .unwrap_or_else(|| offset.unwrap_or(0))
+                    }
+                    Err(_) => offset.unwrap_or(0),
+                }
+            }
+        } else if fetch_mode == Some("newest") && offset.is_none() {
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+                Ok((_, high)) if high > 0 => {
+                    let latest_offset = high - 1;
+                    latest_offset.saturating_sub((max_messages - 1) as i64)
+                }
+                _ => 0,
+            }
+        } else if fetch_mode == Some("oldest") && offset.is_none() {
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+                Ok((low, _)) => low,
+                Err(_) => 0,
+            }
+        } else {
+            offset.unwrap_or(0)
+        };
+
+        partition_offsets.push((part_id, start_offset));
+    }
+
+    // 为所有分区分配 offset
+    let mut tpl = TopicPartitionList::new();
+    for (part_id, start_offset) in &partition_offsets {
+        let safe_offset = if *start_offset < 0 {
+            rdkafka::Offset::Beginning
+        } else {
+            rdkafka::Offset::Offset(*start_offset)
+        };
+        tpl.add_partition_offset(topic, *part_id, safe_offset)
+            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+    }
+
+    consumer.assign(&tpl)
+        .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+
+    let search_lower = search.map(|s| s.to_lowercase());
+    let mut messages = Vec::with_capacity(max_messages);
+
+    // 使用较短的超时快速获取消息
+    let mut empty_polls = 0;
+    let max_empty_polls = 3;
+
+    while messages.len() < max_messages && empty_polls < max_empty_polls {
+        match consumer.poll(Duration::from_millis(10)) {
+            Some(Ok(msg)) => {
+                empty_polls = 0;
+                let timestamp = msg.timestamp().to_millis();
+
+                // 时间范围过滤
+                if let Some(start) = start_time {
+                    if let Some(ts) = timestamp {
+                        if ts < start {
+                            continue;
+                        }
+                    }
+                }
+                if let Some(end) = end_time {
+                    if let Some(ts) = timestamp {
+                        if ts > end {
+                            if !all_partitions {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                let key = msg.key().and_then(|k: &[u8]| std::str::from_utf8(k).ok().map(String::from));
+                let value = msg.payload().and_then(|p: &[u8]| std::str::from_utf8(p).ok().map(String::from));
+
+                // 搜索过滤
+                if let Some(ref search_term) = search_lower {
+                    let key_match = key.as_ref().map_or(false, |k: &String| k.to_lowercase().contains(search_term));
+                    let value_match = value.as_ref().map_or(false, |v: &String| v.to_lowercase().contains(search_term));
+                    if !key_match && !value_match {
+                        continue;
+                    }
+                }
+
+                messages.push(crate::kafka::consumer::KafkaMessage {
+                    partition: msg.partition(),
+                    offset: msg.offset(),
+                    key,
+                    value,
+                    timestamp,
+                });
+            }
+            Some(Err(_)) | None => {
+                empty_polls += 1;
+            }
+        }
+    }
+
+    // 重置 consumer 的分配
+    let empty_tpl = TopicPartitionList::new();
+    let _ = consumer.assign(&empty_tpl);
+
+    // 如果是从所有分区获取消息，按时间戳排序
+    if all_partitions {
+        messages.sort_by(|a, b| {
+            match (a.timestamp, b.timestamp) {
+                (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.offset.cmp(&b.offset),
+            }
+        });
+    }
+
+    Ok(messages)
 }
 
 /// 使用连接池中的 consumer 获取消息（支持过滤）

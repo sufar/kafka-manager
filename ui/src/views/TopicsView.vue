@@ -445,19 +445,7 @@
             <!-- Partitions Tab -->
             <div v-if="activeTab === 'partitions'">
               <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <div class="badge badge-neutral">{{ selectedTopicDetail?.partitions.length }} partitions</div>
-                  <div v-if="partitionStats" class="text-xs text-base-content/60">
-                    Total messages: <span class="font-mono">{{ formatNumber(partitionStats.totalMessages) }}</span> |
-                    Total size: <span class="font-mono">{{ formatBytes(partitionStats.totalSize) }}</span>
-                  </div>
-                </div>
-                <button class="btn btn-primary btn-xs" @click="showAddPartitionsModal">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  Add Partitions
-                </button>
+                <div class="badge badge-neutral">{{ selectedTopicDetail?.partitions.length }} partitions</div>
               </div>
               <div class="overflow-x-auto">
                 <table class="table table-zebra">
@@ -465,30 +453,17 @@
                     <tr>
                       <th>Partition</th>
                       <th>Leader</th>
-                      <th>Replicas</th>
                       <th>ISR</th>
-                      <th>Messages</th>
-                      <th>Size</th>
-                      <th>Watermarks</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="partition in selectedTopicDetail?.partitions" :key="partition.id">
                       <td><span class="font-mono">{{ partition.id }}</span></td>
                       <td><span class="badge badge-ghost badge-xs">{{ partition.leader }}</span></td>
-                      <td><span class="font-mono text-xs">{{ partition.replicas.join(', ') }}</span></td>
                       <td>
                         <span :class="['font-mono text-xs', partition.isr.length === partition.replicas.length ? 'text-success' : 'text-warning']">
                           {{ partition.isr.join(', ') }}
                         </span>
-                      </td>
-                      <td class="font-mono text-xs">{{ partitionStats?.partitions[partition.id]?.messages || '-' }}</td>
-                      <td class="font-mono text-xs">{{ formatBytes(partitionStats?.partitions[partition.id]?.size || 0) }}</td>
-                      <td class="font-mono text-xs">
-                        <span v-if="partitionStats?.partitions[partition.id]">
-                          {{ partitionStats.partitions[partition.id]?.lowOffset }} / {{ partitionStats.partitions[partition.id]?.highOffset }}
-                        </span>
-                        <span v-else>-</span>
                       </td>
                     </tr>
                   </tbody>
@@ -947,11 +922,6 @@ const currentCluster = ref<string>('');
 
 // 新增：Topic 详情增强功能相关变量
 const activeTab = ref<'partitions' | 'config' | 'consumers' | 'tags'>('partitions');
-const partitionStats = ref<{
-  partitions: Record<string, { messages: number; size: number; lowOffset: number; highOffset: number }>;
-  totalMessages: number;
-  totalSize: number;
-} | null>(null);
 const topicConfig = ref<Record<string, string> | null>(null);
 const editConfigForm = ref<Record<string, string>>({});
 const updatingConfig = ref(false);
@@ -1201,8 +1171,7 @@ async function viewTopicDetail(clusterId: string, topic: TopicItem) {
     activeTab.value = 'partitions';
     topicDetailUpdatedAt.value = Date.now();
 
-    // 并行加载分区统计、配置和标签
-    fetchPartitionStats(clusterId, topic.name);
+    // 并行加载配置和标签
     fetchTopicConfig(clusterId, topic.name);
     fetchTopicTags(clusterId, topic.name);
 
@@ -1216,40 +1185,9 @@ function closeDetailModal() {
   detailModalRef.value?.close();
   selectedTopicDetail.value = null;
   selectedTopicCluster.value = '';
-  partitionStats.value = null;
   topicConfig.value = null;
   consumers.value = [];
   topicTags.value = [];
-}
-
-// 获取分区统计信息（watermarks、消息数量、大小）
-async function fetchPartitionStats(clusterId: string, topicName: string) {
-  try {
-    const partitions = selectedTopicDetail.value?.partitions || [];
-    const stats: Record<string, { messages: number; size: number; lowOffset: number; highOffset: number }> = {};
-    let totalMessages = 0;
-    let totalSize = 0;
-
-    for (const p of partitions) {
-      try {
-        const watermarks = await apiClient.getPartitionWatermarks(clusterId, topicName, p.id);
-        const lowOffset = watermarks.lowOffset || 0;
-        const highOffset = watermarks.highOffset || 0;
-        const messages = Math.max(0, highOffset - lowOffset);
-        // 估算大小：假设平均每条消息 500 bytes
-        const size = messages * 500;
-        stats[p.id] = { messages, size, lowOffset, highOffset };
-        totalMessages += messages;
-        totalSize += size;
-      } catch (e) {
-        stats[p.id] = { messages: 0, size: 0, lowOffset: 0, highOffset: 0 };
-      }
-    }
-
-    partitionStats.value = { partitions: stats, totalMessages, totalSize };
-  } catch (e) {
-    console.error('Failed to fetch partition stats:', e);
-  }
 }
 
 // 获取 Topic 配置
@@ -1377,12 +1315,6 @@ function tagColorClass(color: string): string {
   return colors[color] || 'bg-primary';
 }
 
-// 添加分区
-function showAddPartitionsModal() {
-  addPartitionsForm.count = 1;
-  addPartitionsModalRef.value?.showModal();
-}
-
 function closeAddPartitionsModal() {
   addPartitionsModalRef.value?.close();
 }
@@ -1460,15 +1392,6 @@ function formatNumber(num: number): string {
     return (num / 1000).toFixed(1) + 'K';
   }
   return num.toString();
-}
-
-// 格式化字节
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 // 格式化相对时间
