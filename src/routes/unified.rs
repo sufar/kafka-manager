@@ -702,13 +702,29 @@ async fn reload_clients(state: &AppState) -> Result<()> {
 async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
 
-    // Try cache first
-    if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
-        return Ok(serde_json::json!({ "topics": cached_topics }));
+    // 首先尝试从数据库获取（最快）
+    let db_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await.ok();
+
+    // 如果有数据库缓存，先返回（快速响应）
+    if let Some(topics) = db_topics {
+        if !topics.is_empty() {
+            // 后台异步同步 Kafka（不阻塞响应）
+            let state_clone = state.clone();
+            let cluster_id_clone = cluster_id.clone();
+            tokio::spawn(async move {
+                let _ = sync_topics_from_kafka(state_clone, &cluster_id_clone).await;
+            });
+            return Ok(serde_json::json!({ "topics": topics }));
+        }
     }
 
-    // Cache miss, get from Kafka
-    let admin = get_or_create_admin_client(&state, &cluster_id).await?;
+    // 数据库没有数据，从 Kafka 获取
+    sync_topics_from_kafka(state, &cluster_id).await
+}
+
+/// 从 Kafka 同步主题列表到数据库，并返回结果
+async fn sync_topics_from_kafka(state: AppState, cluster_id: &str) -> Result<Value> {
+    let admin = get_or_create_admin_client(&state, cluster_id).await?;
 
     // Use spawn_blocking to avoid blocking async runtime
     // Add retry logic for initial connection establishment
@@ -721,10 +737,13 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
 
         match result {
             Ok(topics) => {
-                // Write to cache
+                // 同步到数据库
+                let _ = TopicStore::sync_topics(state.db.inner(), cluster_id, &topics).await;
+
+                // 写入内存缓存
                 state
                     .cache
-                    .set_topic_list(&cluster_id, topics.clone())
+                    .set_topic_list(cluster_id, topics.clone())
                     .await;
 
                 return Ok(serde_json::json!({ "topics": topics }));
@@ -733,7 +752,6 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
                 last_error = Some(e);
                 if attempt < 2 {
                     // Wait before retry (initial connection may need time to establish)
-                    // 使用递增的等待时间：200ms, 400ms
                     let wait_ms = 200 * (attempt + 1) as u64;
                     tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().map(|e| format!("{}", e)).unwrap_or_default());
                     tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;

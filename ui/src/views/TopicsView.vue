@@ -237,30 +237,34 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="topic in getVisibleClusterTopics(clusterName)" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
-                  <td>
-                    <div class="flex items-center gap-3">
-                      <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
-                        </svg>
+                <template v-if="(visibleClusterTopicsMap[clusterName] || []).length > 0">
+                  <tr v-for="topic in visibleClusterTopicsMap[clusterName]" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
+                    <td>
+                      <div class="flex items-center gap-3">
+                        <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
+                          </svg>
+                        </div>
+                        <span class="font-medium">{{ topic.name }}</span>
                       </div>
-                      <span class="font-medium">{{ topic.name }}</span>
-                    </div>
-                  </td>
-                  <td><div class="badge badge-neutral">{{ topic.partition_count || '-' }}</div></td>
-                  <td>
-                    <div class="flex gap-1">
-                      <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(clusterName, topic)">{{ t.topics.viewDetails }}</button>
-                      <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(clusterName, topic)">{{ t.topics.viewMessages }}</button>
-                      <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">{{ t.common.delete }}</button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="getVisibleClusterTopics(clusterName).length === 0" style="height: 1px;"></tr>
+                    </td>
+                    <td><div class="badge badge-neutral">{{ topic.partition_count || '-' }}</div></td>
+                    <td>
+                      <div class="flex gap-1">
+                        <button class="btn btn-ghost btn-xs" @click="viewTopicDetail(clusterName, topic)">{{ t.topics.viewDetails }}</button>
+                        <button class="btn btn-ghost btn-xs" @click="viewTopicMessages(clusterName, topic)">{{ t.topics.viewMessages }}</button>
+                        <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">{{ t.common.delete }}</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <template v-else>
+                  <tr style="height: 1px;"><td colspan="3"></td></tr>
+                </template>
               </tbody>
             </table>
-            <div :style="{ height: `${getClusterBottomPadding(clusterName)}px` }"></div>
+            <div :style="{ height: `${clusterBottomPaddingMap[clusterName] || 0}px` }"></div>
           </div>
         </div>
       </div>
@@ -1022,40 +1026,6 @@ const bottomPadding = computed(() => {
   return hiddenBottom * ROW_HEIGHT;
 });
 
-// 获取可见的集群主题列表（用于模板中的 v-for）
-function getVisibleClusterTopics(clusterName: string): TopicItem[] {
-  const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
-  if (!clusterTopics.length) return [];
-
-  const scrollY = clusterScrollTops.value[clusterName] || 0;
-  const containerH = clusterContainerHeights.value[clusterName] || 600;
-
-  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-  const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
-
-  return clusterTopics.slice(startIndex, endIndex);
-}
-
-// 获取底部占位高度（用于模板中的底部占位元素）
-function getClusterBottomPadding(clusterName: string): number {
-  const clusterTopics = filteredTopicsByCluster.value[clusterName] || [];
-  if (!clusterTopics.length) return 0;
-
-  const scrollY = clusterScrollTops.value[clusterName] || 0;
-  const containerH = clusterContainerHeights.value[clusterName] || 600;
-
-  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-  const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
-  const visibleTopics = clusterTopics.slice(startIndex, endIndex);
-
-  if (visibleTopics.length === 0) return 0;
-
-  const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
-  return hiddenBottom * ROW_HEIGHT;
-}
-
 // 集群健康状态缓存（避免频繁调用）
 const clusterHealthCache = computed(() => {
   const result: Record<string, { healthy: boolean }> = {};
@@ -1066,8 +1036,47 @@ const clusterHealthCache = computed(() => {
   return result;
 });
 
-// 注意：不再使用 visibleClusterTopicsMap 和 clusterBottomPaddingMap computed
-// 改为在模板中直接调用函数，利用 Vue 的响应式依赖追踪
+// 可见的集群主题列表（computed 缓存，按集群名称）
+const visibleClusterTopicsMap = computed(() => {
+  const result: Record<string, TopicItem[]> = {};
+  for (const [clusterName, clusterTopics] of Object.entries(filteredTopicsByCluster.value)) {
+    if (!clusterTopics.length) {
+      result[clusterName] = [];
+      continue;
+    }
+    const scrollY = clusterScrollTops.value[clusterName] || 0;
+    const containerH = clusterContainerHeights.value[clusterName] || 600;
+    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
+    result[clusterName] = clusterTopics.slice(startIndex, endIndex);
+  }
+  return result;
+});
+
+// 集群底部占位高度（computed 缓存，按集群名称）
+const clusterBottomPaddingMap = computed(() => {
+  const result: Record<string, number> = {};
+  for (const [clusterName, clusterTopics] of Object.entries(filteredTopicsByCluster.value)) {
+    if (!clusterTopics.length) {
+      result[clusterName] = 0;
+      continue;
+    }
+    const scrollY = clusterScrollTops.value[clusterName] || 0;
+    const containerH = clusterContainerHeights.value[clusterName] || 600;
+    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
+    const visibleTopics = clusterTopics.slice(startIndex, endIndex);
+    if (visibleTopics.length === 0) {
+      result[clusterName] = 0;
+    } else {
+      const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
+      result[clusterName] = hiddenBottom * ROW_HEIGHT;
+    }
+  }
+  return result;
+});
 
 function getClusterHealth(clusterId: string) {
   return clusterStore.getClusterHealth(clusterId);
