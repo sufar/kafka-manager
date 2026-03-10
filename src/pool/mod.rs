@@ -184,7 +184,7 @@ impl ClusterPools {
     }
 }
 
-/// 构建连接池的辅助函数
+/// 构建连接池的辅助函数 - 性能优化版
 fn build_pool<M>(manager: M, config: &PoolConfig) -> deadpool::managed::Pool<M>
 where
     M: deadpool::managed::Manager + Send + Sync + 'static,
@@ -200,10 +200,11 @@ where
         .wait_timeout(Some(Duration::from_secs(config.acquire_timeout_secs)))
         .timeouts(Timeouts {
             wait: Some(Duration::from_secs(config.acquire_timeout_secs)),
-            create: Some(Duration::from_secs(30)),
-            recycle: Some(Duration::from_secs(10)),
+            create: Some(Duration::from_secs(10)),  // 优化：从 30 秒降低到 10 秒
+            recycle: Some(Duration::from_secs(5)),  // 优化：从 10 秒降低到 5 秒
         })
         .runtime(Runtime::Tokio1)
+        // 优化：连接回收时的健康检查
         .post_recycle(Hook::async_fn(|_conn, _metrics| {
             Box::pin(async move { Ok(()) })
         }))

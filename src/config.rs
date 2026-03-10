@@ -60,20 +60,24 @@ impl Default for PoolConfig {
     }
 }
 
+/// 默认连接池最大大小 - 优化：从 20 提升到 50，支持更高并发
 fn default_pool_max_size() -> usize {
-    20
+    50
 }
 
+/// 默认连接池最小大小 - 优化：从 2 提升到 5，减少冷启动延迟
 fn default_pool_min_size() -> usize {
-    2
+    5
 }
 
+/// 默认连接获取超时 - 优化：从 30 秒降低到 15 秒，更快失败
 fn default_pool_timeout() -> u64 {
-    30
+    15
 }
 
+/// 默认连接空闲超时 - 优化：从 600 秒降低到 300 秒，更快回收资源
 fn default_pool_idle_timeout() -> u64 {
-    600
+    300
 }
 
 fn default_operation_timeout() -> u32 {

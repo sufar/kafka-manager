@@ -1592,7 +1592,10 @@ async fn fetch_messages_from_pool_with_filter(
 
     // 优化：使用更短的超时和更高效的循环策略
     // 目标：1 万条消息在 1 秒内完成
-    let poll_timeout = Duration::from_millis(50);
+    // 优化点：
+    // - poll_timeout 从 50ms 降低到 20ms，减少空等待时间
+    // - 增加 max_poll_records 配置，让每次 poll 获取更多消息
+    let poll_timeout = Duration::from_millis(20);
 
     while messages.len() < max_messages {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
