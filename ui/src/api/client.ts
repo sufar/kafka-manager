@@ -535,6 +535,7 @@ class ApiClient {
     partition?: number;
     offset?: number;
     max_messages?: number;
+    per_partition_max?: boolean;  // Per-partition 模式
     limit?: number;
     search?: string;
     start_time?: number;

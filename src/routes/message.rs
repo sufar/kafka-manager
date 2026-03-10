@@ -1,3 +1,4 @@
+use crate::db::cluster::ClusterStore;
 use crate::error::{AppError, Result};
 use crate::kafka::consumer::KafkaMessage;
 use crate::models::{MessageListResponse, MessageRecord, SendMessageRequest, SendMessageResponse};
@@ -9,6 +10,69 @@ use axum::{
 };
 use rdkafka::consumer::Consumer;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// 获取或创建 admin 客户端（用于获取 topic 元数据）
+async fn get_or_create_admin_client(
+    state: &AppState,
+    cluster_id: &str,
+) -> Result<Arc<crate::kafka::KafkaAdmin>> {
+    use tokio::time::Duration;
+
+    // 首先尝试从内存中获取
+    let clients = state.get_clients();
+    if let Some(admin) = clients.get_admin(cluster_id) {
+        return Ok(admin);
+    }
+
+    // 从数据库获取集群配置（带重试）
+    let mut cluster = None;
+    let mut last_db_error = None;
+
+    for attempt in 0..3 {
+        match ClusterStore::get_by_name(state.db.inner(), cluster_id).await {
+            Ok(Some(c)) => {
+                cluster = Some(c);
+                break;
+            }
+            Ok(None) => {
+                last_db_error = Some(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)));
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            Err(e) => {
+                last_db_error = Some(e);
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    let cluster = cluster.ok_or_else(|| last_db_error.unwrap_or_else(|| {
+        AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id))
+    }))?;
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    // 建立连接池连接
+    state.pools.add_cluster(cluster_id, &config, &state.config.pool).await?;
+
+    // 更新 Kafka 客户端
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(cluster_id, &config)?;
+    state.set_clients(new_clients.into());
+
+    // 获取新的客户端
+    let updated_clients = state.get_clients();
+    updated_clients.get_admin(cluster_id)
+        .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))
+}
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -21,6 +85,7 @@ pub struct GetMessageParams {
     pub partition: Option<i32>,
     pub offset: Option<i64>,
     pub max_messages: Option<usize>,
+    pub per_partition_max: Option<bool>,  // 是否启用 per-partition 模式
     pub order_by: Option<String>,    // "timestamp" or "offset"
     pub sort: Option<String>,        // "asc" or "desc"
     pub limit: Option<usize>,        // 限制返回的消息数量
@@ -94,6 +159,7 @@ async fn get_messages(
 
     let max_messages = params.max_messages.unwrap_or(100);
     let limit = params.limit.unwrap_or(max_messages);
+    let per_partition = params.per_partition_max.unwrap_or(false);
 
     // 克隆 params 用于闭包
     let params_clone = params.clone();
@@ -102,43 +168,101 @@ async fn get_messages(
     let need_sort = params.order_by.as_deref() == Some("timestamp");
     let desc = params.sort.as_deref() == Some("desc");
 
-    // 性能优化：如果有时间范围过滤，先使用 offsets_for_timestamp 定位起始 offset
-    // 或者根据 fetch_mode 确定起始 offset
-    let start_offset = if let Some(start_time) = params.start_time {
-        let target_partition = params.partition.unwrap_or(0);
-        match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
-            Ok(Some(offset)) => Some(offset),
-            Ok(None) | Err(_) => params.offset,
-        }
-    } else if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() {
-        // fetch_mode=newest 且未指定 offset: 从最新的 offset 开始获取
-        let target_partition = params.partition.unwrap_or(0);
-        match consumer.get_offset_for_time(&config, &topic, target_partition, i64::MAX).await {
-            Ok(Some(offset)) => Some(offset),
-            Ok(None) | Err(_) => None, // fallback 到 earliest
-        }
-    } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
-        // fetch_mode=oldest 且未指定 offset: 查询 low watermark 作为起始位置
-        let target_partition = params.partition.unwrap_or(0);
-        consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
-    } else {
-        // 默认从最早的 offset 开始或指定的 offset
-        params.offset
-    };
+    // Per-partition 模式：并行获取每个 partition 的消息
+    let raw_messages = if per_partition && params.partition.is_none() {
+        // 获取 topic 的 partition 列表
+        let admin = get_or_create_admin_client(&state, &cluster_id).await?;
+        let topic_info = admin.get_topic_info(&topic)?;
+        let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
 
-    // 流式获取消息：在读取时就进行过滤和排序
-    let raw_messages = consumer
-        .fetch_messages_filtered(
-            &config,
-            &topic,
-            params_clone.partition,
-            start_offset,
-            limit,
-            &move |msg: &KafkaMessage| -> bool {
-                params_clone.matches(msg)
-            },
-        )
-        .await?;
+        // 并发获取每个 partition 的消息
+        let mut tasks = Vec::new();
+        for pid in partition_ids {
+            let consumer_clone = consumer.clone();
+            let config_clone = config.clone();
+            let topic_clone = topic.clone();
+            let params_clone = params_clone.clone();
+            let max_msgs = max_messages;
+
+            let task = tokio::spawn(async move {
+                // 计算每个 partition 的起始 offset
+                let start_offset = if let Some(start_time) = params_clone.start_time {
+                    match consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, start_time).await {
+                        Ok(Some(offset)) => Some(offset),
+                        Ok(None) | Err(_) => None,
+                    }
+                } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
+                    match consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, i64::MAX).await {
+                        Ok(Some(offset)) => Some(offset),
+                        Ok(None) | Err(_) => None,
+                    }
+                } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
+                    consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, 0).await.ok().flatten()
+                } else {
+                    params_clone.offset
+                };
+
+                // 获取消息
+                consumer_clone
+                    .fetch_messages_filtered(
+                        &config_clone,
+                        &topic_clone,
+                        Some(pid),
+                        start_offset,
+                        max_msgs,
+                        &move |msg: &KafkaMessage| -> bool {
+                            params_clone.matches(msg)
+                        },
+                    )
+                    .await
+            });
+            tasks.push(task);
+        }
+
+        // 收集所有结果
+        let mut all_messages = Vec::new();
+        for task in tasks {
+            match task.await {
+                Ok(Ok(msgs)) => all_messages.extend(msgs),
+                Ok(Err(e)) => tracing::warn!("Partition fetch error: {}", e),
+                Err(e) => tracing::warn!("Task join error: {}", e),
+            }
+        }
+        all_messages
+    } else {
+        // 单 partition 模式或指定了 partition
+        let start_offset = if let Some(start_time) = params.start_time {
+            let target_partition = params.partition.unwrap_or(0);
+            match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
+                Ok(Some(offset)) => Some(offset),
+                Ok(None) | Err(_) => params.offset,
+            }
+        } else if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() {
+            let target_partition = params.partition.unwrap_or(0);
+            match consumer.get_offset_for_time(&config, &topic, target_partition, i64::MAX).await {
+                Ok(Some(offset)) => Some(offset),
+                Ok(None) | Err(_) => None,
+            }
+        } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
+            let target_partition = params.partition.unwrap_or(0);
+            consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
+        } else {
+            params.offset
+        };
+
+        consumer
+            .fetch_messages_filtered(
+                &config,
+                &topic,
+                params_clone.partition,
+                start_offset,
+                limit,
+                &move |msg: &KafkaMessage| -> bool {
+                    params_clone.matches(msg)
+                },
+            )
+            .await?
+    };
 
     // 转换为 MessageRecord 并流式排序
     let messages = if need_sort {

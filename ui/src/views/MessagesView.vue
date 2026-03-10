@@ -219,6 +219,11 @@
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
       <div class="flex items-center gap-1.5">
+        <label class="label cursor-pointer" :title="t.messages.perPartitionMax">
+          <span class="label-text text-xs">{{ t.messages.perPartitionMax }}</span>
+          <input v-model="filters.per_partition_max" type="checkbox" class="checkbox checkbox-xs" @change="fetchMessages" />
+        </label>
+        <span class="divider divider-horizontal mx-2"></span>
         <span>{{ t.messages.maxMessages }}</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20" min="1" max="10000" @change="fetchMessages" />
       </div>
@@ -352,7 +357,8 @@ function showSuccess(message: string) {
 
 const filters = reactive({
   partition: undefined as number | undefined,
-  max_messages: 1000,
+  max_messages: 100,
+  per_partition_max: false,  // Per-partition 模式
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
@@ -611,12 +617,14 @@ async function fetchMessages() {
       const params: {
         partition?: number;
         max_messages: number;
+        per_partition_max?: boolean;
         search: string;
         fetchMode?: 'oldest' | 'newest';
         start_time?: number;
         end_time?: number;
       } = {
         max_messages: filters.max_messages,
+        per_partition_max: filters.per_partition_max,
         search: filters.search,
         fetchMode: filters.fetchMode,
       };
