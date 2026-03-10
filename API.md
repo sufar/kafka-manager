@@ -68,6 +68,8 @@ X-API-Method: {method_name}
 | `cluster.delete` | 删除集群 | `id: number` |
 | `cluster.test` | 测试集群连接 | `id: number` |
 
+> **注意**: `cluster.delete` 会删除集群及其所有 Topic 的**数据库元数据**，不会删除 Kafka 集群中的实际数据。
+
 ---
 
 ### Topic 主题管理

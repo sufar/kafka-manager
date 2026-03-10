@@ -150,13 +150,15 @@ async fn delete_cluster(
     // 获取集群信息
     let cluster = ClusterStore::get(state.db.inner(), id).await?;
     let cluster_name = cluster.name.clone();
-    let brokers = cluster.brokers.clone();
-    let request_timeout_ms = cluster.request_timeout_ms as u32;
-    let operation_timeout_ms = cluster.operation_timeout_ms as u32;
 
     // 获取集群下的所有 topic
     let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster.name).await?;
     let topic_names: Vec<String> = topics.iter().map(|t| t.topic_name.clone()).collect();
+
+    // 删除集群下所有 topic 元数据
+    for topic_name in &topic_names {
+        let _ = TopicStore::delete(state.db.inner(), &cluster_name, topic_name).await;
+    }
 
     // 删除集群
     ClusterStore::delete(state.db.inner(), id).await?;
@@ -164,57 +166,7 @@ async fn delete_cluster(
     // 重新加载 Kafka 客户端（移除已删除的集群）
     reload_clients(&state).await?;
 
-    // 异步删除 Kafka 集群中的 topic（不阻塞响应）
-    if !topic_names.is_empty() {
-        tokio::spawn(async move {
-            use crate::config::KafkaConfig;
-            use crate::kafka::KafkaAdmin;
-
-            let kafka_config = KafkaConfig {
-                brokers,
-                request_timeout_ms,
-                operation_timeout_ms,
-            };
-
-            match KafkaAdmin::new(&kafka_config) {
-                Ok(admin) => {
-                    tracing::info!("Starting async deletion of {} topics for cluster '{}'", topic_names.len(), cluster_name);
-
-                    // 并发删除所有 topic
-                    let delete_tasks: Vec<_> = topic_names.iter().map(|topic_name| {
-                        let admin = admin.clone();
-                        let topic_name = topic_name.clone();
-                        async move {
-                            match admin.delete_topic(&topic_name).await {
-                                Ok(_) => {
-                                    tracing::info!("Deleted topic '{}'", topic_name);
-                                    Ok(())
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to delete topic '{}': {}", topic_name, e);
-                                    Err(e)
-                                }
-                            }
-                        }
-                    }).collect();
-
-                    let results = futures::future::join_all(delete_tasks).await;
-                    let success_count = results.iter().filter(|r| r.is_ok()).count();
-                    let failed_count = results.iter().filter(|r| r.is_err()).count();
-
-                    tracing::info!(
-                        "Completed topic deletion for cluster '{}': {} succeeded, {} failed",
-                        cluster_name,
-                        success_count,
-                        failed_count
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create Kafka admin client for cluster '{}': {}", cluster_name, e);
-                }
-            }
-        });
-    }
+    tracing::info!("Deleted cluster '{}' and {} topic metadata", cluster_name, topic_names.len());
 
     Ok(())
 }
