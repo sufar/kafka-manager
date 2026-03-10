@@ -95,9 +95,9 @@
 
     <!-- Single cluster view (from URL param) -->
     <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl">
-      <div class="overflow-x-auto">
+      <div ref="singleClusterContainerRef" class="overflow-x-auto overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 250px);">
         <!-- Search Bar -->
-        <div class="p-3">
+        <div class="p-3 sticky top-0 bg-base-100 z-10">
           <div class="relative">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
               <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -127,7 +127,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="topic in filteredClusterTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer">
+            <!-- 虚拟滚动：顶部占位 -->
+            <tr v-if="singleClusterVirtualStartIndex > 0" :style="{ height: singleClusterVirtualStartIndex * ROW_HEIGHT + 'px' }">
+              <td colspan="4" style="padding: 0; border: 0;"></td>
+            </tr>
+            <!-- 可见区域的行 -->
+            <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer" :style="{ height: ROW_HEIGHT + 'px' }">
               <td>
                 <div class="flex items-center gap-3">
                   <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
@@ -167,6 +172,10 @@
                   </button>
                 </div>
               </td>
+            </tr>
+            <!-- 虚拟滚动：底部占位 -->
+            <tr v-if="singleClusterVirtualStartIndex + singleClusterVisibleTopics.length < filteredClusterTopics.length" :style="{ height: (filteredClusterTopics.length - singleClusterVirtualStartIndex - singleClusterVisibleTopics.length) * ROW_HEIGHT + 'px' }">
+              <td colspan="4" style="padding: 0; border: 0;"></td>
             </tr>
           </tbody>
         </table>
@@ -983,10 +992,22 @@ const containerHeight = ref(0);
 const clusterScrollTops = ref<Record<string, number>>({});
 const clusterContainerHeights = ref<Record<string, number>>({});
 
+// Single cluster 模式虚拟滚动
+const singleClusterContainerRef = ref<HTMLElement | null>(null);
+void singleClusterContainerRef; // prevent ts-unused warning
+const singleClusterScrollTop = ref(0);
+const singleClusterContainerHeight = ref(0);
+
 function handleScroll(event: Event) {
   const target = event.target as HTMLElement;
   scrollTop.value = target.scrollTop;
   containerHeight.value = target.clientHeight;
+}
+
+function handleSingleClusterScroll(event: Event) {
+  const target = event.target as HTMLElement;
+  singleClusterScrollTop.value = target.scrollTop;
+  singleClusterContainerHeight.value = target.clientHeight;
 }
 
 function handleClusterScroll(event: Event, clusterName: string) {
@@ -1024,6 +1045,23 @@ const bottomPadding = computed(() => {
   const startIndex = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
   const hiddenBottom = Math.max(0, allTopics.length - startIndex - visibleCount);
   return hiddenBottom * ROW_HEIGHT;
+});
+
+// Single cluster 模式虚拟滚动
+const singleClusterVirtualStartIndex = computed(() => {
+  return Math.max(0, Math.floor(singleClusterScrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
+});
+
+const singleClusterVisibleTopics = computed(() => {
+  const allTopics = filteredClusterTopics.value;
+  if (!allTopics.length) return [];
+
+  const startIndex = singleClusterVirtualStartIndex.value;
+  const containerH = singleClusterContainerHeight.value || 600;
+  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+  const endIndex = Math.min(allTopics.length, startIndex + visibleCount);
+
+  return allTopics.slice(startIndex, endIndex);
 });
 
 // 集群健康状态缓存（避免频繁调用）
