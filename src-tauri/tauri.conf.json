@@ -11,6 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "singleInstance": true,
     "windows": [
       {
         "title": "Kafka Manager",
