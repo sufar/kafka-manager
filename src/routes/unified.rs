@@ -370,6 +370,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.delete" => handle_topic_delete(state, body).await,
         "topic.batch_create" => handle_topic_batch_create(state, body).await,
         "topic.batch_delete" => handle_topic_batch_delete(state, body).await,
+        "topic.delete_all" => handle_topic_delete_all(state, body).await,
         "topic.offsets" => handle_topic_offsets(state, body).await,
         "topic.config_get" => handle_topic_config_get(state, body).await,
         "topic.config_alter" => handle_topic_config_alter(state, body).await,
@@ -927,6 +928,43 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
         "success": failed.is_empty(),
         "deleted": deleted,
         "failed": failed
+    }))
+}
+
+/// 删除集群下所有 topic（仅删除数据库元数据）
+async fn handle_topic_delete_all(state: AppState, body: Value) -> Result<Value> {
+    use crate::db::topic::TopicStore;
+
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    // 从数据库获取该集群下的所有 topic
+    let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    let topic_names: Vec<String> = topics.iter().map(|t| t.topic_name.clone()).collect();
+
+    if topic_names.is_empty() {
+        return Ok(serde_json::json!({
+            "success": true,
+            "deleted": Vec::<String>::new(),
+            "failed": Vec::<serde_json::Value>::new(),
+            "total_deleted": 0,
+            "total_failed": 0
+        }));
+    }
+
+    // 从数据库删除所有 topic 元数据
+    for topic_name in &topic_names {
+        let _ = TopicStore::delete(state.db.inner(), &cluster_id, topic_name).await;
+    }
+
+    // Invalidate cache
+    state.cache.invalidate_topic_list(&cluster_id).await;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "deleted": topic_names,
+        "failed": Vec::<serde_json::Value>::new(),
+        "total_deleted": topic_names.len(),
+        "total_failed": 0
     }))
 }
 

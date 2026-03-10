@@ -78,6 +78,7 @@ X-API-Method: {method_name}
 | `topic.get` | 获取 Topic 详情 | `cluster_id: string, name: string` |
 | `topic.create` | 创建 Topic | `cluster_id: string, name: string, num_partitions?: number, replication_factor?: number, config?: object` |
 | `topic.delete` | 删除 Topic | `cluster_id: string, name: string` |
+| `topic.delete_all` | 删除集群下所有 Topic | `cluster_id: string` |
 | `topic.batch_create` | 批量创建 Topic | `cluster_id: string, topics: array, continue_on_error?: boolean` |
 | `topic.batch_delete` | 批量删除 Topic | `cluster_id: string, topics: string[], continue_on_error?: boolean` |
 | `topic.offsets` | 获取 Topic 偏移量 | `cluster_id: string, name: string` |
@@ -330,6 +331,30 @@ curl -X POST http://localhost:9732/api \
     "cluster_id": "test-cluster",
     "topic": "my-topic"
   }'
+```
+
+### 删除集群下所有 Topic
+
+> **注意**: 此接口仅删除数据库中的 Topic 元数据，不会删除 Kafka 集群中的实际 Topic。
+
+```bash
+curl -X POST http://localhost:9732/api \
+  -H "Content-Type: application/json" \
+  -H "X-API-Method: topic.delete_all" \
+  -d '{
+    "cluster_id": "test-cluster"
+  }'
+```
+
+**响应:**
+```json
+{
+  "success": true,
+  "deleted": ["topic-1", "topic-2", "topic-3"],
+  "failed": [],
+  "total_deleted": 3,
+  "total_failed": 0
+}
 ```
 
 ### 发送消息
