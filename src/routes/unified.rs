@@ -374,6 +374,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.config_get" => handle_topic_config_get(state, body).await,
         "topic.config_alter" => handle_topic_config_alter(state, body).await,
         "topic.partitions_add" => handle_topic_partitions_add(state, body).await,
+        "topic.partition.watermarks" => handle_topic_partition_watermarks(state, body).await,
         "topic.throughput" => handle_topic_throughput(state, body).await,
         "topic.refresh" => handle_topic_refresh(state, body).await,
         "topic.saved" => handle_topic_saved(state, body).await,
@@ -939,6 +940,27 @@ async fn handle_topic_offsets(state: AppState, body: Value) -> Result<Value> {
         .collect();
 
     Ok(serde_json::json!({ "offsets": details }))
+}
+
+/// 获取分区的 watermarks（low 和 high offset）
+async fn handle_topic_partition_watermarks(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_i32_param(&body, "partition")?;
+
+    let clients = state.get_clients();
+    let config = clients.get_config(&cluster_id)
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+
+    let watermarks = admin.get_partition_watermarks(&topic, partition, &config.brokers)?;
+
+    Ok(serde_json::json!({
+        "low_offset": watermarks.0,
+        "high_offset": watermarks.1,
+    }))
 }
 
 async fn handle_topic_config_get(state: AppState, body: Value) -> Result<Value> {

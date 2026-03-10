@@ -411,52 +411,307 @@
     <!-- Topic Detail Modal using Teleport -->
     <Teleport to="body">
       <dialog ref="detailModalRef" class="modal">
-        <div class="modal-box modal-box-lg">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeDetailModal">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h3 class="text-lg font-bold mb-2">
-            Topic: {{ selectedTopicDetail?.name }}
-            <span v-if="selectedTopicCluster" class="text-sm font-normal text-base-content/60 ml-2">
-              ({{ selectedTopicCluster }})
-            </span>
-          </h3>
-          <div class="flex items-center gap-3 mb-4">
-            <div class="badge badge-neutral">{{ selectedTopicDetail?.partitions.length }} partitions</div>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Partition ID</th>
-                  <th>Leader</th>
-                  <th>Replicas</th>
-                  <th>ISR</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="partition in selectedTopicDetail?.partitions" :key="partition.id">
-                  <td><span class="font-mono">{{ partition.id }}</span></td>
-                  <td><span class="font-mono">{{ partition.leader }}</span></td>
-                  <td><span class="font-mono text-base-content/60">{{ partition.replicas.join(', ') }}</span></td>
-                  <td><span class="font-mono text-base-content/60">{{ partition.isr.join(', ') }}</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="modal-action mt-6">
-            <button class="btn" @click="closeDetailModal">{{ t.common.cancel }}</button>
-            <button class="btn btn-primary" @click="addPartitions">
+        <div class="modal-box modal-box-lg p-0">
+          <!-- Header -->
+          <div class="p-4 border-b border-base-content/10 flex items-center justify-between bg-base-200">
+            <div>
+              <h3 class="text-lg font-bold flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                </svg>
+                {{ selectedTopicDetail?.name }}
+              </h3>
+              <p class="text-xs text-base-content/60 mt-1">
+                Cluster: {{ selectedTopicCluster }}
+              </p>
+            </div>
+            <button class="btn btn-sm btn-circle btn-ghost" @click="closeDetailModal">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
-              {{ t.topics.partitions }} +
             </button>
+          </div>
+
+          <!-- Tabs -->
+          <div class="tabs tabs-boxed bg-base-200 p-2">
+            <a :class="['tab tab-sm', activeTab === 'partitions' ? 'tab-active' : '']" @click="activeTab = 'partitions'">Partitions</a>
+            <a :class="['tab tab-sm', activeTab === 'config' ? 'tab-active' : '']" @click="activeTab = 'config'">Config</a>
+            <a :class="['tab tab-sm', activeTab === 'consumers' ? 'tab-active' : '']" @click="activeTab = 'consumers'">Consumers</a>
+            <a :class="['tab tab-sm', activeTab === 'tags' ? 'tab-active' : '']" @click="activeTab = 'tags'">Tags</a>
+          </div>
+
+          <!-- Tab Content -->
+          <div class="p-4 max-h-96 overflow-auto">
+            <!-- Partitions Tab -->
+            <div v-if="activeTab === 'partitions'">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <div class="badge badge-neutral">{{ selectedTopicDetail?.partitions.length }} partitions</div>
+                  <div v-if="partitionStats" class="text-xs text-base-content/60">
+                    Total messages: <span class="font-mono">{{ formatNumber(partitionStats.totalMessages) }}</span> |
+                    Total size: <span class="font-mono">{{ formatBytes(partitionStats.totalSize) }}</span>
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-xs" @click="showAddPartitionsModal">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add Partitions
+                </button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="table table-zebra">
+                  <thead>
+                    <tr>
+                      <th>Partition</th>
+                      <th>Leader</th>
+                      <th>Replicas</th>
+                      <th>ISR</th>
+                      <th>Messages</th>
+                      <th>Size</th>
+                      <th>Watermarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="partition in selectedTopicDetail?.partitions" :key="partition.id">
+                      <td><span class="font-mono">{{ partition.id }}</span></td>
+                      <td><span class="badge badge-ghost badge-xs">{{ partition.leader }}</span></td>
+                      <td><span class="font-mono text-xs">{{ partition.replicas.join(', ') }}</span></td>
+                      <td>
+                        <span :class="['font-mono text-xs', partition.isr.length === partition.replicas.length ? 'text-success' : 'text-warning']">
+                          {{ partition.isr.join(', ') }}
+                        </span>
+                      </td>
+                      <td class="font-mono text-xs">{{ partitionStats?.partitions[partition.id]?.messages || '-' }}</td>
+                      <td class="font-mono text-xs">{{ formatBytes(partitionStats?.partitions[partition.id]?.size || 0) }}</td>
+                      <td class="font-mono text-xs">
+                        <span v-if="partitionStats?.partitions[partition.id]">
+                          {{ partitionStats.partitions[partition.id]?.lowOffset }} / {{ partitionStats.partitions[partition.id]?.highOffset }}
+                        </span>
+                        <span v-else>-</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Config Tab -->
+            <div v-if="activeTab === 'config'">
+              <div class="flex items-center justify-between mb-3">
+                <h4 class="font-semibold text-sm">Topic Configuration</h4>
+                <button class="btn btn-primary btn-xs" @click="editConfig" :disabled="!topicConfig">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L10.5 10.5" />
+                  </svg>
+                  Edit Config
+                </button>
+              </div>
+              <div v-if="!topicConfig" class="text-center py-8 text-base-content/60">
+                <span class="loading loading-spinner loading-sm"></span>
+                <p class="text-xs mt-2">Loading configuration...</p>
+              </div>
+              <div v-else class="space-y-2">
+                <div v-for="(value, key) in topicConfig" :key="key" class="flex items-center justify-between p-2 bg-base-100 rounded">
+                  <span class="text-xs font-mono text-base-content/60">{{ key }}</span>
+                  <span class="text-xs font-mono">{{ value }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Consumers Tab -->
+            <div v-if="activeTab === 'consumers'">
+              <div class="flex items-center justify-between mb-3">
+                <h4 class="font-semibold text-sm">Consumer Groups</h4>
+                <button class="btn btn-ghost btn-xs" @click="fetchConsumers">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div v-if="consumersLoading" class="text-center py-8">
+                <span class="loading loading-spinner loading-sm"></span>
+              </div>
+              <div v-else-if="!consumers || consumers.length === 0" class="text-center py-8 text-base-content/60">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                </svg>
+                <p class="text-xs">No consumer groups found for this topic</p>
+              </div>
+              <div v-else class="space-y-2">
+                <div v-for="consumer in consumers" :key="consumer.groupId" class="p-3 bg-base-100 rounded border border-base-content/10">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-sm font-semibold">{{ consumer.groupId }}</span>
+                      <span :class="['badge badge-xs', consumer.state === 'Stable' ? 'badge-success' : 'badge-warning']">
+                        {{ consumer.state || 'Unknown' }}
+                      </span>
+                    </div>
+                    <span class="text-xs text-base-content/60">{{ consumer.members?.length || 0 }} members</span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span class="text-base-content/60">Lag:</span>
+                      <span class="font-mono ml-1">{{ formatNumber(consumer.totalLag || 0) }}</span>
+                    </div>
+                    <div>
+                      <span class="text-base-content/60">Coordinator:</span>
+                      <span class="font-mono ml-1">{{ consumer.coordinator || '-' }}</span>
+                    </div>
+                    <div class="text-right">
+                      <button class="btn btn-ghost btn-xs text-primary" @click="viewConsumerDetail(consumer.groupId)">View Details</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tags Tab -->
+            <div v-if="activeTab === 'tags'">
+              <div class="flex items-center justify-between mb-3">
+                <h4 class="font-semibold text-sm">Tags</h4>
+                <button class="btn btn-primary btn-xs" @click="showAddTagModal">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add Tag
+                </button>
+              </div>
+              <div v-if="!topicTags || topicTags.length === 0" class="text-center py-8 text-base-content/60">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.593l6.002-4.299a1.125 1.125 0 00.55-1.435l-4.299-6.002a2.25 2.25 0 00-.593-.952l-9.58-9.58z" />
+                </svg>
+                <p class="text-xs">No tags yet</p>
+              </div>
+              <div v-else class="flex flex-wrap gap-2">
+                <div v-for="tag in topicTags" :key="tag.id" class="badge badge-lg gap-1 pr-1">
+                  <span :class="['w-2 h-2 rounded-full', tagColorClass(tag.color)]"></span>
+                  {{ tag.name }}
+                  <button class="btn btn-ghost btn-xs btn-circle ml-1" @click="removeTag(tag.id)">×</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer Actions -->
+          <div class="p-4 border-t border-base-content/10 bg-base-200 flex justify-between items-center">
+            <div class="flex items-center gap-2 text-xs text-base-content/60">
+              <span>Updated:</span>
+              <span>{{ formatRelativeTime(topicDetailUpdatedAt) }}</span>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-ghost btn-sm" @click="viewTopicMessagesFromDetail">View Messages</button>
+              <button class="btn btn-error btn-sm btn-ghost" @click="confirmDeleteFromDetail">Delete Topic</button>
+            </div>
           </div>
         </div>
         <form method="dialog" class="modal-backdrop" @click="closeDetailModal">
+          <button>close</button>
+        </form>
+      </dialog>
+    </Teleport>
+
+    <!-- Add Partitions Modal -->
+    <Teleport to="body">
+      <dialog ref="addPartitionsModalRef" class="modal">
+        <div class="modal-box">
+          <h3 class="font-bold text-lg mb-4">Add Partitions to {{ selectedTopicDetail?.name }}</h3>
+          <form @submit.prevent="submitAddPartitions">
+            <div class="form-control mb-4">
+              <label class="label">
+                <span class="label-text">Number of new partitions</span>
+              </label>
+              <input v-model.number="addPartitionsForm.count" type="number" min="1" max="100" class="input input-bordered" placeholder="1" required />
+              <label class="label">
+                <span class="label-text-alt">Current partitions: {{ selectedTopicDetail?.partitions.length || 0 }}</span>
+                <span class="label-text-alt">After: {{ (selectedTopicDetail?.partitions.length || 0) + (addPartitionsForm.count || 0) }}</span>
+              </label>
+            </div>
+            <div class="alert alert-warning p-2 mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span class="text-xs">Note: Kafka does not support decreasing partitions or reassigning existing messages.</span>
+            </div>
+            <div class="modal-action">
+              <button type="button" class="btn" @click="closeAddPartitionsModal">Cancel</button>
+              <button type="submit" class="btn btn-primary" :disabled="addingPartitions">
+                <span v-if="addingPartitions" class="loading loading-spinner loading-sm"></span>
+                Add Partitions
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="closeAddPartitionsModal">
+          <button>close</button>
+        </form>
+      </dialog>
+    </Teleport>
+
+    <!-- Edit Config Modal -->
+    <Teleport to="body">
+      <dialog ref="configModalRef" class="modal">
+        <div class="modal-box">
+          <h3 class="font-bold text-lg mb-4">Edit Topic Configuration</h3>
+          <form @submit.prevent="submitConfigUpdate">
+            <div class="max-h-80 overflow-auto space-y-2 mb-4">
+              <div v-for="(_, key) in editConfigForm" :key="key" class="form-control">
+                <label class="label">
+                  <span class="label-text font-mono text-xs">{{ key }}</span>
+                </label>
+                <input v-model="editConfigForm[key]" type="text" class="input input-bordered input-sm" />
+              </div>
+            </div>
+            <div class="modal-action">
+              <button type="button" class="btn" @click="configModalRef?.close()">Cancel</button>
+              <button type="submit" class="btn btn-primary" :disabled="updatingConfig">
+                <span v-if="updatingConfig" class="loading loading-spinner loading-sm"></span>
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="configModalRef?.close()">
+          <button>close</button>
+        </form>
+      </dialog>
+    </Teleport>
+
+    <!-- Add Tag Modal -->
+    <Teleport to="body">
+      <dialog ref="addTagModalRef" class="modal">
+        <div class="modal-box">
+          <h3 class="font-bold text-lg mb-4">Add Tag to {{ selectedTopicDetail?.name }}</h3>
+          <form @submit.prevent="submitAddTag">
+            <div class="form-control mb-3">
+              <label class="label">
+                <span class="label-text">Tag Name</span>
+              </label>
+              <input v-model="addTagForm.name" type="text" class="input input-bordered" placeholder="e.g., production, critical" required />
+            </div>
+            <div class="form-control mb-4">
+              <label class="label">
+                <span class="label-text">Color</span>
+              </label>
+              <div class="flex gap-2">
+                <button type="button" v-for="color in ['primary', 'secondary', 'accent', 'info', 'success', 'warning', 'error']" :key="color"
+                  :class="['btn btn-xs', addTagForm.color === color ? 'btn-active' : 'btn-outline']"
+                  @click="addTagForm.color = color">
+                  <span :class="['badge badge-xs', `badge-${color}`]"></span>
+                </button>
+              </div>
+            </div>
+            <div class="modal-action">
+              <button type="button" class="btn" @click="closeAddTagModal">Cancel</button>
+              <button type="submit" class="btn btn-primary" :disabled="addingTag">
+                <span v-if="addingTag" class="loading loading-spinner loading-sm"></span>
+                Add Tag
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="closeAddTagModal">
           <button>close</button>
         </form>
       </dialog>
@@ -690,6 +945,29 @@ const selectedTopicDetail = ref<TopicDetailResponse | null>(null);
 const selectedTopicCluster = ref<string>('');
 const currentCluster = ref<string>('');
 
+// 新增：Topic 详情增强功能相关变量
+const activeTab = ref<'partitions' | 'config' | 'consumers' | 'tags'>('partitions');
+const partitionStats = ref<{
+  partitions: Record<string, { messages: number; size: number; lowOffset: number; highOffset: number }>;
+  totalMessages: number;
+  totalSize: number;
+} | null>(null);
+const topicConfig = ref<Record<string, string> | null>(null);
+const editConfigForm = ref<Record<string, string>>({});
+const updatingConfig = ref(false);
+const consumers = ref<Array<{ groupId: string; state?: string; members?: any[]; totalLag?: number; coordinator?: string }>>([]);
+const consumersLoading = ref(false);
+const topicTags = ref<Array<{ id: number; name: string; color: string }>>([]);
+const addTagForm = reactive({ name: '', color: 'primary' });
+const addingTag = ref(false);
+const addPartitionsForm = reactive({ count: 1 });
+const addingPartitions = ref(false);
+const topicDetailUpdatedAt = ref<number>(Date.now());
+
+const addPartitionsModalRef = ref<HTMLDialogElement>();
+const configModalRef = ref<HTMLDialogElement>();
+const addTagModalRef = ref<HTMLDialogElement>();
+
 const selectedMessageTopic = ref<string>('');
 const selectedMessageCluster = ref<string>('');
 const topicMessages = ref<MessageRecord[]>([]);
@@ -920,6 +1198,14 @@ async function viewTopicDetail(clusterId: string, topic: TopicItem) {
   try {
     selectedTopicCluster.value = clusterId;
     selectedTopicDetail.value = await apiClient.getTopicDetail(clusterId, topic.name);
+    activeTab.value = 'partitions';
+    topicDetailUpdatedAt.value = Date.now();
+
+    // 并行加载分区统计、配置和标签
+    fetchPartitionStats(clusterId, topic.name);
+    fetchTopicConfig(clusterId, topic.name);
+    fetchTopicTags(clusterId, topic.name);
+
     detailModalRef.value?.showModal();
   } catch (e) {
     showError((e as { message: string }).message);
@@ -930,25 +1216,279 @@ function closeDetailModal() {
   detailModalRef.value?.close();
   selectedTopicDetail.value = null;
   selectedTopicCluster.value = '';
+  partitionStats.value = null;
+  topicConfig.value = null;
+  consumers.value = [];
+  topicTags.value = [];
 }
 
-async function addPartitions() {
+// 获取分区统计信息（watermarks、消息数量、大小）
+async function fetchPartitionStats(clusterId: string, topicName: string) {
+  try {
+    const partitions = selectedTopicDetail.value?.partitions || [];
+    const stats: Record<string, { messages: number; size: number; lowOffset: number; highOffset: number }> = {};
+    let totalMessages = 0;
+    let totalSize = 0;
+
+    for (const p of partitions) {
+      try {
+        const watermarks = await apiClient.getPartitionWatermarks(clusterId, topicName, p.id);
+        const lowOffset = watermarks.lowOffset || 0;
+        const highOffset = watermarks.highOffset || 0;
+        const messages = Math.max(0, highOffset - lowOffset);
+        // 估算大小：假设平均每条消息 500 bytes
+        const size = messages * 500;
+        stats[p.id] = { messages, size, lowOffset, highOffset };
+        totalMessages += messages;
+        totalSize += size;
+      } catch (e) {
+        stats[p.id] = { messages: 0, size: 0, lowOffset: 0, highOffset: 0 };
+      }
+    }
+
+    partitionStats.value = { partitions: stats, totalMessages, totalSize };
+  } catch (e) {
+    console.error('Failed to fetch partition stats:', e);
+  }
+}
+
+// 获取 Topic 配置
+async function fetchTopicConfig(clusterId: string, topicName: string) {
+  try {
+    topicConfig.value = await apiClient.getTopicConfig(clusterId, topicName);
+  } catch (e) {
+    console.error('Failed to fetch topic config:', e);
+    topicConfig.value = {};
+  }
+}
+
+// 获取消费者组列表
+async function fetchConsumers() {
   if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
 
-  const newPartitions = prompt('Enter number of new partitions to add:');
-  if (!newPartitions) return;
+  consumersLoading.value = true;
+  try {
+    const groups = await apiClient.getConsumerGroups(selectedTopicCluster.value);
+    // 过滤出消费该 topic 的 consumer groups
+    const topicName = selectedTopicDetail.value.name;
+    const filteredGroups = [];
 
+    for (const group of groups) {
+      try {
+        const detail = await apiClient.getConsumerGroupDetail(selectedTopicCluster.value, group.name);
+        // 检查该 consumer group 是否订阅了当前 topic
+        const offsets = detail.offsets || [];
+        const hasTopic = offsets.some((o: any) => o.topic === topicName);
+        if (hasTopic) {
+          const topicOffsets = offsets.filter((o: any) => o.topic === topicName);
+          const totalLag = topicOffsets.reduce((sum: number, o: any) => sum + (o.lag || 0), 0);
+          filteredGroups.push({
+            groupId: group.name,
+            state: detail.state,
+            members: detail.members,
+            totalLag,
+          });
+        }
+      } catch (e) {
+        // 忽略单个 consumer group 获取失败
+      }
+    }
+
+    consumers.value = filteredGroups;
+  } catch (e) {
+    console.error('Failed to fetch consumers:', e);
+  } finally {
+    consumersLoading.value = false;
+  }
+}
+
+// 查看 Consumer Group 详情
+function viewConsumerDetail(groupId: string) {
+  // 跳转到 Consumer Groups 页面
+  const route = `/consumer-groups?cluster=${selectedTopicCluster.value}&group=${groupId}`;
+  window.location.href = route;
+}
+
+// 获取 Topic 标签
+async function fetchTopicTags(clusterId: string, topicName: string) {
+  try {
+    topicTags.value = await apiClient.getTopicTags(clusterId, topicName);
+  } catch (e) {
+    topicTags.value = [];
+  }
+}
+
+// 添加标签
+function showAddTagModal() {
+  addTagForm.name = '';
+  addTagForm.color = 'primary';
+  addTagModalRef.value?.showModal();
+}
+
+function closeAddTagModal() {
+  addTagModalRef.value?.close();
+}
+
+async function submitAddTag() {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+
+  addingTag.value = true;
+  try {
+    const tag = await apiClient.createTopicTag(
+      selectedTopicCluster.value,
+      selectedTopicDetail.value.name,
+      addTagForm.name,
+      addTagForm.color
+    );
+    topicTags.value.push(tag);
+    closeAddTagModal();
+    showSuccess('Tag added successfully');
+  } catch (e) {
+    showError((e as { message: string }).message);
+  } finally {
+    addingTag.value = false;
+  }
+}
+
+// 删除标签
+async function removeTag(tagId: number) {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+
+  try {
+    await apiClient.deleteTopicTag(selectedTopicCluster.value, selectedTopicDetail.value.name, tagId);
+    topicTags.value = topicTags.value.filter(t => t.id !== tagId);
+    showSuccess('Tag removed successfully');
+  } catch (e) {
+    showError((e as { message: string }).message);
+  }
+}
+
+// 标签颜色 class
+function tagColorClass(color: string): string {
+  const colors: Record<string, string> = {
+    primary: 'bg-primary',
+    secondary: 'bg-secondary',
+    accent: 'bg-accent',
+    info: 'bg-info',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    error: 'bg-error',
+  };
+  return colors[color] || 'bg-primary';
+}
+
+// 添加分区
+function showAddPartitionsModal() {
+  addPartitionsForm.count = 1;
+  addPartitionsModalRef.value?.showModal();
+}
+
+function closeAddPartitionsModal() {
+  addPartitionsModalRef.value?.close();
+}
+
+async function submitAddPartitions() {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+  if (addPartitionsForm.count < 1) return;
+
+  addingPartitions.value = true;
   try {
     await apiClient.addPartitions(
       selectedTopicCluster.value,
       selectedTopicDetail.value.name,
-      parseInt(newPartitions)
+      addPartitionsForm.count
     );
-    closeDetailModal();
-    fetchTopics();
+    showSuccess('Partitions added successfully');
+    closeAddPartitionsModal();
+    // 重新加载详情
+    viewTopicDetail(selectedTopicCluster.value, { name: selectedTopicDetail.value.name, cluster: selectedTopicCluster.value });
   } catch (e) {
     showError((e as { message: string }).message);
+  } finally {
+    addingPartitions.value = false;
   }
+}
+
+// 更新配置
+function editConfig() {
+  if (!topicConfig.value) return;
+  editConfigForm.value = { ...topicConfig.value };
+  configModalRef.value?.showModal();
+}
+
+async function submitConfigUpdate() {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+
+  updatingConfig.value = true;
+  try {
+    await apiClient.updateTopicConfig(
+      selectedTopicCluster.value,
+      selectedTopicDetail.value.name,
+      editConfigForm.value
+    );
+    topicConfig.value = { ...editConfigForm.value };
+    configModalRef.value?.close();
+    showSuccess('Configuration updated successfully');
+  } catch (e) {
+    showError((e as { message: string }).message);
+  } finally {
+    updatingConfig.value = false;
+  }
+}
+
+// 从详情页查看消息
+function viewTopicMessagesFromDetail() {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+  viewTopicMessages(selectedTopicCluster.value, {
+    name: selectedTopicDetail.value.name,
+    cluster: selectedTopicCluster.value,
+  });
+}
+
+// 从详情页删除
+function confirmDeleteFromDetail() {
+  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
+  confirmDelete(selectedTopicCluster.value, selectedTopicDetail.value.name);
+}
+
+// 格式化数字
+function formatNumber(num: number): string {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+}
+
+// 格式化字节
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// 格式化相对时间
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 24) {
+    return new Date(timestamp).toLocaleDateString();
+  }
+  if (hours > 0) {
+    return `${hours}h ago`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ago`;
+  }
+  return 'Just now';
 }
 
 async function confirmDelete(clusterId: string, topicName: string) {

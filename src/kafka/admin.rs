@@ -578,6 +578,23 @@ impl KafkaAdmin {
             under_replicated_partitions,
         })
     }
+
+    /// 获取分区 watermarks（低水位和高水位）
+    pub fn get_partition_watermarks(&self, topic: &str, partition: i32, bootstrap_servers: &str) -> Result<(i64, i64)> {
+        // 创建临时 consumer 获取 watermarks
+        use rdkafka::consumer::BaseConsumer;
+        use rdkafka::ClientConfig;
+
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap_servers)
+            .create()
+            .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
+
+        consumer
+            .client()
+            .fetch_watermarks(topic, partition, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))
+    }
 }
 
 /// Offset 类型
