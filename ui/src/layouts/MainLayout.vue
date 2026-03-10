@@ -135,11 +135,12 @@
 
     <!-- Resizer -->
     <div
-      class="resizer flex-shrink-0 cursor-col-resize hover:bg-primary hover:bg-opacity-20 transition-colors z-50"
+      class="w-3 h-full flex items-center justify-center bg-base-300/30 hover:bg-base-300/50 transition-all cursor-col-resize z-50 group"
+      :class="{ 'bg-base-300': isResizing }"
       @mousedown="startResize"
-      :class="{ 'bg-primary': isResizing }"
+      title="Drag to resize sidebar"
     >
-      <div class="resizer-handle"></div>
+      <div class="w-1 h-12 bg-base-content/30 group-hover:bg-base-content/60 group-hover:h-16 group-hover:w-1.5 rounded transition-all" :class="{ 'h-20 bg-base-content/80 w-1.5': isResizing }"></div>
     </div>
 
     <!-- Main content -->
@@ -258,6 +259,9 @@ function startResize(e: MouseEvent) {
 
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
+
+  // 阻止默认事件
+  e.preventDefault();
 }
 
 // 集群展开状态（localStorage 持久化）
@@ -345,35 +349,3 @@ onMounted(() => {
   clusterStore.fetchClusters();
 });
 </script>
-
-<style scoped>
-.resizer {
-  width: 6px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  transition: background-color 0.2s;
-}
-
-.resizer:hover {
-  background: rgba(128, 128, 128, 0.1);
-}
-
-.resizer-handle {
-  width: 2px;
-  height: 40px;
-  background: rgba(128, 128, 128, 0.3);
-  border-radius: 1px;
-  transition: background-color 0.2s;
-}
-
-.resizer:hover .resizer-handle {
-  background: rgba(128, 128, 128, 0.6);
-}
-
-.resizer:active .resizer-handle {
-  background: currentColor;
-}
-</style>
