@@ -237,7 +237,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="topic in visibleClusterTopicsMap[clusterName] || []" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
+                <tr v-for="topic in getVisibleClusterTopics(clusterName)" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
                   <td>
                     <div class="flex items-center gap-3">
                       <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
@@ -257,10 +257,10 @@
                     </div>
                   </td>
                 </tr>
-                <tr v-if="(visibleClusterTopicsMap[clusterName] || []).length === 0" style="height: 1px;"></tr>
+                <tr v-if="getVisibleClusterTopics(clusterName).length === 0" style="height: 1px;"></tr>
               </tbody>
             </table>
-            <div :style="{ height: `${clusterBottomPaddingMap[clusterName] || 0}px` }"></div>
+            <div :style="{ height: `${getClusterBottomPadding(clusterName)}px` }"></div>
           </div>
         </div>
       </div>
@@ -970,7 +970,7 @@ const messagesModalRef = ref<HTMLDialogElement>();
 
 // 虚拟滚动相关
 const ROW_HEIGHT = 52; // 每行高度（像素）
-const VISIBLE_OFFSET = 20; // 额外渲染的行数
+const VISIBLE_OFFSET = 5; // 额外渲染的行数（减少以优化性能）
 const containerRef = ref<HTMLElement | null>(null); // used in template
 void containerRef; // prevent ts-unused warning
 const clusterContainerRefs = ref<Record<string, HTMLElement | null>>({});
@@ -1066,23 +1066,8 @@ const clusterHealthCache = computed(() => {
   return result;
 });
 
-// 可见的集群主题列表（computed 缓存）
-const visibleClusterTopicsMap = computed(() => {
-  const result: Record<string, TopicItem[]> = {};
-  for (const clusterName of Object.keys(filteredTopicsByCluster.value)) {
-    result[clusterName] = getVisibleClusterTopics(clusterName);
-  }
-  return result;
-});
-
-// 集群底部占位高度（computed 缓存）
-const clusterBottomPaddingMap = computed(() => {
-  const result: Record<string, number> = {};
-  for (const clusterName of Object.keys(filteredTopicsByCluster.value)) {
-    result[clusterName] = getClusterBottomPadding(clusterName);
-  }
-  return result;
-});
+// 注意：不再使用 visibleClusterTopicsMap 和 clusterBottomPaddingMap computed
+// 改为在模板中直接调用函数，利用 Vue 的响应式依赖追踪
 
 function getClusterHealth(clusterId: string) {
   return clusterStore.getClusterHealth(clusterId);

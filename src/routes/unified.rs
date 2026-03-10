@@ -713,7 +713,7 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     // Use spawn_blocking to avoid blocking async runtime
     // Add retry logic for initial connection establishment
     let mut last_error = None;
-    for attempt in 0..5 {
+    for attempt in 0..3 {
         let admin_clone = admin.clone();
         let result = tokio::task::spawn_blocking(move || admin_clone.list_topics())
             .await
@@ -731,10 +731,10 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
             }
             Err(e) => {
                 last_error = Some(e);
-                if attempt < 4 {
+                if attempt < 2 {
                     // Wait before retry (initial connection may need time to establish)
-                    // 使用递增的等待时间：500ms, 1000ms, 1500ms, 2000ms
-                    let wait_ms = 500 * (attempt + 1) as u64;
+                    // 使用递增的等待时间：200ms, 400ms
+                    let wait_ms = 200 * (attempt + 1) as u64;
                     tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().map(|e| format!("{}", e)).unwrap_or_default());
                     tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
                 }
