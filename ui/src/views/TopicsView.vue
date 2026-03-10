@@ -826,26 +826,26 @@
           </div>
 
           <div v-else class="overflow-x-auto">
-            <table class="table">
+            <table class="table table-sm">
               <thead>
                 <tr>
-                  <th>{{ t.messages.partition }}</th>
-                  <th>{{ t.messages.offset }}</th>
-                  <th>{{ t.messages.timestampLabel }}</th>
-                  <th>{{ t.messages.key }}</th>
-                  <th>{{ t.messages.value }}</th>
+                  <th class="py-1 px-2">{{ t.messages.partition }}</th>
+                  <th class="py-1 px-2">{{ t.messages.offset }}</th>
+                  <th class="py-1 px-2">{{ t.messages.timestampLabel }}</th>
+                  <th class="py-1 px-2">{{ t.messages.key }}</th>
+                  <th class="py-1 px-2">{{ t.messages.value }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="msg in topicMessages" :key="`${msg.partition}-${msg.offset}`">
-                  <td><span class="font-mono">{{ msg.partition }}</span></td>
-                  <td><span class="font-mono">{{ msg.offset }}</span></td>
-                  <td><span class="text-base-content/60">{{ formatTimestamp(msg.timestamp) }}</span></td>
-                  <td class="max-w-xs truncate" :title="msg.key || ''">
-                    <span class="font-mono text-sm">{{ formatMessageContent(msg.key) }}</span>
+                <tr v-for="msg in topicMessages" :key="`${msg.partition}-${msg.offset}`" class="hover">
+                  <td class="py-1 px-2"><span class="font-mono text-xs">{{ msg.partition }}</span></td>
+                  <td class="py-1 px-2"><span class="font-mono text-xs">{{ msg.offset }}</span></td>
+                  <td class="py-1 px-2"><span class="text-base-content/60 text-xs">{{ formatTimestamp(msg.timestamp) }}</span></td>
+                  <td class="max-w-xs truncate py-1 px-2" :title="msg.key || ''">
+                    <span class="font-mono text-xs">{{ formatMessageContent(msg.key) }}</span>
                   </td>
-                  <td class="max-w-md truncate" :title="msg.value || ''">
-                    <span class="font-mono text-sm">{{ formatMessageContent(msg.value) }}</span>
+                  <td class="max-w-md truncate py-1 px-2" :title="msg.value || ''">
+                    <span class="font-mono text-xs">{{ formatMessageContent(msg.value) }}</span>
                   </td>
                 </tr>
               </tbody>
