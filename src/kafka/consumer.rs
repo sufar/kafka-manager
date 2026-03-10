@@ -46,6 +46,42 @@ impl KafkaConsumer {
     }
 
     /// 使用 offsets_for_timestamp API 按时间戳查找 offset
+    /// 使用消费者池获取连接，避免频繁创建/销毁连接
+    pub async fn get_offset_for_time_from_pool(
+        &self,
+        pool: &crate::pool::kafka_consumer::KafkaConsumerPool,
+        topic: &str,
+        partition: i32,
+        timestamp_ms: i64,
+    ) -> Result<Option<i64>> {
+        use std::time::Duration;
+
+        // 从连接池获取 consumer
+        let consumer = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+
+        // 使用 offsets_for_timestamp 方法查找 offset
+        match consumer.offsets_for_timestamp(
+            timestamp_ms,
+            Duration::from_secs(5),
+        ) {
+            Ok(tpl) => {
+                // 查找指定 topic 和 partition 的 offset
+                for elem in tpl.elements() {
+                    if elem.topic() == topic && elem.partition() == partition {
+                        match elem.offset() {
+                            rdkafka::Offset::Offset(off) => return Ok(Some(off)),
+                            _ => return Ok(None),
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// 使用 offsets_for_timestamp API 按时间戳查找 offset（旧版本，保留用于兼容）
     pub async fn get_offset_for_time(
         &self,
         kafka_config: &KafkaConfig,
@@ -438,6 +474,105 @@ impl KafkaConsumer {
     ///
     /// 此方法在读取消息时即进行过滤，避免大量数据加载到内存
     /// 使用批量获取和时间戳二分查找优化性能
+    /// 使用消费者池获取连接，避免频繁创建/销毁连接
+    pub async fn fetch_messages_from_pool<M>(
+        &self,
+        pool: &crate::pool::kafka_consumer::KafkaConsumerPool,
+        topic: &str,
+        partition: Option<i32>,
+        offset: Option<i64>,
+        max_messages: usize,
+        matcher: &M,
+    ) -> Result<Vec<KafkaMessage>>
+    where
+        M: Fn(&KafkaMessage) -> bool,
+    {
+        use std::time::Duration;
+
+        // 从连接池获取 consumer
+        let consumer = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+
+        // 手动分配 partition，而不是使用 subscribe
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        let target_partition = partition.unwrap_or(0);
+
+        // 如果指定了 offset，直接使用；否则需要查询 watermarks 来确定开始位置
+        let target_offset = if let Some(off) = offset {
+            rdkafka::Offset::Offset(off)
+        } else {
+            // 查询 low watermark 作为开始 offset
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(1000))) {
+                Ok((low, _high)) => rdkafka::Offset::Offset(low),
+                Err(_) => rdkafka::Offset::Beginning
+            }
+        };
+        tpl.add_partition_offset(topic, target_partition, target_offset)?;
+        consumer.assign(&tpl)?;
+
+        let mut messages = Vec::new();
+        // 使用更长的超时时间，因为已经优化了批量获取
+        let base_timeout = Duration::from_millis(200);
+        let mut consecutive_timeouts = 0;
+        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+        let mut filtered_count = 0;
+        let mut total_read = 0;
+
+        while messages.len() < max_messages {
+            match tokio::time::timeout(base_timeout, consumer.recv()).await {
+                Ok(Ok(msg)) => {
+                    consecutive_timeouts = 0;
+                    total_read += 1;
+
+                    // 分区过滤
+                    if let Some(p) = partition {
+                        if msg.partition() != p {
+                            continue;
+                        }
+                    }
+                    // offset 过滤
+                    if let Some(min_offset) = offset {
+                        if msg.offset() < min_offset {
+                            continue;
+                        }
+                    }
+
+                    let kafka_msg = KafkaMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                        timestamp: msg.timestamp().to_millis(),
+                    };
+
+                    if matcher(&kafka_msg) {
+                        messages.push(kafka_msg);
+                    } else {
+                        filtered_count += 1;
+                        // 动态调整过滤限制：如果已经读取了很多消息但匹配很少，考虑提前退出
+                        if filtered_count >= max_messages * 20 && total_read >= max_messages * 50 {
+                            tracing::warn!(
+                                "Too many filtered messages: read {}, matched {}, filtered {}",
+                                total_read, messages.len(), filtered_count
+                            );
+                            break;
+                        }
+                    }
+                }
+                Ok(Err(_)) | Err(_) => {
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(messages)
+    }
+
+    /// 使用批量获取和时间戳二分查找优化性能
+    /// （旧版本，每次都创建新连接，保留用于兼容）
     pub async fn fetch_messages_filtered<M>(
         &self,
         kafka_config: &KafkaConfig,

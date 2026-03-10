@@ -153,10 +153,6 @@ async fn get_messages(
         .get_consumer(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
     let max_messages = params.max_messages.unwrap_or(100);
     let limit = params.limit.unwrap_or(max_messages);
     let per_partition = params.per_partition_max.unwrap_or(false);
@@ -168,6 +164,10 @@ async fn get_messages(
     let need_sort = params.order_by.as_deref() == Some("timestamp");
     let desc = params.sort.as_deref() == Some("desc");
 
+    // 获取消费者池
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotConnected(format!("Consumer pool not available for cluster '{}'", cluster_id)))?;
+
     // Per-partition 模式：并行获取每个 partition 的消息
     let raw_messages = if per_partition && params.partition.is_none() {
         // 获取 topic 的 partition 列表
@@ -178,35 +178,32 @@ async fn get_messages(
         // 并发获取每个 partition 的消息
         let mut tasks = Vec::new();
         for pid in partition_ids {
-            let consumer_clone = consumer.clone();
-            let config_clone = config.clone();
+            let consumer_pool = consumer_pool.clone();
             let topic_clone = topic.clone();
             let params_clone = params_clone.clone();
             let max_msgs = max_messages;
+            let consumer = consumer.clone(); // 克隆 consumer 用于每个任务
 
             let task = tokio::spawn(async move {
                 // 计算每个 partition 的起始 offset
                 let start_offset = if let Some(start_time) = params_clone.start_time {
-                    match consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, start_time).await {
+                    match consumer.get_offset_for_time_from_pool(&consumer_pool, &topic_clone, pid, start_time).await {
                         Ok(Some(offset)) => Some(offset),
                         Ok(None) | Err(_) => None,
                     }
                 } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
                     // fetch_mode=newest：从该 partition 的最新 N 条消息开始读取
-                    // 需要获取 watermarks 来计算起始 offset
-                    // 注意：这里不传入 brokers，因为 async 闭包中无法访问 state
-                    // 让 fetch_messages_filtered 自动处理：从 low watermark 开始，但限制读取数量
                     None
                 } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
-                    consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, 0).await.ok().flatten()
+                    consumer.get_offset_for_time_from_pool(&consumer_pool, &topic_clone, pid, 0).await.ok().flatten()
                 } else {
                     params_clone.offset
                 };
 
-                // 获取消息
-                consumer_clone
-                    .fetch_messages_filtered(
-                        &config_clone,
+                // 获取消息（使用消费者池）
+                consumer
+                    .fetch_messages_from_pool(
+                        &consumer_pool,
                         &topic_clone,
                         Some(pid),
                         start_offset,
@@ -258,20 +255,20 @@ async fn get_messages(
             }
         } else if let Some(start_time) = params.start_time {
             let target_partition = params.partition.unwrap_or(0);
-            match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
+            match consumer.get_offset_for_time_from_pool(&consumer_pool, &topic, target_partition, start_time).await {
                 Ok(Some(offset)) => Some(offset),
                 Ok(None) | Err(_) => params.offset,
             }
         } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
             let target_partition = params.partition.unwrap_or(0);
-            consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
+            consumer.get_offset_for_time_from_pool(&consumer_pool, &topic, target_partition, 0).await.ok().flatten()
         } else {
             params.offset
         };
 
         consumer
-            .fetch_messages_filtered(
-                &config,
+            .fetch_messages_from_pool(
+                &consumer_pool,
                 &topic,
                 params_clone.partition,
                 start_offset,
