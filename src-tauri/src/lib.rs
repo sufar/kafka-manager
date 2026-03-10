@@ -308,6 +308,14 @@ pub fn run() {
 
     // 启动 Tauri
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // 当检测到另一个实例启动时，激活现有窗口
+            log("Another instance detected, focusing existing window");
+            if let Some(window) = app.webview_windows().values().next() {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
