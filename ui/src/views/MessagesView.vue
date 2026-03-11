@@ -89,13 +89,13 @@
         </div>
       </div>
       <!-- 消息列表 -->
-      <div v-else class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: Math.max(sortedMessages.length * ROW_HEIGHT + 28, 100) + 'px', position: 'relative' }">
+      <div v-else class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: Math.max(sortedMessages.length * ROW_HEIGHT + 24, 80) + 'px', position: 'relative' }">
         <table class="table table-xs w-full">
           <thead v-if="sortedMessages.length > 0" class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
-              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs">{{ t.messages.offset }}</th>
-              <th class="text-left w-24 bg-gradient-to-r from-secondary/10 to-transparent text-xs">{{ t.messages.partition }}</th>
-              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs" @click="toggleTimestampSort">
+              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-1 px-1.5">{{ t.messages.offset }}</th>
+              <th class="text-left w-24 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-1 px-1.5">{{ t.messages.partition }}</th>
+              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-1 px-1.5" @click="toggleTimestampSort">
                 <div class="flex items-center gap-0.5">
                   <span>{{ t.messages.timestampLabel }}</span>
                   <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -106,8 +106,8 @@
                   </svg>
                 </div>
               </th>
-              <th class="text-left w-40 bg-gradient-to-r from-info/10 to-transparent text-xs">{{ t.messages.key }}</th>
-              <th class="text-left bg-gradient-to-r from-success/10 to-transparent text-xs">{{ t.messages.value }}</th>
+              <th class="text-left w-40 bg-gradient-to-r from-info/10 to-transparent text-xs py-1 px-1.5">{{ t.messages.key }}</th>
+              <th class="text-left bg-gradient-to-r from-success/10 to-transparent text-xs py-1 px-1.5">{{ t.messages.value }}</th>
             </tr>
           </thead>
           <tbody>
@@ -125,13 +125,13 @@
               @click="selectMessage(virtualStartIndex + idx)"
               :style="{ height: ROW_HEIGHT + 'px' }"
             >
-              <td class="font-mono text-xs px-2 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
-              <td class="py-0 px-2">
+              <td class="font-mono text-xs px-1.5 py-0 first:rounded-bl-xl last-of-type:rounded-bl-xl">{{ msg.offset }}</td>
+              <td class="py-0 px-1.5">
                 <span class="badge badge-ghost badge-xs">{{ msg.partition }}</span>
               </td>
-              <td class="text-xs text-base-content/60 px-2">{{ formatTimestamp(msg.timestamp) }}</td>
-              <td class="font-mono text-xs px-2 truncate max-w-xs">{{ msg.key || '-' }}</td>
-              <td class="font-mono text-xs px-2 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
+              <td class="text-xs text-base-content/60 px-1.5">{{ formatTimestamp(msg.timestamp) }}</td>
+              <td class="font-mono text-xs px-1.5 truncate max-w-xs">{{ msg.key || '-' }}</td>
+              <td class="font-mono text-xs px-1.5 last:rounded-br-xl truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
             </tr>
             <!-- 虚拟滚动：底部占位 -->
             <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
@@ -342,7 +342,7 @@ const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
 
 // 虚拟滚动配置
-const ROW_HEIGHT = 32; // 每行高度（像素）
+const ROW_HEIGHT = 24; // 每行高度（像素）- 更紧凑
 const virtualStartIndex = ref(0);
 
 // 显示错误提示
