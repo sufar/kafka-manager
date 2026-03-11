@@ -50,13 +50,29 @@
       </select>
 
       <!-- Search -->
-      <input v-model="filters.search" type="text" class="input input-bordered input-xs w-28 flex-shrink-0" :placeholder="t.messages.filter" @change="fetchMessages" />
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <input v-model="filters.search" type="text" class="input input-bordered input-xs w-28" :placeholder="t.messages.filter" @change="fetchMessages" />
+        <select v-model="filters.searchIn" class="select select-bordered select-xs w-20" @change="fetchMessages">
+          <option value="all">All</option>
+          <option value="key">Key</option>
+          <option value="value">Value</option>
+        </select>
+      </div>
 
       <!-- Fetch Mode -->
       <select v-model="filters.fetchMode" class="select select-bordered select-xs w-auto flex-shrink-0" @change="fetchMessages">
         <option value="oldest">{{ t.messages.oldest }}</option>
         <option value="newest">{{ t.messages.newest }}</option>
       </select>
+
+      <!-- Query Progress Indicator -->
+      <div v-if="loading" class="flex items-center gap-1 flex-shrink-0">
+        <svg class="animate-spin h-3 w-3 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span class="text-xs">{{ queryProgress }}%</span>
+      </div>
 
       <!-- Time Range Filter -->
       <div style="position: relative; display: inline-block;" class="flex-shrink-0">
@@ -303,12 +319,16 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject } fr
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import { useMessageQuery } from '@/composables/useMessageQuery';
 import { apiClient } from '@/api/client';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+
+// 使用新的消息查询 composable
+const messageQuery = useMessageQuery();
 
 // 注入全局 showToast 方法
 const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => void>(
@@ -334,8 +354,10 @@ const topics = ref<string[]>([]);
 const selectedTopic = ref<string>('');
 const topicPartitions = ref<number[]>([]);
 
-const loading = ref(false);
-const fetchTime = ref<number>(0); // 获取消息耗时（毫秒）
+// 使用 composable 的状态
+const loading = computed(() => messageQuery.loading.value);
+const queryProgress = computed(() => messageQuery.progress.value);
+const fetchTime = ref<number>(0);
 const messages = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
@@ -360,9 +382,12 @@ const filters = reactive({
   max_messages: 100,
   per_partition_max: false,  // 默认关闭，高频场景下使用单 partition 更快
   search: '',
+  searchIn: 'all' as 'key' | 'value' | 'all',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
   endTime: '' as string,
+  orderBy: 'timestamp' as 'timestamp' | 'offset',
+  sort: 'desc' as 'asc' | 'desc',
 });
 
 // Partition 选择器的计算属性
@@ -601,54 +626,6 @@ async function fetchTopicPartitions() {
   }
 }
 
-// ==================== 查询缓存 ====================
-// 注意：只在 fetchMode='oldest' 时缓存，因为历史数据不会变化
-// fetchMode='newest' 时不缓存，确保总能获取最新消息
-interface CachedQuery {
-  key: string;
-  messages: import('@/types/api').MessageRecord[];
-  timestamp: number;
-  params: string;
-}
-
-const queryCache = ref<Map<string, CachedQuery>>(new Map());
-const CACHE_TTL = 10000; // 10 秒缓存过期时间（缩短）
-
-function getCacheKey(clusterId: string, topic: string, params: any): string {
-  return `${clusterId}:${topic}:${JSON.stringify(params)}`;
-}
-
-function getCachedMessages(key: string): import('@/types/api').MessageRecord[] | null {
-  const cached = queryCache.value.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.messages;
-  }
-  if (cached) {
-    queryCache.value.delete(key); // 过期缓存删除
-  }
-  return null;
-}
-
-function setCache(key: string, paramsStr: string, messages: import('@/types/api').MessageRecord[]) {
-  queryCache.value.set(key, {
-    key,
-    messages,
-    timestamp: Date.now(),
-    params: paramsStr,
-  });
-  // 限制缓存大小，最多保留 50 条
-  if (queryCache.value.size > 50) {
-    const oldestKey = Array.from(queryCache.value.keys()).sort((a, b) => {
-      const aTime = queryCache.value.get(a)!.timestamp;
-      const bTime = queryCache.value.get(b)!.timestamp;
-      return aTime - bTime;
-    })[0];
-    if (oldestKey) {
-      queryCache.value.delete(oldestKey);
-    }
-  }
-}
-
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
@@ -658,86 +635,64 @@ async function fetchMessages() {
     fetchDebounceTimer = null;
   }
 
-  // 取消上一次的请求，避免并发请求导致超时
-  apiClient.cancelGetMessages();
-
   // 增加请求序列号，用于处理竞态条件
   currentFetchRequestId++;
   const requestId = currentFetchRequestId;
 
-  // 使用防抖，减少延迟（150ms）
+  // 使用防抖，减少延迟（50ms）
   fetchDebounceTimer = window.setTimeout(async () => {
     if (!selectedClusterId.value || !selectedTopic.value) return;
+    if (requestId !== currentFetchRequestId) return;
 
-    loading.value = true;
     selectedMessageIndex.value = -1;
-    const startTime = performance.now();
+
     try {
-      const params: {
-        max_messages: number;
-        per_partition_max: boolean;
-        search: string;
-        fetchMode: 'oldest' | 'newest';
-        partition?: number;
-        start_time?: number;
-        end_time?: number;
-      } = {
-        max_messages: filters.max_messages,
-        per_partition_max: filters.per_partition_max,
-        search: filters.search,
+      // 构建查询参数
+      const queryParams: import('@/composables/useMessageQuery').MessageQueryParams = {
+        clusterId: selectedClusterId.value,
+        topic: selectedTopic.value,
         fetchMode: filters.fetchMode,
-        start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
-        end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
+        limit: filters.max_messages,
+        perPartitionMax: filters.per_partition_max,
+        orderBy: filters.orderBy,
+        sort: filters.sort,
       };
 
       // 只有当 partition 不是 'all' 时才传递
       if (filters.partition !== 'all') {
-        params.partition = filters.partition as number;
+        queryParams.partition = filters.partition as number;
       }
 
-      // fetchMode='newest' 时不缓存，确保获取最新消息
-      const shouldCache = filters.fetchMode === 'oldest';
-      const cacheKey = shouldCache ? getCacheKey(selectedClusterId.value, selectedTopic.value, {
-        max_messages: params.max_messages,
-        per_partition_max: params.per_partition_max,
-        search: params.search,
-        partition: params.partition,
-      }) : null;
-      const paramsStr = JSON.stringify(params);
-
-      // 尝试从缓存获取（仅 oldest 模式）
-      if (cacheKey) {
-        const cached = getCachedMessages(cacheKey);
-        if (cached) {
-          messages.value = cached;
-          fetchTime.value = 0; // 缓存命中，时间为 0
-          loading.value = false;
-          return;
-        }
+      // 时间范围
+      if (filters.startTime || filters.endTime) {
+        queryParams.timeRange = {
+          start: filters.startTime ? new Date(filters.startTime).getTime() : 0,
+          end: filters.endTime ? new Date(filters.endTime).getTime() : Date.now(),
+        };
       }
 
-      messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
-      fetchTime.value = Math.round(performance.now() - startTime);
-
-      // 缓存结果（仅 oldest 模式）
-      if (cacheKey && shouldCache) {
-        setCache(cacheKey, paramsStr, messages.value);
+      // 搜索条件
+      if (filters.search) {
+        queryParams.search = {
+          keyword: filters.search,
+          scope: filters.searchIn,
+        };
       }
+
+      // 使用新的 composable 执行查询
+      const result = await messageQuery.execute(queryParams);
+
+      messages.value = result.messages;
+      fetchTime.value = result.fetchTime;
+
     } catch (e) {
-      const error = e as { message: string };
-      if (error.message === 'AbortError' || error.message.includes('aborted')) {
-        if (requestId !== currentFetchRequestId) {
-          return;
-        }
-      } else {
-        showError(error.message);
+      const error = e as { message?: string };
+      if (error.message === 'cancelled') {
+        return; // 取消请求，不显示错误
       }
-    } finally {
-      if (requestId === currentFetchRequestId) {
-        loading.value = false;
-      }
+      showError(error.message || 'Failed to fetch messages');
     }
-  }, 150); // 减少到 150ms
+  }, 50); // 减少到 50ms
 }
 
 function stopFetching() {
@@ -746,11 +701,10 @@ function stopFetching() {
     clearTimeout(fetchDebounceTimer);
     fetchDebounceTimer = null;
   }
-  // 取消请求
-  apiClient.cancelGetMessages();
+  // 使用 composable 取消请求
+  messageQuery.cancel();
   // 增加请求序列号，使之前的请求回调失效
   currentFetchRequestId++;
-  loading.value = false;
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容
@@ -1067,7 +1021,9 @@ onBeforeUnmount(() => {
     clearTimeout(fetchDebounceTimer);
     fetchDebounceTimer = null;
   }
-  // 取消请求
-  apiClient.cancelGetMessages();
+  // 使用 composable 取消请求
+  messageQuery.cancel();
+  // 清理缓存
+  messageQuery.clearCache();
 });
 </script>

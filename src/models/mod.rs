@@ -72,6 +72,22 @@ pub struct MessageListResponse {
     pub messages: Vec<MessageRecord>,
 }
 
+/// 增强的消息列表响应，包含统计信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MessageListResponseWithStats {
+    pub messages: Vec<MessageRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<QueryStatsWrapper>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryStatsWrapper {
+    pub partitions_queried: usize,
+    pub total_scanned: usize,
+    pub matched: usize,
+    pub query_time_ms: u64,
+}
+
 // Consumer Group 相关模型
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConsumerGroupListResponse {

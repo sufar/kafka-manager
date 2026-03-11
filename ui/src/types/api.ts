@@ -319,8 +319,24 @@ export interface MessageRecord {
   timestamp?: number;
 }
 
+export interface QueryStats {
+  partitions_queried: number;
+  total_scanned: number;
+  matched: number;
+  query_time_ms: number;
+  per_partition_stats?: Record<number, PartitionQueryStats>;
+}
+
+export interface PartitionQueryStats {
+  scanned: number;
+  matched: number;
+  start_offset: number;
+  end_offset: number;
+}
+
 export interface MessageListResponse {
   messages: MessageRecord[];
+  stats?: QueryStats;
 }
 
 export interface SendMessageRequest {

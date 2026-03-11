@@ -1630,12 +1630,12 @@ async function fetchMessages() {
       params.end_time = new Date(messageFilters.endTime).getTime();
     }
 
-    const messages = await apiClient.getMessages(
+    const result = await apiClient.getMessages(
       selectedMessageCluster.value,
       selectedMessageTopic.value,
       params
     );
-    topicMessages.value = messages;
+    topicMessages.value = result.messages;
   } catch (e) {
     messagesError.value = (e as { message: string }).message;
   } finally {

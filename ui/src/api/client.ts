@@ -556,17 +556,22 @@ class ApiClient {
     per_partition_max?: boolean;  // Per-partition 模式
     limit?: number;
     search?: string;
+    search_in?: 'key' | 'value' | 'all';
     start_time?: number;
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
-  }): Promise<import('@/types/api').MessageRecord[]> {
+    order_by?: 'timestamp' | 'offset';
+    sort?: 'asc' | 'desc';
+    scan_depth?: number;
+    include_stats?: boolean;  // 是否返回统计信息
+  }): Promise<{ messages: import('@/types/api').MessageRecord[]; stats?: import('@/types/api').QueryStats }> {
     // 消息查询可能需要较长时间，设置 60 秒超时
-    const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
+    const data = await this.request<{ messages: import('@/types/api').MessageRecord[]; stats?: import('@/types/api').QueryStats }>('message.list', {
       cluster_id: clusterId,
       topic,
       ...params
     }, 60000);
-    return data.messages;
+    return data;
   }
 
   cancelGetMessages() {

@@ -1,6 +1,7 @@
 use crate::db::cluster::ClusterStore;
 use crate::error::{AppError, Result};
-use crate::kafka::consumer::{KafkaConsumer, KafkaMessage};
+use crate::kafka::consumer::KafkaMessage;
+use crate::kafka::message_query::{MessageQueryExecutor, MessageQueryParams, FetchMode, SearchFilter, SearchScope, TimeRange, OrderBy, SortOrder};
 use crate::models::{MessageListResponse, MessageRecord, SendMessageRequest, SendMessageResponse};
 use crate::AppState;
 use axum::{
@@ -8,9 +9,9 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use rdkafka::consumer::Consumer;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// 获取或创建 admin 客户端（用于获取 topic 元数据）
 async fn get_or_create_admin_client(
@@ -85,60 +86,27 @@ pub struct GetMessageParams {
     pub partition: Option<i32>,
     pub offset: Option<i64>,
     pub max_messages: Option<usize>,
-    pub per_partition_max: Option<bool>,  // 是否启用 per-partition 模式
-    pub order_by: Option<String>,    // "timestamp" or "offset"
-    pub sort: Option<String>,        // "asc" or "desc"
-    pub limit: Option<usize>,        // 限制返回的消息数量
-    pub search: Option<String>,      // 搜索关键词
-    pub search_in: Option<String>,   // 搜索范围："key", "value", "all" (默认)
-    pub format: Option<String>,      // 输出格式："raw", "json", "hex"
-    pub decode: Option<String>,      // 解码方式："utf8", "base64", "hex"
-    pub start_time: Option<i64>,     // 开始时间戳（毫秒）
-    pub end_time: Option<i64>,       // 结束时间戳（毫秒）
-    pub fetch_mode: Option<String>,  // "oldest" or "newest"
-    pub scan_depth: Option<usize>,   // 搜索扫描深度（扫描的消息数量），默认与 max_messages 相同
+    pub per_partition_max: Option<bool>,
+    pub order_by: Option<String>,
+    pub sort: Option<String>,
+    pub limit: Option<usize>,
+    pub search: Option<String>,
+    pub search_in: Option<String>,
+    pub format: Option<String>,
+    pub decode: Option<String>,
+    pub start_time: Option<i64>,
+    pub end_time: Option<i64>,
+    pub fetch_mode: Option<String>,
+    pub scan_depth: Option<usize>,
 }
 
-impl GetMessageParams {
-    /// 检查消息是否匹配过滤条件（流式过滤）
-    fn matches(&self, msg: &KafkaMessage) -> bool {
-        // 时间范围过滤
-        if let Some(start) = self.start_time {
-            if let Some(ts) = msg.timestamp {
-                if ts < start {
-                    return false;
-                }
-            }
-        }
-        if let Some(end) = self.end_time {
-            if let Some(ts) = msg.timestamp {
-                if ts > end {
-                    return false;
-                }
-            }
-        }
-
-        // 搜索过滤
-        if let Some(search_term) = &self.search {
-            let search_in = self.search_in.as_deref().unwrap_or("all");
-            let search_lower = search_term.to_lowercase();
-
-            let matches = match search_in {
-                "key" => msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(&search_lower)),
-                "value" => msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(&search_lower)),
-                _ => {
-                    let key_match = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(&search_lower));
-                    let value_match = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(&search_lower));
-                    key_match || value_match
-                }
-            };
-            if !matches {
-                return false;
-            }
-        }
-
-        true
-    }
+/// 增强的消息查询接口，返回统计信息
+#[derive(Debug, Deserialize)]
+pub struct GetMessageParamsEnhanced {
+    #[serde(flatten)]
+    pub params: GetMessageParams,
+    #[serde(default)]
+    pub include_stats: bool,
 }
 
 async fn get_messages(
@@ -146,641 +114,106 @@ async fn get_messages(
     Path((cluster_id, topic)): Path<(String, String)>,
     Query(params): Query<GetMessageParams>,
 ) -> Result<Json<MessageListResponse>> {
-    use std::collections::BinaryHeap;
-    use std::cmp::Reverse;
+    let start_time = Instant::now();
+
+    // 确保集群连接存在
+    let _admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     // 从 Pool 获取 Consumer Pool
     let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+    // 构建查询参数
+    let query_params = build_query_params(&params, &topic);
 
+    // 执行查询
+    let executor = MessageQueryExecutor::new(consumer_pool);
+    let (messages, _stats) = executor.execute(&query_params).await?;
+
+    // 转换为 MessageRecord
+    let records: Vec<MessageRecord> = messages
+        .into_iter()
+        .map(|msg| MessageRecord {
+            partition: msg.partition,
+            offset: msg.offset,
+            key: msg.key,
+            value: msg.value,
+            timestamp: msg.timestamp,
+        })
+        .collect();
+
+    tracing::info!(
+        "[get_messages] cluster_id={}, topic={}, returned {} messages, took {}ms",
+        cluster_id,
+        topic,
+        records.len(),
+        start_time.elapsed().as_millis()
+    );
+
+    Ok(Json(MessageListResponse { messages: records }))
+}
+
+/// 构建查询参数
+fn build_query_params(params: &GetMessageParams, topic: &str) -> MessageQueryParams {
     let max_messages = params.max_messages.unwrap_or(100);
     let limit = params.limit.unwrap_or(max_messages);
-    let _per_partition = params.per_partition_max.unwrap_or(false);
 
-    // 搜索模式：当有搜索条件时，自动扩大扫描范围
-    // scan_depth 控制扫描的消息数量，limit 控制最终返回的数量
+    // 确定 fetch_mode
+    let fetch_mode = FetchMode::from_str(
+        params.fetch_mode.as_deref(),
+        params.offset,
+        params.start_time,
+    );
+
+    // 构建时间范围
+    let time_range = match (params.start_time, params.end_time) {
+        (Some(start), Some(end)) => Some(TimeRange { start, end }),
+        (Some(start), None) => Some(TimeRange { start, end: i64::MAX }),
+        (None, Some(end)) => Some(TimeRange { start: 0, end }),
+        (None, None) => None,
+    };
+
+    // 构建搜索过滤器
+    let search = params.search.as_ref().map(|keyword| SearchFilter {
+        keyword: keyword.clone(),
+        scope: SearchScope::from_str(params.search_in.as_deref()),
+    });
+
+    // 确定排序方式
+    let order_by = if params.order_by.as_deref() == Some("timestamp") {
+        OrderBy::Timestamp
+    } else {
+        OrderBy::Offset
+    };
+
+    let sort_order = if params.sort.as_deref() == Some("asc") {
+        SortOrder::Asc
+    } else {
+        SortOrder::Desc
+    };
+
+    // 计算扫描深度
     let scan_depth = if let Some(depth) = params.scan_depth {
         depth
-    } else if params.search.is_some() {
-        // 搜索模式：默认扫描 10000 条消息，确保能找到目标
-        std::cmp::max(limit * 10, 10000)
+    } else if search.is_some() {
+        // 搜索模式：扩大扫描范围
+        limit * 100
     } else {
         limit
     };
 
-    // 克隆 params 用于闭包
-    let params_clone = params.clone();
-
-    // 判断是否需要排序
-    let need_sort = params.order_by.as_deref() == Some("timestamp");
-    let desc = params.sort.as_deref() == Some("desc");
-
-    // Per-partition 模式：并行获取每个 partition 的消息
-    // 修改：当未指定 partition 时，自动使用 per-partition 模式查询所有分区
-    // 这样数据量大的 topic（通常有多个 partition）也能查询到消息
-    // 但 fetch_mode=newest 时使用专门的快速方法
-    let fetch_mode = params.fetch_mode.as_deref();
-    tracing::info!("[get_messages] cluster_id={}, topic={}, partition={:?}, fetch_mode={:?}, offset={:?}, scan_depth={}",
-                   cluster_id, topic, params.partition, fetch_mode, params.offset, scan_depth);
-
-    let raw_messages = if params.partition.is_none()
-        && !(fetch_mode == Some("newest") && params.offset.is_none() && params.start_time.is_none())
-    {
-        // 获取 topic 的 partition 列表
-        let admin = get_or_create_admin_client(&state, &cluster_id).await?;
-        let topic_info = admin.get_topic_info(&topic)?;
-        let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
-        let partition_count = partition_ids.len();
-
-        tracing::info!("[get_messages] per-partition mode: {} partitions, scan_depth per partition={}",
-                       partition_count, (scan_depth / partition_count.max(1)).max(100));
-
-        // 预先查询每个 partition 的起始 offset
-        // 默认从最新消息往前读（high watermark - scan_depth），而不是从最早消息开始读
-        let mut partition_offsets: std::collections::HashMap<i32, Option<i64>> = std::collections::HashMap::new();
-        for pid in &partition_ids {
-            let offset = if let Some(start_time) = params.start_time {
-                // 使用时间范围查询
-                let clients = state.get_clients();
-                let consumer = clients.get_consumer(&cluster_id)
-                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-                match consumer.get_offset_for_time(&config, &topic, *pid, start_time).await {
-                    Ok(Some(off)) => Some(off),
-                    _ => None,
-                }
-            } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
-                // 从最老的消息开始读
-                let clients = state.get_clients();
-                let consumer = clients.get_consumer(&cluster_id)
-                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-                match consumer.get_offset_for_time(&config, &topic, *pid, 0).await {
-                    Ok(Some(off)) => Some(off),
-                    _ => None,
-                }
-            } else if params.offset.is_some() {
-                // 使用用户指定的 offset
-                params.offset
-            } else {
-                // 默认从最新消息往前读：计算 high - scan_depth
-                match admin.get_partition_watermarks(&topic, *pid, &config.brokers) {
-                    Ok((low, high)) => {
-                        let start = std::cmp::max(low, high - scan_depth as i64);
-                        Some(start)
-                    }
-                    Err(_) => None,
-                }
-            };
-            partition_offsets.insert(*pid, offset);
-        }
-
-        // 并发获取每个 partition 的消息（使用 Pool）
-        // 优化：限制并发度，避免超过 Pool 容量
-        use tokio::sync::Semaphore;
-        let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
-        let mut tasks = Vec::new();
-
-        for pid in partition_ids {
-            let pool_clone = consumer_pool.clone();
-            let config_clone = config.clone();
-            let topic_clone = topic.clone();
-            let params_clone = params_clone.clone();
-            // 每个 partition 扫描 scan_depth / partition_count 条消息
-            // 但最少不少于 100 条
-            let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
-            let sem_clone = semaphore.clone();
-            let start_offset = partition_offsets.get(&pid).copied().flatten();
-
-            let task = tokio::spawn(async move {
-                // 获取信号量许可，限制并发度
-                let _permit = sem_clone.acquire().await
-                    .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-
-                // 使用 Pool 获取消息
-                KafkaConsumer::fetch_messages_filtered_from_pool(
-                    &pool_clone,
-                    &config_clone,
-                    &topic_clone,
-                    Some(pid),
-                    start_offset,
-                    scan_per_partition,
-                    &move |msg: &KafkaMessage| -> bool {
-                        params_clone.matches(msg)
-                    },
-                )
-                .await
-            });
-            tasks.push(task);
-        }
-
-        // 收集所有结果
-        let mut all_messages = Vec::new();
-        for task in tasks {
-            match task.await {
-                Ok(Ok(msgs)) => all_messages.extend(msgs),
-                Ok(Err(e)) => tracing::warn!("Partition fetch error: {}", e),
-                Err(e) => tracing::warn!("Task join error: {}", e),
-            }
-        }
-        all_messages
-    } else if params.fetch_mode.as_deref() == Some("newest")
-        && params.offset.is_none()
-        && params.start_time.is_none()
-        && params.partition.is_none()
-    {
-        // 快速模式：查询所有 partition 的最新消息（使用 Pool）
-        let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
-        let mut partition_ids: Vec<i32> = Vec::new();
-
-        // 尝试从 admin 获取 partition 列表
-        if let Some(admin_ref) = admin {
-            if let Ok(Some(_cluster)) = ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
-                if let Ok(topic_info) = admin_ref.get_topic_info(&topic) {
-                    partition_ids = topic_info.partitions.iter().map(|p| p.id).collect();
-                    tracing::info!("[get_messages] fetch_mode=newest: found {} partitions from admin", partition_ids.len());
-                }
-            }
-        }
-
-        // 如果从 admin 获取失败，尝试使用 Consumer Pool 动态发现 partition
-        if partition_ids.is_empty() {
-            // 动态发现 partition：查询 partition 0-999，直到 watermarks 查询失败
-            for pid in 0..1000 {
-                let test_consumer = consumer_pool.get().await;
-                if let Ok(consumer) = test_consumer {
-                    use std::time::Duration;
-                    match consumer.fetch_watermarks(&topic, pid, Duration::from_millis(100)) {
-                        Ok((low, high)) => {
-                            if high > low {
-                                partition_ids.push(pid);
-                                tracing::info!("[get_messages] discovered partition {} with {} messages", pid, high - low);
-                            } else {
-                                // 空 partition，也加入列表
-                                partition_ids.push(pid);
-                            }
-                        }
-                        Err(_) => {
-                            // partition 不存在，停止发现
-                            tracing::info!("[get_messages] discovered {} partitions (partition {} does not exist)", partition_ids.len(), pid);
-                            break;
-                        }
-                    }
-                } else {
-                    tracing::warn!("[get_messages] failed to get consumer from pool");
-                    break;
-                }
-            }
-        }
-
-        // 如果还是找不到 partition，返回空
-        if partition_ids.is_empty() {
-            tracing::warn!("[get_messages] no partitions found for topic {}", topic);
-            return Ok(Json(MessageListResponse { messages: Vec::new() }));
-        }
-
-        let partition_count = partition_ids.len();
-        // 优化：限制并发度，避免超过 Pool 容量
-        // 使用 Semaphore 控制同时运行的任务数
-        use tokio::sync::Semaphore;
-        let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
-        let mut tasks = Vec::new();
-        // 每个 partition 扫描 scan_depth / partition_count 条消息
-        // 搜索模式：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能搜索到
-        let min_scan_per_partition = if params.search.is_some() { 1000 } else { 100 };
-        let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
-        tracing::info!("[get_messages] fetching from {} partitions, scan_per_partition={}", partition_count, scan_per_partition);
-
-        for pid in partition_ids {
-            let pool_clone = consumer_pool.clone();
-            let topic_clone = topic.clone();
-            let params_clone = params_clone.clone();
-            let sem_clone = semaphore.clone();
-            let task = tokio::spawn(async move {
-                // 获取信号量许可，限制并发度
-                let _permit = sem_clone.acquire().await
-                    .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-                // 使用 Pool 获取 Consumer
-                KafkaConsumer::fetch_latest_messages_from_pool(
-                    &pool_clone,
-                    &topic_clone,
-                    pid,
-                    scan_per_partition,
-                    &move |msg: &KafkaMessage| -> bool {
-                        params_clone.matches(msg)
-                    },
-                )
-                .await
-            });
-            tasks.push(task);
-        }
-        let mut all_messages = Vec::new();
-        for task in tasks {
-            if let Ok(Ok(msgs)) = task.await {
-                all_messages.extend(msgs);
-            }
-        }
-        all_messages
-    } else {
-        // 其他模式：使用原有逻辑查询 watermarks
-        let start_offset = if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none() {
-            let target_partition = params.partition.unwrap_or(0);
-            let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
-            if let Some(admin_ref) = admin {
-                match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
-                    Ok(Some(cluster)) => {
-                        match admin_ref.get_partition_watermarks(&topic, target_partition, &cluster.brokers) {
-                            Ok((low, high)) => {
-                                // 搜索模式：扫描更多消息
-                                let start = std::cmp::max(low, high - scan_depth as i64);
-                                Some(start)
-                            }
-                            Err(_) => Some(0),
-                        }
-                    }
-                    _ => Some(0),
-                }
-            } else {
-                Some(0)
-            }
-        } else if let Some(start_time) = params.start_time {
-            let target_partition = params.partition.unwrap_or(0);
-            // 使用临时 Consumer 查询时间戳 offset
-            let clients = state.get_clients();
-            let consumer = clients.get_consumer(&cluster_id)
-                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-            let config = clients.get_config(&cluster_id)
-                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-            match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
-                Ok(Some(offset)) => Some(offset),
-                Ok(None) | Err(_) => params.offset,
-            }
-        } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
-            let target_partition = params.partition.unwrap_or(0);
-            // 使用临时 Consumer 查询 oldest offset
-            let clients = state.get_clients();
-            let consumer = clients.get_consumer(&cluster_id)
-                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-            let config = clients.get_config(&cluster_id)
-                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-            consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
-        } else {
-            params.offset
-        };
-
-        // 使用 Pool 获取消息
-        KafkaConsumer::fetch_messages_filtered_from_pool(
-            &consumer_pool,
-            &config,
-            &topic,
-            params_clone.partition,
-            start_offset,
-            scan_depth,
-            &move |msg: &KafkaMessage| -> bool {
-                params_clone.matches(msg)
-            },
-        )
-        .await?
-    };
-
-    // 转换为 MessageRecord 并流式排序
-    let messages = if need_sort {
-        // 使用堆进行流式 TopK 排序
-        if desc {
-            // 降序：使用最小堆，维护最大的 limit 个元素
-            let mut heap: BinaryHeap<Reverse<MessageRecord>> = BinaryHeap::new();
-            for msg in raw_messages {
-                let record = MessageRecord {
-                    partition: msg.partition,
-                    offset: msg.offset,
-                    key: msg.key,
-                    value: msg.value,
-                    timestamp: msg.timestamp,
-                };
-                if heap.len() < limit {
-                    heap.push(Reverse(record));
-                } else if let Some(min) = heap.peek() {
-                    if record.timestamp.unwrap_or(0) > min.0.timestamp.unwrap_or(0) {
-                        heap.pop();
-                        heap.push(Reverse(record));
-                    }
-                }
-            }
-            // 转换为 Vec 并按 timestamp 降序排列
-            let mut result: Vec<MessageRecord> = heap.into_iter().map(|Reverse(r)| r).collect();
-            result.sort_by(|a, b| {
-                match (a.timestamp, b.timestamp) {
-                    (Some(ts_a), Some(ts_b)) => ts_b.cmp(&ts_a),
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (None, None) => b.offset.cmp(&a.offset),
-                }
-            });
-            result
-        } else {
-            // 升序：使用最大堆，维护最小的 limit 个元素
-            let mut heap: BinaryHeap<MessageRecord> = BinaryHeap::new();
-            for msg in raw_messages {
-                let record = MessageRecord {
-                    partition: msg.partition,
-                    offset: msg.offset,
-                    key: msg.key,
-                    value: msg.value,
-                    timestamp: msg.timestamp,
-                };
-                if heap.len() < limit {
-                    heap.push(record);
-                } else if let Some(max) = heap.peek() {
-                    if record.timestamp.unwrap_or(i64::MAX) < max.timestamp.unwrap_or(i64::MAX) {
-                        heap.pop();
-                        heap.push(record);
-                    }
-                }
-            }
-            // 转换为 Vec 并按 timestamp 升序排列
-            let mut result: Vec<MessageRecord> = heap.into_iter().collect();
-            result.sort_by(|a, b| {
-                match (a.timestamp, b.timestamp) {
-                    (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => a.offset.cmp(&b.offset),
-                }
-            });
-            result
-        }
-    } else {
-        // 不需要排序，直接取前 limit 条
-        raw_messages
-            .into_iter()
-            .take(limit)
-            .map(|msg| MessageRecord {
-                partition: msg.partition,
-                offset: msg.offset,
-                key: msg.key,
-                value: msg.value,
-                timestamp: msg.timestamp,
-            })
-            .collect()
-    };
-
-    Ok(Json(MessageListResponse { messages }))
-}
-
-/// 增强的消息记录，包含格式化后的内容
-#[derive(Debug, Serialize)]
-pub struct EnhancedMessageRecord {
-    pub partition: i32,
-    pub offset: i64,
-    pub key: Option<String>,
-    pub value: Option<String>,
-    pub timestamp: Option<i64>,
-    /// 原始 key (base64 编码)
-    pub key_raw: Option<String>,
-    /// 原始 value (base64 编码)
-    pub value_raw: Option<String>,
-    /// JSON 格式化后的 value
-    pub value_json: Option<serde_json::Value>,
-    /// Hex 格式的 value
-    pub value_hex: Option<String>,
-    /// 内容类型推断
-    pub content_type: Option<String>,
-    /// 消息大小
-    pub size: MessageSize,
-}
-
-/// 消息大小信息
-#[derive(Debug, Serialize)]
-pub struct MessageSize {
-    pub key_size: usize,
-    pub value_size: usize,
-    pub total_size: usize,
-}
-
-/// 消息格式选项
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MessageFormat {
-    Raw,
-    Json,
-    Hex,
-}
-
-impl MessageFormat {
-    pub fn from_str(s: Option<&str>) -> Self {
-        match s {
-            Some("json") => MessageFormat::Json,
-            Some("hex") => MessageFormat::Hex,
-            _ => MessageFormat::Raw,
-        }
+    MessageQueryParams {
+        topic: topic.to_string(),
+        partition: params.partition,
+        fetch_mode,
+        time_range,
+        search,
+        limit,
+        per_partition_max: params.per_partition_max.unwrap_or(false),
+        scan_depth: Some(scan_depth),
+        order_by,
+        sort_order,
     }
-}
-
-/// 解码方式
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DecodeMode {
-    Utf8,
-    Base64,
-    Hex,
-}
-
-impl DecodeMode {
-    pub fn from_str(s: Option<&str>) -> Self {
-        match s {
-            Some("base64") => DecodeMode::Base64,
-            Some("hex") => DecodeMode::Hex,
-            _ => DecodeMode::Utf8,
-        }
-    }
-}
-
-/// 推断内容类型
-fn infer_content_type(data: &[u8]) -> Option<&'static str> {
-    // 检查是否为 JSON
-    if data.starts_with(b"{") || data.starts_with(b"[") {
-        if serde_json::from_slice::<serde_json::Value>(data).is_ok() {
-            return Some("application/json");
-        }
-    }
-    // 检查是否为纯文本
-    if std::str::from_utf8(data).is_ok() {
-        // 检查是否包含常见的文本特征
-        let text = String::from_utf8_lossy(data);
-        if text.chars().all(|c| c.is_alphanumeric() || c.is_whitespace() || ",.!?;:'\"()[]{}".contains(c)) {
-            return Some("text/plain");
-        }
-    }
-    None
-}
-
-/// 将字节转换为 hex 字符串
-fn bytes_to_hex(data: &[u8]) -> String {
-    data.iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// 增强的消息查看 - 返回更丰富的信息（流式过滤版本）
-async fn get_messages_enhanced(
-    State(state): State<AppState>,
-    Path((cluster_id, topic)): Path<(String, String)>,
-    Query(params): Query<GetMessageParams>,
-) -> Result<serde_json::Value> {
-    let clients = state.get_clients();
-    let consumer = clients
-        .get_consumer(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let max_messages = params.max_messages.unwrap_or(100);
-    let format = MessageFormat::from_str(params.format.as_deref());
-    let decode_mode = DecodeMode::from_str(params.decode.as_deref());
-
-    // 构建流式过滤器
-    let params_clone = params.clone();
-    let matcher = move |msg: &KafkaMessage| -> bool {
-        // 时间范围过滤
-        if let Some(start) = params_clone.start_time {
-            if let Some(ts) = msg.timestamp {
-                if ts < start {
-                    return false;
-                }
-            }
-        }
-        if let Some(end) = params_clone.end_time {
-            if let Some(ts) = msg.timestamp {
-                if ts > end {
-                    return false;
-                }
-            }
-        }
-
-        // 搜索过滤
-        if let Some(search_term) = &params_clone.search {
-            let search_in = params_clone.search_in.as_deref().unwrap_or("all");
-            let search_lower = search_term.to_lowercase();
-
-            let matches = match search_in {
-                "key" => msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(&search_lower)),
-                "value" => msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(&search_lower)),
-                _ => {
-                    let key_match = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(&search_lower));
-                    let value_match = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(&search_lower));
-                    key_match || value_match
-                }
-            };
-            if !matches {
-                return false;
-            }
-        }
-
-        true
-    };
-
-    // 流式获取消息：在读取时就进行过滤
-    let mut messages = consumer
-        .fetch_messages_filtered(&config, &topic, params.partition, params.offset, max_messages, &matcher)
-        .await?;
-
-    // 按 timestamp 排序
-    if let Some(order_by) = params.order_by {
-        if order_by == "timestamp" {
-            let desc = params.sort.as_deref() == Some("desc");
-            messages.sort_by(|a, b| {
-                match (a.timestamp, b.timestamp) {
-                    (Some(ts_a), Some(ts_b)) => {
-                        if desc {
-                            ts_b.cmp(&ts_a)
-                        } else {
-                            ts_a.cmp(&ts_b)
-                        }
-                    }
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (None, None) => a.offset.cmp(&b.offset),
-                }
-            });
-        }
-    }
-
-    // 限制返回数量
-    if let Some(limit) = params.limit {
-        if limit < messages.len() {
-            messages.truncate(limit);
-        }
-    }
-
-    // 转换为增强的消息记录
-    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-
-    let enhanced: Vec<EnhancedMessageRecord> = messages
-        .into_iter()
-        .map(|msg| {
-            let key_bytes = msg.key.clone().map(|k| k.into_bytes()).unwrap_or_default();
-            let value_bytes = msg.value.clone().map(|v| v.into_bytes()).unwrap_or_default();
-
-            // JSON 格式化
-            let value_json = msg.value.as_ref()
-                .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok());
-
-            // Hex 格式
-            let value_hex = Some(bytes_to_hex(&value_bytes));
-
-            // 内容类型
-            let content_type = infer_content_type(&value_bytes);
-
-            // Base64 编码的原始数据
-            let key_raw = if !key_bytes.is_empty() {
-                Some(BASE64.encode(&key_bytes))
-            } else {
-                None
-            };
-            let value_raw = if !value_bytes.is_empty() {
-                Some(BASE64.encode(&value_bytes))
-            } else {
-                None
-            };
-
-            EnhancedMessageRecord {
-                partition: msg.partition,
-                offset: msg.offset,
-                key: msg.key,
-                value: msg.value,
-                timestamp: msg.timestamp,
-                key_raw,
-                value_raw,
-                value_json,
-                value_hex,
-                content_type: content_type.map(String::from),
-                size: MessageSize {
-                    key_size: key_bytes.len(),
-                    value_size: value_bytes.len(),
-                    total_size: key_bytes.len() + value_bytes.len(),
-                },
-            }
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "messages": enhanced,
-        "count": enhanced.len(),
-        "format": match format {
-            MessageFormat::Raw => "raw",
-            MessageFormat::Json => "json",
-            MessageFormat::Hex => "hex",
-        },
-        "decode_mode": match decode_mode {
-            DecodeMode::Utf8 => "utf8",
-            DecodeMode::Base64 => "base64",
-            DecodeMode::Hex => "hex",
-        },
-    }))
 }
 
 async fn send_message(
@@ -808,32 +241,6 @@ async fn send_message(
 use axum::response::Response;
 use axum::http::HeaderMap;
 
-/// 导出格式
-#[derive(Debug, Clone, Copy)]
-enum ExportFormat {
-    Json,
-    Csv,
-    Text,
-}
-
-impl ExportFormat {
-    fn from_str(s: Option<&str>) -> Self {
-        match s {
-            Some("csv") => ExportFormat::Csv,
-            Some("text") => ExportFormat::Text,
-            _ => ExportFormat::Json,
-        }
-    }
-
-    fn content_type(&self) -> &'static str {
-        match self {
-            ExportFormat::Json => "application/json",
-            ExportFormat::Csv => "text/csv",
-            ExportFormat::Text => "text/plain",
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct ExportMessageParams {
     pub partition: Option<i32>,
@@ -841,13 +248,12 @@ pub struct ExportMessageParams {
     pub max_messages: Option<usize>,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
-    pub format: Option<String>, // "json", "csv", "text"
+    pub format: Option<String>,
     pub filename: Option<String>,
-    pub search: Option<String>,      // 搜索关键词
-    pub fetch_mode: Option<String>,  // "oldest" or "newest"
+    pub search: Option<String>,
+    pub fetch_mode: Option<String>,
 }
 
-/// 导出消息到文件
 async fn export_messages(
     State(state): State<AppState>,
     Path((cluster_id, topic)): Path<(String, String)>,
@@ -865,35 +271,8 @@ async fn export_messages(
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     let max_messages = params.max_messages.unwrap_or(1000);
-    let export_format = ExportFormat::from_str(params.format.as_deref());
 
-    // 根据 fetch_mode 确定 offset
-    // 如果是 newest 且未指定 offset，需要查询 high watermark
-    let target_offset = if params.offset.is_none() && params.fetch_mode.as_deref() == Some("newest") {
-        // 使用 consumer 查询 high watermark
-        use rdkafka::config::ClientConfig;
-        use std::time::Duration;
-
-        let temp_config = ClientConfig::new()
-            .set("bootstrap.servers", &config.brokers)
-            .set("group.id", &format!("kafka-manager-watermark-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()))
-            .create::<rdkafka::consumer::StreamConsumer>()
-            .ok();
-
-        if let Some(temp_consumer) = temp_config {
-            let partition_id = params.partition.unwrap_or(0);
-            match temp_consumer.fetch_watermarks(&topic, partition_id, Some(Duration::from_millis(500))) {
-                Ok((_, high)) if high > 0 => Some(high - 1),  // 从最后一个消息开始
-                _ => None,
-            }
-        } else {
-            None
-        }
-    } else {
-        params.offset
-    };
-
-    // 流式过滤：时间范围过滤和搜索过滤在读取时进行
+    // 构建搜索过滤器
     let matcher = |msg: &KafkaMessage| -> bool {
         // 时间范围过滤
         if let Some(start_time) = params.start_time {
@@ -922,6 +301,32 @@ async fn export_messages(
         true
     };
 
+    // 根据 fetch_mode 确定 offset
+    let target_offset = if params.offset.is_none() && params.fetch_mode.as_deref() == Some("newest") {
+        // 查询 high watermark
+        use rdkafka::config::ClientConfig;
+        use rdkafka::consumer::Consumer;
+        use std::time::Duration;
+
+        let temp_config = ClientConfig::new()
+            .set("bootstrap.servers", &config.brokers)
+            .set("group.id", &format!("kafka-manager-export-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()))
+            .create::<rdkafka::consumer::StreamConsumer>()
+            .ok();
+
+        if let Some(temp_consumer) = temp_config {
+            let partition_id = params.partition.unwrap_or(0);
+            match temp_consumer.fetch_watermarks(&topic, partition_id, Some(Duration::from_millis(500))) {
+                Ok((_, high)) if high > 0 => Some(high - 1),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        params.offset
+    };
+
     let mut messages = consumer
         .fetch_messages_filtered(&config, &topic, params.partition, target_offset, max_messages, &matcher)
         .await?;
@@ -937,6 +342,12 @@ async fn export_messages(
     });
 
     // 根据格式生成内容
+    let export_format = match params.format.as_deref() {
+        Some("csv") => ExportFormat::Csv,
+        Some("text") => ExportFormat::Text,
+        _ => ExportFormat::Json,
+    };
+
     let content = match export_format {
         ExportFormat::Json => {
             serde_json::to_string_pretty(&messages).map_err(|e| {
@@ -1003,4 +414,28 @@ async fn export_messages(
     *response.headers_mut() = headers;
 
     Ok(response)
+}
+
+enum ExportFormat {
+    Json,
+    Csv,
+    Text,
+}
+
+impl ExportFormat {
+    fn from_str(s: Option<&str>) -> Self {
+        match s {
+            Some("csv") => ExportFormat::Csv,
+            Some("text") => ExportFormat::Text,
+            _ => ExportFormat::Json,
+        }
+    }
+
+    fn content_type(&self) -> &'static str {
+        match self {
+            ExportFormat::Json => "application/json",
+            ExportFormat::Csv => "text/csv",
+            ExportFormat::Text => "text/plain",
+        }
+    }
 }

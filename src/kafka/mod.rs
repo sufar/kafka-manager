@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod consumer;
 pub mod import_export;
+pub mod message_query;
 pub mod offset;
 pub mod schema;
 pub mod schema_registry;
@@ -10,6 +11,7 @@ mod producer;
 
 pub use admin::KafkaAdmin;
 pub use consumer::KafkaConsumer;
+pub use message_query::{FetchMode, MessageQueryExecutor, MessageQueryParams, OrderBy, QueryStats, SearchScope, SortOrder};
 pub use producer::KafkaProducer;
 
 use crate::config::KafkaConfig;

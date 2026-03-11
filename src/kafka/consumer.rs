@@ -3,6 +3,7 @@ use crate::error::{AppError, Result};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::Message;
 use rdkafka::config::ClientConfig;
+use std::collections::HashMap;
 use std::time::Duration;
 use futures::stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -829,6 +830,54 @@ impl KafkaConsumer {
 
         // Consumer 会自动归还到池中
         Ok(messages)
+    }
+
+    /// 批量查询多个 partition 的 watermarks（并行版本）
+    ///
+    /// 使用 futures::future::join_all 并行查询，提高多分区场景下的性能
+    pub async fn fetch_watermarks_batch(
+        &self,
+        kafka_config: &KafkaConfig,
+        topic: &str,
+        partition_ids: Vec<i32>,
+    ) -> Result<HashMap<i32, (i64, i64)>> {
+        use futures::future::join_all;
+        use std::time::Duration;
+
+        // 为每个 partition 创建查询任务
+        let tasks = partition_ids.into_iter().map(|pid| {
+            let brokers = kafka_config.brokers.clone();
+            let topic = topic.to_string();
+            tokio::spawn(async move {
+                // 创建临时 consumer 查询 watermarks
+                let mut client_config = ClientConfig::new();
+                client_config.set("bootstrap.servers", &brokers);
+                client_config.set("group.id", &format!("kafka-manager-watermark-batch-{}", std::process::id()));
+
+                match client_config.create::<StreamConsumer>() {
+                    Ok(consumer) => {
+                        match consumer.fetch_watermarks(&topic, pid, Duration::from_millis(500)) {
+                            Ok(watermarks) => Some((pid, watermarks)),
+                            Err(_) => None,
+                        }
+                    }
+                    Err(_) => None,
+                }
+            })
+        });
+
+        // 并行执行所有查询
+        let results = join_all(tasks).await;
+
+        // 收集结果
+        let mut watermarks_map = HashMap::new();
+        for result in results {
+            if let Ok(Some((pid, (low, high)))) = result {
+                watermarks_map.insert(pid, (low, high));
+            }
+        }
+
+        Ok(watermarks_map)
     }
 }
 
