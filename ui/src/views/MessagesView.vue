@@ -154,7 +154,7 @@
 
     <!-- Message Detail (Bottom Panel) -->
     <div
-      class="message-detail overflow-x-auto overflow-y-auto glass min-h-0 backdrop-blur-md"
+      class="message-detail overflow-y-auto glass min-h-0 backdrop-blur-md"
       :style="{ height: detailHeight + 'px', flex: 'none' }"
       @selectstart="handleSelectStart"
       @keydown.ctrl.a.prevent="handleSelectAll"
@@ -170,7 +170,7 @@
             <span class="text-base-content/60">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
           </div>
           <div class="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
-            <label class="text-[10px] text-base-content/60 whitespace-nowrap">View As:</label>
+            <label class="text-[10px] text-base-content/60">View As:</label>
             <select v-model="messageViewFormat" class="select select-bordered select-[10px]">
               <option value="json">JSON</option>
               <option value="raw">Raw</option>
@@ -211,16 +211,16 @@
     </div>
 
     <!-- Status Bar -->
-    <div class="status-bar flex items-center justify-between px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md overflow-x-auto flex-nowrap min-w-full">
-      <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="status-bar flex items-center justify-between px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md">
+      <div class="flex items-center gap-2">
         <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
         <span v-if="fetchTime > 0">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
-      <div class="flex items-center gap-1.5 flex-shrink-0">
-        <span class="flex-shrink-0 text-xs text-base-content/60">{{ t.messages.perPartitionMax }}:</span>
-        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-base-content/60">{{ t.messages.perPartitionMax }}:</span>
+        <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20" min="1" max="10000" @change="fetchMessages" />
       </div>
     </div>
 
