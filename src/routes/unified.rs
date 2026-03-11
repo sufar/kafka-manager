@@ -1513,19 +1513,36 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 使用临时 consumer 获取消息（避免连接池配置影响）
-    let messages = fetch_messages_with_temp_consumer(
-        &config.brokers,
-        &topic,
-        partition,
-        offset,
-        max_msgs,
-        start_time,
-        end_time,
-        search,
-        fetch_mode.as_deref(),
-    )
-    .await?;
+    // 优先使用连接池获取消息（更快）
+    let pool = state.pools.get_consumer_pool(&cluster_id).await;
+    let messages = if let Some(consumer_pool) = pool {
+        fetch_messages_from_pool_with_filter(
+            &consumer_pool,
+            &topic,
+            partition,
+            offset,
+            max_msgs,
+            start_time,
+            end_time,
+            search,
+            fetch_mode.as_deref(),
+        )
+        .await?
+    } else {
+        // 降级：使用临时 consumer
+        fetch_messages_with_temp_consumer(
+            &config.brokers,
+            &topic,
+            partition,
+            offset,
+            max_msgs,
+            start_time,
+            end_time,
+            search,
+            fetch_mode.as_deref(),
+        )
+        .await?
+    };
 
     let records: Vec<Value> = messages
         .into_iter()
@@ -1658,11 +1675,11 @@ async fn fetch_messages_with_temp_consumer(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 使用较短的超时快速获取消息
+    // 快速响应配置
     let mut empty_polls = 0;
-    let max_empty_polls = 5;
+    let max_empty_polls = 2; // 减少到 2 次
     let mut total_wait_ms = 0;
-    let max_total_wait_ms = 5000; // 最多等待 5 秒
+    let max_total_wait_ms = 1000; // 减少到 1 秒
 
     // 使用阻塞模式 poll，减少空转
     loop {
@@ -1670,7 +1687,7 @@ async fn fetch_messages_with_temp_consumer(
             break;
         }
 
-        match consumer.poll(Duration::from_millis(100)) {
+        match consumer.poll(Duration::from_millis(30)) { // 减少到 30ms
             Some(Ok(msg)) => {
                 empty_polls = 0;
                 let timestamp = msg.timestamp().to_millis();
@@ -1720,12 +1737,12 @@ async fn fetch_messages_with_temp_consumer(
             }
             Some(Err(_)) => {
                 empty_polls += 1;
-                total_wait_ms += 100;
+                total_wait_ms += 30;
             }
             None => {
                 // 没有消息返回，增加空 poll 计数
                 empty_polls += 1;
-                total_wait_ms += 100;
+                total_wait_ms += 30;
             }
         }
     }
@@ -1824,27 +1841,14 @@ async fn fetch_messages_from_pool_with_filter(
         } else if fetch_mode == Some("oldest") && offset.is_none() {
             // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
             match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((low, high)) => {
-                    tracing::info!(
-                        "oldest mode: topic={}, partition={}, watermarks=({}, {}), max_messages={}",
-                        topic, part_id, low, high, max_messages
-                    );
-                    low
-                }
-                Err(e) => {
-                    tracing::warn!("fetch_watermarks error for topic={} partition={}: {}", topic, part_id, e);
-                    0
-                }
+                Ok((low, _high)) => low,
+                Err(_) => 0,
             }
         } else {
             // 默认从最早的消息开始或指定的 offset
             offset.unwrap_or(0)
         };
 
-        tracing::info!(
-            "Partition {}: start_offset={}, fetch_mode={:?}",
-            part_id, start_offset, fetch_mode
-        );
         partition_offsets.push((part_id, start_offset));
     }
 
@@ -1863,34 +1867,21 @@ async fn fetch_messages_from_pool_with_filter(
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
-    tracing::info!(
-        "Consumer assigned to topic={}, partitions={:?}, starting fetch (max_messages={})",
-        topic, partitions_list, max_messages
-    );
-
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
-    let mut total_read = 0;
-    let mut filtered_count = 0;
 
-    // 优化：使用更短的超时和更高效的循环策略
-    // 目标：1 万条消息在 1 秒内完成
-    // 优化点：
-    // - poll_timeout 从 50ms 降低到 20ms，减少空等待时间
-    // - 增加 max_poll_records 配置，让每次 poll 获取更多消息
-    let poll_timeout = Duration::from_millis(20);
+    // 优化：快速响应配置
+    let poll_timeout = Duration::from_millis(30);
 
     while messages.len() < max_messages {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
-                total_read += 1;
                 let timestamp = msg.timestamp().to_millis();
 
                 // 时间范围过滤
                 if let Some(start) = start_time {
                     if let Some(ts) = timestamp {
                         if ts < start {
-                            filtered_count += 1;
                             continue;
                         }
                     }
@@ -1901,7 +1892,6 @@ async fn fetch_messages_from_pool_with_filter(
                             if !all_partitions {
                                 break;
                             }
-                            filtered_count += 1;
                             continue;
                         }
                     }
@@ -1915,7 +1905,6 @@ async fn fetch_messages_from_pool_with_filter(
                     let key_match = key.as_ref().map_or(false, |k: &String| k.to_lowercase().contains(search_term));
                     let value_match = value.as_ref().map_or(false, |v: &String| v.to_lowercase().contains(search_term));
                     if !key_match && !value_match {
-                        filtered_count += 1;
                         continue;
                     }
                 }
@@ -1934,11 +1923,6 @@ async fn fetch_messages_from_pool_with_filter(
             }
         }
     }
-
-    tracing::info!(
-        "Fetch complete: topic={}, total_read={}, messages_matched={}, filtered={}",
-        topic, total_read, messages.len(), filtered_count
-    );
 
     // 重置 consumer 的分配，避免影响后续请求
     let empty_tpl = TopicPartitionList::new();
