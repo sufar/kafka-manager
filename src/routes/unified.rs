@@ -1617,6 +1617,9 @@ async fn fetch_messages_with_temp_consumer(
     // 为每个分区计算起始 offset
     let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
 
+    // 搜索模式下需要从更早的位置开始查找
+    let search_mode = search.is_some();
+
     for &part_id in &partitions_list {
         let start_offset = if let Some(start_time) = start_time {
             if start_time <= 0 {
@@ -1636,6 +1639,12 @@ async fn fetch_messages_with_temp_consumer(
                     }
                     Err(_) => offset.unwrap_or(0),
                 }
+            }
+        } else if search_mode {
+            // 搜索模式：从最早的消息开始
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(3000)) {
+                Ok((low, _)) => low,
+                Err(_) => 0,
             }
         } else if fetch_mode == Some("newest") && offset.is_none() {
             match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(3000)) {
@@ -1675,19 +1684,29 @@ async fn fetch_messages_with_temp_consumer(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 快速响应配置
-    let mut empty_polls = 0;
-    let max_empty_polls = 2; // 减少到 2 次
-    let mut total_wait_ms = 0;
-    let max_total_wait_ms = 1000; // 减少到 1 秒
+    // 搜索模式需要更长超时和读取更多消息
+    let poll_timeout = if search_mode {
+        Duration::from_millis(100)
+    } else {
+        Duration::from_millis(30)
+    };
 
-    // 使用阻塞模式 poll，减少空转
+    // 搜索时需要读取更多消息才能找到匹配的
+    let max_read = if search_mode {
+        max_messages * 10
+    } else {
+        max_messages
+    };
+    let mut total_read = 0;
+    let mut empty_polls = 0;
+    let max_empty_polls = 3;
+
     loop {
-        if messages.len() >= max_messages || empty_polls >= max_empty_polls || total_wait_ms >= max_total_wait_ms {
+        if messages.len() >= max_messages || empty_polls >= max_empty_polls || total_read >= max_read {
             break;
         }
 
-        match consumer.poll(Duration::from_millis(30)) { // 减少到 30ms
+        match consumer.poll(poll_timeout) {
             Some(Ok(msg)) => {
                 empty_polls = 0;
                 let timestamp = msg.timestamp().to_millis();
@@ -1737,12 +1756,12 @@ async fn fetch_messages_with_temp_consumer(
             }
             Some(Err(_)) => {
                 empty_polls += 1;
-                total_wait_ms += 30;
+                total_read += 1;
             }
             None => {
                 // 没有消息返回，增加空 poll 计数
                 empty_polls += 1;
-                total_wait_ms += 30;
+                total_read += 1;
             }
         }
     }
@@ -1808,6 +1827,9 @@ async fn fetch_messages_from_pool_with_filter(
     // 为每个分区计算起始 offset
     let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
 
+    // 搜索模式下需要从更早的位置开始查找
+    let search_mode = search.is_some();
+
     for &part_id in &partitions_list {
         let start_offset = if let Some(start_time) = start_time {
             // 如果指定了开始时间，使用 offsets_for_times 定位
@@ -1828,6 +1850,12 @@ async fn fetch_messages_from_pool_with_filter(
                     }
                     Err(_) => offset.unwrap_or(0),
                 }
+            }
+        } else if search_mode {
+            // 搜索模式：从最早的消息开始，确保能找到所有匹配的消息
+            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+                Ok((low, _high)) => low,
+                Err(_) => 0,
             }
         } else if fetch_mode == Some("newest") && offset.is_none() {
             // 只有 newest 模式且没有指定 offset 时才查询 watermarks
@@ -1870,10 +1898,23 @@ async fn fetch_messages_from_pool_with_filter(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 优化：快速响应配置
-    let poll_timeout = Duration::from_millis(30);
+    // 搜索模式需要更长超时和读取更多消息
+    let poll_timeout = if search_mode {
+        Duration::from_millis(100) // 搜索时增加超时
+    } else {
+        Duration::from_millis(30)
+    };
 
-    while messages.len() < max_messages {
+    // 搜索时需要读取更多消息才能找到匹配的
+    let max_read = if search_mode {
+        max_messages * 10 // 搜索时读取 10 倍的消息
+    } else {
+        max_messages
+    };
+    let mut total_read = 0;
+
+    while messages.len() < max_messages && total_read < max_read {
+        total_read += 1;
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 let timestamp = msg.timestamp().to_millis();
