@@ -133,9 +133,14 @@ impl KafkaConsumer {
     {
         use std::time::Duration;
 
+        tracing::info!("[fetch_latest_messages_from_pool] topic={}, partition={}, max_messages={}", topic, partition, max_messages);
+
         // 从 Pool 获取 Consumer
         let consumer = pool.get().await
-            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!("[fetch_latest_messages_from_pool] Failed to get consumer from pool: {}", e);
+                AppError::Internal(format!("Failed to get consumer from pool: {}", e))
+            })?;
 
         // 查询 watermarks
         let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(1000));
@@ -737,9 +742,16 @@ impl KafkaConsumer {
     {
         use std::time::Duration;
 
+        let target_partition = partition.unwrap_or(0);
+        tracing::info!("[fetch_messages_filtered_from_pool] topic={}, partition={:?} (using {}), offset={:?}, max_messages={}",
+                       topic, partition, target_partition, offset, max_messages);
+
         // 从 Pool 获取 Consumer
         let consumer = pool.get().await
-            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!("[fetch_messages_filtered_from_pool] Failed to get consumer from pool: {}", e);
+                AppError::Internal(format!("Failed to get consumer from pool: {}", e))
+            })?;
 
         // 手动分配 partition，而不是使用 subscribe
         let mut tpl = rdkafka::TopicPartitionList::new();

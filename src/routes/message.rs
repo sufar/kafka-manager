@@ -184,14 +184,21 @@ async fn get_messages(
     // 修改：当未指定 partition 时，自动使用 per-partition 模式查询所有分区
     // 这样数据量大的 topic（通常有多个 partition）也能查询到消息
     // 但 fetch_mode=newest 时使用专门的快速方法
+    let fetch_mode = params.fetch_mode.as_deref();
+    tracing::info!("[get_messages] cluster_id={}, topic={}, partition={:?}, fetch_mode={:?}, offset={:?}, scan_depth={}",
+                   cluster_id, topic, params.partition, fetch_mode, params.offset, scan_depth);
+
     let raw_messages = if params.partition.is_none()
-        && !(params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none())
+        && !(fetch_mode == Some("newest") && params.offset.is_none() && params.start_time.is_none())
     {
         // 获取 topic 的 partition 列表
         let admin = get_or_create_admin_client(&state, &cluster_id).await?;
         let topic_info = admin.get_topic_info(&topic)?;
         let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
         let partition_count = partition_ids.len();
+
+        tracing::info!("[get_messages] per-partition mode: {} partitions, scan_depth per partition={}",
+                       partition_count, (scan_depth / partition_count.max(1)).max(100));
 
         // 预先查询每个 partition 的起始 offset
         // 默认从最新消息往前读（high watermark - scan_depth），而不是从最早消息开始读
@@ -287,91 +294,96 @@ async fn get_messages(
     {
         // 快速模式：查询所有 partition 的最新消息（使用 Pool）
         let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
+        let mut partition_ids: Vec<i32> = Vec::new();
+
+        // 尝试从 admin 获取 partition 列表
         if let Some(admin_ref) = admin {
-            match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
-                Ok(Some(_cluster)) => {
-                    match admin_ref.get_topic_info(&topic) {
-                        Ok(topic_info) => {
-                            let partition_count = topic_info.partitions.len();
-                            // 优化：限制并发度，避免超过 Pool 容量
-                            // 使用 Semaphore 控制同时运行的任务数
-                            use tokio::sync::Semaphore;
-                            let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
-                            let mut tasks = Vec::new();
-                            // 每个 partition 扫描 scan_depth / partition_count 条消息
-                            // 搜索模式：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能搜索到
-                            let min_scan_per_partition = if params.search.is_some() { 1000 } else { 100 };
-                            let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
-                            for part in topic_info.partitions {
-                                let pool_clone = consumer_pool.clone();
-                                let topic_clone = topic.clone();
-                                let params_clone = params_clone.clone();
-                                let sem_clone = semaphore.clone();
-                                let task = tokio::spawn(async move {
-                                    // 获取信号量许可，限制并发度
-                                    let _permit = sem_clone.acquire().await
-                                        .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-                                    // 使用 Pool 获取 Consumer
-                                    KafkaConsumer::fetch_latest_messages_from_pool(
-                                        &pool_clone,
-                                        &topic_clone,
-                                        part.id,
-                                        scan_per_partition,
-                                        &move |msg: &KafkaMessage| -> bool {
-                                            params_clone.matches(msg)
-                                        },
-                                    )
-                                    .await
-                                });
-                                tasks.push(task);
-                            }
-                            let mut all_messages = Vec::new();
-                            for task in tasks {
-                                if let Ok(Ok(msgs)) = task.await {
-                                    all_messages.extend(msgs);
-                                }
-                            }
-                            all_messages
-                        }
-                        Err(_) => {
-                            KafkaConsumer::fetch_latest_messages_from_pool(
-                                &consumer_pool,
-                                &topic,
-                                0,
-                                scan_depth,
-                                &move |msg: &KafkaMessage| -> bool {
-                                    params_clone.matches(msg)
-                                },
-                            )
-                            .await?
-                        }
-                    }
-                }
-                _ => {
-                    KafkaConsumer::fetch_latest_messages_from_pool(
-                        &consumer_pool,
-                        &topic,
-                        0,
-                        scan_depth,
-                        &move |msg: &KafkaMessage| -> bool {
-                            params_clone.matches(msg)
-                        },
-                    )
-                    .await?
+            if let Ok(Some(_cluster)) = ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+                if let Ok(topic_info) = admin_ref.get_topic_info(&topic) {
+                    partition_ids = topic_info.partitions.iter().map(|p| p.id).collect();
+                    tracing::info!("[get_messages] fetch_mode=newest: found {} partitions from admin", partition_ids.len());
                 }
             }
-        } else {
-            KafkaConsumer::fetch_latest_messages_from_pool(
-                &consumer_pool,
-                &topic,
-                0,
-                scan_depth,
-                &move |msg: &KafkaMessage| -> bool {
-                    params_clone.matches(msg)
-                },
-            )
-            .await?
         }
+
+        // 如果从 admin 获取失败，尝试使用 Consumer Pool 动态发现 partition
+        if partition_ids.is_empty() {
+            // 动态发现 partition：查询 partition 0-999，直到 watermarks 查询失败
+            for pid in 0..1000 {
+                let test_consumer = consumer_pool.get().await;
+                if let Ok(consumer) = test_consumer {
+                    use std::time::Duration;
+                    match consumer.fetch_watermarks(&topic, pid, Duration::from_millis(100)) {
+                        Ok((low, high)) => {
+                            if high > low {
+                                partition_ids.push(pid);
+                                tracing::info!("[get_messages] discovered partition {} with {} messages", pid, high - low);
+                            } else {
+                                // 空 partition，也加入列表
+                                partition_ids.push(pid);
+                            }
+                        }
+                        Err(_) => {
+                            // partition 不存在，停止发现
+                            tracing::info!("[get_messages] discovered {} partitions (partition {} does not exist)", partition_ids.len(), pid);
+                            break;
+                        }
+                    }
+                } else {
+                    tracing::warn!("[get_messages] failed to get consumer from pool");
+                    break;
+                }
+            }
+        }
+
+        // 如果还是找不到 partition，返回空
+        if partition_ids.is_empty() {
+            tracing::warn!("[get_messages] no partitions found for topic {}", topic);
+            return Ok(Json(MessageListResponse { messages: Vec::new() }));
+        }
+
+        let partition_count = partition_ids.len();
+        // 优化：限制并发度，避免超过 Pool 容量
+        // 使用 Semaphore 控制同时运行的任务数
+        use tokio::sync::Semaphore;
+        let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
+        let mut tasks = Vec::new();
+        // 每个 partition 扫描 scan_depth / partition_count 条消息
+        // 搜索模式：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能搜索到
+        let min_scan_per_partition = if params.search.is_some() { 1000 } else { 100 };
+        let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
+        tracing::info!("[get_messages] fetching from {} partitions, scan_per_partition={}", partition_count, scan_per_partition);
+
+        for pid in partition_ids {
+            let pool_clone = consumer_pool.clone();
+            let topic_clone = topic.clone();
+            let params_clone = params_clone.clone();
+            let sem_clone = semaphore.clone();
+            let task = tokio::spawn(async move {
+                // 获取信号量许可，限制并发度
+                let _permit = sem_clone.acquire().await
+                    .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
+                // 使用 Pool 获取 Consumer
+                KafkaConsumer::fetch_latest_messages_from_pool(
+                    &pool_clone,
+                    &topic_clone,
+                    pid,
+                    scan_per_partition,
+                    &move |msg: &KafkaMessage| -> bool {
+                        params_clone.matches(msg)
+                    },
+                )
+                .await
+            });
+            tasks.push(task);
+        }
+        let mut all_messages = Vec::new();
+        for task in tasks {
+            if let Ok(Ok(msgs)) = task.await {
+                all_messages.extend(msgs);
+            }
+        }
+        all_messages
     } else {
         // 其他模式：使用原有逻辑查询 watermarks
         let start_offset = if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none() {
