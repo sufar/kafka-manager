@@ -1684,31 +1684,25 @@ async fn fetch_messages_with_temp_consumer(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 搜索模式需要更长超时和读取更多消息
+    // 搜索模式需要更长超时和更多容错
     let poll_timeout = if search_mode {
-        Duration::from_millis(100)
+        Duration::from_millis(200)
     } else {
         Duration::from_millis(30)
     };
 
-    // 搜索时需要读取更多消息才能找到匹配的
-    let max_read = if search_mode {
-        max_messages * 10
-    } else {
-        max_messages
-    };
-    let mut total_read = 0;
+    // 空轮次数限制
     let mut empty_polls = 0;
-    let max_empty_polls = 3;
+    let max_empty_polls = if search_mode { 10 } else { 3 };
 
     loop {
-        if messages.len() >= max_messages || empty_polls >= max_empty_polls || total_read >= max_read {
+        if messages.len() >= max_messages || empty_polls >= max_empty_polls {
             break;
         }
 
         match consumer.poll(poll_timeout) {
             Some(Ok(msg)) => {
-                empty_polls = 0;
+                empty_polls = 0; // 收到消息，重置空轮计数
                 let timestamp = msg.timestamp().to_millis();
 
                 // 时间范围过滤
@@ -1756,12 +1750,10 @@ async fn fetch_messages_with_temp_consumer(
             }
             Some(Err(_)) => {
                 empty_polls += 1;
-                total_read += 1;
             }
             None => {
                 // 没有消息返回，增加空 poll 计数
                 empty_polls += 1;
-                total_read += 1;
             }
         }
     }
@@ -1898,25 +1890,21 @@ async fn fetch_messages_from_pool_with_filter(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 搜索模式需要更长超时和读取更多消息
+    // 搜索模式需要更长超时和更多容错
     let poll_timeout = if search_mode {
-        Duration::from_millis(100) // 搜索时增加超时
+        Duration::from_millis(200) // 搜索时增加超时
     } else {
         Duration::from_millis(30)
     };
 
-    // 搜索时需要读取更多消息才能找到匹配的
-    let max_read = if search_mode {
-        max_messages * 10 // 搜索时读取 10 倍的消息
-    } else {
-        max_messages
-    };
-    let mut total_read = 0;
+    // 空轮次数限制
+    let mut empty_polls = 0;
+    let max_empty_polls = if search_mode { 10 } else { 3 }; // 搜索时更宽容
 
-    while messages.len() < max_messages && total_read < max_read {
-        total_read += 1;
+    while messages.len() < max_messages {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
+                empty_polls = 0; // 收到消息，重置空轮计数
                 let timestamp = msg.timestamp().to_millis();
 
                 // 时间范围过滤
@@ -1959,8 +1947,11 @@ async fn fetch_messages_from_pool_with_filter(
                 });
             }
             Ok(Err(_)) | Err(_) => {
-                // Kafka 错误或超时，没有更多消息
-                break;
+                // Kafka 错误或超时
+                empty_polls += 1;
+                if empty_polls >= max_empty_polls {
+                    break;
+                }
             }
         }
     }
