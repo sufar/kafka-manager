@@ -1887,24 +1887,42 @@ async fn fetch_messages_from_pool_with_filter(
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
-    let search_lower = search.map(|s| s.to_lowercase());
+    let search_lower = search.as_ref().map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
 
-    // 搜索模式需要更长超时和更多容错
-    let poll_timeout = if search_mode {
-        Duration::from_millis(200) // 搜索时增加超时
+    tracing::info!(
+        "Fetching messages: topic={}, partitions={:?}, max_messages={}, fetch_mode={:?}, search={:?}",
+        topic, partition_offsets, max_messages, fetch_mode, search
+    );
+
+    // 根据请求数量和搜索模式调整超时
+    let poll_timeout = if max_messages > 5000 {
+        Duration::from_millis(100)
+    } else if max_messages > 1000 || search_lower.is_some() {
+        Duration::from_millis(50)
     } else {
         Duration::from_millis(30)
     };
 
-    // 空轮次数限制
+    // 空轮次数限制 - 根据数据量调整
     let mut empty_polls = 0;
-    let max_empty_polls = if search_mode { 10 } else { 3 }; // 搜索时更宽容
+    let max_empty_polls = if max_messages > 5000 {
+        15
+    } else if max_messages > 1000 {
+        8
+    } else if search_lower.is_some() {
+        10
+    } else {
+        5
+    };
+
+    let mut total_received = 0usize;
 
     while messages.len() < max_messages {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 empty_polls = 0; // 收到消息，重置空轮计数
+                total_received += 1;
                 let timestamp = msg.timestamp().to_millis();
 
                 // 时间范围过滤
@@ -1971,6 +1989,11 @@ async fn fetch_messages_from_pool_with_filter(
             }
         });
     }
+
+    tracing::info!(
+        "Fetched messages: topic={}, received={}, matched={}",
+        topic, total_received, messages.len()
+    );
 
     Ok(messages)
 }
