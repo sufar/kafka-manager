@@ -119,6 +119,70 @@ impl KafkaConsumer {
         Ok(messages)
     }
 
+    /// 使用 Pool 快速获取最新消息（性能优化版本）
+    /// 从 Consumer Pool 复用连接，避免频繁创建/销毁
+    pub async fn fetch_latest_messages_from_pool<M>(
+        pool: &crate::pool::KafkaConsumerPool,
+        topic: &str,
+        partition: i32,
+        max_messages: usize,
+        matcher: &M,
+    ) -> Result<Vec<KafkaMessage>>
+    where
+        M: Fn(&KafkaMessage) -> bool + Send + Sync,
+    {
+        use std::time::Duration;
+
+        // 从 Pool 获取 Consumer
+        let consumer = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+
+        // 查询 watermarks
+        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(300));
+
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        if let Ok((low, high)) = watermarks {
+            // 从 high - max_messages 开始读取，但不能小于 low
+            let start_offset = std::cmp::max(low, high - max_messages as i64);
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
+        } else {
+            // 查询失败，从开头读取
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Beginning)?;
+        }
+        consumer.assign(&tpl)?;
+
+        let mut messages = Vec::new();
+        let base_timeout = Duration::from_millis(30);
+        let mut consecutive_timeouts = 0;
+
+        while messages.len() < max_messages {
+            match tokio::time::timeout(base_timeout, consumer.recv()).await {
+                Ok(Ok(msg)) => {
+                    consecutive_timeouts = 0;
+                    let kafka_msg = KafkaMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                        timestamp: msg.timestamp().to_millis(),
+                    };
+                    if matcher(&kafka_msg) {
+                        messages.push(kafka_msg);
+                    }
+                }
+                Ok(Err(_)) | Err(_) => {
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= 3 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Consumer 会自动归还到池中（通过 Drop 或 pool 管理）
+        Ok(messages)
+    }
+
     /// 使用 offsets_for_timestamp API 按时间戳查找 offset
     pub async fn get_offset_for_time(
         &self,
@@ -607,6 +671,91 @@ impl KafkaConsumer {
             }
         }
 
+        Ok(messages)
+    }
+
+    /// 使用 Pool 获取消息（支持流式过滤）- 性能优化版
+    /// 从 Consumer Pool 复用连接，避免频繁创建/销毁
+    pub async fn fetch_messages_filtered_from_pool<M>(
+        pool: &crate::pool::KafkaConsumerPool,
+        _config: &KafkaConfig,
+        topic: &str,
+        partition: Option<i32>,
+        offset: Option<i64>,
+        max_messages: usize,
+        matcher: &M,
+    ) -> Result<Vec<KafkaMessage>>
+    where
+        M: Fn(&KafkaMessage) -> bool + Send + Sync,
+    {
+        use std::time::Duration;
+
+        // 从 Pool 获取 Consumer
+        let consumer = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
+
+        // 手动分配 partition，而不是使用 subscribe
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        let target_partition = partition.unwrap_or(0);
+
+        // 如果指定了 offset，直接使用；否则需要查询 watermarks 来确定开始位置
+        let target_offset = if let Some(off) = offset {
+            rdkafka::Offset::Offset(off)
+        } else {
+            // 查询 low watermark 作为开始 offset
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(500))) {
+                Ok((low, _high)) => rdkafka::Offset::Offset(low),
+                Err(_) => rdkafka::Offset::Beginning
+            }
+        };
+        tpl.add_partition_offset(topic, target_partition, target_offset)?;
+        consumer.assign(&tpl)?;
+
+        let mut messages = Vec::new();
+        let base_timeout = Duration::from_millis(50);
+        let mut consecutive_timeouts = 0;
+        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+
+        while messages.len() < max_messages {
+            match tokio::time::timeout(base_timeout, consumer.recv()).await {
+                Ok(Ok(msg)) => {
+                    consecutive_timeouts = 0;
+
+                    // 分区过滤
+                    if let Some(p) = partition {
+                        if msg.partition() != p {
+                            continue;
+                        }
+                    }
+                    // offset 过滤
+                    if let Some(min_offset) = offset {
+                        if msg.offset() < min_offset {
+                            continue;
+                        }
+                    }
+
+                    let kafka_msg = KafkaMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                        timestamp: msg.timestamp().to_millis(),
+                    };
+
+                    if matcher(&kafka_msg) {
+                        messages.push(kafka_msg);
+                    }
+                }
+                Ok(Err(_)) | Err(_) => {
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Consumer 会自动归还到池中
         Ok(messages)
     }
 }

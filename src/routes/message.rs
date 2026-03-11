@@ -1,6 +1,6 @@
 use crate::db::cluster::ClusterStore;
 use crate::error::{AppError, Result};
-use crate::kafka::consumer::KafkaMessage;
+use crate::kafka::consumer::{KafkaConsumer, KafkaMessage};
 use crate::models::{MessageListResponse, MessageRecord, SendMessageRequest, SendMessageResponse};
 use crate::AppState;
 use axum::{
@@ -148,11 +148,11 @@ async fn get_messages(
     use std::collections::BinaryHeap;
     use std::cmp::Reverse;
 
-    let clients = state.get_clients();
-    let consumer = clients
-        .get_consumer(&cluster_id)
+    // 从 Pool 获取 Consumer Pool
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
+    let clients = state.get_clients();
     let config = clients
         .get_config(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
@@ -175,43 +175,56 @@ async fn get_messages(
         let topic_info = admin.get_topic_info(&topic)?;
         let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
 
-        // 并发获取每个 partition 的消息
+        // 并发获取每个 partition 的消息（使用 Pool）
         let mut tasks = Vec::new();
         for pid in partition_ids {
-            let consumer_clone = consumer.clone();
+            let pool_clone = consumer_pool.clone();
             let config_clone = config.clone();
             let topic_clone = topic.clone();
             let params_clone = params_clone.clone();
             let max_msgs = max_messages;
+            let cluster_id_clone = cluster_id.clone();
+            let state_clone = state.clone();
 
             let task = tokio::spawn(async move {
                 // 计算每个 partition 的起始 offset
-                let start_offset = if let Some(start_time) = params_clone.start_time {
-                    match consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, start_time).await {
+                let start_offset: Option<i64> = if let Some(start_time) = params_clone.start_time {
+                    // 使用临时 Consumer 查询时间戳 offset（这个场景较少，影响不大）
+                    let clients = state_clone.get_clients();
+                    let consumer = clients.get_consumer(&cluster_id_clone)
+                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
+                    let config = clients.get_config(&cluster_id_clone)
+                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
+                    match consumer.get_offset_for_time(&config, &topic_clone, pid, start_time).await {
                         Ok(Some(offset)) => Some(offset),
                         Ok(None) | Err(_) => None,
                     }
                 } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
                     None
                 } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
-                    consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, 0).await.ok().flatten()
+                    let clients = state_clone.get_clients();
+                    let consumer = clients.get_consumer(&cluster_id_clone)
+                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
+                    let config = clients.get_config(&cluster_id_clone)
+                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
+                    consumer.get_offset_for_time(&config, &topic_clone, pid, 0).await.ok().flatten()
                 } else {
                     params_clone.offset
                 };
 
-                // 获取消息
-                consumer_clone
-                    .fetch_messages_filtered(
-                        &config_clone,
-                        &topic_clone,
-                        Some(pid),
-                        start_offset,
-                        max_msgs,
-                        &move |msg: &KafkaMessage| -> bool {
-                            params_clone.matches(msg)
-                        },
-                    )
-                    .await
+                // 使用 Pool 获取消息
+                KafkaConsumer::fetch_messages_filtered_from_pool(
+                    &pool_clone,
+                    &config_clone,
+                    &topic_clone,
+                    Some(pid),
+                    start_offset,
+                    max_msgs,
+                    &move |msg: &KafkaMessage| -> bool {
+                        params_clone.matches(msg)
+                    },
+                )
+                .await
             });
             tasks.push(task);
         }
@@ -231,7 +244,7 @@ async fn get_messages(
         && params.start_time.is_none()
         && params.partition.is_none()
     {
-        // 快速模式：查询所有 partition 的最新消息（不查询 watermarks）
+        // 快速模式：查询所有 partition 的最新消息（使用 Pool）
         let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
         if let Some(admin_ref) = admin {
             match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
@@ -241,23 +254,22 @@ async fn get_messages(
                             let partition_count = topic_info.partitions.len();
                             let mut tasks = Vec::new();
                             for part in topic_info.partitions {
-                                let consumer_clone = consumer.clone();
-                                let config_clone = config.clone();
+                                let pool_clone = consumer_pool.clone();
                                 let topic_clone = topic.clone();
                                 let params_clone = params_clone.clone();
                                 let max_msgs = limit / partition_count.max(1);
                                 let task = tokio::spawn(async move {
-                                    consumer_clone
-                                        .fetch_latest_messages(
-                                            &config_clone,
-                                            &topic_clone,
-                                            part.id,
-                                            max_msgs.max(10),
-                                            &move |msg: &KafkaMessage| -> bool {
-                                                params_clone.matches(msg)
-                                            },
-                                        )
-                                        .await
+                                    // 使用 Pool 获取 Consumer
+                                    KafkaConsumer::fetch_latest_messages_from_pool(
+                                        &pool_clone,
+                                        &topic_clone,
+                                        part.id,
+                                        max_msgs.max(10),
+                                        &move |msg: &KafkaMessage| -> bool {
+                                            params_clone.matches(msg)
+                                        },
+                                    )
+                                    .await
                                 });
                                 tasks.push(task);
                             }
@@ -270,28 +282,43 @@ async fn get_messages(
                             all_messages
                         }
                         Err(_) => {
-                            consumer
-                                .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+                            KafkaConsumer::fetch_latest_messages_from_pool(
+                                &consumer_pool,
+                                &topic,
+                                0,
+                                limit,
+                                &move |msg: &KafkaMessage| -> bool {
                                     params_clone.matches(msg)
-                                })
-                                .await?
+                                },
+                            )
+                            .await?
                         }
                     }
                 }
                 _ => {
-                    consumer
-                        .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+                    KafkaConsumer::fetch_latest_messages_from_pool(
+                        &consumer_pool,
+                        &topic,
+                        0,
+                        limit,
+                        &move |msg: &KafkaMessage| -> bool {
                             params_clone.matches(msg)
-                        })
-                        .await?
+                        },
+                    )
+                    .await?
                 }
             }
         } else {
-            consumer
-                .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+            KafkaConsumer::fetch_latest_messages_from_pool(
+                &consumer_pool,
+                &topic,
+                0,
+                limit,
+                &move |msg: &KafkaMessage| -> bool {
                     params_clone.matches(msg)
-                })
-                .await?
+                },
+            )
+            .await?
         }
     } else {
         // 其他模式：使用原有逻辑查询 watermarks
@@ -316,29 +343,42 @@ async fn get_messages(
             }
         } else if let Some(start_time) = params.start_time {
             let target_partition = params.partition.unwrap_or(0);
+            // 使用临时 Consumer 查询时间戳 offset
+            let clients = state.get_clients();
+            let consumer = clients.get_consumer(&cluster_id)
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+            let config = clients.get_config(&cluster_id)
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
             match consumer.get_offset_for_time(&config, &topic, target_partition, start_time).await {
                 Ok(Some(offset)) => Some(offset),
                 Ok(None) | Err(_) => params.offset,
             }
         } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
             let target_partition = params.partition.unwrap_or(0);
+            // 使用临时 Consumer 查询 oldest offset
+            let clients = state.get_clients();
+            let consumer = clients.get_consumer(&cluster_id)
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+            let config = clients.get_config(&cluster_id)
+                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
             consumer.get_offset_for_time(&config, &topic, target_partition, 0).await.ok().flatten()
         } else {
             params.offset
         };
 
-        consumer
-            .fetch_messages_filtered(
-                &config,
-                &topic,
-                params_clone.partition,
-                start_offset,
-                limit,
-                &move |msg: &KafkaMessage| -> bool {
-                    params_clone.matches(msg)
-                },
-            )
-            .await?
+        // 使用 Pool 获取消息
+        KafkaConsumer::fetch_messages_filtered_from_pool(
+            &consumer_pool,
+            &config,
+            &topic,
+            params_clone.partition,
+            start_offset,
+            limit,
+            &move |msg: &KafkaMessage| -> bool {
+                params_clone.matches(msg)
+            },
+        )
+        .await?
     };
 
     // 转换为 MessageRecord 并流式排序
