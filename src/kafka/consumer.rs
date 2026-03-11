@@ -138,34 +138,58 @@ impl KafkaConsumer {
             .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
 
         // 查询 watermarks
-        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(500));
+        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(1000));
 
         let mut tpl = rdkafka::TopicPartitionList::new();
-        if let Ok((low, high)) = watermarks {
-            // 从 high - max_messages 开始读取，但不能小于 low
-            let start_offset = std::cmp::max(low, high - max_messages as i64);
-            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
-        } else {
-            // 查询失败，从开头读取
-            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Beginning)?;
-        }
+        let (low, high) = match watermarks {
+            Ok((l, h)) => {
+                tracing::debug!(
+                    "Topic {} partition {} watermarks: low={}, high={}, total_messages={}",
+                    topic, partition, l, h, h - l
+                );
+                (l, h)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch watermarks for topic {} partition {}: {}, using Beginning",
+                    topic, partition, e
+                );
+                tpl.add_partition_offset(topic, partition, rdkafka::Offset::Beginning)?;
+                consumer.assign(&tpl)?;
+                return Ok(Vec::new()); // 无法获取 watermarks，返回空
+            }
+        };
+
+        // 从 high - max_messages 开始读取，但不能小于 low
+        let start_offset = std::cmp::max(low, high - max_messages as i64);
+        let messages_to_scan = high - start_offset;
+        tracing::info!(
+            "Fetching messages from topic {} partition {}: start_offset={}, messages_to_scan={}, max_messages={}",
+            topic, partition, start_offset, messages_to_scan, max_messages
+        );
+        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 优化：减少超时等待时间，加快空 topic 响应
-        let base_timeout = if max_messages > 1000 {
+        let mut total_received = 0usize;
+        // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
+        let base_timeout = if max_messages > 5000 {
+            Duration::from_millis(100)
+        } else if max_messages > 1000 {
             Duration::from_millis(50)
         } else {
             Duration::from_millis(30)
         };
         let mut consecutive_timeouts = 0;
-        // 优化：减少超时次数，空 topic 最快响应
-        let max_consecutive_timeouts = if max_messages > 1000 { 3 } else { 2 };
+        // 优化：根据请求数量调整最大连续超时次数
+        // 大数据量时需要更多时间等待 Kafka 返回数据
+        let max_consecutive_timeouts = if max_messages > 5000 { 10 } else if max_messages > 1000 { 5 } else { 3 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
+                    total_received += 1;
                     let kafka_msg = KafkaMessage {
                         partition: msg.partition(),
                         offset: msg.offset(),
@@ -177,7 +201,14 @@ impl KafkaConsumer {
                         messages.push(kafka_msg);
                     }
                 }
-                Ok(Err(_)) | Err(_) => {
+                Ok(Err(e)) => {
+                    tracing::warn!("Consumer recv error: {}", e);
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= max_consecutive_timeouts {
+                        break;
+                    }
+                }
+                Err(_) => {
                     consecutive_timeouts += 1;
                     if consecutive_timeouts >= max_consecutive_timeouts {
                         break;
@@ -185,6 +216,11 @@ impl KafkaConsumer {
                 }
             }
         }
+
+        tracing::info!(
+            "Fetched messages from topic {} partition {}: received={}, matched={}",
+            topic, partition, total_received, messages.len()
+        );
 
         // 清理 consumer 的 partition assignment，避免影响下次复用
         let empty_tpl = rdkafka::TopicPartitionList::new();
@@ -714,7 +750,7 @@ impl KafkaConsumer {
             rdkafka::Offset::Offset(off)
         } else {
             // 查询 low watermark 作为开始 offset
-            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(500))) {
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(1000))) {
                 Ok((low, _high)) => rdkafka::Offset::Offset(low),
                 Err(_) => rdkafka::Offset::Beginning
             }
@@ -723,15 +759,18 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 优化：减少超时等待时间，加快空 topic 响应
-        let base_timeout = if max_messages > 1000 {
+        // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
+        let base_timeout = if max_messages > 5000 {
+            Duration::from_millis(100)
+        } else if max_messages > 1000 {
             Duration::from_millis(50)
         } else {
             Duration::from_millis(30)
         };
         let mut consecutive_timeouts = 0;
-        // 优化：减少超时次数，空 topic 最快响应
-        let max_consecutive_timeouts = if max_messages > 1000 { 3 } else { 2 };
+        // 优化：根据请求数量调整最大连续超时次数
+        // 大数据量时需要更多时间等待 Kafka 返回数据
+        let max_consecutive_timeouts = if max_messages > 5000 { 10 } else if max_messages > 1000 { 5 } else { 3 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {

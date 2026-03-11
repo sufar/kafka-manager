@@ -96,6 +96,7 @@ pub struct GetMessageParams {
     pub start_time: Option<i64>,     // 开始时间戳（毫秒）
     pub end_time: Option<i64>,       // 结束时间戳（毫秒）
     pub fetch_mode: Option<String>,  // "oldest" or "newest"
+    pub scan_depth: Option<usize>,   // 搜索扫描深度（扫描的消息数量），默认与 max_messages 相同
 }
 
 impl GetMessageParams {
@@ -161,6 +162,17 @@ async fn get_messages(
     let limit = params.limit.unwrap_or(max_messages);
     let per_partition = params.per_partition_max.unwrap_or(false);
 
+    // 搜索模式：当有搜索条件时，自动扩大扫描范围
+    // scan_depth 控制扫描的消息数量，limit 控制最终返回的数量
+    let scan_depth = if let Some(depth) = params.scan_depth {
+        depth
+    } else if params.search.is_some() {
+        // 搜索模式：默认扫描 10000 条消息，确保能找到目标
+        std::cmp::max(limit * 10, 10000)
+    } else {
+        limit
+    };
+
     // 克隆 params 用于闭包
     let params_clone = params.clone();
 
@@ -174,6 +186,7 @@ async fn get_messages(
         let admin = get_or_create_admin_client(&state, &cluster_id).await?;
         let topic_info = admin.get_topic_info(&topic)?;
         let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
+        let partition_count = partition_ids.len();
 
         // 并发获取每个 partition 的消息（使用 Pool）
         // 优化：限制并发度，避免超过 Pool 容量
@@ -185,7 +198,8 @@ async fn get_messages(
             let config_clone = config.clone();
             let topic_clone = topic.clone();
             let params_clone = params_clone.clone();
-            let max_msgs = max_messages;
+            // 每个 partition 扫描 scan_depth / partition_count 条消息
+            let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
             let cluster_id_clone = cluster_id.clone();
             let state_clone = state.clone();
             let sem_clone = semaphore.clone();
@@ -227,7 +241,7 @@ async fn get_messages(
                     &topic_clone,
                     Some(pid),
                     start_offset,
-                    max_msgs,
+                    scan_per_partition,
                     &move |msg: &KafkaMessage| -> bool {
                         params_clone.matches(msg)
                     },
@@ -265,11 +279,12 @@ async fn get_messages(
                             use tokio::sync::Semaphore;
                             let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
                             let mut tasks = Vec::new();
+                            // 每个 partition 扫描 scan_depth / partition_count 条消息
+                            let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
                             for part in topic_info.partitions {
                                 let pool_clone = consumer_pool.clone();
                                 let topic_clone = topic.clone();
                                 let params_clone = params_clone.clone();
-                                let max_msgs = limit / partition_count.max(1);
                                 let sem_clone = semaphore.clone();
                                 let task = tokio::spawn(async move {
                                     // 获取信号量许可，限制并发度
@@ -280,7 +295,7 @@ async fn get_messages(
                                         &pool_clone,
                                         &topic_clone,
                                         part.id,
-                                        max_msgs.max(10),
+                                        scan_per_partition,
                                         &move |msg: &KafkaMessage| -> bool {
                                             params_clone.matches(msg)
                                         },
@@ -302,7 +317,7 @@ async fn get_messages(
                                 &consumer_pool,
                                 &topic,
                                 0,
-                                limit,
+                                scan_depth,
                                 &move |msg: &KafkaMessage| -> bool {
                                     params_clone.matches(msg)
                                 },
@@ -316,7 +331,7 @@ async fn get_messages(
                         &consumer_pool,
                         &topic,
                         0,
-                        limit,
+                        scan_depth,
                         &move |msg: &KafkaMessage| -> bool {
                             params_clone.matches(msg)
                         },
@@ -329,7 +344,7 @@ async fn get_messages(
                 &consumer_pool,
                 &topic,
                 0,
-                limit,
+                scan_depth,
                 &move |msg: &KafkaMessage| -> bool {
                     params_clone.matches(msg)
                 },
@@ -346,7 +361,8 @@ async fn get_messages(
                     Ok(Some(cluster)) => {
                         match admin_ref.get_partition_watermarks(&topic, target_partition, &cluster.brokers) {
                             Ok((low, high)) => {
-                                let start = std::cmp::max(low, high - limit as i64);
+                                // 搜索模式：扫描更多消息
+                                let start = std::cmp::max(low, high - scan_depth as i64);
                                 Some(start)
                             }
                             Err(_) => Some(0),
@@ -389,7 +405,7 @@ async fn get_messages(
             &topic,
             params_clone.partition,
             start_offset,
-            limit,
+            scan_depth,
             &move |msg: &KafkaMessage| -> bool {
                 params_clone.matches(msg)
             },
