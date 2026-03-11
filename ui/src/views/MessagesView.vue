@@ -89,7 +89,7 @@
         </div>
       </div>
       <!-- 消息列表 -->
-      <div v-else class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: sortedMessages.length * ROW_HEIGHT + 'px', position: 'relative' }">
+      <div v-else class="w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden" :style="{ height: Math.max(sortedMessages.length * ROW_HEIGHT + 28, 100) + 'px', position: 'relative' }">
         <table class="table table-xs w-full">
           <thead v-if="sortedMessages.length > 0" class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
             <tr>
