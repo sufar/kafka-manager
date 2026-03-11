@@ -1497,52 +1497,57 @@ async fn handle_consumer_group_consumer_offsets(state: AppState, body: Value) ->
 // ==================== Message ====================
 
 async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
+    use crate::routes::message_query::{MessageQueryParams, FetchMode, SortBy};
+
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
-    let partition = get_optional_i32_param(&body, "partition");
-    let offset = get_optional_i64_param(&body, "offset");
-    let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
-    let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
-    let start_time = get_optional_i64_param(&body, "start_time");
-    let end_time = get_optional_i64_param(&body, "end_time");
-    let search = get_optional_string_param(&body, "search");
-    let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
-    // 首先确保集群客户端已创建（如果未创建则自动创建）
-    let config = ensure_cluster_client(&state, &cluster_id).await?;
+    // 解析查询参数
+    let fetch_mode = get_optional_string_param(&body, "fetchMode")
+        .map(|s| match s.as_str() {
+            "oldest" => FetchMode::Oldest,
+            _ => FetchMode::Newest,
+        })
+        .unwrap_or(FetchMode::Newest);
 
-    let max_msgs = limit.or(max_messages).unwrap_or(100);
+    let sort_by = get_optional_string_param(&body, "sort_by")
+        .map(|s| match s.as_str() {
+            "timestamp_asc" => SortBy::TimestampAsc,
+            "timestamp_desc" => SortBy::TimestampDesc,
+            "offset_asc" => SortBy::OffsetAsc,
+            "offset_desc" => SortBy::OffsetDesc,
+            _ => SortBy::TimestampDesc,
+        })
+        .unwrap_or(SortBy::TimestampDesc);
 
-    // 优先使用连接池获取消息（更快）
-    let pool = state.pools.get_consumer_pool(&cluster_id).await;
-    let messages = if let Some(consumer_pool) = pool {
-        fetch_messages_from_pool_with_filter(
-            &consumer_pool,
-            &topic,
-            partition,
-            offset,
-            max_msgs,
-            start_time,
-            end_time,
-            search,
-            fetch_mode.as_deref(),
-        )
-        .await?
-    } else {
-        // 降级：使用临时 consumer
-        fetch_messages_with_temp_consumer(
-            &config.brokers,
-            &topic,
-            partition,
-            offset,
-            max_msgs,
-            start_time,
-            end_time,
-            search,
-            fetch_mode.as_deref(),
-        )
-        .await?
+    let max_per_partition = get_optional_i64_param(&body, "max_per_partition")
+        .map(|v| v as usize)
+        .or_else(|| get_optional_i64_param(&body, "max_messages").map(|v| v as usize))
+        .unwrap_or(100);
+
+    let limit = get_optional_i64_param(&body, "limit")
+        .map(|v| v as usize)
+        .unwrap_or(max_per_partition);
+
+    let params = MessageQueryParams {
+        fetch_mode,
+        partition: get_optional_i32_param(&body, "partition"),
+        start_time: get_optional_i64_param(&body, "start_time"),
+        end_time: get_optional_i64_param(&body, "end_time"),
+        search: get_optional_string_param(&body, "search"),
+        search_in: get_optional_string_param(&body, "search_in"),
+        max_per_partition,
+        limit,
+        sort_by,
+        offset: get_optional_i64_param(&body, "offset"),
     };
+
+    // 获取消费者池
+    let pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+
+    // 使用新的查询模块
+    let messages = crate::routes::message_query::query_messages(&pool, &topic, params).await?;
 
     let records: Vec<Value> = messages
         .into_iter()

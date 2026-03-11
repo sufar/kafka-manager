@@ -553,18 +553,30 @@ class ApiClient {
     partition?: number;
     offset?: number;
     max_messages?: number;
-    per_partition_max?: boolean;  // Per-partition 模式
+    max_per_partition?: number;
     limit?: number;
     search?: string;
+    search_in?: string;
     start_time?: number;
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
+    sort_by?: 'timestamp_asc' | 'timestamp_desc' | 'offset_asc' | 'offset_desc';
   }): Promise<import('@/types/api').MessageRecord[]> {
     // 消息查询可能需要较长时间，设置 60 秒超时
     const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
       cluster_id: clusterId,
       topic,
-      ...params
+      partition: params?.partition,
+      offset: params?.offset,
+      max_messages: params?.max_messages,
+      max_per_partition: params?.max_per_partition,
+      limit: params?.limit,
+      search: params?.search,
+      search_in: params?.search_in,
+      start_time: params?.start_time,
+      end_time: params?.end_time,
+      fetchMode: params?.fetchMode,
+      sort_by: params?.sort_by,
     }, 60000);
     return data.messages;
   }

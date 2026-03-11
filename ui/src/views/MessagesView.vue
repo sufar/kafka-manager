@@ -161,17 +161,17 @@
       @keydown.meta.a.prevent="handleSelectAll"
       tabindex="-1"
     >
-      <div v-if="selectedMessage" class="p-1.5 min-w-max">
-        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10 overflow-x-auto flex-nowrap">
-          <div class="flex items-center gap-2 text-[10px] flex-shrink-0">
+      <div v-if="selectedMessage" class="p-1.5">
+        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10 gap-2">
+          <div class="flex items-center gap-2 text-[10px] flex-wrap">
             <span class="text-base-content/60">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
             <span class="text-base-content/60">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
             <span class="text-base-content/60">Timestamp: <span class="font-mono">{{ formatTimestamp(selectedMessage.timestamp) }}</span></span>
             <span class="text-base-content/60">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
           </div>
           <div class="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
-            <label class="text-[10px] text-base-content/60 whitespace-nowrap flex-shrink-0">View As:</label>
-            <select v-model="messageViewFormat" class="select select-bordered select-[10px] flex-shrink-0">
+            <label class="text-[10px] text-base-content/60 whitespace-nowrap">View As:</label>
+            <select v-model="messageViewFormat" class="select select-bordered select-[10px]">
               <option value="json">JSON</option>
               <option value="raw">Raw</option>
               <option value="hex">Hex</option>
@@ -219,12 +219,7 @@
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
       <div class="flex items-center gap-1.5 flex-shrink-0">
-        <label class="label cursor-pointer flex-shrink-0" :title="t.messages.perPartitionMax">
-          <span class="label-text text-xs flex-shrink-0">{{ t.messages.perPartitionMax }}</span>
-          <input v-model="filters.per_partition_max" type="checkbox" class="checkbox checkbox-xs" @change="fetchMessages" />
-        </label>
-        <span class="divider divider-horizontal mx-2 flex-shrink-0"></span>
-        <span class="flex-shrink-0">{{ t.messages.maxMessages }}</span>
+        <span class="flex-shrink-0 text-xs text-base-content/60">{{ t.messages.perPartitionMax }}:</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
       </div>
     </div>
@@ -357,8 +352,7 @@ function showSuccess(message: string) {
 
 const filters = reactive({
   partition: 'all' as number | 'all',  // 默认查询所有 partition
-  max_messages: 100,
-  per_partition_max: false,  // 默认关闭，高频场景下使用单 partition 更快
+  max_messages: 100,  // 每个分区最大消息数
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
@@ -601,53 +595,7 @@ async function fetchTopicPartitions() {
   }
 }
 
-// ==================== 查询缓存 ====================
-// 注意：只在 fetchMode='oldest' 时缓存，因为历史数据不会变化
-// fetchMode='newest' 时不缓存，确保总能获取最新消息
-interface CachedQuery {
-  key: string;
-  messages: import('@/types/api').MessageRecord[];
-  timestamp: number;
-  params: string;
-}
-
-const queryCache = ref<Map<string, CachedQuery>>(new Map());
-const CACHE_TTL = 10000; // 10 秒缓存过期时间（缩短）
-
-function getCacheKey(clusterId: string, topic: string, params: any): string {
-  return `${clusterId}:${topic}:${JSON.stringify(params)}`;
-}
-
-function getCachedMessages(key: string): import('@/types/api').MessageRecord[] | null {
-  const cached = queryCache.value.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.messages;
-  }
-  if (cached) {
-    queryCache.value.delete(key); // 过期缓存删除
-  }
-  return null;
-}
-
-function setCache(key: string, paramsStr: string, messages: import('@/types/api').MessageRecord[]) {
-  queryCache.value.set(key, {
-    key,
-    messages,
-    timestamp: Date.now(),
-    params: paramsStr,
-  });
-  // 限制缓存大小，最多保留 50 条
-  if (queryCache.value.size > 50) {
-    const oldestKey = Array.from(queryCache.value.keys()).sort((a, b) => {
-      const aTime = queryCache.value.get(a)!.timestamp;
-      const bTime = queryCache.value.get(b)!.timestamp;
-      return aTime - bTime;
-    })[0];
-    if (oldestKey) {
-      queryCache.value.delete(oldestKey);
-    }
-  }
-}
+// ==================== 消息查询 ====================
 
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
@@ -674,20 +622,22 @@ async function fetchMessages() {
     const startTime = performance.now();
     try {
       const params: {
-        max_messages: number;
-        per_partition_max: boolean;
+        max_per_partition: number;
+        limit: number;
         search: string;
         fetchMode: 'oldest' | 'newest';
         partition?: number;
         start_time?: number;
         end_time?: number;
+        sort_by?: 'timestamp_asc' | 'timestamp_desc' | 'offset_asc' | 'offset_desc';
       } = {
-        max_messages: filters.max_messages,
-        per_partition_max: filters.per_partition_max,
+        max_per_partition: filters.max_messages,
+        limit: filters.max_messages,
         search: filters.search,
         fetchMode: filters.fetchMode,
         start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
         end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
+        sort_by: sortOrder.value === 'asc' ? 'timestamp_asc' : 'timestamp_desc',
       };
 
       // 只有当 partition 不是 'all' 时才传递
@@ -695,34 +645,9 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
-      // fetchMode='newest' 时不缓存，确保获取最新消息
-      const shouldCache = filters.fetchMode === 'oldest';
-      const cacheKey = shouldCache ? getCacheKey(selectedClusterId.value, selectedTopic.value, {
-        max_messages: params.max_messages,
-        per_partition_max: params.per_partition_max,
-        search: params.search,
-        partition: params.partition,
-      }) : null;
-      const paramsStr = JSON.stringify(params);
-
-      // 尝试从缓存获取（仅 oldest 模式）
-      if (cacheKey) {
-        const cached = getCachedMessages(cacheKey);
-        if (cached) {
-          messages.value = cached;
-          fetchTime.value = 0; // 缓存命中，时间为 0
-          loading.value = false;
-          return;
-        }
-      }
-
+      // 直接查询，不使用缓存
       messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
       fetchTime.value = Math.round(performance.now() - startTime);
-
-      // 缓存结果（仅 oldest 模式）
-      if (cacheKey && shouldCache) {
-        setCache(cacheKey, paramsStr, messages.value);
-      }
     } catch (e) {
       const error = e as { message: string };
       if (error.message === 'AbortError' || error.message.includes('aborted')) {
