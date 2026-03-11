@@ -45,6 +45,80 @@ impl KafkaConsumer {
         Ok(Self { timeout })
     }
 
+    /// 快速获取最新消息（不查询 watermarks，直接从 End 开始读取）
+    /// 适用于高频场景，只读取最新的消息
+    pub async fn fetch_latest_messages<M>(
+        &self,
+        kafka_config: &KafkaConfig,
+        topic: &str,
+        partition: i32,
+        max_messages: usize,
+        matcher: &M,
+    ) -> Result<Vec<KafkaMessage>>
+    where
+        M: Fn(&KafkaMessage) -> bool,
+    {
+        use rdkafka::config::ClientConfig;
+        use std::time::Duration;
+
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", &format!("kafka-manager-latest-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()));
+        client_config.set("enable.auto.commit", "false");
+        client_config.set("auto.offset.reset", "earliest");
+        // 快速响应配置
+        client_config.set("request.timeout.ms", "3000");
+        client_config.set("socket.timeout.ms", "3000");
+        client_config.set("fetch.wait.max.ms", "5");
+        client_config.set("fetch.min.bytes", "1");
+
+        let consumer: StreamConsumer = client_config.create()?;
+
+        // 先查询 watermarks（使用更快的方式）
+        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(300));
+
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        if let Ok((low, high)) = watermarks {
+            // 从 high - max_messages 开始读取，但不能小于 low
+            let start_offset = std::cmp::max(low, high - max_messages as i64);
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
+        } else {
+            // 查询失败，从开头读取
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Beginning)?;
+        }
+        consumer.assign(&tpl)?;
+
+        let mut messages = Vec::new();
+        let base_timeout = Duration::from_millis(30);
+        let mut consecutive_timeouts = 0;
+
+        while messages.len() < max_messages {
+            match tokio::time::timeout(base_timeout, consumer.recv()).await {
+                Ok(Ok(msg)) => {
+                    consecutive_timeouts = 0;
+                    let kafka_msg = KafkaMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                        timestamp: msg.timestamp().to_millis(),
+                    };
+                    if matcher(&kafka_msg) {
+                        messages.push(kafka_msg);
+                    }
+                }
+                Ok(Err(_)) | Err(_) => {
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= 3 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(messages)
+    }
+
     /// 使用 offsets_for_timestamp API 按时间戳查找 offset
     pub async fn get_offset_for_time(
         &self,
@@ -459,17 +533,15 @@ impl KafkaConsumer {
         client_config.set("group.id", &format!("kafka-manager-fetcher-{}-{}-{}", std::process::id(), topic, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SystemTime before UNIX epoch").as_millis()));
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
-        // 优化：增加超时时间，减少频繁切换时的超时错误
-        client_config.set("request.timeout.ms", "10000");
-        client_config.set("socket.timeout.ms", "10000");
-        client_config.set("socket.connection.setup.timeout.ms", "10000");
-        // 优化：增加批量获取参数
-        client_config.set("fetch.wait.max.ms", "100");      // 增加到 100ms，让 broker 有更多时间批量消息
-        client_config.set("fetch.min.bytes", "10240");      // 增加到 10KB，减少网络往返
-        client_config.set("fetch.max.bytes", "10485760");   // 10MB
-        client_config.set("session.timeout.ms", "10000");
-        // 注意：max.poll.records 是 Kafka Consumer 配置，不是 librdkafka 配置
-        // 我们在消费循环中手动控制获取的消息数量
+        // 优化：减少超时时间，加快响应
+        client_config.set("request.timeout.ms", "5000");
+        client_config.set("socket.timeout.ms", "5000");
+        client_config.set("socket.connection.setup.timeout.ms", "5000");
+        // 优化：快速响应模式，不等待批量数据
+        client_config.set("fetch.wait.max.ms", "10");       // 减少到 10ms
+        client_config.set("fetch.min.bytes", "1");          // 有数据就返回，不等待
+        client_config.set("fetch.max.bytes", "1048576");    // 1MB
+        client_config.set("session.timeout.ms", "5000");
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -482,7 +554,7 @@ impl KafkaConsumer {
             rdkafka::Offset::Offset(off)
         } else {
             // 查询 low watermark 作为开始 offset
-            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(1000))) {
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(500))) {
                 Ok((low, _high)) => rdkafka::Offset::Offset(low),
                 Err(_) => rdkafka::Offset::Beginning
             }
@@ -491,18 +563,15 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 使用更长的超时时间，因为已经优化了批量获取
-        let base_timeout = Duration::from_millis(200);
+        // 减少超时时间，加快响应
+        let base_timeout = Duration::from_millis(50);
         let mut consecutive_timeouts = 0;
         const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
-        let mut filtered_count = 0;
-        let mut total_read = 0;
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
-                    total_read += 1;
 
                     // 分区过滤
                     if let Some(p) = partition {
@@ -527,16 +596,6 @@ impl KafkaConsumer {
 
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
-                    } else {
-                        filtered_count += 1;
-                        // 动态调整过滤限制：如果已经读取了很多消息但匹配很少，考虑提前退出
-                        if filtered_count >= max_messages * 20 && total_read >= max_messages * 50 {
-                            tracing::warn!(
-                                "Too many filtered messages: read {}, matched {}, filtered {}",
-                                total_read, messages.len(), filtered_count
-                            );
-                            break;
-                        }
                     }
                 }
                 Ok(Err(_)) | Err(_) => {

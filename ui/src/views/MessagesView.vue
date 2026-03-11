@@ -44,8 +44,8 @@
       </select>
 
       <!-- Partition Filter -->
-      <select v-model.number="filters.partition" class="select select-bordered select-xs w-auto flex-shrink-0" @change="fetchMessages">
-        <option :value="undefined">All</option>
+      <select v-model="partitionValue" class="select select-bordered select-xs w-auto flex-shrink-0" @change="onPartitionChange">
+        <option value="all">All</option>
         <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
       </select>
 
@@ -356,14 +356,26 @@ function showSuccess(message: string) {
 }
 
 const filters = reactive({
-  partition: undefined as number | undefined,
+  partition: 'all' as number | 'all',  // 默认查询所有 partition
   max_messages: 100,
-  per_partition_max: true,  // Per-partition 模式（默认启用）
+  per_partition_max: false,  // 默认关闭，高频场景下使用单 partition 更快
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
   endTime: '' as string,
 });
+
+// Partition 选择器的计算属性
+const partitionValue = computed({
+  get: () => filters.partition === 'all' ? 'all' : filters.partition,
+  set: (val) => {
+    filters.partition = val === 'all' ? 'all' : Number(val);
+  }
+});
+
+function onPartitionChange() {
+  fetchMessages();
+}
 
 // 防抖定时器
 let fetchDebounceTimer: number | null = null;
@@ -582,7 +594,7 @@ async function fetchTopicPartitions() {
     const partitions = topicDetail.partitions?.map((p: { id: number }) => p.id) || [];
     topicPartitions.value = partitions.length > 0 ? partitions : [0];
     // 清空 partition 过滤，因为旧值可能不在新的分区列表中
-    filters.partition = undefined;
+    filters.partition = 'all';
   } catch (e) {
     console.error('Failed to fetch topic partitions:', e);
     topicPartitions.value = [0]; // 降级方案：默认提供 partition 0
@@ -661,15 +673,27 @@ async function fetchMessages() {
     selectedMessageIndex.value = -1;
     const startTime = performance.now();
     try {
-      const params = {
+      const params: {
+        max_messages: number;
+        per_partition_max: boolean;
+        search: string;
+        fetchMode: 'oldest' | 'newest';
+        partition?: number;
+        start_time?: number;
+        end_time?: number;
+      } = {
         max_messages: filters.max_messages,
         per_partition_max: filters.per_partition_max,
         search: filters.search,
         fetchMode: filters.fetchMode,
-        partition: filters.partition,
         start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
         end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
       };
+
+      // 只有当 partition 不是 'all' 时才传递
+      if (filters.partition !== 'all') {
+        params.partition = filters.partition as number;
+      }
 
       // fetchMode='newest' 时不缓存，确保获取最新消息
       const shouldCache = filters.fetchMode === 'oldest';

@@ -192,10 +192,6 @@ async fn get_messages(
                         Ok(None) | Err(_) => None,
                     }
                 } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
-                    // fetch_mode=newest：从该 partition 的最新 N 条消息开始读取
-                    // 需要获取 watermarks 来计算起始 offset
-                    // 注意：这里不传入 brokers，因为 async 闭包中无法访问 state
-                    // 让 fetch_messages_filtered 自动处理：从 low watermark 开始，但限制读取数量
                     None
                 } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
                     consumer_clone.get_offset_for_time(&config_clone, &topic_clone, pid, 0).await.ok().flatten()
@@ -230,21 +226,83 @@ async fn get_messages(
             }
         }
         all_messages
+    } else if params.fetch_mode.as_deref() == Some("newest")
+        && params.offset.is_none()
+        && params.start_time.is_none()
+        && params.partition.is_none()
+    {
+        // 快速模式：查询所有 partition 的最新消息（不查询 watermarks）
+        let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
+        if let Some(admin_ref) = admin {
+            match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+                Ok(Some(_cluster)) => {
+                    match admin_ref.get_topic_info(&topic) {
+                        Ok(topic_info) => {
+                            let partition_count = topic_info.partitions.len();
+                            let mut tasks = Vec::new();
+                            for part in topic_info.partitions {
+                                let consumer_clone = consumer.clone();
+                                let config_clone = config.clone();
+                                let topic_clone = topic.clone();
+                                let params_clone = params_clone.clone();
+                                let max_msgs = limit / partition_count.max(1);
+                                let task = tokio::spawn(async move {
+                                    consumer_clone
+                                        .fetch_latest_messages(
+                                            &config_clone,
+                                            &topic_clone,
+                                            part.id,
+                                            max_msgs.max(10),
+                                            &move |msg: &KafkaMessage| -> bool {
+                                                params_clone.matches(msg)
+                                            },
+                                        )
+                                        .await
+                                });
+                                tasks.push(task);
+                            }
+                            let mut all_messages = Vec::new();
+                            for task in tasks {
+                                if let Ok(Ok(msgs)) = task.await {
+                                    all_messages.extend(msgs);
+                                }
+                            }
+                            all_messages
+                        }
+                        Err(_) => {
+                            consumer
+                                .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+                                    params_clone.matches(msg)
+                                })
+                                .await?
+                        }
+                    }
+                }
+                _ => {
+                    consumer
+                        .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+                            params_clone.matches(msg)
+                        })
+                        .await?
+                }
+            }
+        } else {
+            consumer
+                .fetch_latest_messages(&config, &topic, 0, limit, &move |msg: &KafkaMessage| -> bool {
+                    params_clone.matches(msg)
+                })
+                .await?
+        }
     } else {
-        // 单 partition 模式或指定了 partition
-        // 先获取 watermarks 来确定起始 offset
+        // 其他模式：使用原有逻辑查询 watermarks
         let start_offset = if params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none() {
-            // fetch_mode=newest 且未指定 offset 和时间：从最新的 N 条消息开始读取
             let target_partition = params.partition.unwrap_or(0);
-            // 获取 watermarks
             let admin = get_or_create_admin_client(&state, &cluster_id).await.ok();
             if let Some(admin_ref) = admin {
-                // 从数据库获取集群 brokers
                 match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
                     Ok(Some(cluster)) => {
                         match admin_ref.get_partition_watermarks(&topic, target_partition, &cluster.brokers) {
                             Ok((low, high)) => {
-                                // 从 high - limit 开始读取，但不能小于 low
                                 let start = std::cmp::max(low, high - limit as i64);
                                 Some(start)
                             }
