@@ -176,6 +176,9 @@ async fn get_messages(
         let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
 
         // 并发获取每个 partition 的消息（使用 Pool）
+        // 优化：限制并发度，避免超过 Pool 容量
+        use tokio::sync::Semaphore;
+        let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
         let mut tasks = Vec::new();
         for pid in partition_ids {
             let pool_clone = consumer_pool.clone();
@@ -185,8 +188,13 @@ async fn get_messages(
             let max_msgs = max_messages;
             let cluster_id_clone = cluster_id.clone();
             let state_clone = state.clone();
+            let sem_clone = semaphore.clone();
 
             let task = tokio::spawn(async move {
+                // 获取信号量许可，限制并发度
+                let _permit = sem_clone.acquire().await
+                    .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
+
                 // 计算每个 partition 的起始 offset
                 let start_offset: Option<i64> = if let Some(start_time) = params_clone.start_time {
                     // 使用临时 Consumer 查询时间戳 offset（这个场景较少，影响不大）
@@ -252,13 +260,21 @@ async fn get_messages(
                     match admin_ref.get_topic_info(&topic) {
                         Ok(topic_info) => {
                             let partition_count = topic_info.partitions.len();
+                            // 优化：限制并发度，避免超过 Pool 容量
+                            // 使用 Semaphore 控制同时运行的任务数
+                            use tokio::sync::Semaphore;
+                            let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
                             let mut tasks = Vec::new();
                             for part in topic_info.partitions {
                                 let pool_clone = consumer_pool.clone();
                                 let topic_clone = topic.clone();
                                 let params_clone = params_clone.clone();
                                 let max_msgs = limit / partition_count.max(1);
+                                let sem_clone = semaphore.clone();
                                 let task = tokio::spawn(async move {
+                                    // 获取信号量许可，限制并发度
+                                    let _permit = sem_clone.acquire().await
+                                        .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
                                     // 使用 Pool 获取 Consumer
                                     KafkaConsumer::fetch_latest_messages_from_pool(
                                         &pool_clone,

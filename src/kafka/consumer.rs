@@ -138,7 +138,7 @@ impl KafkaConsumer {
             .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
 
         // 查询 watermarks
-        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(300));
+        let watermarks = consumer.fetch_watermarks(topic, partition, Duration::from_millis(500));
 
         let mut tpl = rdkafka::TopicPartitionList::new();
         if let Ok((low, high)) = watermarks {
@@ -152,8 +152,16 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        let base_timeout = Duration::from_millis(30);
+        // 优化：根据 max_messages 动态调整超时
+        // 大量消息时需要更长的超时时间
+        let base_timeout = if max_messages > 1000 {
+            Duration::from_millis(200)
+        } else {
+            Duration::from_millis(100)
+        };
         let mut consecutive_timeouts = 0;
+        // 优化：增加超时次数限制，允许更多次的短暂停顿
+        let max_consecutive_timeouts = if max_messages > 1000 { 10 } else { 5 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
@@ -172,7 +180,7 @@ impl KafkaConsumer {
                 }
                 Ok(Err(_)) | Err(_) => {
                     consecutive_timeouts += 1;
-                    if consecutive_timeouts >= 3 {
+                    if consecutive_timeouts >= max_consecutive_timeouts {
                         break;
                     }
                 }
@@ -712,9 +720,15 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        let base_timeout = Duration::from_millis(50);
+        // 优化：根据 max_messages 动态调整超时
+        let base_timeout = if max_messages > 1000 {
+            Duration::from_millis(200)
+        } else {
+            Duration::from_millis(100)
+        };
         let mut consecutive_timeouts = 0;
-        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+        // 优化：增加超时次数限制
+        let max_consecutive_timeouts = if max_messages > 1000 { 10 } else { 5 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
@@ -748,7 +762,7 @@ impl KafkaConsumer {
                 }
                 Ok(Err(_)) | Err(_) => {
                     consecutive_timeouts += 1;
-                    if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    if consecutive_timeouts >= max_consecutive_timeouts {
                         break;
                     }
                 }
