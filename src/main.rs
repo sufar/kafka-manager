@@ -70,6 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // 测试日志是否正常工作
+    tracing::info!("=== Kafka Manager API starting ===");
+    tracing::debug!("Debug logging enabled");
+
     // 加载配置
     let config = Config::load("config.toml")?;
     tracing::info!(
