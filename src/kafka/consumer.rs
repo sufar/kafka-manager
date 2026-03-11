@@ -152,16 +152,15 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 优化：根据 max_messages 动态调整超时
-        // 大量消息时需要更长的超时时间
+        // 优化：减少超时等待时间，加快空 topic 响应
         let base_timeout = if max_messages > 1000 {
-            Duration::from_millis(200)
+            Duration::from_millis(50)
         } else {
-            Duration::from_millis(100)
+            Duration::from_millis(30)
         };
         let mut consecutive_timeouts = 0;
-        // 优化：增加超时次数限制，允许更多次的短暂停顿
-        let max_consecutive_timeouts = if max_messages > 1000 { 10 } else { 5 };
+        // 优化：减少超时次数，空 topic 最快响应
+        let max_consecutive_timeouts = if max_messages > 1000 { 3 } else { 2 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
@@ -186,6 +185,10 @@ impl KafkaConsumer {
                 }
             }
         }
+
+        // 清理 consumer 的 partition assignment，避免影响下次复用
+        let empty_tpl = rdkafka::TopicPartitionList::new();
+        let _ = consumer.assign(&empty_tpl);
 
         // Consumer 会自动归还到池中（通过 Drop 或 pool 管理）
         Ok(messages)
@@ -720,15 +723,15 @@ impl KafkaConsumer {
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 优化：根据 max_messages 动态调整超时
+        // 优化：减少超时等待时间，加快空 topic 响应
         let base_timeout = if max_messages > 1000 {
-            Duration::from_millis(200)
+            Duration::from_millis(50)
         } else {
-            Duration::from_millis(100)
+            Duration::from_millis(30)
         };
         let mut consecutive_timeouts = 0;
-        // 优化：增加超时次数限制
-        let max_consecutive_timeouts = if max_messages > 1000 { 10 } else { 5 };
+        // 优化：减少超时次数，空 topic 最快响应
+        let max_consecutive_timeouts = if max_messages > 1000 { 3 } else { 2 };
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
@@ -768,6 +771,10 @@ impl KafkaConsumer {
                 }
             }
         }
+
+        // 清理 consumer 的 partition assignment，避免影响下次复用
+        let empty_tpl = rdkafka::TopicPartitionList::new();
+        let _ = consumer.assign(&empty_tpl);
 
         // Consumer 会自动归还到池中
         Ok(messages)

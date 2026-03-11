@@ -105,9 +105,17 @@ class ApiClient {
   }
 
   // 统一请求方法
-  private async request<T>(method: string, body: Record<string, any>): Promise<T> {
+  private async request<T>(method: string, body: Record<string, any>, timeoutMs?: number): Promise<T> {
     this.currentAbortController = new AbortController();
     const { signal } = this.currentAbortController;
+
+    // 设置请求超时（默认 30 秒，消息查询可能需要更长时间）
+    const requestTimeout = timeoutMs || 30000;
+    const timeoutId = setTimeout(() => {
+      if (this.currentAbortController) {
+        this.currentAbortController.abort();
+      }
+    }, requestTimeout);
 
     const url = `${this.baseURL}/api`;
 
@@ -141,18 +149,26 @@ class ApiClient {
           } catch {
             // 忽略解析错误
           }
+          clearTimeout(timeoutId);
           throw { message, status: response.status } as ApiError;
         }
 
         const data = await response.json();
 
         if (!data.success) {
+          clearTimeout(timeoutId);
           throw { message: data.error || 'Unknown error', status: response.status } as ApiError;
         }
 
+        clearTimeout(timeoutId);
         return data.data as T;
       } catch (e) {
-        const error = e as { message?: string; type?: string };
+        const error = e as { message?: string; type?: string; name?: string };
+        // 处理超时错误
+        if (error.name === 'AbortError') {
+          clearTimeout(timeoutId);
+          throw { message: `请求超时（${requestTimeout / 1000}秒），请检查网络连接或减少查询数据量`, status: 408 } as ApiError;
+        }
         if (isTauri() && attempt < maxRetries - 1) {
           if (error.message?.includes('Failed to fetch') ||
               error.message?.includes('NetworkError') ||
@@ -163,10 +179,12 @@ class ApiClient {
             continue;
           }
         }
+        clearTimeout(timeoutId);
         throw e;
       }
     }
 
+    clearTimeout(timeoutId);
     if (lastError) {
       throw lastError;
     }
@@ -542,11 +560,12 @@ class ApiClient {
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
   }): Promise<import('@/types/api').MessageRecord[]> {
+    // 消息查询可能需要较长时间，设置 60 秒超时
     const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
       cluster_id: clusterId,
       topic,
       ...params
-    });
+    }, 60000);
     return data.messages;
   }
 

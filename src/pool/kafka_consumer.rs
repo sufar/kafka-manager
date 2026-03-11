@@ -21,7 +21,7 @@ impl KafkaConsumerManager {
         })
     }
 
-    /// 创建客户端配置 - 性能优化版
+    /// 创建客户端配置 - 性能优化版（快速响应）
     fn create_client_config(&self, group_id: &str) -> ClientConfig {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &self.config.brokers);
@@ -36,9 +36,9 @@ impl KafkaConsumerManager {
             "socket.timeout.ms",
             &self.config.request_timeout_ms.to_string(),
         );
-        // 优化：增加批量获取参数，减少网络 RTT
-        client_config.set("fetch.wait.max.ms", "50");       // broker 最多等待 50ms 凑够批量消息
-        client_config.set("fetch.min.bytes", "1024");       // 最小 1KB 才返回，减少小批量
+        // 优化：快速响应配置，适合管理界面场景
+        client_config.set("fetch.wait.max.ms", "5");        // broker 最多等待 5ms，快速返回
+        client_config.set("fetch.min.bytes", "1");          // 有数据就返回，不等待批量
         client_config.set("fetch.max.bytes", "52428800");   // 最大 50MB 单次获取
         client_config.set("fetch.message.max.bytes", "10485760"); // 单条消息最大 10MB
         client_config
