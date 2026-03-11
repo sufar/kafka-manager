@@ -1823,6 +1823,13 @@ async fn fetch_messages_from_pool_with_filter(
     let search_mode = search.is_some();
 
     for &part_id in &partitions_list {
+        // 先获取 watermarks 用于调试
+        let watermarks_result = consumer.fetch_watermarks(topic, part_id, Duration::from_millis(1000));
+        tracing::info!(
+            "Partition {} watermarks: {:?}",
+            part_id, watermarks_result
+        );
+
         let start_offset = if let Some(start_time) = start_time {
             // 如果指定了开始时间，使用 offsets_for_times 定位
             if start_time <= 0 {
@@ -1845,22 +1852,36 @@ async fn fetch_messages_from_pool_with_filter(
             }
         } else if search_mode {
             // 搜索模式：从最早的消息开始，确保能找到所有匹配的消息
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+            match watermarks_result {
                 Ok((low, _high)) => low,
                 Err(_) => 0,
             }
         } else if fetch_mode == Some("newest") && offset.is_none() {
             // 只有 newest 模式且没有指定 offset 时才查询 watermarks
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((_, high)) if high > 0 => {
+            match watermarks_result {
+                Ok((low, high)) if high > 0 => {
                     let latest_offset = high - 1;
-                    latest_offset.saturating_sub((max_messages - 1) as i64)
+                    let calculated_start = latest_offset.saturating_sub((max_messages - 1) as i64);
+                    // 确保不超过 low watermark
+                    let final_start = std::cmp::max(low, calculated_start);
+                    tracing::info!(
+                        "newest mode: low={}, high={}, latest_offset={}, calculated_start={}, final_start={}",
+                        low, high, latest_offset, calculated_start, final_start
+                    );
+                    final_start
                 }
-                _ => 0,
+                Ok((low, high)) => {
+                    tracing::warn!("newest mode: high={} <= 0, using low={}", high, low);
+                    low
+                }
+                Err(e) => {
+                    tracing::warn!("newest mode: failed to get watermarks: {}", e);
+                    0
+                }
             }
         } else if fetch_mode == Some("oldest") && offset.is_none() {
             // oldest 模式且没有指定 offset 时，查询 low watermark 作为起始位置
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
+            match watermarks_result {
                 Ok((low, _high)) => low,
                 Err(_) => 0,
             }
@@ -1869,6 +1890,10 @@ async fn fetch_messages_from_pool_with_filter(
             offset.unwrap_or(0)
         };
 
+        tracing::info!(
+            "Partition {} start_offset={}",
+            part_id, start_offset
+        );
         partition_offsets.push((part_id, start_offset));
     }
 
