@@ -160,7 +160,7 @@ async fn get_messages(
 
     let max_messages = params.max_messages.unwrap_or(100);
     let limit = params.limit.unwrap_or(max_messages);
-    let per_partition = params.per_partition_max.unwrap_or(false);
+    let _per_partition = params.per_partition_max.unwrap_or(false);
 
     // 搜索模式：当有搜索条件时，自动扩大扫描范围
     // scan_depth 控制扫描的消息数量，limit 控制最终返回的数量
@@ -181,58 +181,77 @@ async fn get_messages(
     let desc = params.sort.as_deref() == Some("desc");
 
     // Per-partition 模式：并行获取每个 partition 的消息
-    let raw_messages = if per_partition && params.partition.is_none() {
+    // 修改：当未指定 partition 时，自动使用 per-partition 模式查询所有分区
+    // 这样数据量大的 topic（通常有多个 partition）也能查询到消息
+    // 但 fetch_mode=newest 时使用专门的快速方法
+    let raw_messages = if params.partition.is_none()
+        && !(params.fetch_mode.as_deref() == Some("newest") && params.offset.is_none() && params.start_time.is_none())
+    {
         // 获取 topic 的 partition 列表
         let admin = get_or_create_admin_client(&state, &cluster_id).await?;
         let topic_info = admin.get_topic_info(&topic)?;
         let partition_ids: Vec<i32> = topic_info.partitions.iter().map(|p| p.id).collect();
         let partition_count = partition_ids.len();
 
+        // 预先查询每个 partition 的起始 offset
+        // 默认从最新消息往前读（high watermark - scan_depth），而不是从最早消息开始读
+        let mut partition_offsets: std::collections::HashMap<i32, Option<i64>> = std::collections::HashMap::new();
+        for pid in &partition_ids {
+            let offset = if let Some(start_time) = params.start_time {
+                // 使用时间范围查询
+                let clients = state.get_clients();
+                let consumer = clients.get_consumer(&cluster_id)
+                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+                match consumer.get_offset_for_time(&config, &topic, *pid, start_time).await {
+                    Ok(Some(off)) => Some(off),
+                    _ => None,
+                }
+            } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
+                // 从最老的消息开始读
+                let clients = state.get_clients();
+                let consumer = clients.get_consumer(&cluster_id)
+                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+                match consumer.get_offset_for_time(&config, &topic, *pid, 0).await {
+                    Ok(Some(off)) => Some(off),
+                    _ => None,
+                }
+            } else if params.offset.is_some() {
+                // 使用用户指定的 offset
+                params.offset
+            } else {
+                // 默认从最新消息往前读：计算 high - scan_depth
+                match admin.get_partition_watermarks(&topic, *pid, &config.brokers) {
+                    Ok((low, high)) => {
+                        let start = std::cmp::max(low, high - scan_depth as i64);
+                        Some(start)
+                    }
+                    Err(_) => None,
+                }
+            };
+            partition_offsets.insert(*pid, offset);
+        }
+
         // 并发获取每个 partition 的消息（使用 Pool）
         // 优化：限制并发度，避免超过 Pool 容量
         use tokio::sync::Semaphore;
         let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
         let mut tasks = Vec::new();
+
         for pid in partition_ids {
             let pool_clone = consumer_pool.clone();
             let config_clone = config.clone();
             let topic_clone = topic.clone();
             let params_clone = params_clone.clone();
             // 每个 partition 扫描 scan_depth / partition_count 条消息
+            // 但最少不少于 100 条
             let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
-            let cluster_id_clone = cluster_id.clone();
-            let state_clone = state.clone();
             let sem_clone = semaphore.clone();
+            let start_offset = partition_offsets.get(&pid).copied().flatten();
 
             let task = tokio::spawn(async move {
                 // 获取信号量许可，限制并发度
                 let _permit = sem_clone.acquire().await
                     .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-
-                // 计算每个 partition 的起始 offset
-                let start_offset: Option<i64> = if let Some(start_time) = params_clone.start_time {
-                    // 使用临时 Consumer 查询时间戳 offset（这个场景较少，影响不大）
-                    let clients = state_clone.get_clients();
-                    let consumer = clients.get_consumer(&cluster_id_clone)
-                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
-                    let config = clients.get_config(&cluster_id_clone)
-                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
-                    match consumer.get_offset_for_time(&config, &topic_clone, pid, start_time).await {
-                        Ok(Some(offset)) => Some(offset),
-                        Ok(None) | Err(_) => None,
-                    }
-                } else if params_clone.fetch_mode.as_deref() == Some("newest") && params_clone.offset.is_none() {
-                    None
-                } else if params_clone.fetch_mode.as_deref() == Some("oldest") && params_clone.offset.is_none() {
-                    let clients = state_clone.get_clients();
-                    let consumer = clients.get_consumer(&cluster_id_clone)
-                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
-                    let config = clients.get_config(&cluster_id_clone)
-                        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id_clone)))?;
-                    consumer.get_offset_for_time(&config, &topic_clone, pid, 0).await.ok().flatten()
-                } else {
-                    params_clone.offset
-                };
 
                 // 使用 Pool 获取消息
                 KafkaConsumer::fetch_messages_filtered_from_pool(
@@ -280,7 +299,9 @@ async fn get_messages(
                             let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
                             let mut tasks = Vec::new();
                             // 每个 partition 扫描 scan_depth / partition_count 条消息
-                            let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
+                            // 搜索模式：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能搜索到
+                            let min_scan_per_partition = if params.search.is_some() { 1000 } else { 100 };
+                            let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
                             for part in topic_info.partitions {
                                 let pool_clone = consumer_pool.clone();
                                 let topic_clone = topic.clone();
