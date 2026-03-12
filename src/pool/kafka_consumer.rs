@@ -21,7 +21,7 @@ impl KafkaConsumerManager {
         })
     }
 
-    /// 创建客户端配置 - 平衡响应速度和数据获取
+    /// 创建客户端配置 - 优化快速读取
     fn create_client_config(&self, group_id: &str) -> ClientConfig {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &self.config.brokers);
@@ -36,12 +36,10 @@ impl KafkaConsumerManager {
             "socket.timeout.ms",
             &self.config.request_timeout_ms.to_string(),
         );
-        // 优化：平衡配置，确保能读取大数据量 topic
-        // fetch.wait.max.ms: broker 等待数据的最大时间
-        // 设置为 50ms，给 broker 足够时间准备数据，同时保持较快响应
-        client_config.set("fetch.wait.max.ms", "50");
-        // fetch.min.bytes: 最小返回数据量
-        // 设置为 1，有数据就返回，不强制等待批量
+        // 快速读取优化
+        // fetch.wait.max.ms: broker 等待数据的最大时间，设为 0 立即返回
+        client_config.set("fetch.wait.max.ms", "0");
+        // fetch.min.bytes: 设为 1，有数据就立即返回
         client_config.set("fetch.min.bytes", "1");
         // fetch.max.bytes: 单次获取最大数据量 (50MB)
         client_config.set("fetch.max.bytes", "52428800");
@@ -55,6 +53,8 @@ impl KafkaConsumerManager {
         client_config.set("heartbeat.interval.ms", "3000");
         // max.poll.interval.ms: 两次 poll 之间的最大间隔
         client_config.set("max.poll.interval.ms", "300000");
+        // queued.min.messages: 内部队列最小消息数，提高吞吐
+        client_config.set("queued.min.messages", "1000");
         client_config
     }
 }

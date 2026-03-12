@@ -17,9 +17,7 @@ use crate::pool::KafkaConsumerPool;
 use rdkafka::consumer::Consumer;
 use rdkafka::Message;
 use serde::Deserialize;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 
 /// 查询模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -137,13 +135,6 @@ impl Default for MessageQueryParams {
             offset: None,
         }
     }
-}
-
-/// 分区信息
-struct PartitionInfo {
-    id: i32,
-    low: i64,
-    high: i64,
 }
 
 /// 消息匹配器 trait
@@ -281,80 +272,86 @@ async fn fetch_newest(
     partitions: &[i32],
     params: &MessageQueryParams,
 ) -> Result<Vec<KafkaMessage>> {
-    tracing::info!("[fetch_newest] Fetching from {} partitions, limit={}", partitions.len(), params.limit);
+    tracing::info!("[fetch_newest] Fetching from {} partitions, max_per_partition={}", partitions.len(), params.max_per_partition);
 
-    // 获取每个分区的 watermarks
+    // 获取一个 consumer
     let consumer = pool.get().await
         .map_err(|e| AppError::Internal(format!("Failed to get consumer: {}", e)))?;
 
-    let mut partition_infos: Vec<PartitionInfo> = Vec::new();
+    // 获取每个分区的 watermarks 并计算起始偏移量
+    let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
     for &pid in partitions {
         match consumer.fetch_watermarks(topic, pid, Duration::from_millis(1000)) {
             Ok((low, high)) => {
-                tracing::debug!("[fetch_newest] Partition {} watermarks: low={}, high={}", pid, low, high);
-                partition_infos.push(PartitionInfo { id: pid, low, high });
+                // 计算起始偏移量：从 high - max_per_partition 开始
+                let start_offset = if high > low {
+                    let scan_count = std::cmp::min(params.max_per_partition as i64, high - low);
+                    std::cmp::max(low, high - scan_count)
+                } else {
+                    low
+                };
+                partition_offsets.push((pid, start_offset));
             }
             Err(e) => {
                 tracing::warn!("[fetch_newest] Failed to get watermarks for partition {}: {}", pid, e);
             }
         }
     }
-    drop(consumer);
 
-    if partition_infos.is_empty() {
+    if partition_offsets.is_empty() {
+        drop(consumer);
         return Ok(Vec::new());
     }
 
-    // 计算每个分区应查询的消息数
-    // 使用 max_per_partition，但要确保总量合理
-    let max_per_partition = params.max_per_partition;
-
-    // 并行查询每个分区，但限制并发数
-    let semaphore = Arc::new(Semaphore::new(20)); // 降低并发数以减少资源竞争
-    let mut tasks = Vec::new();
-
-    for pi in partition_infos {
-        let pool_clone = pool.clone();
-        let topic_clone = topic.to_string();
-        let params_clone = params.clone();
-        let sem_clone = semaphore.clone();
-
-        // 计算起始偏移量：从 high - max_per_partition 开始
-        let start_offset = if pi.high > pi.low {
-            let scan_count = std::cmp::min(max_per_partition as i64, pi.high - pi.low);
-            std::cmp::max(pi.low, pi.high - scan_count)
-        } else {
-            pi.low
-        };
-
-        let task = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await
-                .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-
-            fetch_from_partition(
-                &pool_clone,
-                &topic_clone,
-                pi.id,
-                Some(start_offset),
-                max_per_partition,
-                &params_clone,
-            ).await
-        });
-        tasks.push(task);
+    // 为所有分区设置起始偏移量
+    use rdkafka::TopicPartitionList;
+    let mut tpl = TopicPartitionList::new();
+    for (pid, offset) in &partition_offsets {
+        tpl.add_partition_offset(topic, *pid, rdkafka::Offset::Offset(*offset))?;
     }
+    consumer.assign(&tpl)?;
 
-    // 收集结果
-    let mut all_messages = Vec::new();
-    for task in tasks {
-        match task.await {
-            Ok(Ok(msgs)) => all_messages.extend(msgs),
-            Ok(Err(e)) => tracing::warn!("[fetch_newest] Partition fetch error: {}", e),
-            Err(e) => tracing::warn!("[fetch_newest] Task join error: {}", e),
+    // 创建过滤器
+    let matcher = FilterMatcher::new(params);
+
+    // 读取消息 - 使用更短的超时和更积极的策略
+    let total_target = params.max_per_partition * partitions.len();
+    let mut messages = Vec::new();
+    let timeout = Duration::from_millis(20);  // 每次等 20ms
+    let mut empty_count = 0;
+    let max_empty = 3;  // 连续 3 次空返回就结束
+
+    while messages.len() < total_target && empty_count < max_empty {
+        match tokio::time::timeout(timeout, consumer.recv()).await {
+            Ok(Ok(msg)) => {
+                empty_count = 0;
+                let kafka_msg = KafkaMessage {
+                    partition: msg.partition(),
+                    offset: msg.offset(),
+                    key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                    value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                    timestamp: msg.timestamp().to_millis(),
+                };
+                if matcher.matches(&kafka_msg) {
+                    messages.push(kafka_msg);
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::debug!("[fetch_newest] Error: {}", e);
+            }
+            Err(_) => {
+                empty_count += 1;
+            }
         }
     }
 
-    tracing::info!("[fetch_newest] Collected {} total messages before sort/limit", all_messages.len());
-    Ok(all_messages)
+    // 清理 assignment
+    let empty_tpl = TopicPartitionList::new();
+    let _ = consumer.assign(&empty_tpl);
+    drop(consumer);
+
+    tracing::info!("[fetch_newest] Collected {} messages", messages.len());
+    Ok(messages)
 }
 
 /// Oldest 模式查询 - 从最早消息开始
@@ -364,123 +361,67 @@ async fn fetch_oldest(
     partitions: &[i32],
     params: &MessageQueryParams,
 ) -> Result<Vec<KafkaMessage>> {
-    tracing::info!("[fetch_oldest] Fetching from {} partitions", partitions.len());
+    tracing::info!("[fetch_oldest] Fetching from {} partitions, max_per_partition={}", partitions.len(), params.max_per_partition);
 
-    // 获取每个分区的 watermarks 和起始偏移量
+    // 获取一个 consumer
     let consumer = pool.get().await
         .map_err(|e| AppError::Internal(format!("Failed to get consumer: {}", e)))?;
 
-    let mut partition_offsets: Vec<(i32, Option<i64>)> = Vec::new();
+    // 获取每个分区的起始偏移量
+    use rdkafka::TopicPartitionList;
+    let mut partition_offsets: Vec<(i32, i64)> = Vec::new();
     for &pid in partitions {
-        // 获取 watermarks
-        let watermarks = consumer.fetch_watermarks(topic, pid, Duration::from_millis(1000));
-
-        // 计算起始偏移量
         let start_offset = if let Some(start_time) = params.start_time {
             // 使用时间戳定位偏移量
-            use rdkafka::TopicPartitionList;
             let mut tpl = TopicPartitionList::new();
-            tpl.add_partition_offset(topic, pid, rdkafka::Offset::Offset(start_time))
-                .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
-
-            match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+            tpl.add_partition_offset(topic, pid, rdkafka::Offset::Offset(start_time))?;
+            match consumer.offsets_for_times(tpl, Duration::from_millis(1000)) {
                 Ok(result) => {
                     result.elements_for_topic(topic)
                         .iter()
                         .find(|e| e.partition() == pid)
                         .and_then(|e| e.offset().to_raw())
-                        .or_else(|| watermarks.ok().map(|(low, _)| low))
                 }
-                Err(_) => watermarks.ok().map(|(low, _)| low),
+                Err(_) => None,
             }
-        } else if let Some(offset) = params.offset {
-            Some(offset)
         } else {
-            watermarks.ok().map(|(low, _)| low)
+            // 使用 watermarks 获取最早偏移量
+            consumer.fetch_watermarks(topic, pid, Duration::from_millis(1000))
+                .ok()
+                .map(|(low, _)| low)
         };
 
-        partition_offsets.push((pid, start_offset));
-    }
-    drop(consumer);
-
-    // 并行查询每个分区
-    let semaphore = Arc::new(Semaphore::new(50));
-    let mut tasks = Vec::new();
-
-    for (pid, start_offset) in partition_offsets {
-        let pool_clone = pool.clone();
-        let topic_clone = topic.to_string();
-        let params_clone = params.clone();
-        let sem_clone = semaphore.clone();
-
-        let task = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await
-                .map_err(|e| AppError::Internal(format!("Semaphore error: {}", e)))?;
-
-            fetch_from_partition(
-                &pool_clone,
-                &topic_clone,
-                pid,
-                start_offset,
-                params_clone.max_per_partition,
-                &params_clone,
-            ).await
-        });
-        tasks.push(task);
-    }
-
-    // 收集结果
-    let mut all_messages = Vec::new();
-    for task in tasks {
-        match task.await {
-            Ok(Ok(msgs)) => all_messages.extend(msgs),
-            Ok(Err(e)) => tracing::warn!("[fetch_oldest] Partition fetch error: {}", e),
-            Err(e) => tracing::warn!("[fetch_oldest] Task join error: {}", e),
+        if let Some(offset) = start_offset {
+            partition_offsets.push((pid, offset));
         }
     }
 
-    Ok(all_messages)
-}
+    if partition_offsets.is_empty() {
+        drop(consumer);
+        return Ok(Vec::new());
+    }
 
-/// 从指定分区获取消息
-async fn fetch_from_partition(
-    pool: &KafkaConsumerPool,
-    topic: &str,
-    partition: i32,
-    start_offset: Option<i64>,
-    max_messages: usize,
-    params: &MessageQueryParams,
-) -> Result<Vec<KafkaMessage>> {
-    use rdkafka::TopicPartitionList;
-
-    let consumer = pool.get().await
-        .map_err(|e| AppError::Internal(format!("Failed to get consumer: {}", e)))?;
-
-    // 设置分区和偏移量
+    // 为所有分区设置起始偏移量
     let mut tpl = TopicPartitionList::new();
-    let offset = start_offset
-        .map(rdkafka::Offset::Offset)
-        .unwrap_or(rdkafka::Offset::Beginning);
-    tpl.add_partition_offset(topic, partition, offset)?;
+    for (pid, offset) in &partition_offsets {
+        tpl.add_partition_offset(topic, *pid, rdkafka::Offset::Offset(*offset))?;
+    }
     consumer.assign(&tpl)?;
 
     // 创建过滤器
     let matcher = FilterMatcher::new(params);
 
     // 读取消息
-    // - newest 模式：数据在末尾，快速返回
-    // - oldest 模式：数据在开头，可能需要更长时间
-    let base_timeout = Duration::from_millis(100);
+    let total_target = params.max_per_partition * partitions.len();
     let mut messages = Vec::new();
-    let mut consecutive_timeouts = 0;
-    // 根据消息数量动态调整最大连续超时次数
-    let max_consecutive_timeouts = if max_messages > 5000 { 8 } else if max_messages > 1000 { 5 } else { 3 };
+    let timeout = Duration::from_millis(20);
+    let mut empty_count = 0;
+    let max_empty = 3;
 
-    while messages.len() < max_messages {
-        match tokio::time::timeout(base_timeout, consumer.recv()).await {
+    while messages.len() < total_target && empty_count < max_empty {
+        match tokio::time::timeout(timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
-                consecutive_timeouts = 0;
-
+                empty_count = 0;
                 let kafka_msg = KafkaMessage {
                     partition: msg.partition(),
                     offset: msg.offset(),
@@ -488,23 +429,15 @@ async fn fetch_from_partition(
                     value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                     timestamp: msg.timestamp().to_millis(),
                 };
-
                 if matcher.matches(&kafka_msg) {
                     messages.push(kafka_msg);
                 }
             }
             Ok(Err(e)) => {
-                tracing::debug!("[fetch_from_partition] Consumer error: {}", e);
-                consecutive_timeouts += 1;
-                if consecutive_timeouts >= max_consecutive_timeouts {
-                    break;
-                }
+                tracing::debug!("[fetch_oldest] Error: {}", e);
             }
             Err(_) => {
-                consecutive_timeouts += 1;
-                if consecutive_timeouts >= max_consecutive_timeouts {
-                    break;
-                }
+                empty_count += 1;
             }
         }
     }
@@ -512,12 +445,9 @@ async fn fetch_from_partition(
     // 清理 assignment
     let empty_tpl = TopicPartitionList::new();
     let _ = consumer.assign(&empty_tpl);
+    drop(consumer);
 
-    tracing::debug!(
-        "[fetch_from_partition] Partition {} returned {} messages",
-        partition, messages.len()
-    );
-
+    tracing::info!("[fetch_oldest] Collected {} messages", messages.len());
     Ok(messages)
 }
 
