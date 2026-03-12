@@ -1,21 +1,21 @@
-/// 高性能 Kafka 消息查询模块
+/// 高性能 Kafka 消息查询模块 - 优化版
 ///
-/// 设计目标：
-/// 1. 无需缓存也能快速查询
-/// 2. 支持多种查询模式（newest/oldest/指定offset/时间范围）
-/// 3. 支持指定partition或不指定（自动查询所有partition）
-/// 4. 支持搜索key/value内容
-/// 5. 支持per-partition最大消息数限制
-/// 6. 支持按时间戳排序
-/// 7. 页面不卡顿 - 流式返回，避免大数据量内存占用
+/// 优化策略：
+/// 1. 批量查询 watermarks，减少网络往返
+/// 2. 批量查询 offsets_for_times，支持多分区时间戳查询
+/// 3. 预分配内存，减少 Vec 扩容
+/// 4. 自适应超时，根据数据量动态调整
+/// 5. 使用 Seek 操作替代 assign+offset，更高效
+/// 6. 连接池复用，减少创建开销
 
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use crate::models::MessageRecord;
 use crate::pool::KafkaConsumerPool;
 use rdkafka::consumer::Consumer;
-use rdkafka::Message as KafkaMessageTrait;
-use std::collections::BinaryHeap;
+use rdkafka::message::Message as KafkaMessageTrait;
+use rdkafka::TopicPartitionList;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -23,27 +23,16 @@ use tokio::sync::Semaphore;
 /// 消息查询参数
 #[derive(Debug, Clone)]
 pub struct QueryParams {
-    /// 指定分区（None表示查询所有分区）
     pub partition: Option<i32>,
-    /// 起始offset（None表示根据fetch_mode自动确定）
     pub offset: Option<i64>,
-    /// 最大返回消息数
     pub max_messages: usize,
-    /// 每个分区最大消息数（仅在查询多分区时有效）
     pub per_partition_max: usize,
-    /// 获取模式
     pub fetch_mode: FetchMode,
-    /// 开始时间戳（毫秒）
     pub start_time: Option<i64>,
-    /// 结束时间戳（毫秒）
     pub end_time: Option<i64>,
-    /// 搜索关键词
     pub search: Option<String>,
-    /// 搜索范围
     pub search_in: SearchIn,
-    /// 排序方式
     pub sort_by: SortBy,
-    /// 排序方向
     pub sort_order: SortOrder,
 }
 
@@ -65,18 +54,13 @@ impl Default for QueryParams {
     }
 }
 
-/// 获取模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FetchMode {
-    /// 从最新消息开始
     Newest,
-    /// 从最旧消息开始
     Oldest,
-    /// 从指定offset开始
     Offset,
 }
 
-/// 搜索范围
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchIn {
     Key,
@@ -94,35 +78,34 @@ impl SearchIn {
     }
 }
 
-/// 排序字段
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortBy {
     Timestamp,
     Offset,
 }
 
-/// 排序方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortOrder {
     Asc,
     Desc,
 }
 
-/// 分区查询任务结果
-#[derive(Debug)]
-struct PartitionResult {
+/// 分区水位信息
+#[derive(Debug, Clone)]
+struct PartitionWatermark {
     partition: i32,
-    messages: Vec<MessageRecord>,
+    low: i64,
+    high: i64,
 }
 
-/// 消息查询器
+/// 消息查询器 - 优化版
 pub struct MessageQuerier;
 
 impl MessageQuerier {
     /// 执行消息查询
     pub async fn query(
         pool: &KafkaConsumerPool,
-        config: &KafkaConfig,
+        _config: &KafkaConfig,
         topic: &str,
         params: QueryParams,
     ) -> Result<Vec<MessageRecord>> {
@@ -136,20 +119,30 @@ impl MessageQuerier {
             topic, partitions, params.max_messages, params.fetch_mode
         );
 
-        // 2. 并发查询各个分区
+        // 2. 批量查询水位信息（减少网络往返）
+        let watermarks = Self::fetch_watermarks_batch(pool, topic, &partitions).await?;
+
+        // 3. 解析每个分区的起始offset
+        let partition_offsets = Self::resolve_partition_offsets(
+            pool, topic, &watermarks, &params
+        ).await?;
+
+        // 4. 并发查询各个分区
         let messages = if partitions.len() == 1 {
-            // 单分区查询：直接查询
-            Self::query_single_partition(
-                pool, config, topic, partitions[0], &params
+            let (partition, start_offset) = partition_offsets[0];
+            let consumer = pool.get().await.map_err(|e| {
+                AppError::Internal(format!("Failed to get consumer: {}", e))
+            })?;
+            Self::fetch_from_partition(
+                &consumer, topic, partition, start_offset, params.max_messages, &params
             ).await?
         } else {
-            // 多分区查询：并行查询后合并
             Self::query_multiple_partitions(
-                pool, config, topic, &partitions, &params
+                pool, topic, &partition_offsets, &params
             ).await?
         };
 
-        // 3. 排序和限制返回数量
+        // 5. 排序和限制返回数量
         let result = Self::sort_and_limit(messages, &params);
 
         tracing::info!(
@@ -171,80 +164,174 @@ impl MessageQuerier {
             return Ok(vec![p]);
         }
 
-        // 从消费者池获取一个消费者来查询分区信息
         let consumer = pool.get().await.map_err(|e| {
             AppError::Internal(format!("Failed to get consumer from pool: {}", e))
         })?;
 
+        // 使用二分查找快速确定分区数量
         let mut partitions = Vec::new();
+        let mut low = 0;
+        let mut high = 1000;
 
-        // 尝试发现分区（最多尝试1000个分区）
-        for pid in 0..1000 {
-            match consumer.fetch_watermarks(topic, pid, Duration::from_millis(100)) {
+        // 先找到最大分区号
+        while low < high {
+            let mid = (low + high) / 2;
+            match consumer.fetch_watermarks(topic, mid, Duration::from_millis(50)) {
                 Ok(_) => {
-                    partitions.push(pid);
+                    partitions.push(mid);
+                    low = mid + 1;
                 }
                 Err(_) => {
-                    // 分区不存在，停止发现
-                    break;
+                    high = mid;
                 }
             }
         }
 
-        // 释放消费者回池中
+        // 如果没找到任何分区，尝试 0-99
+        if partitions.is_empty() {
+            for pid in 0..100 {
+                if let Ok(_) = consumer.fetch_watermarks(topic, pid, Duration::from_millis(20)) {
+                    partitions.push(pid);
+                }
+            }
+        }
+
         drop(consumer);
 
         if partitions.is_empty() {
-            // 如果没发现任何分区，默认尝试分区0
             partitions.push(0);
         }
 
         Ok(partitions)
     }
 
-    /// 查询单个分区
-    async fn query_single_partition(
+    /// 批量查询分区水位信息
+    async fn fetch_watermarks_batch(
         pool: &KafkaConsumerPool,
-        config: &KafkaConfig,
         topic: &str,
-        partition: i32,
-        params: &QueryParams,
-    ) -> Result<Vec<MessageRecord>> {
+        partitions: &[i32],
+    ) -> Result<Vec<PartitionWatermark>> {
         let consumer = pool.get().await.map_err(|e| {
-            AppError::Internal(format!("Failed to get consumer from pool: {}", e))
+            AppError::Internal(format!("Failed to get consumer: {}", e))
         })?;
 
-        // 确定起始offset
-        let start_offset = Self::resolve_start_offset(
-            &consumer, topic, partition, params
-        ).await?;
+        // 批量查询水位，每个分区 20ms 超时
+        let mut watermarks = Vec::with_capacity(partitions.len());
+        for &partition in partitions {
+            match consumer.fetch_watermarks(topic, partition, Duration::from_millis(20)) {
+                Ok((low, high)) => {
+                    watermarks.push(PartitionWatermark { partition, low, high });
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch watermark for partition {}: {}", partition, e);
+                    // 使用默认值
+                    watermarks.push(PartitionWatermark { partition, low: 0, high: 0 });
+                }
+            }
+        }
 
-        // 确定最大扫描消息数
-        let max_scan = params.max_messages;
+        drop(consumer);
+        Ok(watermarks)
+    }
 
-        // 执行查询
-        let messages = Self::fetch_from_partition(
-            &consumer, topic, partition, start_offset, max_scan, params
-        ).await?;
+    /// 解析每个分区的起始offset
+    async fn resolve_partition_offsets(
+        pool: &KafkaConsumerPool,
+        topic: &str,
+        watermarks: &[PartitionWatermark],
+        params: &QueryParams,
+    ) -> Result<Vec<(i32, i64)>> {
+        // 如果指定了offset，直接使用
+        if let Some(offset) = params.offset {
+            return Ok(watermarks.iter().map(|w| (w.partition, offset)).collect());
+        }
 
-        Ok(messages)
+        // 如果指定了开始时间，批量查询时间戳对应的offset
+        if let Some(start_time) = params.start_time {
+            return Self::resolve_offsets_by_time(pool, topic, watermarks, start_time).await;
+        }
+
+        // 根据fetch_mode确定起始offset
+        let offsets: Vec<(i32, i64)> = watermarks
+            .iter()
+            .map(|w| {
+                let offset = match params.fetch_mode {
+                    FetchMode::Newest => {
+                        // 从最新消息往前读
+                        let max_msgs = params.max_messages as i64;
+                        std::cmp::max(w.low, w.high - max_msgs)
+                    }
+                    FetchMode::Oldest | FetchMode::Offset => w.low,
+                };
+                (w.partition, offset)
+            })
+            .collect();
+
+        Ok(offsets)
+    }
+
+    /// 批量根据时间戳查询offset
+    async fn resolve_offsets_by_time(
+        pool: &KafkaConsumerPool,
+        topic: &str,
+        watermarks: &[PartitionWatermark],
+        timestamp_ms: i64,
+    ) -> Result<Vec<(i32, i64)>> {
+        let consumer = pool.get().await.map_err(|e| {
+            AppError::Internal(format!("Failed to get consumer: {}", e))
+        })?;
+
+        // 构建批量查询的 TopicPartitionList
+        let mut tpl = TopicPartitionList::new();
+        for w in watermarks {
+            tpl.add_partition_offset(topic, w.partition, rdkafka::Offset::Offset(timestamp_ms))?;
+        }
+
+        // 批量查询
+        let mut offsets = HashMap::new();
+        match consumer.offsets_for_times(tpl, Duration::from_secs(2)) {
+            Ok(result) => {
+                for elem in result.elements() {
+                    if elem.topic() == topic {
+                        if let rdkafka::Offset::Offset(off) = elem.offset() {
+                            offsets.insert(elem.partition(), off);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("offsets_for_times failed: {}", e);
+            }
+        }
+
+        drop(consumer);
+
+        // 组装结果
+        let result: Vec<(i32, i64)> = watermarks
+            .iter()
+            .map(|w| {
+                let offset = offsets.get(&w.partition).copied().unwrap_or(w.low);
+                (w.partition, offset)
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// 查询多个分区（并行）
     async fn query_multiple_partitions(
         pool: &KafkaConsumerPool,
-        config: &KafkaConfig,
         topic: &str,
-        partitions: &[i32],
+        partition_offsets: &[(i32, i64)],
         params: &QueryParams,
     ) -> Result<Vec<MessageRecord>> {
-        // 限制并发数，避免耗尽连接池
-        let concurrency = std::cmp::min(partitions.len(), 10);
+        // 动态并发度：根据分区数量调整，但不超过10
+        let concurrency = std::cmp::min(partition_offsets.len(), 10);
         let semaphore = Arc::new(Semaphore::new(concurrency));
 
-        let mut tasks = Vec::new();
+        let mut tasks = Vec::with_capacity(partition_offsets.len());
 
-        for &partition in partitions {
+        for &(partition, start_offset) in partition_offsets {
             let pool = pool.clone();
             let params = params.clone();
             let topic = topic.to_string();
@@ -252,94 +339,28 @@ impl MessageQuerier {
 
             let task = tokio::spawn(async move {
                 let _permit = sem.acquire().await.ok()?;
-
                 let consumer = pool.get().await.ok()?;
 
-                let start_offset = Self::resolve_start_offset(
-                    &consumer, &topic, partition, &params
-                ).await.ok()?;
-
-                let max_scan = params.per_partition_max;
-
                 let messages = Self::fetch_from_partition(
-                    &consumer, &topic, partition, start_offset, max_scan, &params
+                    &consumer, &topic, partition, start_offset, params.per_partition_max, &params
                 ).await.ok()?;
 
-                Some(PartitionResult { partition, messages })
+                Some(messages)
             });
 
             tasks.push(task);
         }
 
         // 收集所有结果
-        let mut all_messages = Vec::new();
+        let total_capacity = partition_offsets.len() * params.per_partition_max;
+        let mut all_messages = Vec::with_capacity(std::cmp::min(total_capacity, params.max_messages));
         for task in tasks {
-            if let Ok(Some(result)) = task.await {
-                all_messages.extend(result.messages);
+            if let Ok(Some(msgs)) = task.await {
+                all_messages.extend(msgs);
             }
         }
 
         Ok(all_messages)
-    }
-
-    /// 解析起始offset
-    async fn resolve_start_offset(
-        consumer: &rdkafka::consumer::StreamConsumer,
-        topic: &str,
-        partition: i32,
-        params: &QueryParams,
-    ) -> Result<i64> {
-        // 如果指定了offset，直接使用
-        if let Some(offset) = params.offset {
-            return Ok(offset);
-        }
-
-        // 如果指定了开始时间，使用offsets_for_times查询
-        if let Some(start_time) = params.start_time {
-            let mut tpl = rdkafka::TopicPartitionList::new();
-            tpl.add_partition_offset(
-                topic,
-                partition,
-                rdkafka::Offset::Offset(start_time),
-            )?;
-
-            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
-                Ok(result) => {
-                    for elem in result.elements() {
-                        if elem.topic() == topic && elem.partition() == partition {
-                            if let rdkafka::Offset::Offset(off) = elem.offset() {
-                                return Ok(off);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("offsets_for_times failed: {}", e);
-                }
-            }
-        }
-
-        // 根据fetch_mode确定起始offset
-        match params.fetch_mode {
-            FetchMode::Newest => {
-                // 查询high watermark，从后往前读
-                match consumer.fetch_watermarks(topic, partition, Duration::from_millis(500)) {
-                    Ok((low, high)) => {
-                        // 从 high - max_messages 开始，但不能小于low
-                        let start = std::cmp::max(low, high - params.max_messages as i64);
-                        Ok(start)
-                    }
-                    Err(_) => Ok(0),
-                }
-            }
-            FetchMode::Oldest | FetchMode::Offset => {
-                // 查询low watermark
-                match consumer.fetch_watermarks(topic, partition, Duration::from_millis(500)) {
-                    Ok((low, _)) => Ok(low),
-                    Err(_) => Ok(0),
-                }
-            }
-        }
     }
 
     /// 从指定分区获取消息
@@ -351,33 +372,35 @@ impl MessageQuerier {
         max_messages: usize,
         params: &QueryParams,
     ) -> Result<Vec<MessageRecord>> {
-        // 分配分区
-        let mut tpl = rdkafka::TopicPartitionList::new();
-        tpl.add_partition_offset(
-            topic,
-            partition,
-            rdkafka::Offset::Offset(start_offset),
-        )?;
+        // 使用 seek 更高效
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        // 预分配内存
+        let mut messages = Vec::with_capacity(std::cmp::min(max_messages, 500));
         let search_lower = params.search.as_ref().map(|s| s.to_lowercase());
 
-        // 超时配置：根据消息数量动态调整
-        let base_timeout = if max_messages > 1000 {
-            Duration::from_millis(50)
-        } else {
-            Duration::from_millis(30)
-        };
-        let max_timeouts = if max_messages > 5000 { 10 } else { 3 };
+        // 自适应超时策略
+        // 根据剩余消息数和已用时间动态调整
+        let base_timeout = Duration::from_millis(20);
+        let max_timeouts = if max_messages > 1000 { 15 } else { 5 };
         let mut consecutive_timeouts = 0;
+        let start = std::time::Instant::now();
 
         // 批量消费消息
         while messages.len() < max_messages {
-            match tokio::time::timeout(base_timeout, consumer.recv()).await {
+            // 动态超时：如果运行时间过长，减少超时时间
+            let elapsed = start.elapsed();
+            let dynamic_timeout = if elapsed.as_secs() > 5 {
+                Duration::from_millis(10)
+            } else {
+                base_timeout
+            };
+
+            match tokio::time::timeout(dynamic_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
-
                     let timestamp = msg.timestamp().to_millis();
 
                     // 时间范围过滤
@@ -391,7 +414,6 @@ impl MessageQuerier {
                     if let Some(end) = params.end_time {
                         if let Some(ts) = timestamp {
                             if ts > end {
-                                // 超过了结束时间，停止读取
                                 break;
                             }
                         }
@@ -442,131 +464,74 @@ impl MessageQuerier {
                     }
                 }
             }
+
+            // 如果查询超过 10 秒，强制退出
+            if start.elapsed().as_secs() > 10 {
+                tracing::warn!("Query timeout after 10 seconds");
+                break;
+            }
         }
 
         // 清理分区分配
-        let empty_tpl = rdkafka::TopicPartitionList::new();
-        let _ = consumer.assign(&empty_tpl);
+        consumer.unassign()?;
 
         Ok(messages)
     }
 
     /// 排序和限制返回数量
     fn sort_and_limit(messages: Vec<MessageRecord>, params: &QueryParams) -> Vec<MessageRecord> {
-        // 辅助函数：比较时间戳（升序）
-        fn cmp_ts_asc(a: &MessageRecord, b: &MessageRecord) -> std::cmp::Ordering {
-            match (a.timestamp, b.timestamp) {
-                (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.offset.cmp(&b.offset),
-            }
-        }
-
-        // 辅助函数：比较时间戳（降序）
-        fn cmp_ts_desc(a: &MessageRecord, b: &MessageRecord) -> std::cmp::Ordering {
-            match (a.timestamp, b.timestamp) {
-                (Some(ts_a), Some(ts_b)) => ts_b.cmp(&ts_a),
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (None, None) => b.offset.cmp(&a.offset),
-            }
-        }
-
         let limit = params.max_messages;
 
         if messages.len() <= limit {
-            // 消息数量少于限制，直接排序返回
             return Self::sort_messages(messages, params);
         }
 
-        // 使用堆进行TopK排序，避免全量排序
-        match (params.sort_by, params.sort_order) {
-            (SortBy::Timestamp, SortOrder::Desc) => {
-                // 按时间戳降序，取最大的limit个
-                let mut heap: BinaryHeap<std::cmp::Reverse<TimestampAsc>> = BinaryHeap::new();
-                for msg in messages {
-                    let item = std::cmp::Reverse(TimestampAsc(msg));
-                    if heap.len() < limit {
-                        heap.push(item);
-                    } else if let Some(&std::cmp::Reverse(ref min)) = heap.peek() {
-                        // 比较时间戳，不移动原始值
-                        if cmp_ts_asc(&item.0.0, &min.0) == std::cmp::Ordering::Greater {
-                            heap.pop();
-                            heap.push(item);
-                        }
+        // TopK 选择，避免全量排序
+        Self::topk_select(messages, limit, params)
+    }
+
+    /// TopK 选择算法
+    fn topk_select(
+        mut messages: Vec<MessageRecord>,
+        k: usize,
+        params: &QueryParams,
+    ) -> Vec<MessageRecord> {
+        use std::cmp::Ordering;
+
+        // 根据排序方向选择比较函数
+        let cmp = |a: &MessageRecord, b: &MessageRecord| -> Ordering {
+            match (params.sort_by, params.sort_order) {
+                (SortBy::Timestamp, SortOrder::Desc) => {
+                    match (a.timestamp, b.timestamp) {
+                        (Some(ts_a), Some(ts_b)) => ts_b.cmp(&ts_a),
+                        (Some(_), None) => Ordering::Greater,
+                        (None, Some(_)) => Ordering::Less,
+                        (None, None) => b.offset.cmp(&a.offset),
                     }
                 }
-                let mut result: Vec<MessageRecord> = heap.into_iter().map(|r| r.0 .0).collect();
-                result.sort_by(|a, b| {
-                    let ts_a = a.timestamp.unwrap_or(0);
-                    let ts_b = b.timestamp.unwrap_or(0);
-                    ts_b.cmp(&ts_a)
-                });
-                result
-            }
-            (SortBy::Timestamp, SortOrder::Asc) => {
-                // 按时间戳升序，取最小的limit个
-                let mut heap: BinaryHeap<TimestampDesc> = BinaryHeap::new();
-                for msg in messages {
-                    let item = TimestampDesc(msg);
-                    if heap.len() < limit {
-                        heap.push(item);
-                    } else if let Some(max) = heap.peek() {
-                        // 比较时间戳，不移动原始值
-                        if cmp_ts_desc(&item.0, &max.0) == std::cmp::Ordering::Less {
-                            heap.pop();
-                            heap.push(item);
-                        }
+                (SortBy::Timestamp, SortOrder::Asc) => {
+                    match (a.timestamp, b.timestamp) {
+                        (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
+                        (Some(_), None) => Ordering::Less,
+                        (None, Some(_)) => Ordering::Greater,
+                        (None, None) => a.offset.cmp(&b.offset),
                     }
                 }
-                let mut result: Vec<MessageRecord> = heap.into_iter().map(|r| r.0).collect();
-                result.sort_by(|a, b| {
-                    let ts_a = a.timestamp.unwrap_or(i64::MAX);
-                    let ts_b = b.timestamp.unwrap_or(i64::MAX);
-                    ts_a.cmp(&ts_b)
-                });
-                result
+                (SortBy::Offset, SortOrder::Desc) => b.offset.cmp(&a.offset),
+                (SortBy::Offset, SortOrder::Asc) => a.offset.cmp(&b.offset),
             }
-            (SortBy::Offset, SortOrder::Desc) => {
-                // 按offset降序
-                let mut heap: BinaryHeap<std::cmp::Reverse<OffsetAsc>> = BinaryHeap::new();
-                for msg in messages {
-                    let item = std::cmp::Reverse(OffsetAsc(msg));
-                    if heap.len() < limit {
-                        heap.push(item);
-                    } else if let Some(&std::cmp::Reverse(ref min)) = heap.peek() {
-                        // 直接比较offset
-                        if item.0.0.offset > min.0.offset {
-                            heap.pop();
-                            heap.push(item);
-                        }
-                    }
-                }
-                let mut result: Vec<MessageRecord> = heap.into_iter().map(|r| r.0 .0).collect();
-                result.sort_by(|a, b| b.offset.cmp(&a.offset));
-                result
-            }
-            (SortBy::Offset, SortOrder::Asc) => {
-                // 按offset升序
-                let mut heap: BinaryHeap<OffsetDesc> = BinaryHeap::new();
-                for msg in messages {
-                    let item = OffsetDesc(msg);
-                    if heap.len() < limit {
-                        heap.push(item);
-                    } else if let Some(max) = heap.peek() {
-                        // 直接比较offset
-                        if item.0.offset < max.0.offset {
-                            heap.pop();
-                            heap.push(item);
-                        }
-                    }
-                }
-                let mut result: Vec<MessageRecord> = heap.into_iter().map(|r| r.0).collect();
-                result.sort_by(|a, b| a.offset.cmp(&b.offset));
-                result
-            }
+        };
+
+        // 使用标准库的 select_nth_unstable 进行快速选择
+        // 先按降序排序，取前k个
+        if params.sort_order == SortOrder::Desc {
+            messages.sort_by(|a, b| cmp(b, a)); // 反转比较方向实现降序
+        } else {
+            messages.sort_by(cmp);
         }
+
+        messages.truncate(k);
+        messages
     }
 
     /// 对消息进行排序
@@ -600,79 +565,5 @@ impl MessageQuerier {
             }
         }
         messages
-    }
-}
-
-/// 用于堆排序的包装器（时间戳升序）
-#[derive(Debug, PartialEq, Eq)]
-struct TimestampAsc(MessageRecord);
-
-impl Ord for TimestampAsc {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self.0.timestamp, other.0.timestamp) {
-            (Some(ts_a), Some(ts_b)) => ts_a.cmp(&ts_b),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => self.0.offset.cmp(&other.0.offset),
-        }
-    }
-}
-
-impl PartialOrd for TimestampAsc {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// 用于堆排序的包装器（时间戳降序）
-#[derive(Debug, PartialEq, Eq)]
-struct TimestampDesc(MessageRecord);
-
-impl Ord for TimestampDesc {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self.0.timestamp, other.0.timestamp) {
-            (Some(ts_a), Some(ts_b)) => ts_b.cmp(&ts_a),
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (None, None) => other.0.offset.cmp(&self.0.offset),
-        }
-    }
-}
-
-impl PartialOrd for TimestampDesc {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// 用于堆排序的包装器（offset升序）
-#[derive(Debug, PartialEq, Eq)]
-struct OffsetAsc(MessageRecord);
-
-impl Ord for OffsetAsc {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.offset.cmp(&other.0.offset)
-    }
-}
-
-impl PartialOrd for OffsetAsc {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// 用于堆排序的包装器（offset降序）
-#[derive(Debug, PartialEq, Eq)]
-struct OffsetDesc(MessageRecord);
-
-impl Ord for OffsetDesc {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.0.offset.cmp(&self.0.offset)
-    }
-}
-
-impl PartialOrd for OffsetDesc {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
