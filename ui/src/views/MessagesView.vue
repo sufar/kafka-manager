@@ -621,8 +621,8 @@ async function fetchMessages() {
     selectedMessageIndex.value = -1;
     const startTime = performance.now();
     try {
-      // 后端会自动计算 max_per_partition，前端只需传 limit
       const params: {
+        max_per_partition: number;
         limit: number;
         search: string;
         fetchMode: 'oldest' | 'newest';
@@ -631,6 +631,7 @@ async function fetchMessages() {
         end_time?: number;
         sort_by?: 'timestamp_asc' | 'timestamp_desc' | 'offset_asc' | 'offset_desc';
       } = {
+        max_per_partition: filters.max_messages,
         limit: filters.max_messages,
         search: filters.search,
         fetchMode: filters.fetchMode,
@@ -644,7 +645,7 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
-      // 直接查询，不使用缓存
+      // 直接查询
       messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
       fetchTime.value = Math.round(performance.now() - startTime);
     } catch (e) {
@@ -661,7 +662,7 @@ async function fetchMessages() {
         loading.value = false;
       }
     }
-  }, 150); // 减少到 150ms
+  }, 150);
 }
 
 function stopFetching() {

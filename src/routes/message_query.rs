@@ -467,12 +467,14 @@ async fn fetch_from_partition(
     // 创建过滤器
     let matcher = FilterMatcher::new(params);
 
-    // 读取消息 - 使用更短的超时，快速返回
+    // 读取消息
+    // - newest 模式：数据在末尾，快速返回
+    // - oldest 模式：数据在开头，可能需要更长时间
+    let base_timeout = Duration::from_millis(100);
     let mut messages = Vec::new();
-    let base_timeout = Duration::from_millis(50);  // 增加到 50ms 以获得更好的吞吐量
     let mut consecutive_timeouts = 0;
     // 根据消息数量动态调整最大连续超时次数
-    let max_consecutive_timeouts = if max_messages > 1000 { 5 } else { 3 };
+    let max_consecutive_timeouts = if max_messages > 5000 { 8 } else if max_messages > 1000 { 5 } else { 3 };
 
     while messages.len() < max_messages {
         match tokio::time::timeout(base_timeout, consumer.recv()).await {
