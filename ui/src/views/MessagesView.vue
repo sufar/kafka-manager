@@ -601,54 +601,6 @@ async function fetchTopicPartitions() {
   }
 }
 
-// ==================== 查询缓存 ====================
-// 注意：只在 fetchMode='oldest' 时缓存，因为历史数据不会变化
-// fetchMode='newest' 时不缓存，确保总能获取最新消息
-interface CachedQuery {
-  key: string;
-  messages: import('@/types/api').MessageRecord[];
-  timestamp: number;
-  params: string;
-}
-
-const queryCache = ref<Map<string, CachedQuery>>(new Map());
-const CACHE_TTL = 10000; // 10 秒缓存过期时间（缩短）
-
-function getCacheKey(clusterId: string, topic: string, params: any): string {
-  return `${clusterId}:${topic}:${JSON.stringify(params)}`;
-}
-
-function getCachedMessages(key: string): import('@/types/api').MessageRecord[] | null {
-  const cached = queryCache.value.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.messages;
-  }
-  if (cached) {
-    queryCache.value.delete(key); // 过期缓存删除
-  }
-  return null;
-}
-
-function setCache(key: string, paramsStr: string, messages: import('@/types/api').MessageRecord[]) {
-  queryCache.value.set(key, {
-    key,
-    messages,
-    timestamp: Date.now(),
-    params: paramsStr,
-  });
-  // 限制缓存大小，最多保留 50 条
-  if (queryCache.value.size > 50) {
-    const oldestKey = Array.from(queryCache.value.keys()).sort((a, b) => {
-      const aTime = queryCache.value.get(a)!.timestamp;
-      const bTime = queryCache.value.get(b)!.timestamp;
-      return aTime - bTime;
-    })[0];
-    if (oldestKey) {
-      queryCache.value.delete(oldestKey);
-    }
-  }
-}
-
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
@@ -695,34 +647,8 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
-      // fetchMode='newest' 时不缓存，确保获取最新消息
-      const shouldCache = filters.fetchMode === 'oldest';
-      const cacheKey = shouldCache ? getCacheKey(selectedClusterId.value, selectedTopic.value, {
-        max_messages: params.max_messages,
-        per_partition_max: params.per_partition_max,
-        search: params.search,
-        partition: params.partition,
-      }) : null;
-      const paramsStr = JSON.stringify(params);
-
-      // 尝试从缓存获取（仅 oldest 模式）
-      if (cacheKey) {
-        const cached = getCachedMessages(cacheKey);
-        if (cached) {
-          messages.value = cached;
-          fetchTime.value = 0; // 缓存命中，时间为 0
-          loading.value = false;
-          return;
-        }
-      }
-
       messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
       fetchTime.value = Math.round(performance.now() - startTime);
-
-      // 缓存结果（仅 oldest 模式）
-      if (cacheKey && shouldCache) {
-        setCache(cacheKey, paramsStr, messages.value);
-      }
     } catch (e) {
       const error = e as { message: string };
       if (error.message === 'AbortError' || error.message.includes('aborted')) {
