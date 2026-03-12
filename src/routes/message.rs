@@ -164,13 +164,24 @@ async fn get_messages(
 
     // 搜索模式：当有搜索条件时，自动扩大扫描范围
     // scan_depth 控制扫描的消息数量，limit 控制最终返回的数量
+    // 优化：多分区时增加扫描深度，确保每个分区都能扫描到足够消息
+    let partition_count_for_scan = if params.partition.is_none() {
+        // 未指定分区时，先获取分区数（如果可能）用于计算扫描深度
+        // 这里只是一个估计，实际分区数在后面会获取
+        // 默认假设有 3 个分区，实际会在 per-partition 模式中使用真实分区数
+        3
+    } else {
+        1
+    };
     let scan_depth = if let Some(depth) = params.scan_depth {
         depth
     } else if params.search.is_some() {
         // 搜索模式：默认扫描 10000 条消息，确保能找到目标
         std::cmp::max(limit * 10, 10000)
     } else {
-        limit
+        // 默认扫描深度：限制 * 分区数（确保能覆盖所有分区）
+        // 最小 1000，确保大数据量 topic 也能查询到消息
+        std::cmp::max(limit * partition_count_for_scan, 1000)
     };
 
     // 克隆 params 用于闭包
@@ -272,8 +283,9 @@ async fn get_messages(
             let topic_clone = topic.clone();
             let params_clone = params_clone.clone();
             // 每个 partition 扫描 scan_depth / partition_count 条消息
-            // 但最少不少于 100 条
-            let scan_per_partition = (scan_depth / partition_count.max(1)).max(100);
+            // 优化：增加最小扫描深度，确保大数据量 topic 能查询到消息
+            let min_scan_per_partition = if params_clone.search.is_some() { 1000 } else { 500 };
+            let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
             let sem_clone = semaphore.clone();
             let start_offset = partition_offsets.get(&pid).copied().flatten();
 
@@ -371,8 +383,8 @@ async fn get_messages(
         let semaphore = std::sync::Arc::new(Semaphore::new(50)); // 最大 50 并发，使用 Pool 默认 max_size
         let mut tasks = Vec::new();
         // 每个 partition 扫描 scan_depth / partition_count 条消息
-        // 搜索模式：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能搜索到
-        let min_scan_per_partition = if params.search.is_some() { 1000 } else { 100 };
+        // 优化：增加每个 partition 的最小扫描深度，确保大数据量 topic 也能查询到
+        let min_scan_per_partition = if params.search.is_some() { 1000 } else { 500 };
         let scan_per_partition = (scan_depth / partition_count.max(1)).max(min_scan_per_partition);
         tracing::info!("[get_messages] fetching from {} partitions, scan_per_partition={}", partition_count, scan_per_partition);
 
