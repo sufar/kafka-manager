@@ -281,7 +281,7 @@ async fn fetch_newest(
     partitions: &[i32],
     params: &MessageQueryParams,
 ) -> Result<Vec<KafkaMessage>> {
-    tracing::info!("[fetch_newest] Fetching from {} partitions", partitions.len());
+    tracing::info!("[fetch_newest] Fetching from {} partitions, limit={}", partitions.len(), params.limit);
 
     // 获取每个分区的 watermarks
     let consumer = pool.get().await
@@ -301,8 +301,16 @@ async fn fetch_newest(
     }
     drop(consumer);
 
-    // 并行查询每个分区
-    let semaphore = Arc::new(Semaphore::new(50)); // 最大 50 并发
+    if partition_infos.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 计算每个分区应查询的消息数
+    // 使用 max_per_partition，但要确保总量合理
+    let max_per_partition = params.max_per_partition;
+
+    // 并行查询每个分区，但限制并发数
+    let semaphore = Arc::new(Semaphore::new(20)); // 降低并发数以减少资源竞争
     let mut tasks = Vec::new();
 
     for pi in partition_infos {
@@ -310,11 +318,10 @@ async fn fetch_newest(
         let topic_clone = topic.to_string();
         let params_clone = params.clone();
         let sem_clone = semaphore.clone();
-        let max_per_partition = params.max_per_partition;
 
-        // 计算起始偏移量
+        // 计算起始偏移量：从 high - max_per_partition 开始
         let start_offset = if pi.high > pi.low {
-            let scan_count = std::cmp::max(max_per_partition as i64, 100);
+            let scan_count = std::cmp::min(max_per_partition as i64, pi.high - pi.low);
             std::cmp::max(pi.low, pi.high - scan_count)
         } else {
             pi.low
@@ -346,6 +353,7 @@ async fn fetch_newest(
         }
     }
 
+    tracing::info!("[fetch_newest] Collected {} total messages before sort/limit", all_messages.len());
     Ok(all_messages)
 }
 
@@ -459,11 +467,12 @@ async fn fetch_from_partition(
     // 创建过滤器
     let matcher = FilterMatcher::new(params);
 
-    // 读取消息
+    // 读取消息 - 使用更短的超时，快速返回
     let mut messages = Vec::new();
-    let base_timeout = Duration::from_millis(30);
+    let base_timeout = Duration::from_millis(50);  // 增加到 50ms 以获得更好的吞吐量
     let mut consecutive_timeouts = 0;
-    let max_consecutive_timeouts = if max_messages > 5000 { 10 } else { 3 };
+    // 根据消息数量动态调整最大连续超时次数
+    let max_consecutive_timeouts = if max_messages > 1000 { 5 } else { 3 };
 
     while messages.len() < max_messages {
         match tokio::time::timeout(base_timeout, consumer.recv()).await {
