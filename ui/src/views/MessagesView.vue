@@ -477,26 +477,54 @@ const sortedMessages = computed(() => {
   });
 });
 
+// 虚拟滚动：使用 ResizeObserver 优化容器高度监听
+const containerHeight = ref(600);
+let resizeObserver: ResizeObserver | null = null;
+
+onMounted(() => {
+  // 使用 ResizeObserver 监听容器高度变化
+  if (messagesListRef.value) {
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        containerHeight.value = entry.contentRect.height;
+      }
+    });
+    resizeObserver.observe(messagesListRef.value);
+    containerHeight.value = messagesListRef.value.clientHeight || 600;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+});
+
 // 虚拟滚动：可见区域的消息
 const visibleMessages = computed(() => {
   const start = virtualStartIndex.value;
-  // 根据容器高度动态计算可见行数
-  const containerHeight = messagesListRef.value?.clientHeight || 600;
-  const buffer = 5; // 额外渲染的行数
-  const visibleRows = Math.ceil(containerHeight / ROW_HEIGHT) + buffer;
+  const buffer = 10; // 增加额外渲染的行数，减少滚动空白
+  const visibleRows = Math.ceil(containerHeight.value / ROW_HEIGHT) + buffer;
   const end = Math.min(start + visibleRows, sortedMessages.value.length);
   return sortedMessages.value.slice(start, end);
 });
 
-// 处理滚动事件
+// 使用 requestAnimationFrame 节流滚动处理
+let scrollAnimationFrameId: number | null = null;
 function handleScroll(event: Event) {
-  const target = event.target as HTMLElement;
-  if (!target || !sortedMessages.value.length) return;
+  // 如果已经有待处理的滚动请求，跳过
+  if (scrollAnimationFrameId !== null) return;
 
-  const scrollTop = target.scrollTop;
-  const newVirtualStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
-  const maxIndex = Math.max(0, sortedMessages.value.length - Math.ceil((messagesListRef.value?.clientHeight || 600) / ROW_HEIGHT));
-  virtualStartIndex.value = Math.min(Math.max(0, newVirtualStartIndex), maxIndex);
+  scrollAnimationFrameId = requestAnimationFrame(() => {
+    scrollAnimationFrameId = null;
+    const target = event.target as HTMLElement;
+    if (!target || !sortedMessages.value.length) return;
+
+    const scrollTop = target.scrollTop;
+    const newVirtualStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
+    const maxIndex = Math.max(0, sortedMessages.value.length - Math.ceil(containerHeight.value / ROW_HEIGHT));
+    virtualStartIndex.value = Math.min(Math.max(0, newVirtualStartIndex), maxIndex);
+  });
 }
 
 function selectMessage(index: number) {

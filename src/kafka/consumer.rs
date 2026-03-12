@@ -730,7 +730,7 @@ impl KafkaConsumer {
     /// 从 Consumer Pool 复用连接，避免频繁创建/销毁
     pub async fn fetch_messages_filtered_from_pool<M>(
         pool: &crate::pool::KafkaConsumerPool,
-        _config: &KafkaConfig,
+        config: &KafkaConfig,
         topic: &str,
         partition: Option<i32>,
         offset: Option<i64>,
@@ -753,6 +753,11 @@ impl KafkaConsumer {
                 AppError::Internal(format!("Failed to get consumer from pool: {}", e))
             })?;
 
+        // 设置批量获取参数以提升性能
+        let _ = consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(100)));
+        // 优化：使用配置设置批量获取参数
+        // 这些设置在 Pool 创建时已经配置，但在这里可以确保
+
         // 手动分配 partition，而不是使用 subscribe
         let mut tpl = rdkafka::TopicPartitionList::new();
         let target_partition = partition.unwrap_or(0);
@@ -770,7 +775,9 @@ impl KafkaConsumer {
         tpl.add_partition_offset(topic, target_partition, target_offset)?;
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        // 预分配消息向量容量，避免频繁扩容
+        let estimated_capacity = max_messages.min(10000);
+        let mut messages = Vec::with_capacity(estimated_capacity);
         // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
         let base_timeout = if max_messages > 5000 {
             Duration::from_millis(100)

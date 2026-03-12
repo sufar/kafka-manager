@@ -470,10 +470,11 @@ async fn get_messages(
 
     // 转换为 MessageRecord 并流式排序
     let messages = if need_sort {
-        // 使用堆进行流式 TopK 排序
+        // 预分配堆容量，避免频繁扩容
+        let heap_capacity = limit.min(raw_messages.len());
         if desc {
             // 降序：使用最小堆，维护最大的 limit 个元素
-            let mut heap: BinaryHeap<Reverse<MessageRecord>> = BinaryHeap::new();
+            let mut heap: BinaryHeap<Reverse<MessageRecord>> = BinaryHeap::with_capacity(heap_capacity);
             for msg in raw_messages {
                 let record = MessageRecord {
                     partition: msg.partition,
@@ -485,7 +486,9 @@ async fn get_messages(
                 if heap.len() < limit {
                     heap.push(Reverse(record));
                 } else if let Some(min) = heap.peek() {
-                    if record.timestamp.unwrap_or(0) > min.0.timestamp.unwrap_or(0) {
+                    let record_ts = record.timestamp.unwrap_or(0);
+                    let min_ts = min.0.timestamp.unwrap_or(0);
+                    if record_ts > min_ts {
                         heap.pop();
                         heap.push(Reverse(record));
                     }
@@ -504,7 +507,7 @@ async fn get_messages(
             result
         } else {
             // 升序：使用最大堆，维护最小的 limit 个元素
-            let mut heap: BinaryHeap<MessageRecord> = BinaryHeap::new();
+            let mut heap: BinaryHeap<MessageRecord> = BinaryHeap::with_capacity(heap_capacity);
             for msg in raw_messages {
                 let record = MessageRecord {
                     partition: msg.partition,
@@ -516,7 +519,9 @@ async fn get_messages(
                 if heap.len() < limit {
                     heap.push(record);
                 } else if let Some(max) = heap.peek() {
-                    if record.timestamp.unwrap_or(i64::MAX) < max.timestamp.unwrap_or(i64::MAX) {
+                    let record_ts = record.timestamp.unwrap_or(i64::MAX);
+                    let max_ts = max.timestamp.unwrap_or(i64::MAX);
+                    if record_ts < max_ts {
                         heap.pop();
                         heap.push(record);
                     }
