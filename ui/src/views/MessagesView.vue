@@ -621,12 +621,8 @@ async function fetchMessages() {
     selectedMessageIndex.value = -1;
     const startTime = performance.now();
     try {
-      // 计算每个分区的消息数：总数 / 分区数，但至少 10 条
-      const partitionCount = topicPartitions.value.length || 1;
-      const maxPerPartition = Math.max(10, Math.ceil(filters.max_messages / partitionCount));
-
+      // 后端会自动计算 max_per_partition，前端只需传 limit
       const params: {
-        max_per_partition: number;
         limit: number;
         search: string;
         fetchMode: 'oldest' | 'newest';
@@ -635,7 +631,6 @@ async function fetchMessages() {
         end_time?: number;
         sort_by?: 'timestamp_asc' | 'timestamp_desc' | 'offset_asc' | 'offset_desc';
       } = {
-        max_per_partition: maxPerPartition,
         limit: filters.max_messages,
         search: filters.search,
         fetchMode: filters.fetchMode,
@@ -647,8 +642,6 @@ async function fetchMessages() {
       // 只有当 partition 不是 'all' 时才传递
       if (filters.partition !== 'all') {
         params.partition = filters.partition as number;
-        // 单分区时，max_per_partition 等于 limit
-        params.max_per_partition = filters.max_messages;
       }
 
       // 直接查询，不使用缓存

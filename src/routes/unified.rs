@@ -1498,6 +1498,7 @@ async fn handle_consumer_group_consumer_offsets(state: AppState, body: Value) ->
 
 async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     use crate::routes::message_query::{MessageQueryParams, FetchMode, SortBy};
+    use rdkafka::consumer::Consumer;
 
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
@@ -1520,14 +1521,39 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         })
         .unwrap_or(SortBy::TimestampDesc);
 
-    let max_per_partition = get_optional_i64_param(&body, "max_per_partition")
+    let limit = get_optional_i64_param(&body, "limit")
         .map(|v| v as usize)
         .or_else(|| get_optional_i64_param(&body, "max_messages").map(|v| v as usize))
         .unwrap_or(100);
 
-    let limit = get_optional_i64_param(&body, "limit")
-        .map(|v| v as usize)
-        .unwrap_or(max_per_partition);
+    // 获取消费者池
+    let pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+
+    // 获取分区数，用于智能计算每分区消息数
+    let partition_count = if let Some(_partition) = get_optional_i32_param(&body, "partition") {
+        1 // 指定了分区，只查一个分区
+    } else {
+        // 获取 topic 的分区数
+        let consumer = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get consumer: {}", e)))?;
+        let metadata = consumer.fetch_metadata(Some(&topic), std::time::Duration::from_millis(500))
+            .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
+        let count: usize = metadata.topics()
+            .first()
+            .map(|t| t.partitions().len())
+            .unwrap_or(1);
+        drop(consumer);
+        count
+    };
+
+    // 智能计算每分区消息数：总数 / 分区数，至少 10 条，最多 500 条
+    let max_per_partition = std::cmp::min(500, std::cmp::max(10, limit / partition_count));
+
+    tracing::info!(
+        "[handle_message_list] topic={}, partition_count={}, limit={}, max_per_partition={}",
+        topic, partition_count, limit, max_per_partition
+    );
 
     let params = MessageQueryParams {
         fetch_mode,
@@ -1541,10 +1567,6 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         sort_by,
         offset: get_optional_i64_param(&body, "offset"),
     };
-
-    // 获取消费者池
-    let pool = state.pools.get_consumer_pool(&cluster_id).await
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     // 使用新的查询模块
     let messages = crate::routes::message_query::query_messages(&pool, &topic, params).await?;
