@@ -200,42 +200,64 @@ async fn get_messages(
         tracing::info!("[get_messages] per-partition mode: {} partitions, scan_depth per partition={}",
                        partition_count, (scan_depth / partition_count.max(1)).max(100));
 
-        // 预先查询每个 partition 的起始 offset
+        // 预先并行查询每个 partition 的起始 offset
         // 默认从最新消息往前读（high watermark - scan_depth），而不是从最早消息开始读
         let mut partition_offsets: std::collections::HashMap<i32, Option<i64>> = std::collections::HashMap::new();
-        for pid in &partition_ids {
-            let offset = if let Some(start_time) = params.start_time {
-                // 使用时间范围查询
-                let clients = state.get_clients();
-                let consumer = clients.get_consumer(&cluster_id)
-                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-                match consumer.get_offset_for_time(&config, &topic, *pid, start_time).await {
-                    Ok(Some(off)) => Some(off),
-                    _ => None,
-                }
-            } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
-                // 从最老的消息开始读
-                let clients = state.get_clients();
-                let consumer = clients.get_consumer(&cluster_id)
-                    .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-                match consumer.get_offset_for_time(&config, &topic, *pid, 0).await {
-                    Ok(Some(off)) => Some(off),
-                    _ => None,
-                }
-            } else if params.offset.is_some() {
-                // 使用用户指定的 offset
-                params.offset
-            } else {
-                // 默认从最新消息往前读：计算 high - scan_depth
-                match admin.get_partition_watermarks(&topic, *pid, &config.brokers) {
-                    Ok((low, high)) => {
-                        let start = std::cmp::max(low, high - scan_depth as i64);
-                        Some(start)
+
+        // 并行查询各分区的 offset
+        let offset_futures: Vec<_> = partition_ids.iter().map(|pid| {
+            let topic = topic.clone();
+            let cluster_id = cluster_id.clone();
+            let config = config.clone();
+            let state = state.clone();
+            let admin = admin.clone();
+            let params = params_clone.clone();
+            let scan_depth = scan_depth;
+
+            async move {
+                let offset = if let Some(start_time) = params.start_time {
+                    // 使用时间范围查询
+                    let clients = state.get_clients();
+                    let consumer = match clients.get_consumer(&cluster_id) {
+                        Some(c) => c,
+                        None => return (*pid, None),
+                    };
+                    match consumer.get_offset_for_time(&config, &topic, *pid, start_time).await {
+                        Ok(Some(off)) => Some(off),
+                        _ => None,
                     }
-                    Err(_) => None,
-                }
-            };
-            partition_offsets.insert(*pid, offset);
+                } else if params.fetch_mode.as_deref() == Some("oldest") && params.offset.is_none() {
+                    // 从最老的消息开始读
+                    let clients = state.get_clients();
+                    let consumer = match clients.get_consumer(&cluster_id) {
+                        Some(c) => c,
+                        None => return (*pid, None),
+                    };
+                    match consumer.get_offset_for_time(&config, &topic, *pid, 0).await {
+                        Ok(Some(off)) => Some(off),
+                        _ => None,
+                    }
+                } else if params.offset.is_some() {
+                    // 使用用户指定的 offset
+                    params.offset
+                } else {
+                    // 默认从最新消息往前读：计算 high - scan_depth
+                    // admin 是 Arc<KafkaAdmin>，直接使用
+                    match admin.get_partition_watermarks(&topic, *pid, &config.brokers) {
+                        Ok((low, high)) => {
+                            let start = std::cmp::max(low, high - scan_depth as i64);
+                            Some(start)
+                        }
+                        Err(_) => None,
+                    }
+                };
+                (*pid, offset)
+            }
+        }).collect();
+
+        // 并行执行所有 offset 查询
+        for result in futures::future::join_all(offset_futures).await {
+            partition_offsets.insert(result.0, result.1);
         }
 
         // 并发获取每个 partition 的消息（使用 Pool）
