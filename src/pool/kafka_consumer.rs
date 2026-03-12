@@ -25,9 +25,9 @@ impl KafkaConsumerManager {
     ///
     /// 优化策略：
     /// 1. fetch.min.bytes=1: 有数据立即返回，不等待批量
-    /// 2. fetch.max.wait.ms=10: 最多等待10ms，降低延迟
-    /// 3. max.poll.records=500: 限制单次返回记录数，避免内存爆炸
-    /// 4. fetch.max.bytes: 单次获取最大数据量 (10MB，降低内存占用)
+    /// 2. fetch.wait.max.ms=10: 最多等待10ms，降低延迟
+    /// 3. fetch.max.bytes=10MB: 单次获取最大数据量，降低内存占用
+    /// 4. socket.keepalive.enable=true: 保持连接活跃
     fn create_client_config(&self, group_id: &str) -> ClientConfig {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &self.config.brokers);
@@ -53,10 +53,6 @@ impl KafkaConsumerManager {
         // 设置为 1，有数据就立即返回，不强制等待批量
         client_config.set("fetch.min.bytes", "1");
 
-        // max.poll.records: 单次 poll 返回的最大记录数
-        // 限制为 500，避免大数据量时内存占用过高
-        client_config.set("max.poll.records", "500");
-
         // fetch.max.bytes: 单次 fetch 最大数据量 (10MB)
         // 降低内存占用，提高响应速度
         client_config.set("fetch.max.bytes", "10485760");
@@ -64,12 +60,17 @@ impl KafkaConsumerManager {
         // fetch.message.max.bytes: 单条消息最大 (1MB)
         client_config.set("fetch.message.max.bytes", "1048576");
 
+        // max.partition.fetch.bytes: 每个分区最大获取字节数 (1MB)
+        client_config.set("max.partition.fetch.bytes", "1048576");
+
         // connections.max.idle.ms: 连接空闲超时时间
         // 设置为 9 分钟，避免连接被 broker 关闭
         client_config.set("connections.max.idle.ms", "540000");
 
+        // socket.keepalive.enable: 启用 TCP keepalive
+        client_config.set("socket.keepalive.enable", "true");
+
         // reconnect.backoff.ms: 重连间隔
-        // 快速重连，减少等待时间
         client_config.set("reconnect.backoff.ms", "50");
         client_config.set("reconnect.backoff.max.ms", "1000");
 
@@ -89,10 +90,6 @@ impl KafkaConsumerManager {
 
         // max.poll.interval.ms: 两次 poll 之间的最大间隔
         client_config.set("max.poll.interval.ms", "300000");
-
-        // 禁用 metrics 收集，减少开销
-        client_config.set("metrics.sample.window.ms", "30000");
-        client_config.set("metrics.num.samples", "2");
 
         client_config
     }
