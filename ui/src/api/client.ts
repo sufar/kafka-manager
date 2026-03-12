@@ -553,9 +553,11 @@ class ApiClient {
     partition?: number;
     offset?: number;
     max_messages?: number;
-    per_partition_max?: boolean;  // Per-partition 模式
-    limit?: number;
+    per_partition_max?: number;  // Per-partition 最大消息数
+    order_by?: 'timestamp' | 'offset';
+    sort?: 'asc' | 'desc';
     search?: string;
+    search_in?: 'key' | 'value' | 'all';
     start_time?: number;
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';

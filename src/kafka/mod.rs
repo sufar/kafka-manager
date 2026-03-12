@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod consumer;
 pub mod import_export;
+pub mod message_query;
 pub mod offset;
 pub mod schema;
 pub mod schema_registry;

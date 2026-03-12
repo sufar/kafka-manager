@@ -72,10 +72,16 @@ impl managed::Manager for KafkaConsumerManager {
     }
 
     async fn recycle(&self, conn: &mut StreamConsumer, _: &managed::Metrics) -> managed::RecycleResult<AppError> {
-        // 健康检查：尝试获取消费者元数据来判断连接是否有效
         use std::time::Duration;
 
-        // 使用 client().metadata() 进行健康检查
+        // 1. 清理消费者的分区分配，避免影响下次使用
+        if let Err(e) = conn.unassign() {
+            tracing::warn!("Failed to unassign consumer partitions: {}", e);
+            // 如果无法清理，放弃这个连接
+            return Err(managed::RecycleError::Message(format!("Failed to unassign: {}", e).into()));
+        }
+
+        // 2. 健康检查：尝试获取消费者元数据来判断连接是否有效
         let client = conn.client();
         match client.fetch_metadata(None, Duration::from_secs(2)) {
             Ok(_) => Ok(()),

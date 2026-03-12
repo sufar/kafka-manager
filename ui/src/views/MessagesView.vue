@@ -221,8 +221,8 @@
       <div class="flex items-center gap-1.5 flex-shrink-0">
         <label class="label cursor-pointer flex-shrink-0" :title="t.messages.perPartitionMax">
           <span class="label-text text-xs flex-shrink-0">{{ t.messages.perPartitionMax }}</span>
-          <input v-model="filters.per_partition_max" type="checkbox" class="checkbox checkbox-xs" @change="fetchMessages" />
         </label>
+        <input v-model.number="filters.per_partition_max" type="number" class="input input-bordered input-xs w-16 flex-shrink-0" min="10" max="1000" @change="fetchMessages" />
         <span class="divider divider-horizontal mx-2 flex-shrink-0"></span>
         <span class="flex-shrink-0">{{ t.messages.maxMessages }}</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
@@ -358,7 +358,7 @@ function showSuccess(message: string) {
 const filters = reactive({
   partition: 'all' as number | 'all',  // 默认查询所有 partition
   max_messages: 100,
-  per_partition_max: false,  // 默认关闭，高频场景下使用单 partition 更快
+  per_partition_max: 100,  // 每个分区最大消息数
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
@@ -459,22 +459,17 @@ function toggleTimestampSort() {
   if (sortOrder.value === 'desc') {
     sortOrder.value = 'asc';
   } else if (sortOrder.value === 'asc') {
-    sortOrder.value = '';
+    sortOrder.value = 'desc';
   } else {
     sortOrder.value = 'desc';
   }
+  // 切换排序后重新获取消息
+  fetchMessages();
 }
 
-// 排序后的消息列表
+// 排序后的消息列表（后端已排序，前端直接显示）
 const sortedMessages = computed(() => {
-  if (sortOrder.value === '') {
-    return messages.value;
-  }
-  return [...messages.value].sort((a, b) => {
-    const tsA = a.timestamp || 0;
-    const tsB = b.timestamp || 0;
-    return sortOrder.value === 'asc' ? tsA - tsB : tsB - tsA;
-  });
+  return messages.value;
 });
 
 // 虚拟滚动：可见区域的消息
@@ -601,54 +596,6 @@ async function fetchTopicPartitions() {
   }
 }
 
-// ==================== 查询缓存 ====================
-// 注意：只在 fetchMode='oldest' 时缓存，因为历史数据不会变化
-// fetchMode='newest' 时不缓存，确保总能获取最新消息
-interface CachedQuery {
-  key: string;
-  messages: import('@/types/api').MessageRecord[];
-  timestamp: number;
-  params: string;
-}
-
-const queryCache = ref<Map<string, CachedQuery>>(new Map());
-const CACHE_TTL = 10000; // 10 秒缓存过期时间（缩短）
-
-function getCacheKey(clusterId: string, topic: string, params: any): string {
-  return `${clusterId}:${topic}:${JSON.stringify(params)}`;
-}
-
-function getCachedMessages(key: string): import('@/types/api').MessageRecord[] | null {
-  const cached = queryCache.value.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.messages;
-  }
-  if (cached) {
-    queryCache.value.delete(key); // 过期缓存删除
-  }
-  return null;
-}
-
-function setCache(key: string, paramsStr: string, messages: import('@/types/api').MessageRecord[]) {
-  queryCache.value.set(key, {
-    key,
-    messages,
-    timestamp: Date.now(),
-    params: paramsStr,
-  });
-  // 限制缓存大小，最多保留 50 条
-  if (queryCache.value.size > 50) {
-    const oldestKey = Array.from(queryCache.value.keys()).sort((a, b) => {
-      const aTime = queryCache.value.get(a)!.timestamp;
-      const bTime = queryCache.value.get(b)!.timestamp;
-      return aTime - bTime;
-    })[0];
-    if (oldestKey) {
-      queryCache.value.delete(oldestKey);
-    }
-  }
-}
-
 async function fetchMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
@@ -675,9 +622,12 @@ async function fetchMessages() {
     try {
       const params: {
         max_messages: number;
-        per_partition_max: boolean;
+        per_partition_max: number;
         search: string;
+        search_in: 'key' | 'value' | 'all';
         fetchMode: 'oldest' | 'newest';
+        order_by: 'timestamp' | 'offset';
+        sort: 'asc' | 'desc';
         partition?: number;
         start_time?: number;
         end_time?: number;
@@ -685,7 +635,10 @@ async function fetchMessages() {
         max_messages: filters.max_messages,
         per_partition_max: filters.per_partition_max,
         search: filters.search,
+        search_in: 'all',
         fetchMode: filters.fetchMode,
+        order_by: 'timestamp',
+        sort: sortOrder.value || 'desc',
         start_time: filters.startTime ? new Date(filters.startTime).getTime() : undefined,
         end_time: filters.endTime ? new Date(filters.endTime).getTime() : undefined,
       };
@@ -695,34 +648,8 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
-      // fetchMode='newest' 时不缓存，确保获取最新消息
-      const shouldCache = filters.fetchMode === 'oldest';
-      const cacheKey = shouldCache ? getCacheKey(selectedClusterId.value, selectedTopic.value, {
-        max_messages: params.max_messages,
-        per_partition_max: params.per_partition_max,
-        search: params.search,
-        partition: params.partition,
-      }) : null;
-      const paramsStr = JSON.stringify(params);
-
-      // 尝试从缓存获取（仅 oldest 模式）
-      if (cacheKey) {
-        const cached = getCachedMessages(cacheKey);
-        if (cached) {
-          messages.value = cached;
-          fetchTime.value = 0; // 缓存命中，时间为 0
-          loading.value = false;
-          return;
-        }
-      }
-
       messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
       fetchTime.value = Math.round(performance.now() - startTime);
-
-      // 缓存结果（仅 oldest 模式）
-      if (cacheKey && shouldCache) {
-        setCache(cacheKey, paramsStr, messages.value);
-      }
     } catch (e) {
       const error = e as { message: string };
       if (error.message === 'AbortError' || error.message.includes('aborted')) {
@@ -737,7 +664,7 @@ async function fetchMessages() {
         loading.value = false;
       }
     }
-  }, 150); // 减少到 150ms
+  }, 150); // 150ms 防抖
 }
 
 function stopFetching() {
@@ -853,14 +780,8 @@ async function handleSendMessage(keepOpen: boolean = false) {
 async function exportMessages() {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
-  // 导出当前已加载的消息，按照当前页面的排序方式排序
-  const messagesToExport = sortOrder.value === ''
-    ? messages.value
-    : [...messages.value].sort((a, b) => {
-        const tsA = a.timestamp || 0;
-        const tsB = b.timestamp || 0;
-        return sortOrder.value === 'asc' ? tsA - tsB : tsB - tsA;
-      });
+  // 导出当前已加载的消息（后端已排序）
+  const messagesToExport = messages.value;
 
   if (!messagesToExport || messagesToExport.length === 0) {
     showError('No messages to export');
