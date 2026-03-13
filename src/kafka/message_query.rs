@@ -363,7 +363,9 @@ impl MessageQuerier {
     }
 
     /// 从指定分区获取消息
-    /// 流式处理：边拉取边过滤，max_messages 是拉取的消息上限（不是匹配结果的上限）
+    /// 流式处理：边拉取边过滤
+    /// - 时间范围（start_time/end_time）是硬性条件，超出范围的消息会被跳过
+    /// - max_messages 是第二个硬性条件，满足时间范围的消息最多取 max_messages 条
     async fn fetch_from_partition(
         consumer: &rdkafka::consumer::StreamConsumer,
         topic: &str,
@@ -381,17 +383,20 @@ impl MessageQuerier {
         let mut messages = Vec::with_capacity(std::cmp::min(max_messages, 500));
         let search_lower = params.search.as_ref().map(|s| s.to_lowercase());
 
+        // 判断是否设置了时间范围
+        let has_time_range = params.start_time.is_some() || params.end_time.is_some();
+
         // 自适应超时策略
         let base_timeout = Duration::from_millis(20);
-        let max_timeouts = if max_messages > 1000 { 15 } else { 5 };
+        let max_timeouts = if has_time_range { 50 } else if max_messages > 1000 { 15 } else { 5 };
         let mut consecutive_timeouts = 0;
         let start = std::time::Instant::now();
 
         // 流式消费：边拉取边过滤
-        // fetched_count 记录从 Kafka 拉取的消息数（包括未匹配的）
-        let mut fetched_count = 0usize;
+        // time_matched_count 记录满足时间范围条件的消息数
+        let mut time_matched_count = 0usize;
 
-        while fetched_count < max_messages {
+        loop {
             // 动态超时：如果运行时间过长，减少超时时间
             let elapsed = start.elapsed();
             let dynamic_timeout = if elapsed.as_secs() > 5 {
@@ -403,10 +408,10 @@ impl MessageQuerier {
             match tokio::time::timeout(dynamic_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
-                    fetched_count += 1;
                     let timestamp = msg.timestamp().to_millis();
 
-                    // 时间范围过滤（硬性条件，不满足则跳过）
+                    // 时间范围过滤（硬性条件）
+                    // start_time：消息时间戳小于开始时间时跳过
                     if let Some(start) = params.start_time {
                         if let Some(ts) = timestamp {
                             if ts < start {
@@ -414,12 +419,21 @@ impl MessageQuerier {
                             }
                         }
                     }
+                    // end_time：消息时间戳大于结束时间时退出循环（时间范围结束）
                     if let Some(end) = params.end_time {
                         if let Some(ts) = timestamp {
                             if ts > end {
                                 break;
                             }
                         }
+                    }
+
+                    // 满足时间范围条件，计数增加
+                    time_matched_count += 1;
+
+                    // max_messages 检查：满足时间范围的消息数达到上限时退出
+                    if time_matched_count > max_messages {
+                        break;
                     }
 
                     let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
@@ -469,9 +483,10 @@ impl MessageQuerier {
                 }
             }
 
-            // 如果查询超过 10 秒，强制退出
-            if start.elapsed().as_secs() > 10 {
-                tracing::warn!("Query timeout after 10 seconds");
+            // 如果查询超过 10 秒（无时间范围）或 30 秒（有时间范围），强制退出
+            let max_query_time = if has_time_range { 30 } else { 10 };
+            if start.elapsed().as_secs() > max_query_time {
+                tracing::warn!("Query timeout after {} seconds", max_query_time);
                 break;
             }
         }
