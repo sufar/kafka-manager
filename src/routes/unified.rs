@@ -1507,6 +1507,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let end_time = get_optional_i64_param(&body, "end_time");
     let search = get_optional_string_param(&body, "search");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
+    let sort = get_optional_string_param(&body, "sort");
 
     // 首先确保集群客户端已创建（如果未创建则自动创建）
     let config = ensure_cluster_client(&state, &cluster_id).await?;
@@ -1524,6 +1525,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         end_time,
         search,
         fetch_mode.as_deref(),
+        sort.as_deref(),
     )
     .await?;
 
@@ -1554,6 +1556,7 @@ async fn fetch_messages_with_temp_consumer(
     end_time: Option<i64>,
     search: Option<String>,
     fetch_mode: Option<&str>,
+    sort: Option<&str>,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
     use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
     use rdkafka::Message;
@@ -1718,13 +1721,14 @@ async fn fetch_messages_with_temp_consumer(
     }
 
     // 按 timestamp 排序
-    let is_newest = fetch_mode == Some("newest");
+    // 优先使用 sort 参数（前端传递的排序方向），其次使用 fetch_mode
+    let is_desc = sort == Some("desc") || (sort.is_none() && fetch_mode == Some("newest"));
     all_msgs.sort_by(|a, b| {
         match (a.timestamp, b.timestamp) {
-            (Some(ta), Some(tb)) => if is_newest { tb.cmp(&ta) } else { ta.cmp(&tb) },
+            (Some(ta), Some(tb)) => if is_desc { tb.cmp(&ta) } else { ta.cmp(&tb) },
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => if is_newest { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
+            (None, None) => if is_desc { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
         }
     });
 
@@ -1781,6 +1785,7 @@ async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
         end_time,
         search,
         fetch_mode.as_deref(),
+        Some("asc"), // 导出默认按升序
     )
     .await?;
 
