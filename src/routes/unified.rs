@@ -1678,8 +1678,30 @@ async fn fetch_messages_with_temp_consumer(
             .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
     }
 
+    // 先 unassign 再 assign，确保 consumer 状态正确
+    let _ = consumer.unassign();
+
+    // 等待 unassign 生效
+    tokio::time::sleep(Duration::from_millis(30)).await;
+
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+
+    // 为每个分区调用 seek()，确保从指定的 offset 开始消费
+    for (part_id, start_offset) in &partition_offsets {
+        let seek_offset = if *start_offset < 0 {
+            rdkafka::Offset::Beginning
+        } else {
+            rdkafka::Offset::Offset(*start_offset)
+        };
+        match consumer.seek(topic, *part_id, seek_offset, Duration::from_secs(3)) {
+            Ok(_) => tracing::info!("Seek partition {} to offset {} succeeded", part_id, start_offset),
+            Err(e) => tracing::warn!("Seek partition {} to offset {} failed: {}", part_id, start_offset, e),
+        }
+    }
+
+    // 等待 seek 完成
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
@@ -1688,12 +1710,12 @@ async fn fetch_messages_with_temp_consumer(
     let poll_timeout = if search_mode {
         Duration::from_millis(200)
     } else {
-        Duration::from_millis(30)
+        Duration::from_millis(50)  // 从 30ms 增加到 50ms
     };
 
     // 空轮次数限制
     let mut empty_polls = 0;
-    let max_empty_polls = if search_mode { 10 } else { 3 };
+    let max_empty_polls = if search_mode { 10 } else { 10 };  // 从 3 增加到 10
 
     loop {
         if messages.len() >= max_messages || empty_polls >= max_empty_polls {
@@ -1798,6 +1820,8 @@ async fn fetch_messages_from_pool_with_filter(
     let consumer = pool.get().await
         .map_err(|e| AppError::Internal(format!("Failed to get consumer from pool: {}", e)))?;
 
+    tracing::info!("Got consumer from pool, fetching messages for topic: {}", topic);
+
     // 检查是否需要获取所有分区
     let all_partitions = partition.is_none();
     let target_partition = partition.unwrap_or(0);
@@ -1807,11 +1831,13 @@ async fn fetch_messages_from_pool_with_filter(
         // 获取 topic 的元数据以获取所有分区
         let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(500))
             .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
-        metadata.topics()
+        let parts = metadata.topics()
             .first()
             .map(|t| t.partitions())
             .map(|ps: &[rdkafka::metadata::MetadataPartition]| ps.iter().map(|p| p.id()).collect::<Vec<i32>>())
-            .unwrap_or_else(|| vec![0])
+            .unwrap_or_else(|| vec![0]);
+        tracing::info!("Fetched metadata for topic {}, found partitions: {:?}", topic, parts);
+        parts
     } else {
         vec![target_partition]
     };
@@ -1909,8 +1935,40 @@ async fn fetch_messages_from_pool_with_filter(
             .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
     }
 
+    // 先 unassign 再 assign，确保 consumer 状态正确 - 增加等待时间
+    if let Err(e) = consumer.unassign() {
+        tracing::warn!("Failed to unassign consumer: {}", e);
+    }
+
+    // 增加等待时间，确保 unassign 生效
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
     consumer.assign(&tpl)
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
+
+    // 为每个分区调用 seek()，确保从指定的 offset 开始消费
+    let mut seek_success_count = 0;
+    for (part_id, start_offset) in &partition_offsets {
+        let seek_offset = if *start_offset < 0 {
+            rdkafka::Offset::Beginning
+        } else {
+            rdkafka::Offset::Offset(*start_offset)
+        };
+        match consumer.seek(topic, *part_id, seek_offset, Duration::from_secs(5)) {
+            Ok(_) => {
+                tracing::debug!("Seek partition {} to offset {} succeeded", part_id, start_offset);
+                seek_success_count += 1;
+            }
+            Err(e) => tracing::warn!("Seek partition {} to offset {} failed: {}", part_id, start_offset, e),
+        }
+    }
+
+    tracing::info!("Seek completed: {}/{} partitions succeeded", seek_success_count, partition_offsets.len());
+
+    // 增加等待时间，确保 seek 完成并让消费者准备好接收消息
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    tracing::info!("Seek completed, starting to fetch messages");
 
     let search_lower = search.as_ref().map(|s| s.to_lowercase());
 
@@ -1927,34 +1985,43 @@ async fn fetch_messages_from_pool_with_filter(
         topic, partition_offsets, max_messages, fetch_mode, search
     );
 
-    // 根据请求数量和搜索模式调整超时
+    // 根据请求数量和搜索模式调整超时 - 增加超时时间以提高稳定性
     let poll_timeout = if max_messages > 5000 {
-        Duration::from_millis(100)
+        Duration::from_millis(200)
     } else if max_messages > 1000 || search_lower.is_some() {
-        Duration::from_millis(50)
+        Duration::from_millis(100)
     } else {
-        Duration::from_millis(30)
+        Duration::from_millis(100)  // 从 50ms 增加到 100ms，给 Kafka 更多响应时间
     };
 
-    // 空轮次数限制 - 根据数据量调整
+    // 空轮次数限制 - 根据数据量调整，增加容错
     let mut empty_polls = 0;
     let max_empty_polls = if max_messages > 5000 {
-        15
+        20
     } else if max_messages > 1000 {
-        8
+        15
     } else if search_lower.is_some() {
-        10
+        15
     } else {
-        5
+        15  // 从 10 增加到 15，增加容错
     };
 
     let mut total_received = 0usize;
+
+    tracing::info!("Starting message fetch loop, max_messages={}, partition_offsets.len()={}, expected_max={}",
+        max_messages, partition_offsets.len(), max_messages * partition_offsets.len());
 
     while messages.len() < max_messages * partition_offsets.len() {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 empty_polls = 0; // 收到消息，重置空轮计数
                 total_received += 1;
+
+                // 记录第一条消息的详细信息
+                if total_received == 1 {
+                    tracing::info!("First message received: partition={}, offset={}, timestamp={:?}",
+                        msg.partition(), msg.offset(), msg.timestamp().to_millis());
+                }
 
                 // 检查该分区是否已经达到最大消息数
                 let msg_partition = msg.partition();

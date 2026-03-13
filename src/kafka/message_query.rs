@@ -11,7 +11,7 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use crate::models::MessageRecord;
-use crate::pool::KafkaConsumerPool;
+use crate::pool::{KafkaConsumerPool, kafka_consumer::KafkaConsumerManager};
 use rdkafka::consumer::Consumer;
 use rdkafka::message::Message as KafkaMessageTrait;
 use rdkafka::TopicPartitionList;
@@ -410,6 +410,7 @@ impl MessageQuerier {
         partition_offsets: &[(i32, i64)],
         params: &QueryParams,
     ) -> Result<Vec<MessageRecord>> {
+
         // 全并行：所有分区同时查询
         let futures: Vec<_> = partition_offsets
             .iter()
@@ -419,18 +420,18 @@ impl MessageQuerier {
                 let topic = topic.to_string();
 
                 async move {
-                    // 获取消费者
-                    let consumer = match pool.get().await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            tracing::warn!("Failed to get consumer for partition {}: {}", partition, e);
+                    // 获取消费者，带重试
+                    let consumer = match Self::get_consumer_with_retry(&pool, partition, 3).await {
+                        Some(c) => c,
+                        None => {
+                            tracing::error!("Failed to get consumer for partition {} after retries", partition);
                             return Vec::new();
                         }
                     };
 
                     // 查询该分区
                     match Self::fetch_from_partition(
-                        &consumer, &topic, partition, start_offset, params.max_messages, &params
+                        &*consumer, &topic, partition, start_offset, params.max_messages, &params
                     ).await {
                         Ok(messages) => {
                             tracing::debug!("Partition {} returned {} messages", partition, messages.len());
@@ -463,6 +464,30 @@ impl MessageQuerier {
         Ok(all_messages)
     }
 
+    /// 带重试的消费者获取
+    async fn get_consumer_with_retry(
+        pool: &KafkaConsumerPool,
+        partition: i32,
+        max_retries: u32,
+    ) -> Option<deadpool::managed::Object<KafkaConsumerManager>> {
+        for attempt in 1..=max_retries {
+            match pool.get().await {
+                Ok(c) => return Some(c),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to get consumer for partition {} (attempt {}/{}): {}",
+                        partition, attempt, max_retries, e
+                    );
+                    if attempt < max_retries {
+                        // 指数退避
+                        tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// 从指定分区获取消息
     /// 优化：减少超时等待，快速返回
     async fn fetch_from_partition(
@@ -473,10 +498,23 @@ impl MessageQuerier {
         max_messages: usize,
         params: &QueryParams,
     ) -> Result<Vec<MessageRecord>> {
+        use rdkafka::consumer::Consumer;
+
+        // 先 unassign 确保状态干净
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!("Failed to unassign before fetch partition {}: {}", partition, e);
+        }
+
+        // 等待 unassign 生效
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
         // 使用 seek 更高效
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
         consumer.assign(&tpl)?;
+
+        // 等待 assign 生效
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let mut messages = Vec::with_capacity(std::cmp::min(max_messages, 100));
         let search_lower = params.search.as_ref().map(|s| s.to_lowercase());
@@ -486,14 +524,14 @@ impl MessageQuerier {
         // 优化：减少超时时间，快速消费
         // 场景：最多10分区，无高并发，可以更快返回
         let timeout = if has_time_range {
-            Duration::from_millis(1000) // 有时间范围时给更多时间
+            Duration::from_millis(1500) // 有时间范围时给更多时间（从 1000ms 增加）
         } else {
-            Duration::from_millis(200) // 正常查询快速返回
+            Duration::from_millis(300) // 正常查询给更多时间（从 200ms 增加）
         };
 
         let start = std::time::Instant::now();
         let mut empty_polls = 0;
-        const MAX_EMPTY_POLLS: i32 = 5;
+        const MAX_EMPTY_POLLS: i32 = 15; // 从 5 增加到 15，提高容错
 
         loop {
             // 检查是否已获取足够消息
@@ -574,7 +612,15 @@ impl MessageQuerier {
             }
         }
 
-        consumer.unassign()?;
+        // 确保消费者状态被正确重置，使用更长的超时
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!("Failed to unassign consumer for partition {}: {}", partition, e);
+            // 即使 unassign 失败，也继续返回已获取的消息
+        }
+
+        // 短暂等待确保 unassign 生效
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
         Ok(messages)
     }
 

@@ -51,12 +51,12 @@ impl KafkaConsumerManager {
         // - 这样虽然增加了 RTT 次数，但对于 max_messages=100 的查询场景，总体延迟更低
 
         // fetch.wait.max.ms: broker 等待数据的最大时间
-        // 设置为 50ms，平衡延迟和吞吐量
-        client_config.set("fetch.wait.max.ms", "50");
+        // 设置为 100ms，平衡延迟和吞吐量（从 50ms 增加以提高稳定性）
+        client_config.set("fetch.wait.max.ms", "100");
 
         // fetch.min.bytes: 最小返回数据量
-        // 设置为 1KB，避免等待积累大量数据（对查询场景很重要）
-        client_config.set("fetch.min.bytes", "1024");
+        // 设置为 1 字节，避免等待积累大量数据（对查询场景很重要）
+        client_config.set("fetch.min.bytes", "1");
 
         // fetch.max.bytes: 单次 fetch 最大数据量 (50MB)
         // 提高吞吐量，一次性获取更多消息
@@ -112,7 +112,12 @@ impl managed::Manager for KafkaConsumerManager {
     type Error = AppError;
 
     async fn create(&self) -> Result<StreamConsumer> {
-        let client_config = self.create_client_config("kafka-manager-pool");
+        // 使用唯一的 group.id，避免 Kafka 记住 offset 导致查询问题
+        let unique_id = format!("kafka-manager-pool-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos());
+        let client_config = self.create_client_config(&unique_id);
         let consumer: StreamConsumer = client_config
             .create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
@@ -129,9 +134,12 @@ impl managed::Manager for KafkaConsumerManager {
             return Err(managed::RecycleError::Message(format!("Failed to unassign: {}", e).into()));
         }
 
-        // 2. 健康检查：尝试获取消费者元数据来判断连接是否有效
+        // 2. 等待更长时间，确保 Kafka broker 处理 unassign 并让消费者组重新平衡
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // 3. 健康检查：尝试获取消费者元数据来判断连接是否有效
         let client = conn.client();
-        match client.fetch_metadata(None, Duration::from_secs(2)) {
+        match client.fetch_metadata(None, Duration::from_secs(3)) {
             Ok(_) => Ok(()),
             Err(e) => {
                 tracing::warn!("Consumer health check failed: {}", e);
