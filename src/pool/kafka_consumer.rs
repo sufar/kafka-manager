@@ -64,8 +64,9 @@ impl KafkaConsumerManager {
         // max.partition.fetch.bytes: 每个分区最大获取字节数 (5MB)
         client_config.set("max.partition.fetch.bytes", "5242880");
 
-        // receive.message.max.bytes: 消费者接收缓冲区 (50MB)
-        client_config.set("receive.message.max.bytes", "52428800");
+        // receive.message.max.bytes: 消费者接收缓冲区 (50MB + 512)
+        // 必须 >= fetch.max.bytes + 512
+        client_config.set("receive.message.max.bytes", "52429312");
 
         // connections.max.idle.ms: 连接空闲超时时间
         // 设置为 9 分钟，避免连接被 broker 关闭
