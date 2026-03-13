@@ -12,14 +12,11 @@ use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use crate::models::MessageRecord;
 use crate::pool::KafkaConsumerPool;
-use crate::pool::kafka_consumer::KafkaConsumerManager;
 use rdkafka::consumer::Consumer;
 use rdkafka::message::Message as KafkaMessageTrait;
 use rdkafka::TopicPartitionList;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 
 /// 消息查询参数
 #[derive(Debug, Clone)]
@@ -159,22 +156,6 @@ impl MessageQuerier {
         );
 
         Ok(result)
-    }
-
-    /// 带重试获取消费者
-    async fn get_consumer_with_retry(pool: &KafkaConsumerPool, max_retries: usize) -> Option<deadpool::managed::Object<KafkaConsumerManager>> {
-        for attempt in 0..max_retries {
-            match pool.get().await {
-                Ok(consumer) => return Some(consumer),
-                Err(e) => {
-                    tracing::warn!("Failed to get consumer (attempt {}/{}): {}", attempt + 1, max_retries, e);
-                    if attempt < max_retries - 1 {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                }
-            }
-        }
-        None
     }
 
     /// 解析要查询的分区列表
@@ -411,92 +392,70 @@ impl MessageQuerier {
         Ok(result)
     }
 
-    /// 查询多个分区（并行）
+    /// 查询多个分区（全并行）
+    /// 场景：最多10个分区，单topic查询，无高并发
+    /// 策略：所有分区同时查询，不限制并发度
     async fn query_multiple_partitions(
         pool: &KafkaConsumerPool,
         topic: &str,
         partition_offsets: &[(i32, i64)],
         params: &QueryParams,
     ) -> Result<Vec<MessageRecord>> {
-        // 动态并发度：根据分区数量调整，但不超过10
-        let concurrency = std::cmp::min(partition_offsets.len(), 10);
-        let semaphore = Arc::new(Semaphore::new(concurrency));
+        // 全并行：所有分区同时查询
+        let futures: Vec<_> = partition_offsets
+            .iter()
+            .map(|&(partition, start_offset)| {
+                let pool = pool.clone();
+                let params = params.clone();
+                let topic = topic.to_string();
 
-        let mut tasks = Vec::with_capacity(partition_offsets.len());
+                async move {
+                    // 获取消费者
+                    let consumer = match pool.get().await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::warn!("Failed to get consumer for partition {}: {}", partition, e);
+                            return Vec::new();
+                        }
+                    };
 
-        for &(partition, start_offset) in partition_offsets {
-            let pool = pool.clone();
-            let params = params.clone();
-            let topic = topic.to_string();
-            let sem = semaphore.clone();
-
-            let task = tokio::spawn(async move {
-                let _permit = sem.acquire().await.ok()?;
-
-                // 带重试获取消费者
-                let consumer = match Self::get_consumer_with_retry(&pool, 3).await {
-                    Some(c) => c,
-                    None => {
-                        tracing::error!("[query_multiple_partitions] Failed to get consumer for partition {} after retries", partition);
-                        return None;
-                    }
-                };
-
-                tracing::debug!("[query_multiple_partitions] Fetching from partition {} at offset {}", partition, start_offset);
-
-                let result = Self::fetch_from_partition(
-                    &consumer, &topic, partition, start_offset, params.max_messages, &params
-                ).await;
-
-                match result {
-                    Ok(messages) => {
-                        tracing::debug!("[query_multiple_partitions] Partition {} returned {} messages", partition, messages.len());
-                        Some(messages)
-                    }
-                    Err(e) => {
-                        tracing::warn!("[query_multiple_partitions] Failed to fetch from partition {}: {}", partition, e);
-                        None
+                    // 查询该分区
+                    match Self::fetch_from_partition(
+                        &consumer, &topic, partition, start_offset, params.max_messages, &params
+                    ).await {
+                        Ok(messages) => {
+                            tracing::debug!("Partition {} returned {} messages", partition, messages.len());
+                            messages
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to fetch from partition {}: {}", partition, e);
+                            Vec::new()
+                        }
                     }
                 }
-            });
+            })
+            .collect();
 
-            tasks.push((partition, task));
-        }
+        // 等待所有分区查询完成
+        let results: Vec<Vec<MessageRecord>> = futures::future::join_all(futures).await;
 
-        // 收集所有结果
+        // 合并结果
         let mut all_messages = Vec::new();
-        let mut success_count = 0;
-        let mut fail_count = 0;
-
-        for (partition, task) in tasks {
-            match task.await {
-                Ok(Some(msgs)) => {
-                    all_messages.extend(msgs);
-                    success_count += 1;
-                }
-                Ok(None) => {
-                    tracing::warn!("[query_multiple_partitions] Partition {} returned no messages", partition);
-                    fail_count += 1;
-                }
-                Err(e) => {
-                    tracing::warn!("[query_multiple_partitions] Task for partition {} failed: {}", partition, e);
-                    fail_count += 1;
-                }
-            }
+        for msgs in results {
+            all_messages.extend(msgs);
         }
 
         tracing::info!(
-            "[query_multiple_partitions] Total: {} messages from {} partitions ({} success, {} failed)",
-            all_messages.len(), partition_offsets.len(), success_count, fail_count
+            "[query_multiple_partitions] Total: {} messages from {} partitions",
+            all_messages.len(),
+            partition_offsets.len()
         );
 
         Ok(all_messages)
     }
 
     /// 从指定分区获取消息
-    /// 流式处理：边拉取边过滤
-    /// - 时间范围（start_time/end_time）是硬性条件，超出范围的消息会被跳过
-    /// - max_messages 是第二个硬性条件，满足时间范围的消息最多取 max_messages 条
+    /// 优化：减少超时等待，快速返回
     async fn fetch_from_partition(
         consumer: &rdkafka::consumer::StreamConsumer,
         topic: &str,
@@ -510,34 +469,41 @@ impl MessageQuerier {
         tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
         consumer.assign(&tpl)?;
 
-        // 预分配内存
-        let mut messages = Vec::with_capacity(std::cmp::min(max_messages, 500));
+        let mut messages = Vec::with_capacity(std::cmp::min(max_messages, 100));
         let search_lower = params.search.as_ref().map(|s| s.to_lowercase());
 
-        // 判断是否设置了时间范围
         let has_time_range = params.start_time.is_some() || params.end_time.is_some();
 
-        // 自适应超时策略
-        // 远程 Kafka 查询需要更长的超时时间（网络延迟）
-        let base_timeout = Duration::from_millis(500); // 增加到 500ms
-        // 大数据量时需要更多重试次数
-        let max_timeouts = if has_time_range { 200 } else { 50 };
-        let mut consecutive_timeouts = 0;
-        let start = std::time::Instant::now();
+        // 优化：减少超时时间，快速消费
+        // 场景：最多10分区，无高并发，可以更快返回
+        let timeout = if has_time_range {
+            Duration::from_millis(1000) // 有时间范围时给更多时间
+        } else {
+            Duration::from_millis(200) // 正常查询快速返回
+        };
 
-        // 流式消费：边拉取边过滤
+        let start = std::time::Instant::now();
+        let mut empty_polls = 0;
+        const MAX_EMPTY_POLLS: i32 = 5;
 
         loop {
-            // 动态超时：保持相对稳定的超时时间
-            let dynamic_timeout = base_timeout;
+            // 检查是否已获取足够消息
+            if messages.len() >= max_messages {
+                break;
+            }
 
-            match tokio::time::timeout(dynamic_timeout, consumer.recv()).await {
+            // 检查总耗时
+            if start.elapsed().as_secs() > 5 {
+                tracing::debug!("Partition {} query timeout after 5s", partition);
+                break;
+            }
+
+            match tokio::time::timeout(timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
-                    consecutive_timeouts = 0;
+                    empty_polls = 0;
                     let timestamp = msg.timestamp().to_millis();
 
-                    // 时间范围过滤（硬性条件）
-                    // start_time：消息时间戳小于开始时间时跳过
+                    // 时间范围过滤
                     if let Some(start) = params.start_time {
                         if let Some(ts) = timestamp {
                             if ts < start {
@@ -545,7 +511,6 @@ impl MessageQuerier {
                             }
                         }
                     }
-                    // end_time：消息时间戳大于结束时间时退出循环（时间范围结束）
                     if let Some(end) = params.end_time {
                         if let Some(ts) = timestamp {
                             if ts > end {
@@ -557,7 +522,7 @@ impl MessageQuerier {
                     let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                     let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
-                    // 搜索过滤（流式过滤，边拉取边判断）
+                    // 搜索过滤
                     if let Some(ref search) = search_lower {
                         let matches = match params.search_in {
                             SearchIn::Key => {
@@ -573,17 +538,10 @@ impl MessageQuerier {
                             }
                         };
                         if !matches {
-                            continue; // 不匹配搜索条件，跳过这条消息
+                            continue;
                         }
                     }
 
-                    // max_messages 检查：满足所有条件的消息数达到上限时退出
-                    // 注意：这里是在搜索过滤之后检查，确保返回足够的结果
-                    if messages.len() >= max_messages {
-                        break;
-                    }
-
-                    // 匹配成功，加入结果
                     messages.push(MessageRecord {
                         partition: msg.partition(),
                         offset: msg.offset(),
@@ -593,31 +551,21 @@ impl MessageQuerier {
                     });
                 }
                 Ok(Err(e)) => {
-                    tracing::warn!("Consumer error: {}", e);
-                    consecutive_timeouts += 1;
-                    if consecutive_timeouts >= max_timeouts {
-                        break;
-                    }
+                    tracing::debug!("Consumer error in partition {}: {}", partition, e);
+                    break;
                 }
                 Err(_) => {
-                    consecutive_timeouts += 1;
-                    if consecutive_timeouts >= max_timeouts {
+                    // 超时，增加空轮询计数
+                    empty_polls += 1;
+                    if empty_polls >= MAX_EMPTY_POLLS {
+                        tracing::debug!("Partition {}: max empty polls reached", partition);
                         break;
                     }
                 }
-            }
-
-            // 如果查询超过 30 秒（无时间范围）或 60 秒（有时间范围），强制退出
-            let max_query_time = if has_time_range { 60 } else { 30 };
-            if start.elapsed().as_secs() > max_query_time {
-                tracing::warn!("Query timeout after {} seconds", max_query_time);
-                break;
             }
         }
 
-        // 清理分区分配
         consumer.unassign()?;
-
         Ok(messages)
     }
 
