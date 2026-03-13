@@ -1913,7 +1913,14 @@ async fn fetch_messages_from_pool_with_filter(
         .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
     let search_lower = search.as_ref().map(|s| s.to_lowercase());
-    let mut messages = Vec::with_capacity(max_messages);
+
+    // 修复：跟踪每个分区的消息数量，确保 per-partition 限制
+    let mut partition_message_counts: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
+    for &(part_id, _) in &partition_offsets {
+        partition_message_counts.insert(part_id, 0);
+    }
+
+    let mut messages = Vec::with_capacity(max_messages * partition_offsets.len());
 
     tracing::info!(
         "Fetching messages: topic={}, partitions={:?}, max_messages={}, fetch_mode={:?}, search={:?}",
@@ -1943,11 +1950,21 @@ async fn fetch_messages_from_pool_with_filter(
 
     let mut total_received = 0usize;
 
-    while messages.len() < max_messages {
+    while messages.len() < max_messages * partition_offsets.len() {
         match tokio::time::timeout(poll_timeout, consumer.recv()).await {
             Ok(Ok(msg)) => {
                 empty_polls = 0; // 收到消息，重置空轮计数
                 total_received += 1;
+
+                // 检查该分区是否已经达到最大消息数
+                let msg_partition = msg.partition();
+                if let Some(partition_count) = partition_message_counts.get(&msg_partition) {
+                    if *partition_count >= max_messages {
+                        // 该分区已达到最大消息数，跳过
+                        continue;
+                    }
+                }
+
                 let timestamp = msg.timestamp().to_millis();
 
                 // 时间范围过滤
@@ -1980,6 +1997,9 @@ async fn fetch_messages_from_pool_with_filter(
                         continue;
                     }
                 }
+
+                // 消息符合条件，增加该分区的计数
+                *partition_message_counts.get_mut(&msg_partition).unwrap() += 1;
 
                 messages.push(crate::kafka::consumer::KafkaMessage {
                     partition: msg.partition(),

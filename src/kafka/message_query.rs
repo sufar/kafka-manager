@@ -187,11 +187,20 @@ impl MessageQuerier {
                         .map(|p| p.id())
                         .collect();
                     if !partitions.is_empty() {
+                        // 验证分区：使用 watermarks 检查 metadata 返回的分区是否有效
+                        let mut valid_partitions = Vec::new();
+                        for &pid in &partitions {
+                            match consumer.fetch_watermarks(topic, pid, Duration::from_millis(500)) {
+                                Ok(_) => valid_partitions.push(pid),
+                                Err(e) => tracing::warn!("Partition {} failed watermarks check: {}", pid, e),
+                            }
+                        }
                         tracing::info!(
-                            "[resolve_partitions] Found {} partitions from metadata in {:?}",
-                            partitions.len(),
-                            start.elapsed()
+                            "[resolve_partitions] Found {} partitions from metadata in {:?}: {:?} (valid: {})",
+                            partitions.len(), start.elapsed(), partitions, valid_partitions.len()
                         );
+                        // 使用 metadata 返回的所有分区，即使 watermarks 验证失败
+                        // watermarks 失败可能是暂时的，不影响分区存在的事实
                         drop(consumer);
                         return Ok(partitions);
                     }

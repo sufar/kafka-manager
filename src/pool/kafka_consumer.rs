@@ -45,14 +45,18 @@ impl KafkaConsumerManager {
         );
 
         // ========== 高性能查询优化配置（针对远程高延迟网络）==========
+        // 优化说明：
+        // - fetch.min.bytes: 降低到 1KB，避免小消息场景下等待过久
+        // - fetch.wait.max.ms: 降低到 50ms，加快单次 fetch 返回速度
+        // - 这样虽然增加了 RTT 次数，但对于 max_messages=100 的查询场景，总体延迟更低
 
         // fetch.wait.max.ms: broker 等待数据的最大时间
-        // 设置为 100ms，让 broker 积累更多数据再返回，减少 RTT 次数
-        client_config.set("fetch.wait.max.ms", "100");
+        // 设置为 50ms，平衡延迟和吞吐量
+        client_config.set("fetch.wait.max.ms", "50");
 
         // fetch.min.bytes: 最小返回数据量
-        // 设置为 64KB，避免频繁小批量请求（对远程 Kafka 尤为重要）
-        client_config.set("fetch.min.bytes", "65536");
+        // 设置为 1KB，避免等待积累大量数据（对查询场景很重要）
+        client_config.set("fetch.min.bytes", "1024");
 
         // fetch.max.bytes: 单次 fetch 最大数据量 (50MB)
         // 提高吞吐量，一次性获取更多消息
