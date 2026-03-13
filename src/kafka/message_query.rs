@@ -522,13 +522,9 @@ impl MessageQuerier {
             }
         };
 
-        // 使用标准库的 select_nth_unstable 进行快速选择
-        // 先按降序排序，取前k个
-        if params.sort_order == SortOrder::Desc {
-            messages.sort_by(|a, b| cmp(b, a)); // 反转比较方向实现降序
-        } else {
-            messages.sort_by(cmp);
-        }
+        // 使用标准库的 sort_by 进行排序
+        // cmp 函数已经根据 sort_order 返回正确的比较结果
+        messages.sort_by(cmp);
 
         messages.truncate(k);
         messages
