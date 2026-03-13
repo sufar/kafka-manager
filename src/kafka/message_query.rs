@@ -154,6 +154,10 @@ impl MessageQuerier {
     }
 
     /// 解析要查询的分区列表
+    /// 优化策略：
+    /// 1. 使用元数据 API 获取分区数（如果可用）
+    /// 2. 限制二分查找次数（最多10次，支持1024个分区）
+    /// 3. 合理设置超时，平衡速度和成功率
     async fn resolve_partitions(
         pool: &KafkaConsumerPool,
         topic: &str,
@@ -167,15 +171,43 @@ impl MessageQuerier {
             AppError::Internal(format!("Failed to get consumer from pool: {}", e))
         })?;
 
-        // 使用二分查找快速确定分区数量
+        let start = std::time::Instant::now();
+
+        // 方法1：尝试从元数据获取分区信息（最快）
+        let client = consumer.client();
+        match client.fetch_metadata(Some(topic), Duration::from_secs(2)) {
+            Ok(metadata) => {
+                if let Some(topic_meta) = metadata.topics().iter().find(|t| t.name() == topic) {
+                    let partitions: Vec<i32> = topic_meta.partitions().iter()
+                        .map(|p| p.id())
+                        .collect();
+                    if !partitions.is_empty() {
+                        tracing::info!(
+                            "[resolve_partitions] Found {} partitions from metadata in {:?}",
+                            partitions.len(),
+                            start.elapsed()
+                        );
+                        drop(consumer);
+                        return Ok(partitions);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch metadata for {}: {}", topic, e);
+            }
+        }
+
+        // 方法2：二分查找（限制最多10次迭代，支持最多1024个分区）
         let mut partitions = Vec::new();
         let mut low = 0;
-        let mut high = 1000;
+        let mut high = 1024; // 最大支持1024个分区
+        let mut iterations = 0;
+        const MAX_ITERATIONS: i32 = 10;
 
-        // 先找到最大分区号
-        while low < high {
+        while low < high && iterations < MAX_ITERATIONS {
+            iterations += 1;
             let mid = (low + high) / 2;
-            match consumer.fetch_watermarks(topic, mid, Duration::from_millis(50)) {
+            match consumer.fetch_watermarks(topic, mid, Duration::from_millis(100)) {
                 Ok(_) => {
                     partitions.push(mid);
                     low = mid + 1;
@@ -186,16 +218,22 @@ impl MessageQuerier {
             }
         }
 
-        // 如果没找到任何分区，尝试 0-99
+        // 如果没找到任何分区，尝试前10个分区（快速回退）
         if partitions.is_empty() {
-            for pid in 0..100 {
-                if let Ok(_) = consumer.fetch_watermarks(topic, pid, Duration::from_millis(20)) {
+            for pid in 0..10 {
+                if let Ok(_) = consumer.fetch_watermarks(topic, pid, Duration::from_millis(50)) {
                     partitions.push(pid);
                 }
             }
         }
 
         drop(consumer);
+
+        tracing::info!(
+            "[resolve_partitions] Found {} partitions in {:?}",
+            partitions.len(),
+            start.elapsed()
+        );
 
         if partitions.is_empty() {
             partitions.push(0);
@@ -205,6 +243,7 @@ impl MessageQuerier {
     }
 
     /// 批量查询分区水位信息
+    /// 优化：限制每个分区的超时时间，避免大topic查询太慢
     async fn fetch_watermarks_batch(
         pool: &KafkaConsumerPool,
         topic: &str,
@@ -214,15 +253,31 @@ impl MessageQuerier {
             AppError::Internal(format!("Failed to get consumer: {}", e))
         })?;
 
-        // 批量查询水位，每个分区 20ms 超时
+        let start = std::time::Instant::now();
+
+        // 批量查询水位，根据分区数量动态调整超时
+        // 分区越多，单个分区超时越短，避免整体太慢
+        let timeout_per_partition = if partitions.len() > 50 {
+            Duration::from_millis(50)  // 大topic，快速超时
+        } else if partitions.len() > 10 {
+            Duration::from_millis(100) // 中等topic
+        } else {
+            Duration::from_millis(200) // 小topic，给更多时间
+        };
+
         let mut watermarks = Vec::with_capacity(partitions.len());
+        let mut success_count = 0;
+        let mut fail_count = 0;
+
         for &partition in partitions {
-            match consumer.fetch_watermarks(topic, partition, Duration::from_millis(20)) {
+            match consumer.fetch_watermarks(topic, partition, timeout_per_partition) {
                 Ok((low, high)) => {
                     watermarks.push(PartitionWatermark { partition, low, high });
+                    success_count += 1;
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to fetch watermark for partition {}: {}", partition, e);
+                    tracing::debug!("Failed to fetch watermark for partition {}: {}", partition, e);
+                    fail_count += 1;
                     // 使用默认值
                     watermarks.push(PartitionWatermark { partition, low: 0, high: 0 });
                 }
@@ -230,6 +285,15 @@ impl MessageQuerier {
         }
 
         drop(consumer);
+
+        tracing::info!(
+            "[fetch_watermarks_batch] Fetched {} watermarks (success: {}, fail: {}) in {:?}",
+            watermarks.len(),
+            success_count,
+            fail_count,
+            start.elapsed()
+        );
+
         Ok(watermarks)
     }
 
@@ -394,8 +458,6 @@ impl MessageQuerier {
         let start = std::time::Instant::now();
 
         // 流式消费：边拉取边过滤
-        // time_matched_count 记录满足时间范围条件的消息数
-        let mut time_matched_count = 0usize;
 
         loop {
             // 动态超时：如果运行时间过长，减少超时时间
@@ -431,14 +493,6 @@ impl MessageQuerier {
                         }
                     }
 
-                    // 满足时间范围条件，计数增加
-                    time_matched_count += 1;
-
-                    // max_messages 检查：满足时间范围的消息数达到上限时退出
-                    if time_matched_count > max_messages {
-                        break;
-                    }
-
                     let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                     let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
@@ -460,6 +514,12 @@ impl MessageQuerier {
                         if !matches {
                             continue; // 不匹配搜索条件，跳过这条消息
                         }
+                    }
+
+                    // max_messages 检查：满足所有条件的消息数达到上限时退出
+                    // 注意：这里是在搜索过滤之后检查，确保返回足够的结果
+                    if messages.len() >= max_messages {
+                        break;
                     }
 
                     // 匹配成功，加入结果
