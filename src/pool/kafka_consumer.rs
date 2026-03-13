@@ -28,6 +28,7 @@ impl KafkaConsumerManager {
     /// 2. fetch.wait.max.ms=10: 最多等待10ms，降低延迟
     /// 3. fetch.max.bytes=10MB: 单次获取最大数据量，降低内存占用
     /// 4. socket.keepalive.enable=true: 保持连接活跃
+    /// 5. socket.nagle.disable=true: 禁用Nagle算法，降低延迟
     fn create_client_config(&self, group_id: &str) -> ClientConfig {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &self.config.brokers);
@@ -69,6 +70,9 @@ impl KafkaConsumerManager {
 
         // socket.keepalive.enable: 启用 TCP keepalive
         client_config.set("socket.keepalive.enable", "true");
+
+        // socket.nagle.disable: 禁用 Nagle 算法，降低延迟（对远程连接很重要）
+        client_config.set("socket.nagle.disable", "true");
 
         // reconnect.backoff.ms: 重连间隔
         client_config.set("reconnect.backoff.ms", "50");
