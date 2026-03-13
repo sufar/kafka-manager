@@ -112,19 +112,26 @@ impl MessageQuerier {
 
         // 1. 确定要查询的分区列表
         let partitions = Self::resolve_partitions(pool, topic, params.partition).await?;
-
         tracing::info!(
-            "[MessageQuerier] Querying topic={}, partitions={:?}, max_messages={}, fetch_mode={:?}",
-            topic, partitions, params.max_messages, params.fetch_mode
+            "[MessageQuerier] Topic {} has {} partitions: {:?}",
+            topic, partitions.len(), partitions
         );
 
         // 2. 批量查询水位信息（减少网络往返）
         let watermarks = Self::fetch_watermarks_batch(pool, topic, &partitions).await?;
+        tracing::info!(
+            "[MessageQuerier] Watermarks: {:?}",
+            watermarks.iter().map(|w| (w.partition, w.low, w.high)).collect::<Vec<_>>()
+        );
 
         // 3. 解析每个分区的起始offset
         let partition_offsets = Self::resolve_partition_offsets(
             pool, topic, &watermarks, &params
         ).await?;
+        tracing::info!(
+            "[MessageQuerier] Partition offsets: {:?}",
+            partition_offsets
+        );
 
         // 4. 并发查询各个分区
         let messages = if partitions.len() == 1 {
@@ -198,7 +205,8 @@ impl MessageQuerier {
         }
 
         // 方法2：二分查找（限制最多10次迭代，支持最多1024个分区）
-        let mut partitions = Vec::new();
+        // 先找到最大分区号
+        let mut max_partition = -1i32;
         let mut low = 0;
         let mut high = 1024; // 最大支持1024个分区
         let mut iterations = 0;
@@ -209,7 +217,7 @@ impl MessageQuerier {
             let mid = (low + high) / 2;
             match consumer.fetch_watermarks(topic, mid, Duration::from_millis(100)) {
                 Ok(_) => {
-                    partitions.push(mid);
+                    max_partition = mid;
                     low = mid + 1;
                 }
                 Err(_) => {
@@ -218,14 +226,19 @@ impl MessageQuerier {
             }
         }
 
-        // 如果没找到任何分区，尝试前10个分区（快速回退）
-        if partitions.is_empty() {
+        // 生成 0 到 max_partition 的所有分区
+        let partitions: Vec<i32> = if max_partition >= 0 {
+            (0..=max_partition).collect()
+        } else {
+            // 如果没找到任何分区，尝试前10个分区（快速回退）
+            let mut fallback = Vec::new();
             for pid in 0..10 {
                 if let Ok(_) = consumer.fetch_watermarks(topic, pid, Duration::from_millis(50)) {
-                    partitions.push(pid);
+                    fallback.push(pid);
                 }
             }
-        }
+            fallback
+        };
 
         drop(consumer);
 
@@ -236,10 +249,10 @@ impl MessageQuerier {
         );
 
         if partitions.is_empty() {
-            partitions.push(0);
+            Ok(vec![0])
+        } else {
+            Ok(partitions)
         }
-
-        Ok(partitions)
     }
 
     /// 批量查询分区水位信息
@@ -404,24 +417,53 @@ impl MessageQuerier {
                 let _permit = sem.acquire().await.ok()?;
                 let consumer = pool.get().await.ok()?;
 
-                let messages = Self::fetch_from_partition(
-                    &consumer, &topic, partition, start_offset, params.max_messages, &params
-                ).await.ok()?;
+                tracing::debug!("[query_multiple_partitions] Fetching from partition {} at offset {}", partition, start_offset);
 
-                Some(messages)
+                let result = Self::fetch_from_partition(
+                    &consumer, &topic, partition, start_offset, params.max_messages, &params
+                ).await;
+
+                match result {
+                    Ok(messages) => {
+                        tracing::debug!("[query_multiple_partitions] Partition {} returned {} messages", partition, messages.len());
+                        Some(messages)
+                    }
+                    Err(e) => {
+                        tracing::warn!("[query_multiple_partitions] Failed to fetch from partition {}: {}", partition, e);
+                        None
+                    }
+                }
             });
 
-            tasks.push(task);
+            tasks.push((partition, task));
         }
 
         // 收集所有结果
-        let total_capacity = partition_offsets.len() * params.max_messages;
-        let mut all_messages = Vec::with_capacity(std::cmp::min(total_capacity, params.max_messages));
-        for task in tasks {
-            if let Ok(Some(msgs)) = task.await {
-                all_messages.extend(msgs);
+        let mut all_messages = Vec::new();
+        let mut success_count = 0;
+        let mut fail_count = 0;
+
+        for (partition, task) in tasks {
+            match task.await {
+                Ok(Some(msgs)) => {
+                    all_messages.extend(msgs);
+                    success_count += 1;
+                }
+                Ok(None) => {
+                    tracing::warn!("[query_multiple_partitions] Partition {} returned no messages", partition);
+                    fail_count += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("[query_multiple_partitions] Task for partition {} failed: {}", partition, e);
+                    fail_count += 1;
+                }
             }
         }
+
+        tracing::info!(
+            "[query_multiple_partitions] Total: {} messages from {} partitions ({} success, {} failed)",
+            all_messages.len(), partition_offsets.len(), success_count, fail_count
+        );
 
         Ok(all_messages)
     }

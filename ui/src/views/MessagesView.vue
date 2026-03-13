@@ -162,15 +162,15 @@
       tabindex="-1"
     >
       <div v-if="selectedMessage" class="p-1.5">
-        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10">
-          <div class="flex items-center gap-2 text-[10px]">
-            <span class="text-base-content/60">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
-            <span class="text-base-content/60">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
-            <span class="text-base-content/60">Timestamp: <span class="font-mono">{{ formatTimestamp(selectedMessage.timestamp) }}</span></span>
-            <span class="text-base-content/60">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
+        <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-base-content/10 gap-2">
+          <div class="flex items-center gap-1.5 text-[10px] flex-shrink-0">
+            <span class="text-base-content/60 whitespace-nowrap">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
+            <span class="text-base-content/60 whitespace-nowrap">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
+            <span class="text-base-content/60 whitespace-nowrap">Timestamp: <span class="font-mono">{{ formatTimestamp(selectedMessage.timestamp) }}</span></span>
+            <span class="text-base-content/60 whitespace-nowrap">Size: <span class="font-mono">{{ selectedMessageSize }} bytes</span></span>
           </div>
-          <div class="flex items-center gap-1.5">
-            <label class="text-[10px] text-base-content/60">View As:</label>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <label class="text-[10px] text-base-content/60 whitespace-nowrap">View As:</label>
             <select v-model="messageViewFormat" class="select select-bordered select-xs">
               <option value="json">JSON</option>
               <option value="raw">Raw</option>
