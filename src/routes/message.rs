@@ -86,12 +86,9 @@ pub struct GetMessageParams {
     pub partition: Option<i32>,
     /// 起始offset
     pub offset: Option<i64>,
-    /// 最大返回消息数
+    /// 每个分区最大获取消息数（从Kafka获取的最大数量，搜索前）
     #[serde(default = "default_max_messages")]
     pub max_messages: usize,
-    /// 每个分区最大消息数（多分区查询时有效）
-    #[serde(default = "default_per_partition_max")]
-    pub per_partition_max: usize,
     /// 排序字段（timestamp/offset）
     #[serde(default)]
     pub order_by: Option<String>,
@@ -116,7 +113,6 @@ pub struct GetMessageParams {
 }
 
 fn default_max_messages() -> usize { 100 }
-fn default_per_partition_max() -> usize { 100 }
 
 impl GetMessageParams {
     /// 转换为内部QueryParams
@@ -142,7 +138,6 @@ impl GetMessageParams {
             partition: self.partition,
             offset: self.offset,
             max_messages: self.max_messages,
-            per_partition_max: self.per_partition_max,
             fetch_mode,
             start_time: self.start_time,
             end_time: self.end_time,
@@ -296,7 +291,6 @@ async fn export_messages(
         partition: params.partition,
         offset: params.offset,
         max_messages: params.max_messages,
-        per_partition_max: params.max_messages,
         fetch_mode: match params.fetch_mode.as_deref() {
             Some("oldest") => FetchMode::Oldest,
             _ => FetchMode::Newest,

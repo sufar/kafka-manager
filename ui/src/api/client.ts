@@ -552,8 +552,7 @@ class ApiClient {
   async getMessages(clusterId: string, topic: string, params?: {
     partition?: number;
     offset?: number;
-    max_messages?: number;
-    per_partition_max?: number;  // Per-partition 最大消息数
+    max_messages?: number;  // 每个分区最大获取消息数（从Kafka获取的最大数量）
     order_by?: 'timestamp' | 'offset';
     sort?: 'asc' | 'desc';
     search?: string;

@@ -219,11 +219,6 @@
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
       <div class="flex items-center gap-1.5 flex-shrink-0">
-        <label class="label cursor-pointer flex-shrink-0" :title="t.messages.perPartitionMax">
-          <span class="label-text text-xs flex-shrink-0">{{ t.messages.perPartitionMax }}</span>
-        </label>
-        <input v-model.number="filters.per_partition_max" type="number" class="input input-bordered input-xs w-16 flex-shrink-0" min="10" max="1000" @change="fetchMessages" />
-        <span class="divider divider-horizontal mx-2 flex-shrink-0"></span>
         <span class="flex-shrink-0">{{ t.messages.maxMessages }}</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
       </div>
@@ -357,8 +352,7 @@ function showSuccess(message: string) {
 
 const filters = reactive({
   partition: 'all' as number | 'all',  // 默认查询所有 partition
-  max_messages: 100,
-  per_partition_max: 100,  // 每个分区最大消息数
+  max_messages: 100,  // 每个分区最大获取消息数（从Kafka获取的最大数量，搜索前）
   search: '',
   fetchMode: 'newest' as 'oldest' | 'newest',
   startTime: '' as string,
@@ -622,7 +616,6 @@ async function fetchMessages() {
     try {
       const params: {
         max_messages: number;
-        per_partition_max: number;
         search: string;
         search_in: 'key' | 'value' | 'all';
         fetchMode: 'oldest' | 'newest';
@@ -633,7 +626,6 @@ async function fetchMessages() {
         end_time?: number;
       } = {
         max_messages: filters.max_messages,
-        per_partition_max: filters.per_partition_max,
         search: filters.search,
         search_in: 'all',
         fetchMode: filters.fetchMode,

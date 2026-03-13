@@ -25,8 +25,8 @@ use tokio::sync::Semaphore;
 pub struct QueryParams {
     pub partition: Option<i32>,
     pub offset: Option<i64>,
+    /// 每个分区最多获取的消息数（从Kafka获取的最大数量）
     pub max_messages: usize,
-    pub per_partition_max: usize,
     pub fetch_mode: FetchMode,
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
@@ -42,7 +42,6 @@ impl Default for QueryParams {
             partition: None,
             offset: None,
             max_messages: 100,
-            per_partition_max: 100,
             fetch_mode: FetchMode::Newest,
             start_time: None,
             end_time: None,
@@ -342,7 +341,7 @@ impl MessageQuerier {
                 let consumer = pool.get().await.ok()?;
 
                 let messages = Self::fetch_from_partition(
-                    &consumer, &topic, partition, start_offset, params.per_partition_max, &params
+                    &consumer, &topic, partition, start_offset, params.max_messages, &params
                 ).await.ok()?;
 
                 Some(messages)
@@ -352,7 +351,7 @@ impl MessageQuerier {
         }
 
         // 收集所有结果
-        let total_capacity = partition_offsets.len() * params.per_partition_max;
+        let total_capacity = partition_offsets.len() * params.max_messages;
         let mut all_messages = Vec::with_capacity(std::cmp::min(total_capacity, params.max_messages));
         for task in tasks {
             if let Ok(Some(msgs)) = task.await {
@@ -364,6 +363,7 @@ impl MessageQuerier {
     }
 
     /// 从指定分区获取消息
+    /// 流式处理：边拉取边过滤，max_messages 是拉取的消息上限（不是匹配结果的上限）
     async fn fetch_from_partition(
         consumer: &rdkafka::consumer::StreamConsumer,
         topic: &str,
@@ -382,14 +382,16 @@ impl MessageQuerier {
         let search_lower = params.search.as_ref().map(|s| s.to_lowercase());
 
         // 自适应超时策略
-        // 根据剩余消息数和已用时间动态调整
         let base_timeout = Duration::from_millis(20);
         let max_timeouts = if max_messages > 1000 { 15 } else { 5 };
         let mut consecutive_timeouts = 0;
         let start = std::time::Instant::now();
 
-        // 批量消费消息
-        while messages.len() < max_messages {
+        // 流式消费：边拉取边过滤
+        // fetched_count 记录从 Kafka 拉取的消息数（包括未匹配的）
+        let mut fetched_count = 0usize;
+
+        while fetched_count < max_messages {
             // 动态超时：如果运行时间过长，减少超时时间
             let elapsed = start.elapsed();
             let dynamic_timeout = if elapsed.as_secs() > 5 {
@@ -401,9 +403,10 @@ impl MessageQuerier {
             match tokio::time::timeout(dynamic_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
+                    fetched_count += 1;
                     let timestamp = msg.timestamp().to_millis();
 
-                    // 时间范围过滤
+                    // 时间范围过滤（硬性条件，不满足则跳过）
                     if let Some(start) = params.start_time {
                         if let Some(ts) = timestamp {
                             if ts < start {
@@ -422,7 +425,7 @@ impl MessageQuerier {
                     let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                     let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
-                    // 搜索过滤
+                    // 搜索过滤（流式过滤，边拉取边判断）
                     if let Some(ref search) = search_lower {
                         let matches = match params.search_in {
                             SearchIn::Key => {
@@ -438,10 +441,11 @@ impl MessageQuerier {
                             }
                         };
                         if !matches {
-                            continue;
+                            continue; // 不匹配搜索条件，跳过这条消息
                         }
                     }
 
+                    // 匹配成功，加入结果
                     messages.push(MessageRecord {
                         partition: msg.partition(),
                         offset: msg.offset(),
