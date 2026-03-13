@@ -24,11 +24,11 @@ impl KafkaConsumerManager {
     /// 创建客户端配置 - 高性能查询优化版
     ///
     /// 优化策略：
-    /// 1. fetch.min.bytes=1: 有数据立即返回，不等待批量
-    /// 2. fetch.wait.max.ms=10: 最多等待10ms，降低延迟
-    /// 3. fetch.max.bytes=10MB: 单次获取最大数据量，降低内存占用
-    /// 4. socket.keepalive.enable=true: 保持连接活跃
-    /// 5. socket.nagle.disable=true: 禁用Nagle算法，降低延迟
+    /// 1. fetch.min.bytes: 本地用1，远程用64KB（减少RTT累积）
+    /// 2. fetch.wait.max.ms: 本地用10ms，远程用100ms（积累更多数据）
+    /// 3. fetch.max.bytes: 50MB单次获取（提高吞吐量）
+    /// 4. socket.nagle.disable: 禁用Nagle算法，降低延迟
+    /// 5. socket.keepalive.enable: 保持连接活跃
     fn create_client_config(&self, group_id: &str) -> ClientConfig {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &self.config.brokers);
@@ -44,25 +44,28 @@ impl KafkaConsumerManager {
             &self.config.request_timeout_ms.to_string(),
         );
 
-        // ========== 高性能查询优化配置 ==========
+        // ========== 高性能查询优化配置（针对远程高延迟网络）==========
 
         // fetch.wait.max.ms: broker 等待数据的最大时间
-        // 设置为 10ms，快速返回，不等待更多数据
-        client_config.set("fetch.wait.max.ms", "10");
+        // 设置为 100ms，让 broker 积累更多数据再返回，减少 RTT 次数
+        client_config.set("fetch.wait.max.ms", "100");
 
         // fetch.min.bytes: 最小返回数据量
-        // 设置为 1，有数据就立即返回，不强制等待批量
-        client_config.set("fetch.min.bytes", "1");
+        // 设置为 64KB，避免频繁小批量请求（对远程 Kafka 尤为重要）
+        client_config.set("fetch.min.bytes", "65536");
 
-        // fetch.max.bytes: 单次 fetch 最大数据量 (10MB)
-        // 降低内存占用，提高响应速度
-        client_config.set("fetch.max.bytes", "10485760");
+        // fetch.max.bytes: 单次 fetch 最大数据量 (50MB)
+        // 提高吞吐量，一次性获取更多消息
+        client_config.set("fetch.max.bytes", "52428800");
 
-        // fetch.message.max.bytes: 单条消息最大 (1MB)
-        client_config.set("fetch.message.max.bytes", "1048576");
+        // fetch.message.max.bytes: 单条消息最大 (5MB)
+        client_config.set("fetch.message.max.bytes", "5242880");
 
-        // max.partition.fetch.bytes: 每个分区最大获取字节数 (1MB)
-        client_config.set("max.partition.fetch.bytes", "1048576");
+        // max.partition.fetch.bytes: 每个分区最大获取字节数 (5MB)
+        client_config.set("max.partition.fetch.bytes", "5242880");
+
+        // receive.message.max.bytes: 消费者接收缓冲区 (50MB)
+        client_config.set("receive.message.max.bytes", "52428800");
 
         // connections.max.idle.ms: 连接空闲超时时间
         // 设置为 9 分钟，避免连接被 broker 关闭

@@ -387,8 +387,9 @@ impl MessageQuerier {
         let has_time_range = params.start_time.is_some() || params.end_time.is_some();
 
         // 自适应超时策略
-        let base_timeout = Duration::from_millis(20);
-        let max_timeouts = if has_time_range { 50 } else if max_messages > 1000 { 15 } else { 5 };
+        // 远程 Kafka 查询需要更长的超时时间（网络延迟）
+        let base_timeout = Duration::from_millis(100); // 增加到 100ms，给远程网络更多时间
+        let max_timeouts = if has_time_range { 100 } else if max_messages > 1000 { 30 } else { 10 };
         let mut consecutive_timeouts = 0;
         let start = std::time::Instant::now();
 
@@ -399,8 +400,10 @@ impl MessageQuerier {
         loop {
             // 动态超时：如果运行时间过长，减少超时时间
             let elapsed = start.elapsed();
-            let dynamic_timeout = if elapsed.as_secs() > 5 {
-                Duration::from_millis(10)
+            let dynamic_timeout = if elapsed.as_secs() > 10 {
+                Duration::from_millis(50)
+            } else if elapsed.as_secs() > 5 {
+                Duration::from_millis(100)
             } else {
                 base_timeout
             };
@@ -483,8 +486,8 @@ impl MessageQuerier {
                 }
             }
 
-            // 如果查询超过 10 秒（无时间范围）或 30 秒（有时间范围），强制退出
-            let max_query_time = if has_time_range { 30 } else { 10 };
+            // 如果查询超过 30 秒（无时间范围）或 60 秒（有时间范围），强制退出
+            let max_query_time = if has_time_range { 60 } else { 30 };
             if start.elapsed().as_secs() > max_query_time {
                 tracing::warn!("Query timeout after {} seconds", max_query_time);
                 break;
