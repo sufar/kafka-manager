@@ -95,7 +95,7 @@
             <tr>
               <th class="text-left w-14 bg-gradient-to-r from-primary/10 to-transparent text-xs py-0 px-1">{{ t.messages.offset }}</th>
               <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-0 px-1">{{ t.messages.partition }}</th>
-              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-0 px-1" @click="toggleTimestampSort">
+              <th class="text-left w-44 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-0 px-1 whitespace-nowrap" @click="toggleTimestampSort">
                 <div class="flex items-center gap-0.5">
                   <span>{{ t.messages.timestampLabel }}</span>
                   <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -129,7 +129,7 @@
               <td class="py-0 px-1">
                 <span class="badge badge-ghost badge-xs scale-90">{{ msg.partition }}</span>
               </td>
-              <td class="text-xs text-base-content/60 px-1 py-0 leading-4">{{ formatTimestamp(msg.timestamp) }}</td>
+              <td class="text-xs text-base-content/60 px-1 py-0 leading-4 whitespace-nowrap">{{ formatTimestamp(msg.timestamp) }}</td>
               <td class="font-mono text-xs px-1 py-0 leading-4 truncate max-w-xs">{{ msg.key || '-' }}</td>
               <td class="font-mono text-xs px-1 py-0 leading-4 truncate max-w-md">{{ formatMessagePreview(msg.value) }}</td>
             </tr>

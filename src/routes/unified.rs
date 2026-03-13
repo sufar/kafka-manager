@@ -1543,7 +1543,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "messages": records }))
 }
 
-/// 使用临时 consumer 获取消息（支持过滤）- 极速版，无sleep
+/// 使用临时 consumer 获取消息（支持过滤）- 多线程并发版，每个分区独立 consumer
 async fn fetch_messages_with_temp_consumer(
     brokers: &str,
     topic: &str,
@@ -1562,256 +1562,174 @@ async fn fetch_messages_with_temp_consumer(
     use std::time::Duration;
 
     let start_time_total = std::time::Instant::now();
+    let topic_owned = topic.to_string();
+    let brokers_owned = brokers.to_string();
+    let search_owned = search.clone();
 
-    // 创建临时 consumer，使用适合查询的配置
-    let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", brokers);
-    // 使用唯一的 group.id 避免冲突
-    let unique_group = format!("kafka-manager-viewer-{}-{:?}", std::process::id(), std::time::SystemTime::now().elapsed().unwrap_or_default().as_nanos());
-    client_config.set("group.id", &unique_group);
-    client_config.set("enable.auto.commit", "false");
-    client_config.set("auto.offset.reset", "earliest");
-    // 合理的超时设置
-    client_config.set("request.timeout.ms", "5000");
-    client_config.set("socket.timeout.ms", "5000");
-    client_config.set("session.timeout.ms", "10000");
-    // 关键：设置 fetch 参数确保能获取到数据
-    client_config.set("fetch.min.bytes", "1");
-    // 给 broker 一点时间积累数据，但不要等太久
-    client_config.set("fetch.wait.max.ms", "100");
-    client_config.set("fetch.max.bytes", "52428800");
-    client_config.set("fetch.message.max.bytes", "10485760");
-    // 禁用元数据缓存，确保获取最新数据
-    client_config.set("metadata.max.age.ms", "1000");
+    // 在阻塞线程中获取分区列表和 offset 信息
+    let partition_offsets = tokio::task::spawn_blocking({
+        let topic = topic_owned.clone();
+        let brokers = brokers_owned.clone();
+        let fetch_mode = fetch_mode.map(|s| s.to_string());
+        move || {
+            let mut cfg = ClientConfig::new();
+            cfg.set("bootstrap.servers", &brokers);
+            cfg.set("group.id", "kafka-manager-meta");
+            cfg.set("enable.auto.commit", "false");
+            let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()?;
 
-    let consumer: BaseConsumer<DefaultConsumerContext> = client_config
-        .create()
-        .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
-
-    // 获取分区列表
-    let all_partitions = partition.is_none();
-    let target_partition = partition.unwrap_or(0);
-
-    let partitions_list: Vec<i32> = if all_partitions {
-        let metadata = consumer.fetch_metadata(Some(topic), Duration::from_millis(500))
-            .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
-        metadata.topics()
-            .first()
-            .map(|t| t.partitions())
-            .map(|ps| ps.iter().map(|p| p.id()).collect::<Vec<i32>>())
-            .unwrap_or_else(|| vec![0])
-    } else {
-        vec![target_partition]
-    };
-
-    // 计算每个分区的起始 offset
-    let search_mode = search.is_some();
-    let mut partition_offsets: Vec<(i32, i64)> = Vec::with_capacity(partitions_list.len());
-
-    for &part_id in &partitions_list {
-        let start_offset = if let Some(start_time) = start_time {
-            if start_time <= 0 {
-                offset.unwrap_or(0)
+            let partitions: Vec<i32> = if partition.is_none() {
+                let metadata = consumer.fetch_metadata(Some(&topic), Duration::from_millis(500))?;
+                metadata.topics().first()
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_else(|| vec![0])
             } else {
-                let mut tpl = TopicPartitionList::new();
-                tpl.add_partition_offset(topic, part_id, rdkafka::Offset::Offset(start_time))
-                    .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
+                vec![partition.unwrap_or(0)]
+            };
 
-                match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
-                    Ok(result) => {
-                        result.elements_for_topic(topic)
-                            .iter()
-                            .find(|e| e.partition() == part_id)
-                            .and_then(|e| e.offset().to_raw())
-                            .unwrap_or_else(|| offset.unwrap_or(0))
-                    }
-                    Err(_) => offset.unwrap_or(0),
-                }
-            }
-        } else if search_mode {
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((low, _)) => low,
-                Err(_) => 0,
-            }
-        } else if fetch_mode == Some("newest") && offset.is_none() {
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((low, high)) if high > 0 => {
-                    let latest_offset = high - 1;
-                    // 计算起始 offset，确保返回最新消息
-                    let calculated_start = latest_offset.saturating_sub((max_messages.saturating_sub(1)) as i64);
-                    std::cmp::max(low, calculated_start)
-                }
-                _ => 0,
-            }
-        } else if fetch_mode == Some("oldest") && offset.is_none() {
-            match consumer.fetch_watermarks(topic, part_id, Duration::from_millis(500)) {
-                Ok((low, _)) => low,
-                Err(_) => 0,
-            }
-        } else {
-            offset.unwrap_or(0)
-        };
-
-        partition_offsets.push((part_id, start_offset));
-    }
-
-    // 分配分区并 seek - 无 sleep，直接操作
-    let mut tpl = TopicPartitionList::new();
-    for (part_id, start_offset) in &partition_offsets {
-        let safe_offset = if *start_offset < 0 {
-            rdkafka::Offset::Beginning
-        } else {
-            rdkafka::Offset::Offset(*start_offset)
-        };
-        tpl.add_partition_offset(topic, *part_id, safe_offset)
-            .map_err(|e| AppError::Internal(format!("Failed to add partition: {}", e)))?;
-    }
-
-    consumer.assign(&tpl)
-        .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
-
-    // 直接 seek，不等待
-    for (part_id, start_offset) in &partition_offsets {
-        let seek_offset = if *start_offset < 0 {
-            rdkafka::Offset::Beginning
-        } else {
-            rdkafka::Offset::Offset(*start_offset)
-        };
-        let _ = consumer.seek(topic, *part_id, seek_offset, Duration::from_millis(100));
-    }
-
-    let search_lower = search.map(|s| s.to_lowercase());
-    let mut messages = Vec::with_capacity(max_messages * partition_offsets.len());
-    let mut partition_counts: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
-
-    // poll 配置：给足够时间获取数据
-    let poll_timeout = Duration::from_millis(100);
-    let mut empty_polls = 0;
-    let max_empty_polls = 50;
-    let max_consecutive_empty = 10; // 连续空poll次数限制
-    let mut consecutive_empty = 0;
-    let start_poll_time = std::time::Instant::now();
-    let max_poll_duration = Duration::from_secs(10); // 最多poll 10秒
-
-    loop {
-        // 检查是否已获取足够消息（每个分区 max_messages 条）
-        let total_expected = max_messages * partition_offsets.len();
-        if messages.len() >= total_expected {
-            tracing::debug!("Got enough messages: {}/{}", messages.len(), total_expected);
-            break;
-        }
-
-        // 检查是否超时
-        if start_poll_time.elapsed() > max_poll_duration {
-            tracing::debug!("Poll timeout reached: {:?}", start_poll_time.elapsed());
-            break;
-        }
-
-        // 检查连续空poll次数
-        if consecutive_empty >= max_consecutive_empty {
-            tracing::debug!("Max consecutive empty polls reached: {}", consecutive_empty);
-            break;
-        }
-
-        // 检查总空poll次数
-        if empty_polls >= max_empty_polls {
-            tracing::debug!("Max empty polls reached: {}", empty_polls);
-            break;
-        }
-
-        match consumer.poll(poll_timeout) {
-            Some(Ok(msg)) => {
-                consecutive_empty = 0; // 收到消息，重置连续空poll计数
-                let msg_partition = msg.partition();
-
-                // 检查该分区是否已达到限制
-                let current_count = partition_counts.get(&msg_partition).copied().unwrap_or(0);
-                if current_count >= max_messages {
-                    // 该分区已满，检查是否所有分区都已完成
-                    let all_partitions_full = partition_offsets.iter().all(|(p, _)| {
-                        partition_counts.get(p).copied().unwrap_or(0) >= max_messages
-                    });
-                    if all_partitions_full {
-                        break;
-                    }
-                    // 重置计数器并继续，因为consumer确实返回了消息
-                    empty_polls = 0;
-                    continue;
-                }
-
-                // 重置空轮询计数
-                empty_polls = 0;
-
-                let timestamp = msg.timestamp().to_millis();
-
-                // 时间范围过滤
-                if let Some(start) = start_time {
-                    if let Some(ts) = timestamp {
-                        if ts < start {
-                            continue;
+            let mut result = Vec::new();
+            for part_id in partitions {
+                let start_offset = if let Some(start_time) = start_time {
+                    if start_time <= 0 {
+                        offset.unwrap_or(0)
+                    } else {
+                        let mut tpl = TopicPartitionList::new();
+                        tpl.add_partition_offset(&topic, part_id, rdkafka::Offset::Offset(start_time)).ok();
+                        match consumer.offsets_for_times(tpl, Duration::from_millis(500)) {
+                            Ok(r) => r.elements_for_topic(&topic)
+                                .iter().find(|e| e.partition() == part_id)
+                                .and_then(|e| e.offset().to_raw())
+                                .unwrap_or_else(|| offset.unwrap_or(0)),
+                            Err(_) => offset.unwrap_or(0),
                         }
                     }
-                }
-                if let Some(end) = end_time {
-                    if let Some(ts) = timestamp {
-                        if ts > end {
-                            continue;
+                } else if fetch_mode.as_deref() == Some("newest") && offset.is_none() {
+                    match consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(500)) {
+                        Ok((low, high)) if high > 0 => {
+                            let latest = high - 1;
+                            latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low)
                         }
+                        _ => 0,
                     }
-                }
-
-                let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
-                let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
-
-                // 搜索过滤
-                if let Some(ref search_term) = search_lower {
-                    let key_match = key.as_ref().map_or(false, |k| k.to_lowercase().contains(search_term));
-                    let value_match = value.as_ref().map_or(false, |v| v.to_lowercase().contains(search_term));
-                    if !key_match && !value_match {
-                        continue;
+                } else if fetch_mode.as_deref() == Some("oldest") && offset.is_none() {
+                    match consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(500)) {
+                        Ok((low, _)) => low,
+                        Err(_) => 0,
                     }
-                }
-
-                partition_counts.insert(msg_partition, current_count + 1);
-                messages.push(crate::kafka::consumer::KafkaMessage {
-                    partition: msg_partition,
-                    offset: msg.offset(),
-                    key,
-                    value,
-                    timestamp,
-                });
+                } else {
+                    offset.unwrap_or(0)
+                };
+                result.push((part_id, start_offset));
             }
-            Some(Err(_)) => {
-                consecutive_empty += 1;
-                empty_polls += 1;
-            }
-            None => {
-                consecutive_empty += 1;
-                empty_polls += 1;
-            }
+            Ok::<Vec<(i32, i64)>, rdkafka::error::KafkaError>(result)
         }
-    }
+    }).await.map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+    .map_err(|e| AppError::Internal(format!("Kafka error: {}", e)))?;
 
-    // 排序（按时间戳降序）
-    if all_partitions {
-        messages.sort_by(|a, b| {
-            match (a.timestamp, b.timestamp) {
-                (Some(ts_a), Some(ts_b)) => ts_b.cmp(&ts_a),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => b.offset.cmp(&a.offset),
+    // 并发查询每个分区
+    let mut tasks = Vec::new();
+    for (part_id, start_offset) in partition_offsets {
+        let topic = topic_owned.clone();
+        let brokers = brokers_owned.clone();
+        let search_lower = search_owned.as_ref().map(|s| s.to_lowercase());
+        let start_time = start_time;
+        let end_time = end_time;
+
+        let task = tokio::task::spawn_blocking(move || {
+            let mut cfg = ClientConfig::new();
+            cfg.set("bootstrap.servers", &brokers);
+            cfg.set("group.id", &format!("kafka-mgr-{}-{:?}", part_id, std::time::Instant::now()));
+            cfg.set("enable.auto.commit", "false");
+            cfg.set("auto.offset.reset", "earliest");
+            cfg.set("fetch.min.bytes", "1");
+            cfg.set("fetch.wait.max.ms", "100");
+
+            let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
+                Ok(c) => c,
+                Err(_) => return Vec::new(),
+            };
+
+            let seek_offset = if start_offset < 0 {
+                rdkafka::Offset::Beginning
+            } else {
+                rdkafka::Offset::Offset(start_offset)
+            };
+
+            let mut tpl = TopicPartitionList::new();
+            if tpl.add_partition_offset(&topic, part_id, seek_offset).is_err() {
+                return Vec::new();
             }
+            if consumer.assign(&tpl).is_err() {
+                return Vec::new();
+            }
+            let _ = consumer.seek(&topic, part_id, seek_offset, Duration::from_millis(100));
+
+            let mut msgs = Vec::with_capacity(max_messages);
+            let mut empty = 0;
+
+            while msgs.len() < max_messages && empty < 20 {
+                match consumer.poll(Duration::from_millis(50)) {
+                    Some(Ok(msg)) => {
+                        empty = 0;
+                        let ts = msg.timestamp().to_millis();
+
+                        if let Some(start) = start_time {
+                            if let Some(t) = ts {
+                                if t < start { continue; }
+                            }
+                        }
+                        if let Some(end) = end_time {
+                            if let Some(t) = ts {
+                                if t > end { continue; }
+                            }
+                        }
+
+                        let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
+                        let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
+
+                        if let Some(ref term) = search_lower {
+                            let km = key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
+                            let vm = value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
+                            if !km && !vm { continue; }
+                        }
+
+                        msgs.push(crate::kafka::consumer::KafkaMessage {
+                            partition: msg.partition(),
+                            offset: msg.offset(),
+                            key,
+                            value,
+                            timestamp: ts,
+                        });
+                    }
+                    _ => empty += 1,
+                }
+            }
+            msgs
         });
+        tasks.push(task);
     }
 
-    tracing::info!(
-        "Fetched {} messages from {} partitions in {:?}",
-        messages.len(),
-        partition_offsets.len(),
-        start_time_total.elapsed()
-    );
+    // 收集结果
+    let mut all_msgs = Vec::with_capacity(max_messages * tasks.len());
+    for task in tasks {
+        if let Ok(msgs) = task.await {
+            all_msgs.extend(msgs);
+        }
+    }
 
-    Ok(messages)
+    // 按 timestamp 排序
+    let is_newest = fetch_mode == Some("newest");
+    all_msgs.sort_by(|a, b| {
+        match (a.timestamp, b.timestamp) {
+            (Some(ta), Some(tb)) => if is_newest { tb.cmp(&ta) } else { ta.cmp(&tb) },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => if is_newest { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
+        }
+    });
+
+    tracing::info!("Fetched {} messages in {:?}", all_msgs.len(), start_time_total.elapsed());
+    Ok(all_msgs)
 }
 
 async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
