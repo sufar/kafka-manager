@@ -137,7 +137,7 @@ export interface Translation {
     oldest: string;
     newest: string;
     maxMessages: string;
-    perPartitionMax: string;
+    perPartition: string;
     startTime: string;
     endTime: string;
     selectTopic: string;
@@ -500,7 +500,7 @@ export const translations: Record<Language, Translation> = {
       oldest: '最早',
       newest: '最新',
       maxMessages: '最大消息数',
-      perPartitionMax: '每分区',
+      perPartition: '每分区',
       startTime: '开始时间',
       endTime: '结束时间',
       selectTopic: '选择主题',
@@ -861,7 +861,7 @@ export const translations: Record<Language, Translation> = {
       oldest: 'Oldest',
       newest: 'Newest',
       maxMessages: 'Max Messages',
-      perPartitionMax: 'Per Partition',
+      perPartition: 'Per Partition',
       startTime: 'Start Time',
       endTime: 'End Time',
       selectTopic: 'Select Topic',

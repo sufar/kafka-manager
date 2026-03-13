@@ -219,6 +219,7 @@
         <span v-if="selectedMessage">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
       <div class="flex items-center gap-1.5 flex-shrink-0">
+        <span class="text-[9px] text-base-content/60 flex-shrink-0">{{ t.messages.perPartition }}</span>
         <span class="flex-shrink-0">{{ t.messages.maxMessages }}</span>
         <input v-model.number="filters.max_messages" type="number" class="input input-bordered input-xs w-20 flex-shrink-0" min="1" max="10000" @change="fetchMessages" />
       </div>

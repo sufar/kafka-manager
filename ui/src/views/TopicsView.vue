@@ -736,6 +736,7 @@
 
                 <div class="form-control">
                   <label class="label">
+                    <span class="label-text-sm text-base-content/60">{{ t.messages.perPartition }}</span>
                     <span class="label-text-sm">{{ t.messages.maxMessages }}</span>
                   </label>
                   <input
