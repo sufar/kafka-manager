@@ -501,15 +501,11 @@ impl MessageQuerier {
     }
 
     /// 排序和限制返回数量
+    /// 注意：max_messages 是 per-partition 的，这里只排序，不限制总数
     fn sort_and_limit(messages: Vec<MessageRecord>, params: &QueryParams) -> Vec<MessageRecord> {
-        let limit = params.max_messages;
-
-        if messages.len() <= limit {
-            return Self::sort_messages(messages, params);
-        }
-
-        // TopK 选择，避免全量排序
-        Self::topk_select(messages, limit, params)
+        // 只排序，不限制数量
+        // 因为 max_messages 已经在 fetch_from_partition 中作为 per-partition 限制应用了
+        Self::sort_messages(messages, params)
     }
 
     /// TopK 选择算法
