@@ -12,6 +12,7 @@ use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use crate::models::MessageRecord;
 use crate::pool::KafkaConsumerPool;
+use crate::pool::kafka_consumer::KafkaConsumerManager;
 use rdkafka::consumer::Consumer;
 use rdkafka::message::Message as KafkaMessageTrait;
 use rdkafka::TopicPartitionList;
@@ -158,6 +159,22 @@ impl MessageQuerier {
         );
 
         Ok(result)
+    }
+
+    /// 带重试获取消费者
+    async fn get_consumer_with_retry(pool: &KafkaConsumerPool, max_retries: usize) -> Option<deadpool::managed::Object<KafkaConsumerManager>> {
+        for attempt in 0..max_retries {
+            match pool.get().await {
+                Ok(consumer) => return Some(consumer),
+                Err(e) => {
+                    tracing::warn!("Failed to get consumer (attempt {}/{}): {}", attempt + 1, max_retries, e);
+                    if attempt < max_retries - 1 {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// 解析要查询的分区列表
@@ -415,7 +432,15 @@ impl MessageQuerier {
 
             let task = tokio::spawn(async move {
                 let _permit = sem.acquire().await.ok()?;
-                let consumer = pool.get().await.ok()?;
+
+                // 带重试获取消费者
+                let consumer = match Self::get_consumer_with_retry(&pool, 3).await {
+                    Some(c) => c,
+                    None => {
+                        tracing::error!("[query_multiple_partitions] Failed to get consumer for partition {} after retries", partition);
+                        return None;
+                    }
+                };
 
                 tracing::debug!("[query_multiple_partitions] Fetching from partition {} at offset {}", partition, start_offset);
 
@@ -494,23 +519,17 @@ impl MessageQuerier {
 
         // 自适应超时策略
         // 远程 Kafka 查询需要更长的超时时间（网络延迟）
-        let base_timeout = Duration::from_millis(100); // 增加到 100ms，给远程网络更多时间
-        let max_timeouts = if has_time_range { 100 } else if max_messages > 1000 { 30 } else { 10 };
+        let base_timeout = Duration::from_millis(500); // 增加到 500ms
+        // 大数据量时需要更多重试次数
+        let max_timeouts = if has_time_range { 200 } else { 50 };
         let mut consecutive_timeouts = 0;
         let start = std::time::Instant::now();
 
         // 流式消费：边拉取边过滤
 
         loop {
-            // 动态超时：如果运行时间过长，减少超时时间
-            let elapsed = start.elapsed();
-            let dynamic_timeout = if elapsed.as_secs() > 10 {
-                Duration::from_millis(50)
-            } else if elapsed.as_secs() > 5 {
-                Duration::from_millis(100)
-            } else {
-                base_timeout
-            };
+            // 动态超时：保持相对稳定的超时时间
+            let dynamic_timeout = base_timeout;
 
             match tokio::time::timeout(dynamic_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
