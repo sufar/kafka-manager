@@ -6,7 +6,6 @@ pub mod cluster_monitor;
 pub mod cluster_stats;
 pub mod consumer_group;
 pub mod health;
-pub mod message;
 pub mod notification;
 pub mod schema;
 pub mod settings;

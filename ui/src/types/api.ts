@@ -319,10 +319,6 @@ export interface MessageRecord {
   timestamp?: number;
 }
 
-export interface MessageListResponse {
-  messages: MessageRecord[];
-}
-
 export interface SendMessageRequest {
   partition: number;
   key?: string;
@@ -333,24 +329,6 @@ export interface SendMessageRequest {
 export interface SendMessageResponse {
   partition: number;
   offset: number;
-}
-
-export interface EnhancedMessageRecord {
-  partition: number;
-  offset: number;
-  key?: string;
-  value?: string;
-  timestamp?: number;
-  key_raw?: string;
-  value_raw?: string;
-  value_json?: Record<string, unknown>;
-  value_hex?: string;
-  content_type?: string;
-  size: {
-    key_size: number;
-    value_size: number;
-    total_size: number;
-  };
 }
 
 // ==================== 集群监控 ====================
