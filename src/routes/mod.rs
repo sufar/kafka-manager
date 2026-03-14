@@ -3,7 +3,6 @@ pub mod auth;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod cluster_monitor;
-pub mod cluster_stats;
 pub mod consumer_group;
 pub mod health;
 pub mod notification;

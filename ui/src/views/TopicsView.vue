@@ -1750,7 +1750,7 @@ async function refreshAllTopics() {
     );
     await Promise.all(promises);
     await fetchTopics();
-    showSuccess('Topics refreshed successfully');
+    showSuccess(t.value.topics.refreshed);
   } catch (e) {
     showError(`Refresh failed: ${(e as { message: string }).message}`);
   } finally {

@@ -362,6 +362,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "cluster.update" => handle_cluster_update(state, body).await,
         "cluster.delete" => handle_cluster_delete(state, body).await,
         "cluster.test" => handle_cluster_test(state, body).await,
+        "cluster.stats" => handle_cluster_stats(state, body).await,
 
         // Topic
         "topic.list" => handle_topic_list(state, body).await,
@@ -631,6 +632,87 @@ async fn handle_cluster_test(state: AppState, body: Value) -> Result<Value> {
     let success = ClusterStore::test_connection(state.db.inner(), id).await?;
 
     Ok(serde_json::json!({ "success": success }))
+}
+
+async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+
+    let clients = state.get_clients();
+    let admin = clients
+        .get_admin(&cluster_id)
+        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+
+    // 在阻塞线程中执行所有 Kafka 操作
+    let admin = admin.clone();
+    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) =
+        tokio::task::spawn_blocking(move || -> Result<(crate::kafka::admin::ClusterInfo, Vec<String>, i32, i32, std::collections::HashMap<i32, i32>, std::collections::HashMap<i32, i32>)> {
+            // 获取集群信息
+            let cluster_info = admin.get_cluster_info()?;
+
+            // 获取所有 topic 的分区信息
+            let topics = admin.list_topics()?;
+            let mut partition_count = 0;
+            let mut under_replicated = 0;
+            let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+            let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+
+            for topic in &topics {
+                let topic_info = admin.get_topic_info(topic)?;
+                for partition in &topic_info.partitions {
+                    partition_count += 1;
+
+                    // 检查是否未完全复制
+                    if partition.isr.len() < partition.replicas.len() {
+                        under_replicated += 1;
+                    }
+
+                    // 统计 leader 和 replica
+                    let leader = partition.leader;
+                    *broker_leader_counts.entry(leader).or_insert(0) += 1;
+                    for replica in &partition.replicas {
+                        *broker_replica_counts.entry(*replica).or_insert(0) += 1;
+                    }
+                }
+            }
+
+            Ok((cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    // 构建 broker 统计
+    let broker_stats: Vec<Value> = cluster_info
+        .brokers
+        .iter()
+        .map(|b| {
+            let is_controller = cluster_info.controller_id == Some(b.id);
+            serde_json::json!({
+                "id": b.id,
+                "host": b.host.clone(),
+                "port": b.port,
+                "is_controller": is_controller,
+                "leader_partitions": *broker_leader_counts.get(&b.id).unwrap_or(&0),
+                "replica_partitions": *broker_replica_counts.get(&b.id).unwrap_or(&0),
+            })
+        })
+        .collect();
+
+    // 注意：由于 rdkafka 限制，consumer group 数量暂时返回 0
+    // 实际应用中可以通过 offsets topic 来估算
+    let consumer_group_count = 0;
+    let total_lag = 0;
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "broker_count": cluster_info.brokers.len(),
+        "controller_id": cluster_info.controller_id,
+        "topic_count": topics.len(),
+        "partition_count": partition_count,
+        "under_replicated_partitions": under_replicated,
+        "consumer_group_count": consumer_group_count,
+        "total_lag": total_lag,
+        "broker_stats": broker_stats,
+    }))
 }
 
 async fn reload_clients(state: &AppState) -> Result<()> {

@@ -96,22 +96,42 @@
               <p class="text-[10px] text-base-content/60">Created {{ formatDate(cluster.created_at) }}</p>
             </div>
           </div>
-          <div
-            class="badge gap-1 badge-xs"
-            :class="{
-              'badge-success': getConnectionStatus(cluster.name)?.status === 'connected',
-              'badge-error': getConnectionStatus(cluster.name)?.status === 'error',
-              'badge-ghost': getConnectionStatus(cluster.name)?.status === 'disconnected',
-            }"
-          >
+          <div class="flex items-center gap-1">
+            <button
+              class="btn btn-xs btn-ghost h-auto p-1 min-h-0"
+              @click="editCluster(cluster)"
+              title="Edit cluster"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+              </svg>
+            </button>
+            <button
+              class="btn btn-xs btn-ghost h-auto p-1 min-h-0 text-error hover:bg-error/10"
+              @click="confirmDelete(cluster)"
+              title="Delete cluster"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
             <div
-              class="w-1.5 h-1.5 rounded-full"
+              class="badge gap-1 badge-xs ml-2"
               :class="{
-                'bg-success animate-pulse': getConnectionStatus(cluster.name)?.status === 'connected',
-                'bg-error': getConnectionStatus(cluster.name)?.status === 'error',
+                'badge-success': getConnectionStatus(cluster.name)?.status === 'connected',
+                'badge-error': getConnectionStatus(cluster.name)?.status === 'error',
+                'badge-ghost': getConnectionStatus(cluster.name)?.status === 'disconnected',
               }"
-            ></div>
-            {{ getConnectionStatus(cluster.name)?.status || 'unknown' }}
+            >
+              <div
+                class="w-1.5 h-1.5 rounded-full"
+                :class="{
+                  'bg-success animate-pulse': getConnectionStatus(cluster.name)?.status === 'connected',
+                  'bg-error': getConnectionStatus(cluster.name)?.status === 'error',
+                }"
+              ></div>
+              {{ getConnectionStatus(cluster.name)?.status || 'unknown' }}
+            </div>
           </div>
         </div>
 
@@ -150,24 +170,6 @@
           </button>
           <button
             class="btn btn-xs btn-outline"
-            @click="refreshConnectionStatus(cluster.name)"
-            :disabled="refreshing.has(cluster.name)"
-          >
-            <span v-if="refreshing.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Refresh
-          </button>
-          <button
-            class="btn btn-xs btn-ghost"
-            @click="disconnectCluster(cluster.name)"
-            :disabled="disconnecting.has(cluster.name)"
-          >
-            Disconnect
-          </button>
-          <button
-            class="btn btn-xs btn-ghost"
             @click="reconnectCluster(cluster.name)"
             :disabled="reconnecting.has(cluster.name)"
           >
@@ -178,16 +180,23 @@
             Reconnect
           </button>
           <button
-            class="btn btn-sm btn-ghost"
-            @click="editCluster(cluster)"
+            class="btn btn-xs btn-outline"
+            @click="refreshClusterTopics(cluster.name)"
+            :disabled="refreshingTopics.has(cluster.name)"
+            title="Refresh all topics for this cluster"
           >
-            Edit
+            <span v-if="refreshingTopics.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+            </svg>
+            Topics
           </button>
           <button
-            class="btn btn-sm btn-ghost text-error hover:bg-error/10"
-            @click="confirmDelete(cluster)"
+            class="btn btn-xs btn-ghost"
+            @click="disconnectCluster(cluster.name)"
+            :disabled="disconnecting.has(cluster.name)"
           >
-            Delete
+            Disconnect
           </button>
         </div>
       </div>
@@ -298,9 +307,9 @@ const t = computed(() => languageStore.t);
 
 const editingCluster = ref<Cluster | null>(null);
 const testing = ref(new Set<number>());
-const refreshing = ref(new Set<string>());
 const disconnecting = ref(new Set<string>());
 const reconnecting = ref(new Set<string>());
+const refreshingTopics = ref(new Set<string>());
 const submitting = ref(false);
 
 const formData = reactive({
@@ -402,21 +411,6 @@ function getConnectionStatus(clusterName: string) {
   return connectionStore.getConnectionStatus(clusterName);
 }
 
-async function refreshConnectionStatus(clusterName: string) {
-  refreshing.value.add(clusterName);
-  try {
-    const status = await connectionStore.fetchConnectionStatus(clusterName);
-    const statusText = status.status === 'connected' ? t.value.clusters.connected :
-                       status.status === 'error' ? t.value.clusters.connectionError :
-                       status.status;
-    showSuccess(`Status: ${statusText}`);
-  } catch (e) {
-    showError(`Refresh failed: ${(e as { message: string }).message}`);
-  } finally {
-    refreshing.value.delete(clusterName);
-  }
-}
-
 async function disconnectCluster(clusterName: string) {
   if (confirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
     disconnecting.value.add(clusterName);
@@ -442,11 +436,23 @@ async function reconnectCluster(clusterName: string) {
     const statusText = status?.status === 'connected' ? t.value.clusters.connected :
                        status?.status === 'error' ? t.value.clusters.connectionError :
                        status?.status || 'unknown';
-    showSuccess(`Reconnected: ${statusText}`);
+    showSuccess(`${t.value.clusters.reconnected}: ${statusText}`);
   } catch (e) {
     showError(`Reconnect failed: ${(e as { message: string }).message}`);
   } finally {
     reconnecting.value.delete(clusterName);
+  }
+}
+
+async function refreshClusterTopics(clusterName: string) {
+  refreshingTopics.value.add(clusterName);
+  try {
+    await connectionStore.reconnectCluster(clusterName);
+    showSuccess(`${t.value.clusters.topicsRefreshed}: ${clusterName}`);
+  } catch (e) {
+    showError(`Failed to refresh topics: ${(e as { message: string }).message}`);
+  } finally {
+    refreshingTopics.value.delete(clusterName);
   }
 }
 

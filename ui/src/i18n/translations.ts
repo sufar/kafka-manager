@@ -90,6 +90,8 @@ export interface Translation {
     updated: string;
     created: string;
     connected: string;
+    topicsRefreshed: string;
+    reconnected: string;
   };
   topics: {
     title: string;
@@ -114,6 +116,7 @@ export interface Translation {
     partitions: string;
     consumers: string;
     settings: string;
+    refreshed: string;
   };
   messages: {
     title: string;
@@ -372,6 +375,9 @@ export interface Translation {
     schemaRegistry: string;
     acls: string;
   };
+  navigator: {
+    allClusters: string;
+  };
 }
 
 export const translations: Record<Language, Translation> = {
@@ -465,6 +471,10 @@ export const translations: Record<Language, Translation> = {
       updated: '集群已更新',
       created: '集群已创建',
       connected: '连接成功',
+      topicsRefreshed: '已刷新集群 Topic',
+      reconnected: '重连成功',
+      topics: '主题',
+      partitions: '分区',
     },
     topics: {
       title: '主题',
@@ -489,6 +499,7 @@ export const translations: Record<Language, Translation> = {
       partitions: '分区',
       consumers: '消费者',
       settings: '设置',
+      refreshed: 'Topic 已刷新',
     },
     messages: {
       title: '消息',
@@ -747,6 +758,9 @@ export const translations: Record<Language, Translation> = {
       schemaRegistry: 'Schema 注册',
       acls: 'ACLs',
     },
+    navigator: {
+      allClusters: '所有集群',
+    },
   },
   en: {
     nav: {
@@ -838,6 +852,10 @@ export const translations: Record<Language, Translation> = {
       updated: 'Cluster updated',
       created: 'Cluster created',
       connected: 'Connection successful',
+      topicsRefreshed: 'Topics refreshed for cluster',
+      reconnected: 'Reconnected successfully',
+      topics: 'Topics',
+      partitions: 'Partitions',
     },
     topics: {
       title: 'Topics',
@@ -862,6 +880,7 @@ export const translations: Record<Language, Translation> = {
       partitions: 'Partitions',
       consumers: 'Consumers',
       settings: 'Settings',
+      refreshed: 'Topics refreshed',
     },
     messages: {
       title: 'Messages',
@@ -1119,6 +1138,9 @@ export const translations: Record<Language, Translation> = {
       messages: 'Messages',
       schemaRegistry: 'Schema Registry',
       acls: 'ACLs',
+    },
+    navigator: {
+      allClusters: 'All Clusters',
     },
   },
 };

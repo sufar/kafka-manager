@@ -10,6 +10,15 @@
         </div>
         <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Topics</span>
       </div>
+      <button
+        class="btn btn-ghost btn-xs"
+        @click="goToClusters"
+        title="Manage Clusters"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+        </svg>
+      </button>
     </div>
 
     <!-- Search Box -->
@@ -109,19 +118,33 @@
 
     <!-- Status Bar -->
     <div class="p-2 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-2">
         <span>{{ filteredTopics.length }} topics</span>
-        <span v-if="searchQuery">搜索中</span>
+        <div class="flex items-center gap-1">
+          <span class="text-xs">Cluster:</span>
+          <select
+            v-model="selectedClusterFilter"
+            class="select select-bordered select-xs"
+            @change="onClusterFilterChange"
+          >
+            <option value="">{{ t.navigator.allClusters }}</option>
+            <option v-for="cluster in clusterStore.clusters" :key="cluster.name" :value="cluster.name">
+              {{ cluster.name }}
+            </option>
+          </select>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
+import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
 
 interface TopicInfo {
   name: string;
@@ -135,12 +158,18 @@ interface TopicItem {
 
 const emit = defineEmits<{
   navigate: [{ path: string; query?: Record<string, string> }];
+  update: [];
 }>();
 
 const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const route = useRoute();
+const router = useRouter();
+const t = computed(() => languageStore.t);
 
 // State
 const searchQuery = ref('');
+const selectedClusterFilter = ref(''); // 空表示所有集群
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
@@ -148,7 +177,7 @@ const selectedTopic = ref<TopicInfo | null>(null);
 // Debounce timer
 let searchTimer: number | null = null;
 
-// Filtered topics
+// Filtered topics - search only (cluster filtering is done on backend)
 const filteredTopics = computed(() => {
   if (!searchQuery.value.trim()) {
     return allTopics.value;
@@ -172,14 +201,19 @@ function getClusterHealth(clusterName: string) {
   return clusterStore.clusterHealth[clusterName];
 }
 
-// Load all topics from all clusters
+// Load all topics from all clusters or selected cluster
 async function loadAllTopics() {
   loading.value = true;
   try {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    for (const cluster of clusters) {
+    // If a specific cluster is selected, only load topics from that cluster
+    const targetClusters = selectedClusterFilter.value
+      ? clusters.filter(c => c.name === selectedClusterFilter.value)
+      : clusters;
+
+    for (const cluster of targetClusters) {
       try {
         const clusterTopics = await apiClient.getTopics(cluster.name);
         for (const topicName of clusterTopics) {
@@ -219,6 +253,12 @@ function onSearchInput() {
   }, 300);
 }
 
+// Cluster filter change handler
+function onClusterFilterChange() {
+  // Clear search query when changing cluster filter
+  searchQuery.value = '';
+}
+
 // Clear search
 function clearSearch() {
   searchQuery.value = '';
@@ -236,9 +276,58 @@ function selectTopic(topic: TopicInfo) {
   });
 }
 
+// Go to clusters page
+function goToClusters() {
+  emit('navigate', {
+    path: '/clusters'
+  });
+}
+
 onMounted(() => {
   loadAllTopics();
 });
+
+// Watch for cluster changes and reload topics
+watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
+  loadAllTopics();
+});
+
+// Watch for route changes to handle cluster and search query params
+watch(
+  () => route.query,
+  (newQuery) => {
+    const cluster = newQuery.cluster as string;
+    const search = newQuery.search as string;
+
+    if (cluster && clusterStore.clusters.some(c => c.name === cluster)) {
+      selectedClusterFilter.value = cluster;
+    }
+
+    if (search) {
+      searchQuery.value = search;
+    }
+
+    // If both cluster and topic are provided, select the topic and navigate to messages
+    const topic = newQuery.topic as string;
+    if (cluster && topic) {
+      // Wait for topics to load
+      setTimeout(() => {
+        const targetTopic = allTopics.value.find(
+          t => t.cluster === cluster && t.name === topic
+        );
+        if (targetTopic) {
+          selectedTopic.value = targetTopic;
+          // Navigate to messages view
+          router.replace({
+            path: '/messages',
+            query: { cluster, topic }
+          });
+        }
+      }, 100);
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>

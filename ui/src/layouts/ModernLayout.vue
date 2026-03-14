@@ -565,10 +565,19 @@ function handleSearchKeydown(e: KeyboardEvent) {
 async function selectSearchResult(result: { cluster: string; topic: string }) {
   showSearchDropdown.value = false;
   searchQuery.value = '';
-  // 先立即导航到消息页面，让用户立即看到结果
-  router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
-  // 然后异步展开左侧树（不阻塞导航）
-  clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
+
+  if (sidebarMode.value === 'tree') {
+    // Tree mode: expand tree and highlight topic (existing behavior)
+    router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
+    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
+  } else {
+    // Flat mode: navigate to topics with cluster filter and search query
+    // TopicNavigator will handle selecting the topic and navigating to messages
+    router.push({
+      path: '/topics',
+      query: { cluster: result.cluster, search: result.topic }
+    });
+  }
 }
 
 // Ctrl+K 快捷键聚焦搜索框
