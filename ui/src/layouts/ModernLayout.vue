@@ -101,14 +101,42 @@
 
     <!-- Main Layout Container -->
     <div class="flex h-screen pt-12 overflow-hidden p-2">
-      <!-- Left Sidebar - Tree Navigator -->
+      <!-- Left Sidebar - Navigator -->
       <aside
         ref="leftSidebarRef"
         class="glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
         :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
       >
+        <!-- Sidebar Mode Switcher -->
+        <div class="flex items-center justify-center p-2 border-b border-base-200">
+          <div class="btn-group btn-group-xs w-full">
+            <button
+              class="btn btn-xs flex-1"
+              :class="{ 'btn-active': sidebarMode === 'tree' }"
+              @click="setSidebarMode('tree')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 mr-1">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+              树形
+            </button>
+            <button
+              class="btn btn-xs flex-1"
+              :class="{ 'btn-active': sidebarMode === 'flat' }"
+              @click="setSidebarMode('flat')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 mr-1">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+              列表
+            </button>
+          </div>
+        </div>
+
         <div class="flex-1 overflow-y-auto p-2">
+          <!-- Tree Mode -->
           <ClusterTreeNavigator
+            v-if="sidebarMode === 'tree'"
             ref="clusterTreeNavigatorRef"
             @navigate="handleNavigate"
             @cluster-context-menu="showClusterMenuFromTree"
@@ -116,6 +144,11 @@
             @partition-context-menu="showPartitionMenuFromTree"
             @topics-folder-context-menu="showTopicsFolderMenuFromTree"
             @toast="handleToast"
+          />
+          <!-- Flat Mode -->
+          <TopicNavigator
+            v-else
+            @navigate="handleNavigate"
           />
         </div>
       </aside>
@@ -214,6 +247,7 @@ import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import ClusterTreeNavigator from '@/components/ClusterTreeNavigator.vue';
+import TopicNavigator from '@/components/TopicNavigator.vue';
 import ClusterContextMenu from '@/components/ContextMenus/ClusterContextMenu.vue';
 import TopicContextMenu from '@/components/ContextMenus/TopicContextMenu.vue';
 import TopicsFolderContextMenu from '@/components/ContextMenus/TopicsFolderContextMenu.vue';
@@ -232,8 +266,34 @@ const testingCluster = ref<string | null>(null);
 const disconnectingCluster = ref<string | null>(null);
 const reconnectingCluster = ref<string | null>(null);
 
+// Sidebar mode: 'tree' | 'flat'
+const sidebarMode = ref<'tree' | 'flat'>('tree');
+
 // Ref for ClusterTreeNavigator
 const clusterTreeNavigatorRef = ref<InstanceType<typeof ClusterTreeNavigator>>();
+
+// Load sidebar mode setting
+async function loadSidebarModeSetting() {
+  try {
+    const settings = await apiClient.getSettings(['ui.sidebar_mode']);
+    const mode = settings.find((s: { key: string; value: string }) => s.key === 'ui.sidebar_mode')?.value;
+    if (mode === 'tree' || mode === 'flat') {
+      sidebarMode.value = mode;
+    }
+  } catch (e) {
+    console.error('Failed to load sidebar mode setting:', e);
+  }
+}
+
+// Set sidebar mode and save to backend
+async function setSidebarMode(mode: 'tree' | 'flat') {
+  sidebarMode.value = mode;
+  try {
+    await apiClient.updateSetting('ui.sidebar_mode', mode);
+  } catch (e) {
+    console.error('Failed to save sidebar mode setting:', e);
+  }
+}
 
 const { isDark, toggleTheme } = themeStore;
 const toggleLanguage = languageStore.toggleLanguage;
@@ -839,6 +899,9 @@ onMounted(async () => {
 
   // 恢复侧边栏宽度
   restoreSidebarWidth();
+
+  // 加载侧边栏模式设置
+  await loadSidebarModeSetting();
 
   // 注册全局键盘事件
   document.addEventListener('keydown', handleGlobalKeydown);
