@@ -1720,16 +1720,22 @@ async fn fetch_messages_local(
             let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
             let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
             let mut total_empty = 0;
+            // 优化：使用极大的空轮次限制，确保能取完所有分区的消息
+            // 基于分区数和单分区消息数动态计算，给足够的时间消费
+            let max_empty_rounds = (partition_count * max_messages).max(5000);
 
-            while all_msgs.len() < max_messages * partition_count && total_empty < partition_count * 3 {
-                match consumer.poll(Duration::from_millis(10)) {
+            while all_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds {
+                match consumer.poll(Duration::from_millis(50)) {
                     Some(Ok(msg)) => {
-                        total_empty = 0;
                         let part = msg.partition();
                         let count = partition_counts.get(&part).copied().unwrap_or(0);
                         if count >= max_messages {
+                            // 分区已满，跳过但不增加 total_empty（因为这不是真的没有消息）
                             continue;
                         }
+
+                        // 成功获取消息，重置计数器
+                        total_empty = 0;
 
                         let ts = msg.timestamp().to_millis();
                         if let Some(start) = start_time {
@@ -1904,9 +1910,9 @@ async fn fetch_messages_remote(
         let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
         let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
         let mut total_empty = 0;
-        // 优化：增加空轮次限制，避免网络延迟导致的过早退出
-        // 基于消息数量和分区数动态计算，最少 30 轮
-        let max_empty_rounds = (partition_count * 10).max(30);
+        // 优化：使用极大的空轮次限制，确保能取完所有分区的消息
+        // 基于分区数和单分区消息数动态计算，给足够的时间消费
+        let max_empty_rounds = (partition_count * max_messages).max(5000);
 
         // 计算需要获取的总消息数
         let target_total = max_messages * partition_count;
@@ -1925,14 +1931,17 @@ async fn fetch_messages_remote(
 
             match consumer.poll(poll_timeout) {
                 Some(Ok(msg)) => {
-                    total_empty = 0;
                     let part = msg.partition();
 
                     // 检查该分区是否已达上限
                     let count = partition_counts.get(&part).copied().unwrap_or(0);
                     if count >= max_messages {
+                        // 分区已满，跳过但不增加 total_empty（因为这不是真的没有消息）
                         continue;
                     }
+
+                    // 成功获取消息，重置计数器
+                    total_empty = 0;
 
                     let ts = msg.timestamp().to_millis();
 

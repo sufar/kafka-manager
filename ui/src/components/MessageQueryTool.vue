@@ -78,79 +78,90 @@
     </div>
 
     <!-- 消息列表 -->
-    <div class="flex-1 overflow-auto bg-base-100">
-      <!-- Desktop Table -->
-      <table class="table table-sm w-full min-w-[600px] hidden md:table">
-        <thead class="sticky top-0 bg-base-200 z-10">
-          <tr>
-            <th class="w-14 text-xs">分区</th>
-            <th class="w-20 text-xs">Offset</th>
-            <th class="w-32 text-xs">时间戳</th>
-            <th class="w-24 text-xs">Key</th>
-            <th class="text-xs">Value</th>
-            <th class="w-14 text-xs">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="msg in messages" :key="`${msg.partition}-${msg.offset}`" class="hover:bg-base-200/50 transition-colors">
-            <td class="text-xs">
-              <span class="badge badge-ghost badge-sm">{{ msg.partition }}</span>
-            </td>
-            <td class="text-xs font-mono">{{ msg.offset }}</td>
-            <td class="text-xs text-base-content/70 whitespace-nowrap">{{ formatTime(msg.timestamp) }}</td>
-            <td class="text-xs font-mono truncate max-w-[80px]">{{ msg.key || '-' }}</td>
-            <td class="text-xs font-mono truncate">{{ truncate(msg.value, 80) }}</td>
-            <td class="text-xs">
-              <button class="btn btn-ghost btn-xs" @click="copyMessage(msg)">
+    <div class="flex-1 overflow-hidden bg-base-100">
+      <!-- Desktop Table with Virtual Scroll -->
+      <div class="hidden md:flex md:flex-col h-full">
+        <!-- Table Header -->
+        <div class="flex bg-base-200 px-4 py-2 text-xs font-semibold min-w-[600px]">
+          <div class="w-14 flex-shrink-0">分区</div>
+          <div class="w-20 flex-shrink-0">Offset</div>
+          <div class="w-32 flex-shrink-0">时间戳</div>
+          <div class="w-24 flex-shrink-0">Key</div>
+          <div class="flex-1 min-w-0">Value</div>
+          <div class="w-14 flex-shrink-0 text-center">操作</div>
+        </div>
+        <!-- Virtual Scroll List -->
+        <RecycleScroller
+          v-if="messages.length > 0"
+          class="flex-1 overflow-auto min-w-[600px]"
+          :items="messages"
+          :item-size="40"
+          key-field="uid"
+          v-slot="{ item }"
+        >
+          <div
+            class="flex items-center px-4 py-2 hover:bg-base-200/50 transition-colors border-b border-base-200/50 cursor-pointer"
+            style="height: 40px;"
+            @click="selectedMessage = (item as any)"
+          >
+            <div class="w-14 flex-shrink-0 text-xs">
+              <span class="badge badge-ghost badge-sm">{{ getMsgPartition(item) }}</span>
+            </div>
+            <div class="w-20 flex-shrink-0 text-xs font-mono">{{ getMsgOffset(item) }}</div>
+            <div class="w-32 flex-shrink-0 text-xs text-base-content/70 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
+            <div class="w-24 flex-shrink-0 text-xs font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
+            <div class="flex-1 min-w-0 text-xs font-mono truncate pr-4">{{ truncate(getMsgValue(item), 80) }}</div>
+            <div class="w-14 flex-shrink-0 text-xs flex items-center justify-center">
+              <button class="btn btn-ghost btn-xs" @click.stop="copyMessage(item as any)">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
               </button>
-            </td>
-          </tr>
-          <tr v-if="messages.length === 0 && !loading">
-            <td colspan="6" class="text-center py-8 text-base-content/50">
-              <div class="flex flex-col items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
-                </svg>
-                <span>暂无消息</span>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Mobile Card View -->
-      <div class="md:hidden space-y-2 p-2">
-        <div
-          v-for="msg in messages"
-          :key="`${msg.partition}-${msg.offset}`"
-          class="card bg-base-100 border border-base-200 p-3 shadow-sm"
-          @click="selectedMessage = msg"
-        >
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-ghost badge-sm">P{{ msg.partition }}</span>
-              <span class="text-xs font-mono text-base-content/70">#{{ msg.offset }}</span>
             </div>
-            <span class="text-xs text-base-content/50">{{ formatTime(msg.timestamp) }}</span>
           </div>
-          <div v-if="msg.key" class="text-xs font-mono text-secondary mb-1 truncate">
-            Key: {{ msg.key }}
+        </RecycleScroller>
+        <div v-if="messages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
+          </svg>
+          <span>暂无消息</span>
+        </div>
+      </div>
+
+      <!-- Mobile Card View with Virtual Scroll -->
+      <RecycleScroller
+        v-if="messages.length > 0"
+        class="md:hidden h-full overflow-auto p-2"
+        :items="messages"
+        :item-size="90"
+        key-field="uid"
+        v-slot="{ item }"
+      >
+        <div
+          class="card bg-base-100 border border-base-200 p-3 shadow-sm mb-2 cursor-pointer"
+          style="height: 82px;"
+          @click="selectedMessage = (item as any)"
+        >
+          <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-ghost badge-sm">P{{ getMsgPartition(item) }}</span>
+              <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
+            </div>
+            <span class="text-xs text-base-content/50">{{ formatTime(getMsgTimestamp(item)) }}</span>
+          </div>
+          <div v-if="getMsgKey(item)" class="text-xs font-mono text-secondary mb-1 truncate">
+            Key: {{ getMsgKey(item) }}
           </div>
           <div class="text-sm font-mono truncate text-base-content/80">
-            {{ truncate(msg.value, 100) }}
+            {{ truncate(getMsgValue(item), 100) }}
           </div>
         </div>
-        <div v-if="messages.length === 0 && !loading" class="text-center py-8 text-base-content/50">
-          <div class="flex flex-col items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
-            </svg>
-            <span>暂无消息</span>
-          </div>
-        </div>
+      </RecycleScroller>
+      <div v-else-if="messages.length === 0 && !loading" class="md:hidden h-full flex flex-col items-center justify-center text-base-content/50 p-2">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
+        </svg>
+        <span>暂无消息</span>
       </div>
     </div>
 
@@ -174,8 +185,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
-import { useClusterStore } from '@/stores/cluster';
 
 const route = useRoute();
 
@@ -185,10 +196,8 @@ interface Message {
   key: string | null;
   value: string | null;
   timestamp: number | null;
+  uid: string;
 }
-
-// Store
-const clusterStore = useClusterStore();
 
 // Props - 从父组件接收 cluster 和 topic
 const props = defineProps<{
@@ -199,7 +208,7 @@ const props = defineProps<{
 // 状态
 const partitions = ref<number[]>([]);
 const messages = ref<Message[]>([]);
-const selectedMessage = ref<Message | null>(null);
+const selectedMessage = ref<any>(null);
 
 // 查询参数
 const selectedCluster = ref('');
@@ -281,12 +290,13 @@ async function queryMessages() {
       params
     );
 
-    messages.value = result.map((msg: any) => ({
+    messages.value = result.map((msg: any, index: number) => ({
       partition: msg.partition,
       offset: msg.offset,
       key: msg.key,
       value: msg.value,
       timestamp: msg.timestamp,
+      uid: `${msg.partition}-${msg.offset}-${index}`,
     }));
 
     lastQueryTime.value = Math.round(performance.now() - startTime);
@@ -333,7 +343,7 @@ function exportMessages() {
   URL.revokeObjectURL(url);
 }
 
-function copyMessage(msg: Message) {
+function copyMessage(msg: any) {
   const text = JSON.stringify(msg, null, 2);
   navigator.clipboard.writeText(text).then(() => {
     // 可以在这里显示一个 toast
@@ -358,6 +368,13 @@ function truncate(str: string | null, len: number): string {
   if (!str) return '';
   return str.length > len ? str.slice(0, len) + '...' : str;
 }
+
+// 辅助函数：获取消息属性
+function getMsgPartition(item: any): number { return item?.partition ?? 0; }
+function getMsgOffset(item: any): number { return item?.offset ?? 0; }
+function getMsgKey(item: any): string | null { return item?.key; }
+function getMsgValue(item: any): string | null { return item?.value; }
+function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
 
 onMounted(async () => {
   // 优先使用 props 传入的 cluster 和 topic
@@ -446,5 +463,19 @@ onUnmounted(() => {
 pre {
   white-space: pre-wrap;
   word-break: break-all;
+}
+.vue-recycle-scroller {
+  position: relative;
+}
+
+.vue-recycle-scroller__item-wrapper {
+  flex: 1;
+}
+
+.vue-recycle-scroller__item-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
 }
 </style>
