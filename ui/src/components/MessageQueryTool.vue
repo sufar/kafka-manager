@@ -1,60 +1,66 @@
 <template>
   <div class="message-query-tool h-full flex flex-col">
     <!-- 查询工具栏 -->
-    <div class="toolbar flex items-center gap-2 p-3 border-b border-base-300 bg-base-100">
-      <!-- 集群选择 -->
-      <select v-model="selectedCluster" class="select select-bordered select-sm w-48" @change="onClusterChange">
-        <option value="">选择集群</option>
-        <option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">
-          {{ cluster.name }}
-        </option>
-      </select>
+    <div class="toolbar flex flex-col md:flex-row items-stretch md:items-center gap-2 p-3 border-b border-base-300 bg-base-100">
+      <!-- Row 1: Main Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- 集群选择 -->
+        <select v-model="selectedCluster" class="select select-bordered select-sm flex-1 md:w-48 md:flex-none" @change="onClusterChange">
+          <option value="">选择集群</option>
+          <option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">
+            {{ cluster.name }}
+          </option>
+        </select>
 
-      <!-- Topic 选择 -->
-      <select v-model="selectedTopic" class="select select-bordered select-sm w-48" :disabled="!selectedCluster" @change="onTopicChange">
-        <option value="">选择 Topic</option>
-        <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
-      </select>
+        <!-- Topic 选择 -->
+        <select v-model="selectedTopic" class="select select-bordered select-sm flex-1 md:w-48 md:flex-none" :disabled="!selectedCluster" @change="onTopicChange">
+          <option value="">选择 Topic</option>
+          <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
+        </select>
 
-      <!-- 分区选择 -->
-      <select v-model="selectedPartition" class="select select-bordered select-sm w-24" :disabled="!selectedTopic">
-        <option value="all">全部分区</option>
-        <option v-for="p in partitions" :key="p" :value="p">分区 {{ p }}</option>
-      </select>
+        <!-- 分区选择 -->
+        <select v-model="selectedPartition" class="select select-bordered select-sm w-24" :disabled="!selectedTopic">
+          <option value="all">全部分区</option>
+          <option v-for="p in partitions" :key="p" :value="p">分区 {{ p }}</option>
+        </select>
+      </div>
 
-      <!-- 查询模式 -->
-      <select v-model="fetchMode" class="select select-bordered select-sm w-28">
-        <option value="newest">最新消息</option>
-        <option value="oldest">最早消息</option>
-      </select>
+      <!-- Row 2: Search & Actions -->
+      <div class="flex flex-wrap items-center gap-2 flex-1">
+        <!-- 查询模式 -->
+        <select v-model="fetchMode" class="select select-bordered select-sm w-28">
+          <option value="newest">最新消息</option>
+          <option value="oldest">最早消息</option>
+        </select>
 
-      <!-- 数量 -->
-      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-20" min="1" max="1000" />
+        <!-- 数量 -->
+        <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-20" min="1" max="1000" />
 
-      <!-- 搜索 -->
-      <input v-model="searchKeyword" type="text" class="input input-bordered input-sm flex-1 min-w-32" placeholder="搜索消息内容..." />
+        <!-- 搜索 -->
+        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm flex-1 min-w-32" placeholder="搜索消息内容..." />
 
-      <!-- 查询按钮 -->
-      <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery" @click="queryMessages">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
-          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-        </svg>
-        查询
-      </button>
+        <!-- 查询按钮 -->
+        <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery" @click="queryMessages">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1 md:mr-1">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <span class="hidden md:inline">查询</span>
+        </button>
 
-      <!-- 停止按钮 -->
-      <button v-if="loading" class="btn btn-error btn-sm" @click="stopQuery">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+        <!-- 停止按钮 -->
+        <button v-if="loading" class="btn btn-error btn-sm" @click="stopQuery">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
 
-      <!-- 导出 -->
-      <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-        </svg>
-      </button>
+        <!-- 导出 -->
+        <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- 状态栏 -->
@@ -85,15 +91,16 @@
 
     <!-- 消息列表 -->
     <div class="flex-1 overflow-auto bg-base-100">
-      <table class="table table-sm w-full">
+      <!-- Desktop Table -->
+      <table class="table table-sm w-full min-w-[600px] hidden md:table">
         <thead class="sticky top-0 bg-base-200 z-10">
           <tr>
-            <th class="w-16 text-xs">分区</th>
-            <th class="w-24 text-xs">Offset</th>
-            <th class="w-40 text-xs">时间戳</th>
-            <th class="w-32 text-xs">Key</th>
+            <th class="w-14 text-xs">分区</th>
+            <th class="w-20 text-xs">Offset</th>
+            <th class="w-32 text-xs">时间戳</th>
+            <th class="w-24 text-xs">Key</th>
             <th class="text-xs">Value</th>
-            <th class="w-16 text-xs">操作</th>
+            <th class="w-14 text-xs">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -102,9 +109,9 @@
               <span class="badge badge-ghost badge-sm">{{ msg.partition }}</span>
             </td>
             <td class="text-xs font-mono">{{ msg.offset }}</td>
-            <td class="text-xs text-base-content/70">{{ formatTime(msg.timestamp) }}</td>
-            <td class="text-xs font-mono truncate max-w-32" :title="msg.key || undefined">{{ msg.key || '-' }}</td>
-            <td class="text-xs font-mono truncate max-w-md" :title="msg.value || undefined">{{ truncate(msg.value, 80) }}</td>
+            <td class="text-xs text-base-content/70 whitespace-nowrap">{{ formatTime(msg.timestamp) }}</td>
+            <td class="text-xs font-mono truncate max-w-[80px]">{{ msg.key || '-' }}</td>
+            <td class="text-xs font-mono truncate">{{ truncate(msg.value, 80) }}</td>
             <td class="text-xs">
               <button class="btn btn-ghost btn-xs" @click="copyMessage(msg)">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -125,6 +132,38 @@
           </tr>
         </tbody>
       </table>
+
+      <!-- Mobile Card View -->
+      <div class="md:hidden space-y-2 p-2">
+        <div
+          v-for="msg in messages"
+          :key="`${msg.partition}-${msg.offset}`"
+          class="card bg-base-100 border border-base-200 p-3 shadow-sm"
+          @click="selectedMessage = msg"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-ghost badge-sm">P{{ msg.partition }}</span>
+              <span class="text-xs font-mono text-base-content/70">#{{ msg.offset }}</span>
+            </div>
+            <span class="text-xs text-base-content/50">{{ formatTime(msg.timestamp) }}</span>
+          </div>
+          <div v-if="msg.key" class="text-xs font-mono text-secondary mb-1 truncate">
+            Key: {{ msg.key }}
+          </div>
+          <div class="text-sm font-mono truncate text-base-content/80">
+            {{ truncate(msg.value, 100) }}
+          </div>
+        </div>
+        <div v-if="messages.length === 0 && !loading" class="text-center py-8 text-base-content/50">
+          <div class="flex flex-col items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
+            </svg>
+            <span>暂无消息</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 详情面板（可选） -->

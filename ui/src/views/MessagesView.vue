@@ -1,27 +1,29 @@
 <template>
   <div class="messages-view h-full flex flex-col">
     <!-- 界面模式切换器 -->
-    <div class="mode-switcher flex items-center justify-between px-3 py-2 border-b border-base-300 bg-base-200/50">
+    <div class="mode-switcher flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50">
       <div class="flex items-center gap-2">
-        <span class="text-xs text-base-content/60">消息界面:</span>
+        <span class="text-xs text-base-content/60 hidden sm:inline">消息界面:</span>
         <div class="btn-group btn-group-sm">
           <button
-            class="btn btn-sm"
+            class="btn btn-sm btn-xs sm:btn-sm"
             :class="{ 'btn-active': viewMode === 'classic' }"
             @click="setViewMode('classic')"
           >
-            经典模式
+            <span class="hidden sm:inline">经典模式</span>
+            <span class="sm:hidden">经典</span>
           </button>
           <button
-            class="btn btn-sm"
+            class="btn btn-sm btn-xs sm:btn-sm"
             :class="{ 'btn-active': viewMode === 'simple' }"
             @click="setViewMode('simple')"
           >
-            简洁模式
+            <span class="hidden sm:inline">简洁模式</span>
+            <span class="sm:hidden">简洁</span>
           </button>
         </div>
       </div>
-      <div class="text-xs text-base-content/50">
+      <div class="text-xs text-base-content/50 hidden md:block">
         {{ viewMode === 'classic' ? '功能完整，适合复杂操作' : '轻量快速，适合日常查询' }}
       </div>
     </div>

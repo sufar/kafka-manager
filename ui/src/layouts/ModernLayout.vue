@@ -3,6 +3,18 @@
     <!-- Top Navigation Bar -->
     <header class="fixed top-0 left-0 right-0 h-10 bg-base-100/80 backdrop-blur border-b border-base-200 z-50 px-2 flex items-center justify-between">
       <div class="flex items-center gap-2">
+        <!-- Mobile Menu Button -->
+        <button
+          v-if="isMobile"
+          class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0 md:hidden"
+          @click="sidebarOpen = true"
+          title="Open menu"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
+
         <!-- Logo and Brand -->
         <div class="flex items-center gap-1.5">
           <div class="w-6 h-6 rounded bg-primary flex items-center justify-center shadow-lg flex-shrink-0">
@@ -13,8 +25,8 @@
           <h1 class="text-base font-bold whitespace-nowrap">Kafka Manager</h1>
         </div>
 
-        <!-- Topic Search -->
-        <div class="relative ml-2">
+        <!-- Topic Search - Desktop -->
+        <div class="relative ml-2 hidden md:block">
           <input
             ref="searchInputRef"
             v-model="searchQuery"
@@ -63,46 +75,140 @@
             </div>
           </div>
         </div>
+
+        <!-- Mobile Search Button -->
+        <button
+          v-if="isMobile"
+          class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0 md:hidden ml-1"
+          @click="showMobileSearch = true"
+          title="Search"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+        </button>
       </div>
 
       <div class="flex items-center gap-0.5 flex-shrink-0">
-        <!-- Language Toggle -->
-        <button
-          class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
-          @click="toggleLanguage"
-          :title="`Toggle language (Current: ${currentLanguage === 'zh' ? '中文' : 'EN'})`"
-        >
-          <span class="text-[10px] font-bold">{{ currentLanguage === 'zh' ? 'EN' : '中' }}</span>
-        </button>
+        <!-- Mobile More Menu -->
+        <div v-if="isMobile" class="dropdown dropdown-end md:hidden">
+          <button tabindex="0" class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+            </svg>
+          </button>
+          <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-xl z-50 w-32 mt-2">
+            <li>
+              <a @click="toggleLanguage">
+                <span class="text-xs">{{ currentLanguage === 'zh' ? 'English' : '中文' }}</span>
+              </a>
+            </li>
+            <li>
+              <a @click="toggleTheme">
+                <span class="text-xs">{{ isDark ? 'Light' : 'Dark' }}</span>
+              </a>
+            </li>
+            <li>
+              <router-link to="/settings">
+                <span class="text-xs">{{ t.layout.settings }}</span>
+              </router-link>
+            </li>
+          </ul>
+        </div>
 
-        <!-- Theme Toggle -->
-        <button
-          class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
-          @click="toggleTheme"
-          title="Toggle theme"
-        >
-          <svg v-if="!isDark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-          </svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-          </svg>
-        </button>
+        <!-- Desktop Controls -->
+        <div class="hidden md:flex items-center gap-0.5">
+          <!-- Language Toggle -->
+          <button
+            class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
+            @click="toggleLanguage"
+            :title="`Toggle language (Current: ${currentLanguage === 'zh' ? '中文' : 'EN'})`"
+          >
+            <span class="text-[10px] font-bold">{{ currentLanguage === 'zh' ? 'EN' : '中' }}</span>
+          </button>
 
-        <!-- Settings Button -->
-        <router-link to="/settings" class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0" :title="t.layout.settings">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-          </svg>
-        </router-link>
+          <!-- Theme Toggle -->
+          <button
+            class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
+            @click="toggleTheme"
+            title="Toggle theme"
+          >
+            <svg v-if="!isDark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+            </svg>
+          </button>
+
+          <!-- Settings Button -->
+          <router-link to="/settings" class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0" :title="t.layout.settings">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+          </router-link>
+        </div>
       </div>
     </header>
 
+    <!-- Mobile Search Drawer -->
+    <div
+      v-if="isMobile && showMobileSearch"
+      class="fixed inset-0 bg-base-100 z-[60] md:hidden flex flex-col"
+    >
+      <div class="flex items-center gap-2 p-2 border-b border-base-200">
+        <button
+          class="btn btn-ghost btn-circle btn-sm"
+          @click="showMobileSearch = false"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="input input-bordered flex-1"
+          :placeholder="t.layout.searchPlaceholder"
+          @input="performSearch"
+        />
+      </div>
+      <div class="flex-1 overflow-y-auto">
+        <div v-if="searchLoading" class="p-4 text-center">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+        <div v-else-if="searchResults.length === 0 && searchQuery" class="p-4 text-center text-base-content/60">
+          {{ t.layout.noTopicsFound }}
+        </div>
+        <div v-else>
+          <div
+            v-for="result in searchResults"
+            :key="`${result.cluster}-${result.topic}`"
+            class="flex items-center justify-between p-4 hover:bg-base-200 cursor-pointer border-b border-base-200"
+            @click="selectSearchResult(result); showMobileSearch = false"
+          >
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-secondary flex-shrink-0">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                </svg>
+                <span class="font-mono">{{ result.topic }}</span>
+              </div>
+            </div>
+            <div class="badge badge-ghost badge-sm ml-2">
+              {{ result.cluster }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Main Layout Container -->
     <div class="flex h-screen pt-12 overflow-hidden p-2">
-      <!-- Left Sidebar - Navigator -->
+      <!-- Left Sidebar - Navigator - Desktop Only (shown in normal flow) -->
       <aside
+        v-if="!isMobile"
         ref="leftSidebarRef"
         class="glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
         :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
@@ -153,8 +259,73 @@
         </div>
       </aside>
 
-      <!-- Resizer Handle -->
+      <!-- Mobile Sidebar Drawer - Push mode (squeezes main content) -->
+      <aside
+        v-if="isMobile && sidebarOpen"
+        class="h-full w-72 glass gradient-border overflow-hidden flex flex-col rounded-l-xl flex-shrink-0"
+      >
+          <!-- Mobile Sidebar Header -->
+          <div class="flex items-center justify-between p-3 border-b border-base-200">
+            <span class="font-bold">Menu</span>
+            <button
+              class="btn btn-ghost btn-circle btn-sm"
+              @click="sidebarOpen = false"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Sidebar Mode Switcher -->
+          <div class="flex items-center justify-center p-2 border-b border-base-200">
+            <div class="btn-group btn-group-xs w-full">
+              <button
+                class="btn btn-xs flex-1"
+                :class="{ 'btn-active': sidebarMode === 'tree' }"
+                @click="setSidebarMode('tree')"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                </svg>
+                树形
+              </button>
+              <button
+                class="btn btn-xs flex-1"
+                :class="{ 'btn-active': sidebarMode === 'flat' }"
+                @click="setSidebarMode('flat')"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+                列表
+              </button>
+            </div>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-2">
+            <!-- Tree Mode -->
+            <ClusterTreeNavigator
+              v-if="sidebarMode === 'tree'"
+              ref="clusterTreeNavigatorRef"
+              @navigate="handleNavigate"
+              @cluster-context-menu="showClusterMenuFromTree"
+              @topic-context-menu="showTopicMenuFromTree"
+              @partition-context-menu="showPartitionMenuFromTree"
+              @topics-folder-context-menu="showTopicsFolderMenuFromTree"
+              @toast="handleToast"
+            />
+            <!-- Flat Mode -->
+            <TopicNavigator
+              v-else
+              @navigate="handleNavigate"
+            />
+          </div>
+        </aside>
+
+      <!-- Resizer Handle - Desktop Only -->
       <div
+        v-if="!isMobile"
         ref="resizerRef"
         class="resizer w-px cursor-col-resize hover:w-1.5 hover:bg-primary/50 transition-all z-50 flex-shrink-0"
         @mousedown="startResize"
@@ -239,7 +410,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, watch, provide, Teleport } from 'vue';
 import { useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
@@ -268,6 +439,21 @@ const reconnectingCluster = ref<string | null>(null);
 
 // Sidebar mode: 'tree' | 'flat'
 const sidebarMode = ref<'tree' | 'flat'>('tree');
+
+// Mobile responsive state
+const isMobile = ref(false);
+const sidebarOpen = ref(false);
+const showMobileSearch = ref(false);
+const MOBILE_BREAKPOINT = 768; // md breakpoint
+
+// Check if mobile
+function checkMobile() {
+  isMobile.value = window.innerWidth < MOBILE_BREAKPOINT;
+  if (!isMobile.value) {
+    sidebarOpen.value = false;
+    showMobileSearch.value = false;
+  }
+}
 
 // Ref for ClusterTreeNavigator
 const clusterTreeNavigatorRef = ref<InstanceType<typeof ClusterTreeNavigator>>();
@@ -507,6 +693,10 @@ router.afterEach(() => {
 
 function handleNavigate(route: { path: string; query?: Record<string, string> }) {
   router.push({ path: route.path, query: route.query });
+  // Close mobile sidebar after navigation
+  if (isMobile.value) {
+    sidebarOpen.value = false;
+  }
 }
 
 function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: string) {
@@ -793,6 +983,10 @@ onMounted(async () => {
   // 恢复上次浏览的状态
   restorePreviousState();
 
+  // 初始化移动端检测
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+
   // 注册全局键盘事件
   document.addEventListener('keydown', handleGlobalKeydown);
 
@@ -818,6 +1012,7 @@ function handleOpenCreateClusterModal() {
 // 清理事件监听
 onUnmounted(() => {
   window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  window.removeEventListener('resize', checkMobile);
   document.removeEventListener('keydown', handleGlobalKeydown);
   document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('mousemove', resize);
@@ -902,6 +1097,10 @@ onMounted(async () => {
 
   // 加载侧边栏模式设置
   await loadSidebarModeSetting();
+
+  // 初始化移动端检测
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
 
   // 注册全局键盘事件
   document.addEventListener('keydown', handleGlobalKeydown);
