@@ -205,7 +205,7 @@
     </div>
 
     <!-- Main Layout Container -->
-    <div class="flex h-screen pt-12 overflow-hidden p-2">
+    <div class="flex h-[calc(100vh-3rem)] mt-12 overflow-hidden p-2">
       <!-- Left Sidebar - Navigator - Desktop Only (shown in normal flow) -->
       <aside
         v-if="!isMobile"
@@ -332,10 +332,8 @@
       ></div>
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl">
-        <div class="flex-1 overflow-auto p-2">
-          <router-view />
-        </div>
+      <main class="flex-1 glass gradient-border overflow-auto min-w-0 rounded-xl p-2">
+        <router-view />
       </main>
     </div>
 
