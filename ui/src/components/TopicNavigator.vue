@@ -216,7 +216,7 @@ function clearSearch() {
 function selectTopic(topic: TopicInfo) {
   selectedTopic.value = topic;
   emit('navigate', {
-    path: '/topics',
+    path: '/messages',
     query: {
       cluster: topic.cluster,
       topic: topic.name

@@ -151,7 +151,7 @@
       </div>
 
       <!-- Mobile: Card View -->
-      <div v-else class="md:hidden space-y-1 p-1">
+      <div v-if="sortedMessages.length > 0" class="md:hidden space-y-1 p-1">
         <div
           v-for="(msg, idx) in visibleMessages"
           :key="`${msg.partition}-${msg.offset}`"

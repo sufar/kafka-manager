@@ -410,7 +410,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch, provide, Teleport } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';

@@ -1,91 +1,79 @@
 <template>
   <div class="message-query-tool h-full flex flex-col">
-    <!-- 查询工具栏 -->
-    <div class="toolbar flex flex-col md:flex-row items-stretch md:items-center gap-2 p-3 border-b border-base-300 bg-base-100">
-      <!-- Row 1: Main Controls -->
-      <div class="flex flex-wrap items-center gap-2">
-        <!-- 集群选择 -->
-        <select v-model="selectedCluster" class="select select-bordered select-sm flex-1 md:w-48 md:flex-none" @change="onClusterChange">
-          <option value="">选择集群</option>
-          <option v-for="cluster in clusters" :key="cluster.id" :value="cluster.id">
-            {{ cluster.name }}
-          </option>
-        </select>
+    <!-- 简洁搜索栏 -->
+    <div class="toolbar flex flex-wrap items-center gap-2 p-2 border-b border-base-300 bg-base-100">
+      <!-- 分区选择 -->
+      <select v-model="selectedPartition" class="select select-bordered select-sm w-28">
+        <option value="all">全部分区</option>
+        <option v-for="p in partitions" :key="p" :value="p">分区 {{ p }}</option>
+      </select>
 
-        <!-- Topic 选择 -->
-        <select v-model="selectedTopic" class="select select-bordered select-sm flex-1 md:w-48 md:flex-none" :disabled="!selectedCluster" @change="onTopicChange">
-          <option value="">选择 Topic</option>
-          <option v-for="topic in topics" :key="topic" :value="topic">{{ topic }}</option>
-        </select>
+      <!-- 查询模式 -->
+      <select v-model="fetchMode" class="select select-bordered select-sm w-24">
+        <option value="newest">最新</option>
+        <option value="oldest">最早</option>
+      </select>
 
-        <!-- 分区选择 -->
-        <select v-model="selectedPartition" class="select select-bordered select-sm w-24" :disabled="!selectedTopic">
-          <option value="all">全部分区</option>
-          <option v-for="p in partitions" :key="p" :value="p">分区 {{ p }}</option>
-        </select>
-      </div>
+      <!-- 数量 -->
+      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" title="消息数量" />
 
-      <!-- Row 2: Search & Actions -->
-      <div class="flex flex-wrap items-center gap-2 flex-1">
-        <!-- 查询模式 -->
-        <select v-model="fetchMode" class="select select-bordered select-sm w-28">
-          <option value="newest">最新消息</option>
-          <option value="oldest">最早消息</option>
-        </select>
-
-        <!-- 数量 -->
-        <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-20" min="1" max="1000" />
-
-        <!-- 搜索 -->
-        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm flex-1 min-w-32" placeholder="搜索消息内容..." />
-
-        <!-- 查询按钮 -->
-        <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery" @click="queryMessages">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1 md:mr-1">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
-          <span class="hidden md:inline">查询</span>
-        </button>
-
-        <!-- 停止按钮 -->
-        <button v-if="loading" class="btn btn-error btn-sm" @click="stopQuery">
+      <!-- 搜索 -->
+      <div class="flex-1 min-w-[120px] relative">
+        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" placeholder="搜索消息内容..." @keyup.enter="queryMessages" />
+        <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''; queryMessages()">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-
-        <!-- 导出 -->
-        <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
+
+      <!-- 查询按钮 -->
+      <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery || loading" @click="queryMessages">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+      </button>
+
+      <!-- 停止按钮 -->
+      <button v-if="loading" class="btn btn-error btn-sm" @click="stopQuery">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <!-- 导出 -->
+      <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages" title="导出消息">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+      </button>
+
+      <!-- 自动刷新 -->
+      <label class="flex items-center gap-1 cursor-pointer ml-2">
+        <input v-model="autoRefresh" type="checkbox" class="checkbox checkbox-xs" />
+        <span class="text-xs text-base-content/70">自动刷新</span>
+      </label>
+      <select v-if="autoRefresh" v-model="refreshInterval" class="select select-bordered select-xs w-16">
+        <option :value="5000">5s</option>
+        <option :value="10000">10s</option>
+        <option :value="30000">30s</option>
+        <option :value="60000">1m</option>
+      </select>
     </div>
 
     <!-- 状态栏 -->
-    <div class="status-bar flex items-center justify-between px-3 py-2 text-xs border-b border-base-300 bg-base-200/50">
+    <div class="status-bar flex items-center justify-between px-3 py-1 text-xs border-b border-base-300 bg-base-200/50">
       <div class="flex items-center gap-4">
+        <span v-if="selectedTopic" class="text-base-content/70">
+          Topic: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
+        </span>
         <span v-if="lastQueryTime > 0" class="text-base-content/70">
-          查询耗时: <span class="font-mono font-bold text-primary">{{ lastQueryTime }}ms</span>
+          耗时: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
         </span>
         <span v-if="messages.length > 0" class="text-base-content/70">
-          消息数量: <span class="font-mono font-bold text-success">{{ messages.length }}</span>
+          共 <span class="font-mono font-bold text-success">{{ messages.length }}</span> 条
         </span>
         <span v-if="error" class="text-error">{{ error }}</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <!-- 自动刷新 -->
-        <label class="flex items-center gap-1 cursor-pointer">
-          <input v-model="autoRefresh" type="checkbox" class="checkbox checkbox-xs" />
-          <span class="text-base-content/70">自动刷新</span>
-        </label>
-        <select v-if="autoRefresh" v-model="refreshInterval" class="select select-bordered select-xs w-20">
-          <option :value="5000">5秒</option>
-          <option :value="10000">10秒</option>
-          <option :value="30000">30秒</option>
-          <option :value="60000">1分钟</option>
-        </select>
       </div>
     </div>
 
@@ -185,8 +173,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
+
+const route = useRoute();
 
 interface Message {
   partition: number;
@@ -199,9 +190,13 @@ interface Message {
 // Store
 const clusterStore = useClusterStore();
 
+// Props - 从父组件接收 cluster 和 topic
+const props = defineProps<{
+  cluster?: string;
+  topic?: string;
+}>();
+
 // 状态
-const clusters = computed(() => clusterStore.clusters);
-const topics = ref<string[]>([]);
 const partitions = ref<number[]>([]);
 const messages = ref<Message[]>([]);
 const selectedMessage = ref<Message | null>(null);
@@ -226,7 +221,7 @@ let refreshTimer: number | null = null;
 
 // 计算属性
 const canQuery = computed(() => {
-  return selectedCluster.value && selectedTopic.value && !loading.value;
+  return !!selectedCluster.value && !!selectedTopic.value && !loading.value;
 });
 
 // 监听自动刷新
@@ -246,28 +241,7 @@ watch(refreshInterval, () => {
 });
 
 // 方法
-async function onClusterChange() {
-  selectedTopic.value = '';
-  selectedPartition.value = 'all';
-  topics.value = [];
-  partitions.value = [];
-  messages.value = [];
-
-  if (!selectedCluster.value) return;
-
-  try {
-    topics.value = await apiClient.getTopics(selectedCluster.value);
-  } catch (e) {
-    console.error('Failed to fetch topics:', e);
-    error.value = '获取 Topic 列表失败';
-  }
-}
-
-async function onTopicChange() {
-  selectedPartition.value = 'all';
-  partitions.value = [];
-  messages.value = [];
-
+async function loadPartitions() {
   if (!selectedCluster.value || !selectedTopic.value) return;
 
   try {
@@ -385,8 +359,61 @@ function truncate(str: string | null, len: number): string {
   return str.length > len ? str.slice(0, len) + '...' : str;
 }
 
-onMounted(() => {
-  // 初始化
+onMounted(async () => {
+  // 优先使用 props 传入的 cluster 和 topic
+  if (props.cluster) {
+    selectedCluster.value = props.cluster;
+  }
+  if (props.topic) {
+    selectedTopic.value = props.topic;
+  }
+
+  // 如果 props 没有，从 URL 参数获取
+  if (!selectedCluster.value || !selectedTopic.value) {
+    const { cluster, topic, partition } = route.query;
+    if (cluster && typeof cluster === 'string') {
+      selectedCluster.value = cluster;
+    }
+    if (topic && typeof topic === 'string') {
+      selectedTopic.value = topic;
+    }
+    if (partition && typeof partition === 'string') {
+      const partitionNum = parseInt(partition, 10);
+      if (!isNaN(partitionNum)) {
+        selectedPartition.value = partitionNum;
+      }
+    }
+  }
+
+  // 加载分区信息并自动查询
+  if (selectedCluster.value && selectedTopic.value) {
+    await loadPartitions();
+    await queryMessages();
+  }
+});
+
+// 监听 props 变化
+watch(() => props.cluster, async (newCluster) => {
+  if (newCluster && newCluster !== selectedCluster.value) {
+    selectedCluster.value = newCluster;
+    await loadPartitions();
+    if (selectedCluster.value && selectedTopic.value) {
+      await queryMessages();
+    }
+  }
+});
+
+watch(() => props.topic, async (newTopic) => {
+  if (newTopic && newTopic !== selectedTopic.value) {
+    selectedTopic.value = newTopic;
+    selectedPartition.value = 'all';
+    partitions.value = [];
+    messages.value = [];
+    await loadPartitions();
+    if (selectedCluster.value && selectedTopic.value) {
+      await queryMessages();
+    }
+  }
 });
 
 onUnmounted(() => {

@@ -30,7 +30,12 @@
 
     <!-- 根据模式显示不同界面 -->
     <template v-if="viewMode === 'simple'">
-      <MessageQueryTool class="flex-1" />
+      <MessageQueryTool
+        :key="`${currentCluster}-${currentTopic}`"
+        :cluster="currentCluster"
+        :topic="currentTopic"
+        class="flex-1"
+      />
     </template>
     <template v-else>
       <MessagesClassicView class="flex-1" />
@@ -39,13 +44,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import MessageQueryTool from '@/components/MessageQueryTool.vue';
 import MessagesClassicView from './MessagesClassicView.vue';
 
+const route = useRoute();
+
 // 界面模式: 'classic' | 'simple'
 const viewMode = ref<'classic' | 'simple'>('classic');
+
+// 当前选中的 cluster 和 topic（从 URL 获取）
+const currentCluster = computed(() => {
+  const cluster = route.query.cluster;
+  return typeof cluster === 'string' ? cluster : '';
+});
+
+const currentTopic = computed(() => {
+  const topic = route.query.topic;
+  return typeof topic === 'string' ? topic : '';
+});
 
 // 加载设置
 async function loadViewModeSetting() {
