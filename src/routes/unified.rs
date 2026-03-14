@@ -1645,7 +1645,7 @@ async fn fetch_messages_local(
                             Err(_) => offset.unwrap_or(0),
                         }
                     }
-                } else if fetch_mode.as_deref() == Some("newest") && offset.is_none() {
+                } else if (fetch_mode.as_deref() == Some("newest") || fetch_mode.is_none()) && offset.is_none() {
                     match consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(100)) {
                         Ok((low, high)) if high > 0 => {
                             let latest = high - 1;
@@ -1689,7 +1689,7 @@ async fn fetch_messages_local(
                             Err(_) => offset.unwrap_or(0),
                         }
                     }
-                } else if fetch_mode.as_deref() == Some("newest") && offset.is_none() {
+                } else if (fetch_mode.as_deref() == Some("newest") || fetch_mode.is_none()) && offset.is_none() {
                     match consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(100)) {
                         Ok((low, high)) if high > 0 => {
                             let latest = high - 1;
@@ -1842,7 +1842,7 @@ async fn fetch_messages_remote(
                             Err(_) => offset.unwrap_or(0),
                         }
                     }
-                } else if fetch_mode.as_deref() == Some("newest") && offset.is_none() {
+                } else if (fetch_mode.as_deref() == Some("newest") || fetch_mode.is_none()) && offset.is_none() {
                     match consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(500)) {
                         Ok((low, high)) if high > 0 => {
                             let latest = high - 1;
@@ -1885,6 +1885,8 @@ async fn fetch_messages_remote(
             cfg.set("fetch.wait.max.ms", "50");
             cfg.set("fetch.max.bytes", "52428800");
             cfg.set("socket.nagle.disable", "true");
+            cfg.set("session.timeout.ms", "10000");
+            cfg.set("socket.connection.setup.timeout.ms", "5000");
 
             let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
                 Ok(c) => c,
@@ -1904,13 +1906,13 @@ async fn fetch_messages_remote(
             if consumer.assign(&tpl).is_err() {
                 return Vec::new();
             }
-            let _ = consumer.seek(&topic, part_id, seek_offset, Duration::from_millis(100));
+            let _ = consumer.seek(&topic, part_id, seek_offset, Duration::from_millis(500));
 
             let mut msgs = Vec::with_capacity(max_messages);
             let mut empty = 0;
 
-            while msgs.len() < max_messages && empty < 10 {
-                match consumer.poll(Duration::from_millis(30)) {
+            while msgs.len() < max_messages && empty < 20 {
+                match consumer.poll(Duration::from_millis(100)) {
                     Some(Ok(msg)) => {
                         empty = 0;
                         let ts = msg.timestamp().to_millis();
