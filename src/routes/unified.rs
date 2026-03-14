@@ -1840,6 +1840,25 @@ async fn fetch_messages_remote(
 
         // 第二步：为每个分区计算起始offset
         let mut tpl = TopicPartitionList::new();
+
+        // 优化：首先批量获取所有分区的 watermarks（单次调用更高效）
+        // 注意：这里不能并行化，因为 consumer 不是线程安全的
+        let mut watermark_cache: std::collections::HashMap<i32, (i64, i64)> = std::collections::HashMap::new();
+
+        // 只在需要 newest/oldest 模式时预获取 watermarks
+        let need_watermarks = start_time.is_none() && offset.is_none();
+
+        if need_watermarks {
+            for &part_id in &partitions {
+                match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(5000)) {
+                    Ok(w) => { watermark_cache.insert(part_id, w); }
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch watermarks for partition {}: {}", part_id, e);
+                    }
+                }
+            }
+        }
+
         for &part_id in &partitions {
             let start_offset = if let Some(start_time) = start_time {
                 if start_time <= 0 {
@@ -1847,7 +1866,8 @@ async fn fetch_messages_remote(
                 } else {
                     let mut time_tpl = TopicPartitionList::new();
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
-                    match consumer.offsets_for_times(time_tpl, Duration::from_millis(1000)) {
+                    // 优化：增加超时时间到 3 秒
+                    match consumer.offsets_for_times(time_tpl, Duration::from_millis(3000)) {
                         Ok(r) => r.elements_for_topic(&topic_owned)
                             .iter().find(|e| e.partition() == part_id)
                             .and_then(|e| e.offset().to_raw())
@@ -1856,18 +1876,18 @@ async fn fetch_messages_remote(
                     }
                 }
             } else if (fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none()) && offset.is_none() {
-                match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(1000)) {
-                    Ok((low, high)) if high > 0 => {
-                        let latest = high.saturating_sub(1);
-                        latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low)
-                    }
-                    _ => 0,
-                }
+                watermark_cache.get(&part_id)
+                    .map(|(low, high)| {
+                        if *high > 0 {
+                            let latest = high.saturating_sub(1);
+                            latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(*low)
+                        } else {
+                            *low
+                        }
+                    })
+                    .unwrap_or(0)
             } else if fetch_mode_owned.as_deref() == Some("oldest") && offset.is_none() {
-                match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(1000)) {
-                    Ok((low, _)) => low,
-                    Err(_) => 0,
-                }
+                watermark_cache.get(&part_id).map(|(low, _)| *low).unwrap_or(0)
             } else {
                 offset.unwrap_or(0)
             };
@@ -1884,13 +1904,26 @@ async fn fetch_messages_remote(
         let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
         let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
         let mut total_empty = 0;
-        let max_empty_rounds = partition_count * 3;
+        // 优化：增加空轮次限制，避免网络延迟导致的过早退出
+        // 基于消息数量和分区数动态计算，最少 30 轮
+        let max_empty_rounds = (partition_count * 10).max(30);
 
         // 计算需要获取的总消息数
         let target_total = max_messages * partition_count;
 
+        // 优化：使用 poll 的超时策略，前几次快速 poll，后面增加等待时间
+        let mut poll_attempts = 0;
+
         while all_msgs.len() < target_total && total_empty < max_empty_rounds {
-            match consumer.poll(Duration::from_millis(100)) {
+            // 优化 poll 超时：前5次使用100ms，之后使用1000ms（给网络更多时间）
+            let poll_timeout = if poll_attempts < 5 {
+                Duration::from_millis(100)
+            } else {
+                Duration::from_millis(1000)
+            };
+            poll_attempts += 1;
+
+            match consumer.poll(poll_timeout) {
                 Some(Ok(msg)) => {
                     total_empty = 0;
                     let part = msg.partition();
