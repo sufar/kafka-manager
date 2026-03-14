@@ -71,16 +71,16 @@
       >
         <div
           class="group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:bg-base-200"
-          :class="{ 'bg-primary/10': selectedTopic?.cluster === item.topic.cluster && selectedTopic?.name === item.topic.name }"
-          @click="selectTopic(item.topic)"
+          :class="{ 'bg-primary/10': selectedTopic?.cluster === (item as TopicItem).topic.cluster && selectedTopic?.name === (item as TopicItem).topic.name }"
+          @click="selectTopic((item as TopicItem).topic)"
         >
           <!-- Cluster Health Indicator -->
           <div
             class="w-2 h-2 rounded-full flex-shrink-0"
             :class="{
-              'bg-success': getClusterHealth(item.topic.cluster)?.healthy === true,
-              'bg-error': getClusterHealth(item.topic.cluster)?.healthy === false,
-              'bg-warning': getClusterHealth(item.topic.cluster)?.healthy === undefined
+              'bg-success': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === true,
+              'bg-error': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === false,
+              'bg-warning': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === undefined
             }"
           ></div>
 
@@ -93,15 +93,15 @@
           <div class="flex-1 min-w-0 relative">
             <span
               class="text-sm truncate block"
-              :title="`${item.topic.name} (${item.topic.cluster})`"
+              :title="`${(item as TopicItem).topic.name} (${(item as TopicItem).topic.cluster})`"
             >
-              {{ item.topic.name }}
+              {{ (item as TopicItem).topic.name }}
             </span>
           </div>
 
           <!-- Cluster Badge -->
           <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-16">
-            {{ item.topic.cluster }}
+            {{ (item as TopicItem).topic.cluster }}
           </span>
         </div>
       </RecycleScroller>
