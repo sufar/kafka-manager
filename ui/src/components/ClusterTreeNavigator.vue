@@ -726,7 +726,7 @@ async function handleClusterAction(action: string, clusterName: string) {
     case 'viewConsumers':
       emit('navigate', { path: '/consumer-groups', query: { cluster: clusterName } });
       break;
-    case 'edit':
+    case 'editCluster':
       // 导航到 clusters 页面并触发编辑
       window.dispatchEvent(new CustomEvent('edit-cluster-from-menu', { detail: { clusterName } }));
       break;
