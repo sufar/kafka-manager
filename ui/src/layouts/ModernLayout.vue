@@ -487,7 +487,7 @@ function handleClusterAction(action: string, cluster: string) {
     case 'reconnect':
       reconnectCluster(cluster);
       break;
-    case 'edit':
+    case 'editCluster':
       editCluster(cluster);
       break;
     case 'deleteCluster':
