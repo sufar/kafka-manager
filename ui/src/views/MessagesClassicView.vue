@@ -1,7 +1,7 @@
 <template>
-  <div class="messages-browser h-full flex flex-col min-w-0">
+  <div class="messages-browser h-full flex flex-col min-w-0 overflow-hidden">
     <!-- Top Toolbar -->
-    <div class="toolbar flex flex-col md:flex-row md:items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl overflow-visible md:overflow-x-auto min-w-full">
+    <div class="toolbar flex-shrink-0 flex flex-col md:flex-row md:items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl overflow-visible md:overflow-x-auto min-w-full">
       <!-- Row 1: Topic Info & Main Actions -->
       <div class="flex items-center gap-1.5 flex-wrap">
         <!-- Topic Indicator -->
@@ -88,7 +88,7 @@
     <!-- Messages List (Top Panel) -->
     <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
       <!-- 空状态提示 -->
-      <div v-if="sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60">
+      <div v-if="sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none">
         <div class="text-center">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto mb-2 opacity-50">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
@@ -98,13 +98,13 @@
       </div>
 
       <!-- Desktop: Table View -->
-      <div v-else class="hidden md:block w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-auto" :style="{ height: Math.max(sortedMessages.length * ROW_HEIGHT + 24, 80) + 'px' }">
+      <div v-else class="hidden md:block w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-visible">
         <table class="table table-sm w-full min-w-[600px]">
-          <thead v-if="sortedMessages.length > 0" class="sticky top-0 glass z-10 backdrop-blur-md rounded-t-xl">
+          <thead v-if="sortedMessages.length > 0" class="sticky top-0 z-10 bg-base-100/95 backdrop-blur-md rounded-t-xl shadow-sm">
             <tr>
-              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-0 px-1">{{ t.messages.offset }}</th>
-              <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-0 px-1">{{ t.messages.partition }}</th>
-              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-0 px-1 whitespace-nowrap" @click="toggleTimestampSort">
+              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-2 px-1">{{ t.messages.offset }}</th>
+              <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-2 px-1">{{ t.messages.partition }}</th>
+              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-2 px-1 whitespace-nowrap" @click="toggleTimestampSort">
                 <div class="flex items-center gap-0.5">
                   <span>{{ t.messages.timestampLabel }}</span>
                   <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -183,7 +183,7 @@
 
     <!-- Resizer Handle -->
     <div
-      class="h-2 flex items-center justify-center bg-base-300/50 backdrop-blur-sm cursor-row-resize select-none z-10 hover:bg-primary/30 transition-all duration-300 shadow-md"
+      class="flex-shrink-0 h-2 flex items-center justify-center bg-base-300/50 backdrop-blur-sm cursor-row-resize select-none z-10 hover:bg-primary/30 transition-all duration-300 shadow-md"
       @mousedown="startResize"
     >
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 12 12" stroke-width="2" stroke="currentColor" class="w-3 h-3 text-base-content/60">
@@ -193,7 +193,7 @@
 
     <!-- Message Detail (Bottom Panel) -->
     <div
-      class="message-detail overflow-x-auto overflow-y-auto glass min-h-0 backdrop-blur-md"
+      class="flex-shrink-0 message-detail overflow-x-auto overflow-y-auto glass min-h-0 backdrop-blur-md"
       :style="{ height: detailHeight + 'px', flex: 'none' }"
       @selectstart="handleSelectStart"
       @keydown.ctrl.a.prevent="handleSelectAll"
@@ -250,7 +250,7 @@
     </div>
 
     <!-- Status Bar -->
-    <div class="status-bar flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md overflow-x-auto min-w-full">
+    <div class="status-bar flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md overflow-x-auto min-w-full">
       <div class="flex items-center gap-2 flex-shrink-0">
         <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
