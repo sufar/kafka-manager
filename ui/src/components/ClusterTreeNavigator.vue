@@ -730,7 +730,7 @@ async function handleClusterAction(action: string, clusterName: string) {
       // 导航到 clusters 页面并触发编辑
       window.dispatchEvent(new CustomEvent('edit-cluster-from-menu', { detail: { clusterName } }));
       break;
-    case 'delete':
+    case 'deleteCluster':
       if (confirm(`Are you sure you want to delete cluster "${clusterName}"?`)) {
         await deleteCluster(clusterName);
       }
