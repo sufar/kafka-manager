@@ -45,8 +45,8 @@
       </div>
     </div>
 
-    <!-- Topic List -->
-    <div class="flex-1 overflow-y-auto px-2">
+    <!-- Topic List with Virtual Scroll -->
+    <div class="flex-1 overflow-hidden px-2">
       <!-- Loading -->
       <div v-if="loading" class="flex items-center justify-center py-8">
         <span class="loading loading-spinner loading-sm"></span>
@@ -60,22 +60,27 @@
         <p class="text-xs">{{ searchQuery ? '无匹配结果' : '暂无 Topics' }}</p>
       </div>
 
-      <!-- Topic Items -->
-      <div v-else class="space-y-0.5">
+      <!-- Virtual Scroll Topic Items -->
+      <RecycleScroller
+        v-else
+        class="h-full overflow-auto"
+        :items="filteredTopicsWithUid"
+        :item-size="36"
+        key-field="uid"
+        v-slot="{ item }"
+      >
         <div
-          v-for="topic in filteredTopics"
-          :key="`${topic.cluster}-${topic.name}`"
-          class="group flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-base-200"
-          :class="{ 'bg-primary/10': selectedTopic?.cluster === topic.cluster && selectedTopic?.name === topic.name }"
-          @click="selectTopic(topic)"
+          class="group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:bg-base-200"
+          :class="{ 'bg-primary/10': selectedTopic?.cluster === item.topic.cluster && selectedTopic?.name === item.topic.name }"
+          @click="selectTopic(item.topic)"
         >
           <!-- Cluster Health Indicator -->
           <div
             class="w-2 h-2 rounded-full flex-shrink-0"
             :class="{
-              'bg-success': getClusterHealth(topic.cluster)?.healthy === true,
-              'bg-error': getClusterHealth(topic.cluster)?.healthy === false,
-              'bg-warning': getClusterHealth(topic.cluster)?.healthy === undefined
+              'bg-success': getClusterHealth(item.topic.cluster)?.healthy === true,
+              'bg-error': getClusterHealth(item.topic.cluster)?.healthy === false,
+              'bg-warning': getClusterHealth(item.topic.cluster)?.healthy === undefined
             }"
           ></div>
 
@@ -88,25 +93,18 @@
           <div class="flex-1 min-w-0 relative">
             <span
               class="text-sm truncate block"
-              :title="`${topic.name} (${topic.cluster})`"
+              :title="`${item.topic.name} (${item.topic.cluster})`"
             >
-              {{ topic.name }}
+              {{ item.topic.name }}
             </span>
-            <!-- Hover Tooltip -->
-            <div class="tooltip absolute left-0 top-full mt-1 z-50 hidden group-hover:block">
-              <div class="bg-base-100 border border-base-300 rounded-lg shadow-xl p-2 max-w-xs">
-                <div class="text-xs font-mono break-all">{{ topic.name }}</div>
-                <div class="text-xs text-base-content/60 mt-1">集群: {{ topic.cluster }}</div>
-              </div>
-            </div>
           </div>
 
           <!-- Cluster Badge -->
           <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-16">
-            {{ topic.cluster }}
+            {{ item.topic.cluster }}
           </span>
         </div>
-      </div>
+      </RecycleScroller>
     </div>
 
     <!-- Status Bar -->
@@ -121,12 +119,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
 
 interface TopicInfo {
   name: string;
   cluster: string;
+}
+
+interface TopicItem {
+  topic: TopicInfo;
+  uid: string;
 }
 
 const emit = defineEmits<{
@@ -153,6 +157,14 @@ const filteredTopics = computed(() => {
   return allTopics.value.filter(
     t => t.name.toLowerCase().includes(query) || t.cluster.toLowerCase().includes(query)
   );
+});
+
+// Topics with uid for virtual scroll
+const filteredTopicsWithUid = computed((): TopicItem[] => {
+  return filteredTopics.value.map(topic => ({
+    topic,
+    uid: `${topic.cluster}-${topic.name}`
+  }));
 });
 
 // Get cluster health
@@ -252,5 +264,21 @@ onMounted(() => {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Vue virtual scroller styles */
+.vue-recycle-scroller {
+  position: relative;
+}
+
+.vue-recycle-scroller__item-wrapper {
+  overflow: hidden;
+}
+
+.vue-recycle-scroller__item-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
 }
 </style>
