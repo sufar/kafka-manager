@@ -66,14 +66,94 @@
           </div>
         </div>
       </div>
+
+      <!-- Message View Mode Setting -->
+      <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
+        <div class="card-body p-3">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-primary">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-gradient">{{ t.settings.messageViewMode }}</h2>
+              <p class="text-xs text-base-content/60">{{ t.settings.selectMessageViewMode }}</p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 p-3 rounded-xl bg-base-100/50">
+            <button
+              class="btn btn-sm"
+              :class="{ 'btn-active btn-primary': messageViewMode === 'classic', 'btn-ghost': messageViewMode !== 'classic' }"
+              @click="setMessageViewMode('classic')"
+            >
+              <span class="font-medium">{{ t.settings.classicMode }}</span>
+            </button>
+            <p class="text-xs text-base-content/50 px-1">{{ t.settings.classicModeDesc }}</p>
+            <div class="divider my-1"></div>
+            <button
+              class="btn btn-sm"
+              :class="{ 'btn-active btn-primary': messageViewMode === 'simple', 'btn-ghost': messageViewMode !== 'simple' }"
+              @click="setMessageViewMode('simple')"
+            >
+              <span class="font-medium">{{ t.settings.simpleMode }}</span>
+            </button>
+            <p class="text-xs text-base-content/50 px-1">{{ t.settings.simpleModeDesc }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar Mode Setting -->
+      <div class="card glass gradient-border hover:glow-accent transition-all duration-300">
+        <div class="card-body p-3">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-accent">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-gradient">{{ t.settings.sidebarMode }}</h2>
+              <p class="text-xs text-base-content/60">{{ t.settings.selectSidebarMode }}</p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 p-3 rounded-xl bg-base-100/50">
+            <button
+              class="btn btn-sm"
+              :class="{ 'btn-active btn-primary': sidebarMode === 'tree', 'btn-ghost': sidebarMode !== 'tree' }"
+              @click="setSidebarMode('tree')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+              <span class="font-medium">{{ t.settings.treeMode }}</span>
+            </button>
+            <p class="text-xs text-base-content/50 px-1">{{ t.settings.treeModeDesc }}</p>
+            <div class="divider my-1"></div>
+            <button
+              class="btn btn-sm"
+              :class="{ 'btn-active btn-primary': sidebarMode === 'flat', 'btn-ghost': sidebarMode !== 'flat' }"
+              @click="setSidebarMode('flat')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+              <span class="font-medium">{{ t.settings.flatMode }}</span>
+            </button>
+            <p class="text-xs text-base-content/50 px-1">{{ t.settings.flatModeDesc }}</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 
 const themeStore = useThemeStore();
@@ -82,7 +162,68 @@ const languageStore = useLanguageStore();
 const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
+// Message view mode state
+const messageViewMode = ref<'classic' | 'simple'>('classic');
+
+// Sidebar mode state
+const sidebarMode = ref<'tree' | 'flat'>('tree');
+
+// Load message view mode setting
+async function loadMessageViewModeSetting() {
+  try {
+    const settings = await apiClient.getSettings(['ui.message_view_mode']);
+    const mode = settings.find((s: { key: string; value: string }) => s.key === 'ui.message_view_mode')?.value;
+    if (mode === 'classic' || mode === 'simple') {
+      messageViewMode.value = mode;
+    }
+  } catch (e) {
+    console.error('Failed to load message view mode setting:', e);
+  }
+}
+
+// Set message view mode
+async function setMessageViewMode(mode: 'classic' | 'simple') {
+  messageViewMode.value = mode;
+  try {
+    await apiClient.updateSetting('ui.message_view_mode', mode);
+  } catch (e) {
+    console.error('Failed to save message view mode setting:', e);
+  }
+}
+
+// Load sidebar mode setting
+async function loadSidebarModeSetting() {
+  try {
+    const settings = await apiClient.getSettings(['ui.sidebar_mode']);
+    const mode = settings.find((s: { key: string; value: string }) => s.key === 'ui.sidebar_mode')?.value;
+    if (mode === 'tree' || mode === 'flat') {
+      sidebarMode.value = mode;
+    }
+  } catch (e) {
+    console.error('Failed to load sidebar mode setting:', e);
+  }
+}
+
+// Set sidebar mode
+async function setSidebarMode(mode: 'tree' | 'flat') {
+  sidebarMode.value = mode;
+  try {
+    await apiClient.updateSetting('ui.sidebar_mode', mode);
+    // 触发设置变化事件通知其他组件
+    window.dispatchEvent(new CustomEvent('settings-changed', {
+      detail: { key: 'ui.sidebar_mode', value: mode }
+    }));
+  } catch (e) {
+    console.error('Failed to save sidebar mode setting:', e);
+  }
+}
+
 function handleToggleTheme() {
   toggleTheme();
 }
+
+onMounted(() => {
+  loadMessageViewModeSetting();
+  loadSidebarModeSetting();
+});
 </script>

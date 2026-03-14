@@ -198,6 +198,18 @@ export interface Translation {
     languageZh: string;
     languageEn: string;
     selectLanguage: string;
+    messageViewMode: string;
+    selectMessageViewMode: string;
+    classicMode: string;
+    simpleMode: string;
+    classicModeDesc: string;
+    simpleModeDesc: string;
+    sidebarMode: string;
+    selectSidebarMode: string;
+    treeMode: string;
+    flatMode: string;
+    treeModeDesc: string;
+    flatModeDesc: string;
   };
   notifications: {
     title: string;
@@ -561,6 +573,18 @@ export const translations: Record<Language, Translation> = {
       languageZh: '中文',
       languageEn: 'English',
       selectLanguage: '选择语言',
+      messageViewMode: '消息界面模式',
+      selectMessageViewMode: '选择消息界面模式',
+      classicMode: '经典模式',
+      simpleMode: '简洁模式',
+      classicModeDesc: '功能完整，适合复杂操作',
+      simpleModeDesc: '轻量快速，适合日常查询',
+      sidebarMode: '侧边栏模式',
+      selectSidebarMode: '选择侧边栏显示模式',
+      treeMode: '树形模式',
+      flatMode: '列表模式',
+      treeModeDesc: '按集群分组显示主题',
+      flatModeDesc: '平铺显示所有主题',
     },
     notifications: {
       title: '通知设置',
@@ -922,6 +946,18 @@ export const translations: Record<Language, Translation> = {
       languageZh: '中文',
       languageEn: 'English',
       selectLanguage: 'Select Language',
+      messageViewMode: 'Message View Mode',
+      selectMessageViewMode: 'Select Message View Mode',
+      classicMode: 'Classic Mode',
+      simpleMode: 'Simple Mode',
+      classicModeDesc: 'Full featured, suitable for complex operations',
+      simpleModeDesc: 'Lightweight and fast, suitable for daily queries',
+      sidebarMode: 'Sidebar Mode',
+      selectSidebarMode: 'Select Sidebar Display Mode',
+      treeMode: 'Tree Mode',
+      flatMode: 'List Mode',
+      treeModeDesc: 'Display topics grouped by cluster',
+      flatModeDesc: 'Display all topics in a flat list',
     },
     notifications: {
       title: 'Notification Settings',

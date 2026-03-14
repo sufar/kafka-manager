@@ -1001,6 +1001,14 @@ onMounted(async () => {
 
   // 监听打开创建集群弹窗事件
   window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+
+  // 监听设置变化事件
+  window.addEventListener('settings-changed', ((event: CustomEvent) => {
+    const { key, value } = event.detail;
+    if (key === 'ui.sidebar_mode' && (value === 'tree' || value === 'flat')) {
+      sidebarMode.value = value;
+    }
+  }) as EventListener);
 });
 
 function handleOpenCreateClusterModal() {
