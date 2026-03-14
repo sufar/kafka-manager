@@ -72,7 +72,7 @@
             </div>
             <!-- Three dots menu button -->
             <button
-              :ref="(el) => { if (el) (clusterActionButtons.value as any)[cluster.name] = el }"
+              :ref="(el) => { if (el) { const buttons = clusterActionButtons.value; clusterActionButtons.value = { ...buttons, [cluster.name]: el } } }"
               class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity"
               @click.stop="toggleClusterActionsDropdown(cluster.name, $event)"
               title="Cluster Actions"
@@ -490,7 +490,7 @@ const openActionsDropdown = ref<string | null>(null);
 const testing = ref(new Set<string>());
 const disconnecting = ref(new Set<string>());
 const reconnecting = ref(new Set<string>());
-const clusterActionButtons = shallowRef<Record<string, HTMLElement>>({});
+const clusterActionButtons = shallowRef<Record<string, any>>({});
 const dropdownPositions = ref<Record<string, { top: number; left: number }>>({});
 
 function toggleClusterActionsDropdown(clusterName: string, event: MouseEvent) {

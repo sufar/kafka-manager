@@ -92,6 +92,8 @@ export interface Translation {
     connected: string;
     topicsRefreshed: string;
     reconnected: string;
+    topics: string;
+    partitions: string;
   };
   topics: {
     title: string;
