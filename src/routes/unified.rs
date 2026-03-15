@@ -1920,6 +1920,8 @@ async fn fetch_messages_local(
         all_msgs
     } else {
         // === 小批量串行模式（<1000条/分区）===
+        // 捕获 partition 变量用于判断是否应该使用 offset
+        let partition_filter = partition;
         tokio::task::spawn_blocking(move || {
             let mut cfg = ClientConfig::new();
             cfg.set("bootstrap.servers", &brokers);
@@ -1936,9 +1938,12 @@ async fn fetch_messages_local(
                 Err(_) => return Vec::new(),
             };
 
+            // 只有指定了特定分区时，才传递 offset 参数
+            let effective_offset = if partition_filter.is_some() { offset } else { None };
+
             let mut tpl = TopicPartitionList::new();
             for &part_id in &partitions {
-                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, offset, start_time, fetch_mode.as_deref())
+                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, effective_offset, start_time, fetch_mode.as_deref())
                     .unwrap_or(0);
                 let seek_offset = if start_offset < 0 {
                     rdkafka::Offset::Beginning
@@ -1954,7 +1959,7 @@ async fn fetch_messages_local(
 
             // Seek 到正确位置
             for &part_id in &partitions {
-                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, offset, start_time, fetch_mode.as_deref())
+                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, effective_offset, start_time, fetch_mode.as_deref())
                     .unwrap_or(0);
                 let seek_offset = if start_offset < 0 {
                     rdkafka::Offset::Beginning
@@ -2057,6 +2062,8 @@ async fn fetch_messages_remote(
     let search_lower = search.as_ref().map(|s| s.to_lowercase());
     let fetch_mode_owned = fetch_mode.map(|s| s.to_string());
     let sort_owned = sort.map(|s| s.to_string());
+    // 只有指定了特定分区时，才使用 offset
+    let offset_owned = if partition.is_some() { offset } else { None };
 
     let messages = tokio::task::spawn_blocking(move || {
         // 第一步：创建consumer并获取分区信息
@@ -2098,7 +2105,7 @@ async fn fetch_messages_remote(
         let mut watermark_cache: std::collections::HashMap<i32, (i64, i64)> = std::collections::HashMap::new();
 
         // 只在需要 newest/oldest 模式时预获取 watermarks
-        let need_watermarks = start_time.is_none() && offset.is_none();
+        let need_watermarks = start_time.is_none() && offset_owned.is_none();
 
         if need_watermarks {
             for &part_id in &partitions {
@@ -2114,7 +2121,7 @@ async fn fetch_messages_remote(
         for &part_id in &partitions {
             let start_offset = if let Some(start_time) = start_time {
                 if start_time <= 0 {
-                    offset.unwrap_or(0)
+                    offset_owned.unwrap_or(0)
                 } else {
                     let mut time_tpl = TopicPartitionList::new();
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
@@ -2123,11 +2130,11 @@ async fn fetch_messages_remote(
                         Ok(r) => r.elements_for_topic(&topic_owned)
                             .iter().find(|e| e.partition() == part_id)
                             .and_then(|e| e.offset().to_raw())
-                            .unwrap_or_else(|| offset.unwrap_or(0)),
-                        Err(_) => offset.unwrap_or(0),
+                            .unwrap_or_else(|| offset_owned.unwrap_or(0)),
+                        Err(_) => offset_owned.unwrap_or(0),
                     }
                 }
-            } else if (fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none()) && offset.is_none() {
+            } else if (fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none()) && offset_owned.is_none() {
                 watermark_cache.get(&part_id)
                     .map(|(low, high)| {
                         if *high > 0 {
@@ -2138,10 +2145,10 @@ async fn fetch_messages_remote(
                         }
                     })
                     .unwrap_or(0)
-            } else if fetch_mode_owned.as_deref() == Some("oldest") && offset.is_none() {
+            } else if fetch_mode_owned.as_deref() == Some("oldest") && offset_owned.is_none() {
                 watermark_cache.get(&part_id).map(|(low, _)| *low).unwrap_or(0)
             } else {
-                offset.unwrap_or(0)
+                offset_owned.unwrap_or(0)
             };
 
             tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_offset))
