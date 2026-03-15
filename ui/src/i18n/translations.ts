@@ -35,6 +35,7 @@ export interface Translation {
     back: string;
     ready: string;
     optional: string;
+    confirm: string;
   };
   dashboard: {
     title: string;
@@ -418,6 +419,7 @@ export const translations: Record<Language, Translation> = {
       back: '返回',
       ready: '就绪',
       optional: '可选',
+      confirm: '确认',
     },
     dashboard: {
       title: '仪表盘',
@@ -799,6 +801,7 @@ export const translations: Record<Language, Translation> = {
       back: 'Back',
       ready: 'Ready',
       optional: 'Optional',
+      confirm: 'Confirm',
     },
     dashboard: {
       title: 'Dashboard',

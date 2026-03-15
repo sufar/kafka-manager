@@ -12,9 +12,10 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, comp
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
     Config, DbPool, KafkaClients, AuthMiddleware, ClusterPools,
-    MetadataCache, TaskStore, HealthChecker, HealthCheckConfig,
+    MetadataCache, TaskStore, HealthChecker,
     AppState, create_router,
 };
+use kafka_manager_api::task::health_check::HealthCheckConfig;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;

@@ -296,6 +296,26 @@
           <button>close</button>
         </form>
       </dialog>
+
+      <!-- Disconnect Confirm Modal -->
+      <dialog ref="disconnectModalRef" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+          <h3 class="font-bold text-xl mb-4">
+            {{ t.clusters.disconnectConfirm }}
+            <span class="text-primary">{{ clusterToDisconnect }}</span>?
+          </h3>
+          <div class="flex justify-end gap-2 mt-6">
+            <button type="button" class="btn btn-ghost" @click="closeDisconnectModal">{{ t.common.cancel }}</button>
+            <button type="button" class="btn btn-error" @click="confirmDisconnect" :disabled="disconnecting.has(clusterToDisconnect || '')">
+              <span v-if="disconnecting.has(clusterToDisconnect || '')" class="loading loading-spinner loading-sm"></span>
+              {{ t.common.confirm }}
+            </button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="closeDisconnectModal">
+          <button>close</button>
+        </form>
+      </dialog>
     </Teleport>
   </div>
 </template>
@@ -341,6 +361,8 @@ const formData = reactive({
 });
 
 const modalRef = ref<HTMLDialogElement>();
+const disconnectModalRef = ref<HTMLDialogElement>();
+const clusterToDisconnect = ref<string>('');
 
 function openCreateModal() {
   editingCluster.value = null;
@@ -464,18 +486,31 @@ function getConnectionStatus(clusterName: string) {
 }
 
 async function disconnectCluster(clusterName: string) {
-  if (confirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
-    disconnecting.value.add(clusterName);
-    try {
-      await connectionStore.disconnectCluster(clusterName);
-      await connectionStore.fetchAllConnections();
+  clusterToDisconnect.value = clusterName;
+  disconnectModalRef.value?.showModal();
+}
+
+function closeDisconnectModal() {
+  disconnectModalRef.value?.close();
+}
+
+function confirmDisconnect() {
+  const clusterName = clusterToDisconnect.value;
+  if (!clusterName) return;
+
+  disconnecting.value.add(clusterName);
+  connectionStore.disconnectCluster(clusterName)
+    .then(() => {
+      connectionStore.fetchAllConnections();
       showSuccess('Cluster disconnected successfully');
-    } catch (e) {
-      showError(`Disconnect failed: ${(e as { message: string }).message}`);
-    } finally {
+    })
+    .catch((e) => {
+      showError(`Disconnect failed: ${e.message}`);
+    })
+    .finally(() => {
       disconnecting.value.delete(clusterName);
-    }
-  }
+      closeDisconnectModal();
+    });
 }
 
 async function reconnectCluster(clusterName: string) {
