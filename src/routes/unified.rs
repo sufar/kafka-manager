@@ -1886,6 +1886,8 @@ async fn fetch_messages_local(
 
     let messages = if max_messages >= 1000 && partition_count > 1 {
         // === 大批量并行模式（>=1000条/分区）===
+        // 注意：每个分区平均分配消息数量
+        let msgs_per_partition = max_messages;
         use futures::future::join_all;
 
         let mut handles = vec![];
@@ -1894,10 +1896,12 @@ async fn fetch_messages_local(
             let topic = topic.clone();
             let search = search.clone();
             let fetch_mode = fetch_mode.clone();
+            // 只有指定了特定分区时，才传递 offset
+            let part_offset = if partition.is_some() { offset } else { None };
 
             let handle = tokio::task::spawn_blocking(move || {
                 fetch_partition_messages_parallel(
-                    brokers, topic, part_id, max_messages, None,
+                    brokers, topic, part_id, msgs_per_partition, part_offset,
                     start_time, end_time, search, fetch_mode,
                 )
             });
