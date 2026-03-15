@@ -1887,34 +1887,44 @@ async fn fetch_messages_local(
     let messages = if max_messages >= 1000 && partition_count > 1 {
         // === 大批量并行模式（>=1000条/分区）===
         // 注意：每个分区平均分配消息数量
+        // 限制并发数以避免对 Kafka 造成过大压力
         let msgs_per_partition = max_messages;
-        use futures::future::join_all;
+        let partition_has_specific_offset = partition.is_some();
+        let partition_offset = if partition_has_specific_offset { offset } else { None };
+        let partition_start_time = start_time;
+        let partition_end_time = end_time;
 
-        let mut handles = vec![];
-        for &part_id in &partitions {
+        use futures::stream::{self, StreamExt};
+        use tokio::time::{timeout, Duration as TokioDuration};
+
+        let results: Vec<_> = stream::iter(partitions.into_iter().map(|part_id| {
             let brokers = brokers.clone();
             let topic = topic.clone();
             let search = search.clone();
             let fetch_mode = fetch_mode.clone();
-            // 只有指定了特定分区时，才传递 offset
-            let part_offset = if partition.is_some() { offset } else { None };
+            let part_offset = if partition_has_specific_offset { partition_offset } else { None };
 
-            let handle = tokio::task::spawn_blocking(move || {
-                fetch_partition_messages_parallel(
-                    brokers, topic, part_id, msgs_per_partition, part_offset,
-                    start_time, end_time, search, fetch_mode,
-                )
-            });
-            handles.push(handle);
-        }
+            async move {
+                // 单个分区查询超时 30 秒
+                timeout(TokioDuration::from_secs(30), tokio::task::spawn_blocking(move || {
+                    fetch_partition_messages_parallel(
+                        brokers, topic, part_id, msgs_per_partition, part_offset,
+                        partition_start_time, partition_end_time, search, fetch_mode,
+                    )
+                })).await
+            }
+        }))
+        .buffer_unordered(10) // 最多 10 个分区并发查询
+        .collect()
+        .await;
 
-        let results = join_all(handles).await;
         let mut all_msgs = Vec::with_capacity(total_target);
         for result in results {
             match result {
-                Ok(Ok(msgs)) => all_msgs.extend(msgs),
-                Ok(Err(e)) => tracing::warn!("Partition fetch error: {}", e),
-                Err(e) => tracing::warn!("Task join error: {}", e),
+                Ok(Ok(Ok(msgs))) => all_msgs.extend(msgs),
+                Ok(Ok(Err(e))) => tracing::warn!("Partition fetch error: {}", e),
+                Ok(Err(e)) => tracing::warn!("Task join error: {}", e),
+                Err(_) => tracing::warn!("Partition fetch timeout"),
             }
         }
         all_msgs
