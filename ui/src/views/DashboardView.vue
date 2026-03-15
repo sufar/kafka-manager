@@ -163,21 +163,6 @@
                 {{ cluster.brokers }}
               </div>
 
-              <div v-if="getClusterHealth(cluster.name)?.stats" class="grid grid-cols-3 gap-2 mb-2">
-                <div class="text-center">
-                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">{{ t.dashboard.topics }}</div>
-                  <div class="text-base font-semibold">{{ getClusterHealth(cluster.name)?.stats?.topic_count || 0 }}</div>
-                </div>
-                <div class="text-center">
-                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">{{ t.dashboard.partitions }}</div>
-                  <div class="text-base font-semibold">{{ getClusterHealth(cluster.name)?.stats?.partition_count || 0 }}</div>
-                </div>
-                <div class="text-center">
-                  <div class="text-[10px] uppercase tracking-wide text-base-content/50">{{ t.dashboard.lag }}</div>
-                  <div class="text-base font-semibold text-warning">{{ formatLag(getClusterHealth(cluster.name)?.stats?.total_lag || 0) }}</div>
-                </div>
-              </div>
-
               <div v-if="getClusterHealth(cluster.name)?.lastChecked" class="text-[10px] text-base-content/50">
                 {{ t.dashboard.lastChecked }}: {{ formatRelativeTime(getClusterHealth(cluster.name)?.lastChecked) }}
               </div>

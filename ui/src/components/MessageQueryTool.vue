@@ -213,30 +213,9 @@ const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
 
-// 自动刷新
-const autoRefresh = ref(false);
-const refreshInterval = ref(10000);
-let refreshTimer: number | null = null;
-
 // 计算属性
 const canQuery = computed(() => {
   return !!selectedCluster.value && !!selectedTopic.value && !loading.value;
-});
-
-// 监听自动刷新
-watch(autoRefresh, (enabled) => {
-  if (enabled) {
-    startAutoRefresh();
-  } else {
-    stopAutoRefresh();
-  }
-});
-
-watch(refreshInterval, () => {
-  if (autoRefresh.value) {
-    stopAutoRefresh();
-    startAutoRefresh();
-  }
 });
 
 // 方法
@@ -302,22 +281,6 @@ async function queryMessages() {
 function stopQuery() {
   apiClient.cancelGetMessages();
   loading.value = false;
-}
-
-function startAutoRefresh() {
-  if (refreshTimer) return;
-  refreshTimer = window.setInterval(() => {
-    if (!loading.value) {
-      queryMessages();
-    }
-  }, refreshInterval.value);
-}
-
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
 }
 
 function exportMessages() {
@@ -424,7 +387,6 @@ watch(() => props.topic, async (newTopic) => {
 });
 
 onUnmounted(() => {
-  stopAutoRefresh();
   if (loading.value) {
     apiClient.cancelGetMessages();
   }

@@ -132,6 +132,29 @@
               {{ cluster.name }}
             </option>
           </select>
+          <!-- Refresh Button -->
+          <button
+            class="btn btn-ghost btn-xs"
+            :disabled="refreshing"
+            @click="refreshTopics"
+            title="刷新 Topics"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+              class="w-3.5 h-3.5"
+              :class="{ 'animate-spin': refreshing }"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+              />
+            </svg>
+          </button>
         </div>
       </div>
     </div>
@@ -139,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
@@ -172,6 +195,7 @@ const searchQuery = ref('');
 const selectedClusterFilter = ref(''); // 空表示所有集群
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
+const refreshing = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
 
 // Debounce timer
@@ -209,12 +233,9 @@ async function loadAllTopics() {
     const topics: TopicInfo[] = [];
 
     // If a specific cluster is selected, only load topics from that cluster
-    const targetClusters = selectedClusterFilter.value
-      ? clusters.filter(c => c.name === selectedClusterFilter.value)
-      : clusters;
-
-    for (const cluster of targetClusters) {
-      try {
+    if (selectedClusterFilter.value) {
+      const cluster = clusters.find(c => c.name === selectedClusterFilter.value);
+      if (cluster) {
         const clusterTopics = await apiClient.getTopics(cluster.name);
         for (const topicName of clusterTopics) {
           topics.push({
@@ -222,8 +243,15 @@ async function loadAllTopics() {
             cluster: cluster.name
           });
         }
-      } catch (e) {
-        console.error(`Failed to load topics for cluster ${cluster.name}:`, e);
+      }
+    } else {
+      // No cluster selected - load all topics from all clusters with a single API call
+      const allTopicNames = await apiClient.getTopics();
+      for (const topicName of allTopicNames) {
+        topics.push({
+          name: topicName,
+          cluster: '' // Will be resolved later when user expands cluster nodes
+        });
       }
     }
 
@@ -240,6 +268,40 @@ async function loadAllTopics() {
     console.error('Failed to load topics:', e);
   } finally {
     loading.value = false;
+  }
+}
+
+// Refresh topics from Kafka to SQLite database
+async function refreshTopics() {
+  if (refreshing.value) return;
+
+  refreshing.value = true;
+  try {
+    const clusters = clusterStore.clusters;
+
+    // If a specific cluster is selected, only refresh that cluster
+    if (selectedClusterFilter.value) {
+      await apiClient.refreshTopics(selectedClusterFilter.value);
+    } else {
+      // No cluster selected - refresh all clusters one by one
+      // If a cluster is unreachable, wait 5 seconds silently and continue to next cluster
+      for (const cluster of clusters) {
+        try {
+          await apiClient.refreshTopics(cluster.name);
+        } catch (e) {
+          // Silent failure - wait 5 seconds then continue to next cluster
+          console.warn(`Failed to refresh topics for cluster ${cluster.name}, waiting 5s before continuing...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+    }
+
+    // Reload topics after refresh
+    await loadAllTopics();
+  } catch (e) {
+    console.error('Failed to refresh topics:', e);
+  } finally {
+    refreshing.value = false;
   }
 }
 
@@ -283,14 +345,9 @@ function goToClusters() {
   });
 }
 
-onMounted(() => {
-  loadAllTopics();
-});
-
-// Watch for cluster changes and reload topics
 watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
   loadAllTopics();
-});
+}, { immediate: true });
 
 // Watch for route changes to handle cluster and search query params
 watch(

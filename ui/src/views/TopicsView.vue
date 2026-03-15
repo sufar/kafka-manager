@@ -1216,25 +1216,40 @@ async function fetchTopics() {
     return;
   }
 
+  // When multiple clusters are selected (no specific clusterParam), call API without cluster_id to get all topics
+  if (selectedClusterIds.value.length > 1) {
+    try {
+      const topicNames = await apiClient.getTopics();
+      // For all topics view without cluster filter, we use empty string as cluster placeholder
+      allTopicsList.value = topicNames.map((name) => ({
+        name,
+        cluster: '',
+        partition_count: undefined,
+      }));
+      topicsByCluster.value = {};
+      clusterTopics.value = [];
+    } catch (e) {
+      console.error('[TopicsView] Error fetching all topics:', e);
+      error.value = (e as { message: string }).message;
+    } finally {
+      loading.value = false;
+    }
+    return;
+  }
+
+  // Only one cluster selected - fetch from that cluster
   topicsByCluster.value = {};
   allTopicsList.value = [];
 
   try {
-    const promises = selectedClusterIds.value.map(async (clusterId) => {
-      try {
-        const topicNames = await apiClient.getTopics(clusterId);
-        const topics: TopicItem[] = topicNames.map((name) => ({
-          name,
-          cluster: clusterId,
-          partition_count: undefined,
-        }));
-        topicsByCluster.value[clusterId] = topics;
-      } catch (e) {
-        topicsByCluster.value[clusterId] = [];
-      }
-    });
-
-    await Promise.all(promises);
+    const clusterId = selectedClusterIds.value[0];
+    const topicNames = await apiClient.getTopics(clusterId);
+    const topics: TopicItem[] = topicNames.map((name) => ({
+      name,
+      cluster: clusterId || '',
+      partition_count: undefined,
+    }));
+    topicsByCluster.value[clusterId || ''] = topics;
     updateAllTopicsList();
   } catch (e) {
     error.value = (e as { message: string }).message;
@@ -1759,14 +1774,9 @@ async function refreshAllTopics() {
 }
 
 onMounted(() => {
-  if (clusterParam.value) {
-    fetchTopics();
-  } else if (selectedClusterIds.value.length > 0) {
-    fetchTopics();
-  }
-  // 检查是否有 action=create 参数，打开创建模态框
+  // watch 已经处理了初始化调用，这里只需要处理 action 参数
   if (actionParam.value === 'create') {
-    openCreateModal(true); // 传入 true，避免重复设置 URL 参数
+    openCreateModal(true);
   }
 });
 </script>

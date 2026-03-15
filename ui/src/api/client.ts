@@ -229,8 +229,12 @@ class ApiClient {
   }
 
   // ==================== Topics ====================
-  async getTopics(clusterId: string): Promise<string[]> {
-    const data = await this.request<TopicListResponse>('topic.list', { cluster_id: clusterId });
+  async getTopics(clusterId?: string): Promise<string[]> {
+    const params: any = {};
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    const data = await this.request<TopicListResponse>('topic.list', params);
     return data.topics;
   }
 

@@ -642,43 +642,94 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
+    // 使用 5 秒超时限制 Kafka 操作
+    let timeout_duration = std::time::Duration::from_secs(5);
+
     // 在阻塞线程中执行所有 Kafka 操作
     let admin = admin.clone();
-    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) =
-        tokio::task::spawn_blocking(move || -> Result<(crate::kafka::admin::ClusterInfo, Vec<String>, i32, i32, std::collections::HashMap<i32, i32>, std::collections::HashMap<i32, i32>)> {
-            // 获取集群信息
-            let cluster_info = admin.get_cluster_info()?;
+    let result = tokio::time::timeout(timeout_duration, tokio::task::spawn_blocking(move || -> Result<(crate::kafka::admin::ClusterInfo, Vec<String>, i32, i32, std::collections::HashMap<i32, i32>, std::collections::HashMap<i32, i32>)> {
+        // 获取集群信息
+        let cluster_info = admin.get_cluster_info()?;
 
-            // 获取所有 topic 的分区信息
-            let topics = admin.list_topics()?;
-            let mut partition_count = 0;
-            let mut under_replicated = 0;
-            let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-            let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        // 获取所有 topic 的分区信息
+        let topics = admin.list_topics()?;
+        let mut partition_count = 0;
+        let mut under_replicated = 0;
+        let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
 
-            for topic in &topics {
-                let topic_info = admin.get_topic_info(topic)?;
-                for partition in &topic_info.partitions {
-                    partition_count += 1;
+        for topic in &topics {
+            let topic_info = admin.get_topic_info(topic)?;
+            for partition in &topic_info.partitions {
+                partition_count += 1;
 
-                    // 检查是否未完全复制
-                    if partition.isr.len() < partition.replicas.len() {
-                        under_replicated += 1;
-                    }
+                // 检查是否未完全复制
+                if partition.isr.len() < partition.replicas.len() {
+                    under_replicated += 1;
+                }
 
-                    // 统计 leader 和 replica
-                    let leader = partition.leader;
-                    *broker_leader_counts.entry(leader).or_insert(0) += 1;
-                    for replica in &partition.replicas {
-                        *broker_replica_counts.entry(*replica).or_insert(0) += 1;
-                    }
+                // 统计 leader 和 replica
+                let leader = partition.leader;
+                *broker_leader_counts.entry(leader).or_insert(0) += 1;
+                for replica in &partition.replicas {
+                    *broker_replica_counts.entry(*replica).or_insert(0) += 1;
                 }
             }
+        }
 
-            Ok((cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
-        })
-        .await
-        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+        Ok((cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
+    }))
+    .await;
+
+    // 如果超时或失败，返回空数据
+    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) = match result {
+        Ok(Ok(Ok(data))) => data,
+        Ok(Ok(Err(e))) => {
+            tracing::warn!("Failed to get cluster stats for '{}': {}", cluster_id, e);
+            return Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "broker_count": 0,
+                "controller_id": null,
+                "topic_count": 0,
+                "partition_count": 0,
+                "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
+                "broker_stats": [],
+                "error": format!("Failed to connect: {}", e),
+            }));
+        }
+        Ok(Err(e)) => {
+            tracing::warn!("Task failed for cluster '{}': {}", cluster_id, e);
+            return Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "broker_count": 0,
+                "controller_id": null,
+                "topic_count": 0,
+                "partition_count": 0,
+                "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
+                "broker_stats": [],
+                "error": format!("Task failed: {}", e),
+            }));
+        }
+        Err(_) => {
+            tracing::warn!("Timeout getting cluster stats for '{}'", cluster_id);
+            return Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "broker_count": 0,
+                "controller_id": null,
+                "topic_count": 0,
+                "partition_count": 0,
+                "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
+                "broker_stats": [],
+                "error": "Timeout connecting to cluster",
+            }));
+        }
+    };
 
     // 构建 broker 统计
     let broker_stats: Vec<Value> = cluster_info
@@ -783,7 +834,14 @@ async fn reload_clients(state: &AppState) -> Result<()> {
 // ==================== Topic ====================
 
 async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
+    // cluster_id is optional - when not provided, fetch topics from all clusters
+    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // When cluster_id is not provided, fetch topics from all clusters
+    let cluster_id = match cluster_id {
+        Some(id) => id,
+        None => return handle_topic_list_all_clusters(state).await,
+    };
 
     // 首先尝试从数据库获取（最快）
     let db_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await.ok();
@@ -805,6 +863,41 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
 
     // 数据库没有数据，从 Kafka 获取
     sync_topics_from_kafka(state, &cluster_id).await
+}
+
+/// Fetch topics from all clusters
+async fn handle_topic_list_all_clusters(state: AppState) -> Result<Value> {
+    use crate::db::cluster::ClusterStore;
+
+    // Get all clusters from database
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+
+    let mut all_topics: Vec<String> = Vec::new();
+
+    // Fetch topics from each cluster
+    for cluster in clusters {
+        let cluster_name = &cluster.name;
+
+        // Try to get topics from database first
+        if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
+            for topic in topics {
+                all_topics.push(topic.topic_name);
+            }
+        }
+
+        // Background sync for this cluster (non-blocking)
+        let state_clone = state.clone();
+        let cluster_name_clone = cluster_name.clone();
+        tokio::spawn(async move {
+            let _ = sync_topics_from_kafka(state_clone, &cluster_name_clone).await;
+        });
+    }
+
+    // Remove duplicates and sort
+    all_topics.sort();
+    all_topics.dedup();
+
+    Ok(serde_json::json!({ "topics": all_topics }))
 }
 
 /// 从 Kafka 同步主题列表到数据库，并返回结果

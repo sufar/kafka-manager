@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Cluster, ClusterStatsResponse } from '@/types/api';
+import type { Cluster } from '@/types/api';
 import { apiClient } from '@/api/client';
 
 export interface ClusterHealth {
@@ -8,7 +8,6 @@ export interface ClusterHealth {
   healthy?: boolean;
   lastChecked?: number;
   error?: string;
-  stats?: ClusterStatsResponse;
 }
 
 export const useClusterStore = defineStore('clusters', () => {
@@ -72,19 +71,6 @@ export const useClusterStore = defineStore('clusters', () => {
           };
         }
       }
-      // 并行获取统计数据（使用 Promise.all 限制并发）
-      const statsPromises = clusters.value.slice(0, 5).map(async (cluster) => { // 最多同时获取5个集群
-        try {
-          const stats = await apiClient.getClusterStats(cluster.name);
-          const health = clusterHealth.value[cluster.name];
-          if (health) {
-            health.stats = stats;
-          }
-        } catch (e) {
-          // 静默失败，不阻塞其他请求
-        }
-      });
-      await Promise.all(statsPromises);
     } catch (e) {
       error.value = (e as { message: string }).message;
       console.error('[ClusterStore] Failed to fetch clusters:', e);
@@ -171,43 +157,18 @@ export const useClusterStore = defineStore('clusters', () => {
         try {
           // 使用 health-check API 主动检查 Kafka 连接状态（心跳）
           const health = await apiClient.healthCheckCluster(cluster.name);
-          const healthEntry: ClusterHealth = {
+          clusterHealth.value[cluster.name] = {
             clusterId: cluster.name,
             healthy: health.healthy,
             lastChecked: Date.now(),
             error: health.error_message,
           };
-
-          // 保留之前的 stats 数据（如果存在）
-          const previousStats = clusterHealth.value[cluster.name]?.stats;
-          if (previousStats) {
-            healthEntry.stats = previousStats;
-          }
-
-          // 如果健康检查成功，获取集群统计数据
-          if (health.healthy) {
-            try {
-              const stats = await apiClient.getClusterStats(cluster.name);
-              healthEntry.stats = stats;
-            } catch (e) {
-              console.warn(`Failed to fetch stats for cluster ${cluster.name}:`, e);
-              // 如果获取 stats 失败但有之前的缓存，保留缓存
-              if (previousStats) {
-                healthEntry.stats = previousStats;
-              }
-            }
-          }
-
-          clusterHealth.value[cluster.name] = healthEntry;
         } catch (e) {
-          // 如果健康检查失败，保留之前的 stats 数据
-          const previousStats = clusterHealth.value[cluster.name]?.stats;
           clusterHealth.value[cluster.name] = {
             clusterId: cluster.name,
             healthy: false,
             lastChecked: Date.now(),
             error: (e as { message: string }).message,
-            stats: previousStats, // 保留之前的 stats
           };
         }
       });
@@ -258,7 +219,7 @@ export const useClusterStore = defineStore('clusters', () => {
     return clusterHealth.value[clusterId];
   }
 
-  // 获取所有健康集群的统计信息
+  // 获取所有健康集群的统计信息（简化版，不再获取 Topic 和 Partition 数据）
   const totalStats = computed(() => {
     const stats = {
       totalClusters: clusters.value.length,
@@ -268,15 +229,6 @@ export const useClusterStore = defineStore('clusters', () => {
       totalConsumerGroups: 0,
       totalLag: 0,
     };
-
-    for (const health of Object.values(clusterHealth.value)) {
-      if (health.stats) {
-        stats.totalTopics += health.stats.topic_count || 0;
-        stats.totalPartitions += health.stats.partition_count || 0;
-        stats.totalConsumerGroups += health.stats.consumer_group_count || 0;
-        stats.totalLag += health.stats.total_lag || 0;
-      }
-    }
 
     return stats;
   });

@@ -148,18 +148,6 @@
             </div>
           </div>
 
-          <!-- Cluster Stats -->
-          <div v-if="getClusterHealth(cluster.name)?.stats" class="grid grid-cols-2 gap-2 mb-2">
-            <div class="text-center p-2 rounded-lg bg-base-200">
-              <div class="text-[10px] uppercase tracking-wide text-base-content/50">{{ t.clusters.topics }}</div>
-              <div class="text-base font-semibold text-primary">{{ getClusterHealth(cluster.name)?.stats?.topic_count || 0 }}</div>
-            </div>
-            <div class="text-center p-2 rounded-lg bg-base-200">
-              <div class="text-[10px] uppercase tracking-wide text-base-content/50">{{ t.clusters.partitions }}</div>
-              <div class="text-base font-semibold text-secondary">{{ getClusterHealth(cluster.name)?.stats?.partition_count || 0 }}</div>
-            </div>
-          </div>
-
           <div v-if="getConnectionStatus(cluster.name)?.error_message" class="alert alert-error py-1.5 px-2 mt-2">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -393,12 +381,16 @@ async function testConnection(id: number) {
   testing.value.add(id);
   try {
     const result = await clusterStore.testCluster(id);
+    // 测试后刷新连接状态
+    await connectionStore.fetchAllConnections();
     if (result.success) {
       showSuccess(t.value.clusters.connected);
     } else {
       showError(t.value.clusters.connectionError);
     }
   } catch (e) {
+    // 测试失败后也要刷新连接状态
+    await connectionStore.fetchAllConnections();
     showError(`${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
   } finally {
     testing.value.delete(id);
@@ -421,10 +413,6 @@ function formatDate(dateStr: string): string {
 
 function getConnectionStatus(clusterName: string) {
   return connectionStore.getConnectionStatus(clusterName);
-}
-
-function getClusterHealth(clusterName: string) {
-  return clusterStore.getClusterHealth(clusterName);
 }
 
 async function disconnectCluster(clusterName: string) {
