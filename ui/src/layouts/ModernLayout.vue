@@ -438,7 +438,7 @@ const disconnectingCluster = ref<string | null>(null);
 const reconnectingCluster = ref<string | null>(null);
 
 // Sidebar mode: 'tree' | 'flat'
-const sidebarMode = ref<'tree' | 'flat'>('tree');
+const sidebarMode = ref<'tree' | 'flat'>('flat');
 
 // Mobile responsive state
 const isMobile = ref(false);

@@ -1,33 +1,5 @@
 <template>
   <div class="messages-view h-full flex flex-col">
-    <!-- 界面模式切换器 -->
-    <div class="mode-switcher flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50">
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-base-content/60 hidden sm:inline">消息界面:</span>
-        <div class="btn-group btn-group-sm">
-          <button
-            class="btn btn-sm btn-xs sm:btn-sm"
-            :class="{ 'btn-active': viewMode === 'classic' }"
-            @click="setViewMode('classic')"
-          >
-            <span class="hidden sm:inline">经典模式</span>
-            <span class="sm:hidden">经典</span>
-          </button>
-          <button
-            class="btn btn-sm btn-xs sm:btn-sm"
-            :class="{ 'btn-active': viewMode === 'simple' }"
-            @click="setViewMode('simple')"
-          >
-            <span class="hidden sm:inline">简洁模式</span>
-            <span class="sm:hidden">简洁</span>
-          </button>
-        </div>
-      </div>
-      <div class="text-xs text-base-content/50 hidden md:block">
-        {{ viewMode === 'classic' ? '功能完整，适合复杂操作' : '轻量快速，适合日常查询' }}
-      </div>
-    </div>
-
     <!-- 根据模式显示不同界面 -->
     <template v-if="viewMode === 'simple'">
       <MessageQueryTool
@@ -53,7 +25,7 @@ import MessagesClassicView from './MessagesClassicView.vue';
 const route = useRoute();
 
 // 界面模式: 'classic' | 'simple'
-const viewMode = ref<'classic' | 'simple'>('classic');
+const viewMode = ref<'classic' | 'simple'>('simple');
 
 // 当前选中的 cluster 和 topic（从 URL 获取）
 const currentCluster = computed(() => {
@@ -79,16 +51,6 @@ async function loadViewModeSetting() {
   }
 }
 
-// 保存设置
-async function setViewMode(mode: 'classic' | 'simple') {
-  viewMode.value = mode;
-  try {
-    await apiClient.updateSetting('ui.message_view_mode', mode);
-  } catch (e) {
-    console.error('Failed to save view mode setting:', e);
-  }
-}
-
 onMounted(() => {
   loadViewModeSetting();
 });
@@ -99,9 +61,5 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-
-.mode-switcher {
-  flex-shrink: 0;
 }
 </style>

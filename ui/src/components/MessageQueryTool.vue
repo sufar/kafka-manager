@@ -47,18 +47,6 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
         </svg>
       </button>
-
-      <!-- 自动刷新 -->
-      <label class="flex items-center gap-1 cursor-pointer ml-2">
-        <input v-model="autoRefresh" type="checkbox" class="checkbox checkbox-xs" />
-        <span class="text-xs text-base-content/70">自动刷新</span>
-      </label>
-      <select v-if="autoRefresh" v-model="refreshInterval" class="select select-bordered select-xs w-16">
-        <option :value="5000">5s</option>
-        <option :value="10000">10s</option>
-        <option :value="30000">30s</option>
-        <option :value="60000">1m</option>
-      </select>
     </div>
 
     <!-- 状态栏 -->
@@ -82,7 +70,7 @@
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
-        <div class="flex bg-base-200 px-4 py-2 text-xs font-semibold min-w-[600px]">
+        <div class="flex bg-base-200 px-3 py-1.5 text-xs font-semibold min-w-[600px]">
           <div class="w-14 flex-shrink-0">分区</div>
           <div class="w-20 flex-shrink-0">Offset</div>
           <div class="w-32 flex-shrink-0">时间戳</div>
@@ -95,17 +83,17 @@
           v-if="messages.length > 0"
           class="flex-1 overflow-auto min-w-[600px]"
           :items="messages"
-          :item-size="40"
+          :item-size="32"
           key-field="uid"
           v-slot="{ item }"
         >
           <div
-            class="flex items-center px-4 py-2 hover:bg-base-200/50 transition-colors border-b border-base-200/50 cursor-pointer"
-            style="height: 40px;"
+            class="flex items-center px-3 py-1.5 hover:bg-base-200/50 transition-colors border-b border-base-200/50 cursor-pointer"
+            style="height: 32px;"
             @click="selectedMessage = (item as any)"
           >
             <div class="w-14 flex-shrink-0 text-xs">
-              <span class="badge badge-ghost badge-sm">{{ getMsgPartition(item) }}</span>
+              <span class="badge badge-ghost badge-xs">{{ getMsgPartition(item) }}</span>
             </div>
             <div class="w-20 flex-shrink-0 text-xs font-mono">{{ getMsgOffset(item) }}</div>
             <div class="w-32 flex-shrink-0 text-xs text-base-content/70 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
@@ -133,18 +121,18 @@
         v-if="messages.length > 0"
         class="md:hidden h-full overflow-auto p-2"
         :items="messages"
-        :item-size="90"
+        :item-size="70"
         key-field="uid"
         v-slot="{ item }"
       >
         <div
-          class="card bg-base-100 border border-base-200 p-3 shadow-sm mb-2 cursor-pointer"
-          style="height: 82px;"
+          class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-2 cursor-pointer"
+          style="height: 62px;"
           @click="selectedMessage = (item as any)"
         >
           <div class="flex items-center justify-between mb-1">
             <div class="flex items-center gap-2">
-              <span class="badge badge-ghost badge-sm">P{{ getMsgPartition(item) }}</span>
+              <span class="badge badge-ghost badge-xs">P{{ getMsgPartition(item) }}</span>
               <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
             </div>
             <span class="text-xs text-base-content/50">{{ formatTime(getMsgTimestamp(item)) }}</span>
@@ -152,7 +140,7 @@
           <div v-if="getMsgKey(item)" class="text-xs font-mono text-secondary mb-1 truncate">
             Key: {{ getMsgKey(item) }}
           </div>
-          <div class="text-sm font-mono truncate text-base-content/80">
+          <div class="text-xs font-mono truncate text-base-content/80">
             {{ truncate(getMsgValue(item), 100) }}
           </div>
         </div>
@@ -168,13 +156,15 @@
     <!-- 详情面板（可选） -->
     <div v-if="selectedMessage" class="detail-panel border-t border-base-300 bg-base-200/30 p-3 h-48 overflow-auto">
       <div class="flex items-center justify-between mb-2">
-        <h4 class="text-sm font-bold">消息详情</h4>
+        <div class="flex items-center gap-2">
+          <h4 class="text-sm font-bold">消息详情</h4>
+          <span class="text-xs text-base-content/50">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
+          <span class="text-xs text-base-content/50">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
+          <span class="text-xs text-base-content/50">Timestamp: <span class="font-mono">{{ formatTime(selectedMessage.timestamp) }}</span></span>
+        </div>
         <button class="btn btn-ghost btn-xs" @click="selectedMessage = null">关闭</button>
       </div>
       <div class="space-y-2 text-xs">
-        <div><span class="text-base-content/50">Partition:</span> {{ selectedMessage.partition }}</div>
-        <div><span class="text-base-content/50">Offset:</span> {{ selectedMessage.offset }}</div>
-        <div><span class="text-base-content/50">Timestamp:</span> {{ formatTime(selectedMessage.timestamp) }}</div>
         <div v-if="selectedMessage.key"><span class="text-base-content/50">Key:</span> <pre class="bg-base-100 p-1 rounded mt-1">{{ selectedMessage.key }}</pre></div>
         <div><span class="text-base-content/50">Value:</span> <pre class="bg-base-100 p-1 rounded mt-1 overflow-auto">{{ selectedMessage.value }}</pre></div>
       </div>

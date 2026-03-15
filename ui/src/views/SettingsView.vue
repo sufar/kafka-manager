@@ -163,10 +163,10 @@ const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
 // Message view mode state
-const messageViewMode = ref<'classic' | 'simple'>('classic');
+const messageViewMode = ref<'classic' | 'simple'>('simple');
 
 // Sidebar mode state
-const sidebarMode = ref<'tree' | 'flat'>('tree');
+const sidebarMode = ref<'tree' | 'flat'>('flat');
 
 // Load message view mode setting
 async function loadMessageViewModeSetting() {
