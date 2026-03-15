@@ -245,12 +245,12 @@ async function loadAllTopics() {
         }
       }
     } else {
-      // No cluster selected - load all topics from all clusters with a single API call
-      const allTopicNames = await apiClient.getTopics();
-      for (const topicName of allTopicNames) {
+      // No cluster selected - load all topics from all clusters with cluster info
+      const allTopicsWithCluster = await apiClient.getTopicsWithCluster();
+      for (const topic of allTopicsWithCluster) {
         topics.push({
-          name: topicName,
-          cluster: '' // Will be resolved later when user expands cluster nodes
+          name: topic.name,
+          cluster: topic.cluster
         });
       }
     }

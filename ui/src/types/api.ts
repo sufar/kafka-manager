@@ -33,8 +33,17 @@ export interface TestConnectionResponse {
 }
 
 // Topic 相关类型
+export interface TopicWithCluster {
+  name: string;
+  cluster: string;
+}
+
 export interface TopicListResponse {
   topics: string[];
+}
+
+export interface TopicListWithClusterResponse {
+  topics: TopicWithCluster[];
 }
 
 export interface CreateTopicRequest {

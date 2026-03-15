@@ -367,6 +367,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
 
         // Topic
         "topic.list" => handle_topic_list(state, body).await,
+        "topic.list_with_cluster" => handle_topic_list_with_cluster(state, body).await,
         "topic.get" => handle_topic_get(state, body).await,
         "topic.create" => handle_topic_create(state, body).await,
         "topic.delete" => handle_topic_delete(state, body).await,
@@ -888,6 +889,78 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
 
     // 数据库没有数据，从 Kafka 获取
     sync_topics_from_kafka(state, &cluster_id).await
+}
+
+/// Fetch topics with cluster info from all clusters
+async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<Value> {
+    use crate::db::cluster::ClusterStore;
+
+    // Use Vec of {name, cluster} objects
+    #[derive(serde::Serialize)]
+    struct TopicWithCluster {
+        name: String,
+        cluster: String,
+    }
+
+    // Check if a specific cluster_id is provided
+    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    if let Some(id) = cluster_id {
+        // Fetch topics from a specific cluster
+        let db_topics = TopicStore::list_by_cluster(state.db.inner(), &id).await.ok();
+
+        let mut topics: Vec<TopicWithCluster> = Vec::new();
+
+        if let Some(topics_list) = db_topics {
+            for topic in topics_list {
+                topics.push(TopicWithCluster {
+                    name: topic.topic_name,
+                    cluster: id.clone(),
+                });
+            }
+        }
+
+        // Background sync
+        let state_clone = state.clone();
+        let id_clone = id.clone();
+        tokio::spawn(async move {
+            let _ = sync_topics_from_kafka(state_clone, &id_clone).await;
+        });
+
+        return Ok(serde_json::json!({ "topics": topics }));
+    }
+
+    // No cluster_id provided - fetch from all clusters
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+
+    let mut all_topics: Vec<TopicWithCluster> = Vec::new();
+
+    for cluster in clusters {
+        let cluster_name = &cluster.name;
+
+        if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
+            for topic in topics {
+                all_topics.push(TopicWithCluster {
+                    name: topic.topic_name,
+                    cluster: cluster_name.clone(),
+                });
+            }
+        }
+
+        // Background sync
+        let state_clone = state.clone();
+        let cluster_name_clone = cluster_name.clone();
+        tokio::spawn(async move {
+            let _ = sync_topics_from_kafka(state_clone, &cluster_name_clone).await;
+        });
+    }
+
+    // Sort by cluster then by name
+    all_topics.sort_by(|a, b| {
+        a.cluster.cmp(&b.cluster).then(a.name.cmp(&b.name))
+    });
+
+    Ok(serde_json::json!({ "topics": all_topics }))
 }
 
 /// Fetch topics from all clusters

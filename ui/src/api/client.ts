@@ -4,6 +4,7 @@ import type {
   UpdateClusterRequest,
   TestConnectionResponse,
   TopicListResponse,
+  TopicListWithClusterResponse,
   CreateTopicRequest,
   CreateTopicResponse,
   TopicDetailResponse,
@@ -245,6 +246,15 @@ class ApiClient {
       params.cluster_id = clusterId;
     }
     const data = await this.request<TopicListResponse>('topic.list', params);
+    return data.topics;
+  }
+
+  async getTopicsWithCluster(clusterId?: string): Promise<{ name: string; cluster: string }[]> {
+    const params: any = {};
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    const data = await this.request<TopicListWithClusterResponse>('topic.list_with_cluster', params);
     return data.topics;
   }
 
