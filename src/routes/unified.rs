@@ -1660,6 +1660,7 @@ fn fetch_partition_messages_parallel(
     topic: String,
     partition: i32,
     max_messages: usize,
+    offset: Option<i64>,
     start_time: Option<i64>,
     end_time: Option<i64>,
     search: Option<String>,
@@ -1689,7 +1690,7 @@ fn fetch_partition_messages_parallel(
         .map_err(|e| AppError::Internal(format!("Failed to create consumer for partition {}: {}", partition, e)))?;
 
     // 计算起始 offset
-    let start_offset = calculate_partition_offset(&consumer, &topic, partition, max_messages, start_time, fetch_mode.as_deref())?;
+    let start_offset = calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, fetch_mode.as_deref())?;
 
     // 分配到指定分区
     let mut tpl = TopicPartitionList::new();
@@ -1775,12 +1776,20 @@ fn calculate_partition_offset(
     topic: &str,
     partition: i32,
     max_messages: usize,
+    offset: Option<i64>,
     start_time: Option<i64>,
     fetch_mode: Option<&str>,
 ) -> Result<i64> {
     use rdkafka::consumer::Consumer;
     use rdkafka::TopicPartitionList;
     use std::time::Duration;
+
+    // 如果用户指定了特定 offset，优先使用
+    if let Some(off) = offset {
+        if off >= 0 {
+            return Ok(off);
+        }
+    }
 
     if let Some(time) = start_time {
         if time > 0 {
@@ -1828,7 +1837,7 @@ async fn fetch_messages_local(
     brokers: &str,
     topic: &str,
     partition: Option<i32>,
-    _offset: Option<i64>,
+    offset: Option<i64>,
     max_messages: usize,
     start_time: Option<i64>,
     end_time: Option<i64>,
@@ -1849,6 +1858,7 @@ async fn fetch_messages_local(
     let search = search.clone();
     let fetch_mode = fetch_mode.map(|s| s.to_string());
     let sort = sort.map(|s| s.to_string());
+    let offset = offset;
 
     // 获取分区列表
     let partitions: Vec<i32> = {
@@ -1887,7 +1897,7 @@ async fn fetch_messages_local(
 
             let handle = tokio::task::spawn_blocking(move || {
                 fetch_partition_messages_parallel(
-                    brokers, topic, part_id, max_messages,
+                    brokers, topic, part_id, max_messages, None,
                     start_time, end_time, search, fetch_mode,
                 )
             });
@@ -1924,7 +1934,7 @@ async fn fetch_messages_local(
 
             let mut tpl = TopicPartitionList::new();
             for &part_id in &partitions {
-                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, start_time, fetch_mode.as_deref())
+                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, offset, start_time, fetch_mode.as_deref())
                     .unwrap_or(0);
                 let seek_offset = if start_offset < 0 {
                     rdkafka::Offset::Beginning
@@ -1940,7 +1950,7 @@ async fn fetch_messages_local(
 
             // Seek 到正确位置
             for &part_id in &partitions {
-                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, start_time, fetch_mode.as_deref())
+                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, offset, start_time, fetch_mode.as_deref())
                     .unwrap_or(0);
                 let seek_offset = if start_offset < 0 {
                     rdkafka::Offset::Beginning
