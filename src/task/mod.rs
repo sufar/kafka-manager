@@ -4,7 +4,7 @@
 
 pub mod health_check;
 
-pub use health_check::{HealthChecker, HealthCheckConfig};
+pub use health_check::HealthChecker;
 
 use crate::error::Result;
 use axum::{

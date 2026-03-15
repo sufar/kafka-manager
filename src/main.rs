@@ -28,7 +28,8 @@ use crate::middleware::auth::{auth_middleware, AuthMiddleware};
 use crate::middleware::performance::performance_tracker;
 use crate::pool::ClusterPools;
 use crate::cache::MetadataCache;
-use crate::task::{TaskStore, HealthChecker, HealthCheckConfig};
+use crate::task::{TaskStore, HealthChecker};
+use crate::task::health_check::HealthCheckConfig;
 
 /// 应用状态
 #[derive(Clone)]
@@ -109,34 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let task_store = TaskStore::new();
     tracing::info!("Task queue initialized");
 
-    // 初始化健康检查器
-    let health_check_config = HealthCheckConfig {
-        check_interval_secs: std::env::var("HEALTH_CHECK_INTERVAL_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(30),
-        history_retention_hours: std::env::var("HEALTH_CHECK_RETENTION_HOURS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(24),
-        auto_reconnect: std::env::var("HEALTH_CHECK_AUTO_RECONNECT")
-            .map(|s| s.to_lowercase() == "true")
-            .unwrap_or(false),
-        max_reconnect_retries: std::env::var("HEALTH_CHECK_MAX_RECONNECT_RETRIES")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(3),
-    };
-    let health_checker = HealthChecker::new(health_check_config);
-
-    // 启动后台健康检查任务
-    let health_checker_clone = health_checker.clone();
-    let pools_clone = pools.clone();
-    let db_pool = db.inner().clone();
-    tokio::spawn(async move {
-        let _ = health_checker_clone.start(pools_clone, db_pool).await;
-    });
-    tracing::info!("Health checker started");
+    // 初始化健康检查器（仅用于内存状态跟踪，不运行后台自动检查）
+    let health_checker = HealthChecker::new(HealthCheckConfig::default());
 
     // 从数据库加载 API Keys 并初始化认证中间件
     let api_keys = load_api_keys_from_db(db.inner()).await?;

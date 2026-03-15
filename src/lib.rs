@@ -21,7 +21,7 @@ pub use db::DbPool;
 pub use kafka::KafkaClients;
 pub use pool::ClusterPools;
 pub use cache::MetadataCache;
-pub use task::{TaskStore, HealthChecker, HealthCheckConfig};
+pub use task::{TaskStore, HealthChecker};
 pub use middleware::auth::{auth_middleware, AuthMiddleware};
 
 /// 应用状态
