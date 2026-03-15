@@ -36,6 +36,8 @@ impl KafkaProducerManager {
         // Producer 特定配置
         client_config.set("message.timeout.ms", "30000");
         client_config.set("delivery.timeout.ms", "300000");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
         client_config
     }
 }

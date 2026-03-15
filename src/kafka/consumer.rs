@@ -71,6 +71,8 @@ impl KafkaConsumer {
         client_config.set("socket.timeout.ms", "3000");
         client_config.set("fetch.wait.max.ms", "5");
         client_config.set("fetch.min.bytes", "1");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -253,6 +255,8 @@ impl KafkaConsumer {
         client_config.set("request.timeout.ms", "10000");
         client_config.set("socket.timeout.ms", "10000");
         client_config.set("socket.connection.setup.timeout.ms", "10000");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -291,6 +295,8 @@ impl KafkaConsumer {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -341,6 +347,8 @@ impl KafkaConsumer {
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
         client_config.set("fetch.wait.max.ms", "50");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
         client_config.set("fetch.min.bytes", "1");
 
         let consumer: StreamConsumer = client_config.create()?;
@@ -459,6 +467,8 @@ impl KafkaConsumer {
             let mut client_config = ClientConfig::new();
             client_config.set("bootstrap.servers", &brokers);
             client_config.set("group.id", "kafka-manager-fetcher");
+            // 强制使用 IPv4，避免 IPv6 连接问题
+            client_config.set("broker.address.family", "v4");
             client_config.set("enable.auto.commit", "false");
             client_config.set("auto.offset.reset", "earliest");
             client_config.set("request.timeout.ms", &request_timeout.to_string());
@@ -526,6 +536,8 @@ impl KafkaConsumer {
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
@@ -570,6 +582,10 @@ impl KafkaConsumer {
 
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", "kafka-manager-simple-fetcher");
+        client_config.set("enable.auto.commit", "false");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
         client_config.set("group.id", "kafka-manager-fetcher");
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
@@ -656,6 +672,8 @@ impl KafkaConsumer {
         // 优化：快速响应模式，不等待批量数据
         client_config.set("fetch.wait.max.ms", "10");       // 减少到 10ms
         client_config.set("fetch.min.bytes", "1");          // 有数据就返回，不等待
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
         client_config.set("fetch.max.bytes", "1048576");    // 1MB
         client_config.set("session.timeout.ms", "5000");
 

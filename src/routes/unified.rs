@@ -1665,16 +1665,19 @@ fn fetch_partition_messages_parallel(
     end_time: Option<i64>,
     search: Option<String>,
     fetch_mode: Option<String>,
-) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
+) -> Vec<crate::kafka::consumer::KafkaMessage> {
     use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
     use rdkafka::Message;
     use rdkafka::TopicPartitionList;
     use rdkafka::ClientConfig;
     use std::time::Duration;
 
-    // 创建独立的 consumer（无 group.id，无 rebalance 开销）
+    tracing::info!("[Parallel] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
+
+    // 创建独立的 consumer（无 group.id，直接分配分区）
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &brokers);
+    cfg.set("group.id", &format!("kafka-mgr-parallel-{}", partition));
     cfg.set("enable.auto.commit", "false");
     cfg.set("auto.offset.reset", "earliest");
     // 大批量优化配置
@@ -1685,12 +1688,26 @@ fn fetch_partition_messages_parallel(
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "2097152"); // 2MB
     cfg.set("enable.partition.eof", "false");
+    // 强制使用 IPv4，避免 IPv6 连接问题
+    cfg.set("broker.address.family", "v4");
 
-    let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
-        .map_err(|e| AppError::Internal(format!("Failed to create consumer for partition {}: {}", partition, e)))?;
+    let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("[Parallel] Failed to create consumer for partition {}: {}", partition, e);
+            return Vec::new();
+        }
+    };
 
     // 计算起始 offset
-    let start_offset = calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, fetch_mode.as_deref())?;
+    let start_offset = match calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, fetch_mode.as_deref()) {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::error!("[Parallel] Failed to calculate offset for partition {}: {}", partition, e);
+            return Vec::new();
+        }
+    };
+    tracing::info!("[Parallel] Partition {} start_offset: {}", partition, start_offset);
 
     // 分配到指定分区
     let mut tpl = TopicPartitionList::new();
@@ -1699,16 +1716,25 @@ fn fetch_partition_messages_parallel(
     } else {
         rdkafka::Offset::Offset(start_offset)
     };
-    tpl.add_partition_offset(&topic, partition, seek_offset)
-        .map_err(|e| AppError::Internal(format!("Failed to add partition {}: {}", partition, e)))?;
-    consumer.assign(&tpl)
-        .map_err(|e| AppError::Internal(format!("Failed to assign partition {}: {}", partition, e)))?;
+    if let Err(e) = tpl.add_partition_offset(&topic, partition, seek_offset) {
+        tracing::error!("[Parallel] Failed to add partition {}: {}", partition, e);
+        return Vec::new();
+    }
+    if let Err(e) = consumer.assign(&tpl) {
+        tracing::error!("[Parallel] Failed to assign partition {}: {}", partition, e);
+        return Vec::new();
+    }
 
     // 计算结束 offset
     let end_offset = if fetch_mode.as_deref() == Some("newest") {
-        let (_, high) = consumer.fetch_watermarks(&topic, partition, Duration::from_secs(5))
-            .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))?;
-        Some(high)
+        match consumer.fetch_watermarks(&topic, partition, Duration::from_secs(5)) {
+            Ok((_, high)) if high > 0 => Some(high),
+            Err(e) => {
+                tracing::warn!("[Parallel] Failed to fetch watermarks for partition {}: {}", partition, e);
+                None
+            }
+            _ => None,
+        }
     } else {
         None
     };
@@ -1716,12 +1742,17 @@ fn fetch_partition_messages_parallel(
     let search_lower = search.map(|s| s.to_lowercase());
     let mut messages = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
-    let max_empty = max_messages / 100 + 10; // 自适应空轮次上限
+    let mut polled_count = 0;
+    let max_empty = max_messages / 100 + 5; // 自适应空轮次上限，最小5
+    // 搜索时需要更大的采样量才能找到匹配的消息
+    let search_multiplier = if search_lower.is_some() { 100 } else { 3 };
+    let max_poll = max_messages * search_multiplier; // 最多poll N倍的消息量（用于搜索过滤）
 
-    // 使用更长的 poll 时间，获取更大 batch
-    while messages.len() < max_messages && empty_count < max_empty {
-        match consumer.poll(Duration::from_millis(200)) {
+    // 使用较短的 poll 时间，更快响应 timeout
+    while messages.len() < max_messages && empty_count < max_empty && polled_count < max_poll {
+        match consumer.poll(Duration::from_millis(50)) {
             Some(Ok(msg)) => {
+                polled_count += 1;
                 empty_count = 0;
 
                 // newest 模式下检查是否到达末尾
@@ -1767,7 +1798,8 @@ fn fetch_partition_messages_parallel(
         }
     }
 
-    Ok(messages)
+    tracing::info!("[Parallel] Fetched {} messages from partition {} (polled: {})", messages.len(), partition, polled_count);
+    messages
 }
 
 /// 计算分区的起始 offset
@@ -1864,6 +1896,7 @@ async fn fetch_messages_local(
     let partitions: Vec<i32> = {
         let cfg = ClientConfig::new()
             .set("bootstrap.servers", &brokers)
+            .set("broker.address.family", "v4")
             .create::<BaseConsumer>()?;
         if partition.is_none() {
             match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
@@ -1886,45 +1919,52 @@ async fn fetch_messages_local(
 
     let messages = if max_messages >= 1000 && partition_count > 1 {
         // === 大批量并行模式（>=1000条/分区）===
-        // 注意：每个分区平均分配消息数量
+        // 每个分区都请求 max_messages 条（max_messages 是 per partition 的）
         // 限制并发数以避免对 Kafka 造成过大压力
         let msgs_per_partition = max_messages;
+        tracing::info!("[Parallel Mode] {} partitions, {} messages per partition, total target {}",
+            partition_count, msgs_per_partition, total_target);
         let partition_has_specific_offset = partition.is_some();
-        let partition_offset = if partition_has_specific_offset { offset } else { None };
-        let partition_start_time = start_time;
-        let partition_end_time = end_time;
+        let partition_offset_val = if partition_has_specific_offset { offset } else { None };
 
-        use futures::stream::{self, StreamExt};
+        use tokio::sync::Semaphore;
         use tokio::time::{timeout, Duration as TokioDuration};
+        use std::sync::Arc;
 
-        let results: Vec<_> = stream::iter(partitions.into_iter().map(|part_id| {
+        // 最多 10 个并发
+        let semaphore = Arc::new(Semaphore::new(10));
+        let mut handles = vec![];
+
+        for &part_id in &partitions {
             let brokers = brokers.clone();
             let topic = topic.clone();
             let search = search.clone();
             let fetch_mode = fetch_mode.clone();
-            let part_offset = if partition_has_specific_offset { partition_offset } else { None };
+            let part_offset = if partition_has_specific_offset { partition_offset_val } else { None };
+            let sem = semaphore.clone();
 
-            async move {
-                // 单个分区查询超时 30 秒
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("Semaphore acquire failed");
                 timeout(TokioDuration::from_secs(30), tokio::task::spawn_blocking(move || {
                     fetch_partition_messages_parallel(
                         brokers, topic, part_id, msgs_per_partition, part_offset,
-                        partition_start_time, partition_end_time, search, fetch_mode,
+                        start_time, end_time, search, fetch_mode,
                     )
                 })).await
-            }
-        }))
-        .buffer_unordered(10) // 最多 10 个分区并发查询
-        .collect()
-        .await;
+            });
+            handles.push(handle);
+        }
 
-        let mut all_msgs = Vec::with_capacity(total_target);
-        for result in results {
-            match result {
-                Ok(Ok(Ok(msgs))) => all_msgs.extend(msgs),
-                Ok(Ok(Err(e))) => tracing::warn!("Partition fetch error: {}", e),
+        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target);
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(Ok(msgs))) => {
+                    tracing::info!("[Parallel] Got {} messages from task", msgs.len());
+                    all_msgs.extend(msgs);
+                }
+                Ok(Ok(Err(_))) => tracing::warn!("Partition fetch timeout"),
                 Ok(Err(e)) => tracing::warn!("Task join error: {}", e),
-                Err(_) => tracing::warn!("Partition fetch timeout"),
+                Err(e) => tracing::warn!("Spawn error: {}", e),
             }
         }
         all_msgs
@@ -1942,6 +1982,7 @@ async fn fetch_messages_local(
             cfg.set("fetch.wait.max.ms", "10");
             cfg.set("fetch.max.bytes", "52428800");
             cfg.set("socket.nagle.disable", "true");
+            cfg.set("broker.address.family", "v4");
 
             let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
                 Ok(c) => c,
@@ -1976,7 +2017,9 @@ async fn fetch_messages_local(
                 } else {
                     rdkafka::Offset::Offset(start_offset)
                 };
-                let _ = consumer.seek(&topic, part_id, seek_offset, Duration::from_millis(50));
+                if let Err(e) = consumer.seek(&topic, part_id, seek_offset, Duration::from_secs(5)) {
+                    tracing::warn!("[Local] Failed to seek partition {} to offset {:?}: {}", part_id, seek_offset, e);
+                }
             }
 
             let search_lower = search.as_ref().map(|s| s.to_lowercase());
@@ -1985,11 +2028,16 @@ async fn fetch_messages_local(
             let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
             let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
             let mut total_empty = 0;
-            let max_empty_rounds = (partition_count * max_messages).max(5000);
+            let mut polled_count = 0;
+            let max_empty_rounds = (partition_count * max_messages).max(20); // 空轮次上限
+            // 搜索时需要更大的采样量才能找到匹配的消息
+            let search_multiplier = if search_lower.is_some() { 100 } else { 3 };
+            let max_poll = max_messages * partition_count * search_multiplier; // 最多poll N倍的消息量（用于搜索过滤）
 
-            while all_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds {
+            while all_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds && polled_count < max_poll {
                 match consumer.poll(Duration::from_millis(50)) {
                     Some(Ok(msg)) => {
+                        polled_count += 1;
                         let part = msg.partition();
                         let count = partition_counts.get(&part).copied().unwrap_or(0);
                         if count >= max_messages {
@@ -2090,6 +2138,8 @@ async fn fetch_messages_remote(
         cfg.set("socket.nagle.disable", "true");
         cfg.set("session.timeout.ms", "30000");
         cfg.set("socket.connection.setup.timeout.ms", "10000");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        cfg.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;

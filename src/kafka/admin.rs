@@ -226,6 +226,8 @@ impl KafkaAdmin {
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", "kafka-manager-temp");
         client_config.set("enable.auto.commit", "false");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer<DefaultConsumerContext> = client_config
             .create()
@@ -374,6 +376,8 @@ impl KafkaAdmin {
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -463,6 +467,7 @@ impl KafkaAdmin {
             ClientConfig::new()
                 .set("bootstrap.servers", &kafka_config.brokers)
                 .set("enable.auto.commit", "false")
+                .set("broker.address.family", "v4")
                 .create()
                 .ok()?;
 
@@ -587,6 +592,7 @@ impl KafkaAdmin {
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", bootstrap_servers)
+            .set("broker.address.family", "v4")
             .create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
 

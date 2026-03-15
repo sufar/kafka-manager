@@ -82,6 +82,9 @@ impl KafkaConsumerManager {
         // socket.nagle.disable: 禁用 Nagle 算法，降低延迟（对远程连接很重要）
         client_config.set("socket.nagle.disable", "true");
 
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
+
         // reconnect.backoff.ms: 重连间隔
         client_config.set("reconnect.backoff.ms", "50");
         client_config.set("reconnect.backoff.max.ms", "1000");

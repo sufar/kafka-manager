@@ -26,6 +26,8 @@ impl KafkaOffsetManager {
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", "kafka-manager-temp");
         client_config.set("enable.auto.commit", "false");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -230,6 +232,7 @@ impl KafkaOffsetManager {
                 .set("bootstrap.servers", &kafka_config.brokers)
                 .set("enable.auto.commit", "false")
                 .set("auto.offset.reset", "earliest")
+                .set("broker.address.family", "v4")
                 .create()
                 .ok()?;
 
@@ -253,6 +256,8 @@ impl KafkaOffsetManager {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", group_id);
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -336,6 +341,8 @@ impl KafkaOffsetManager {
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("enable.auto.commit", "false");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
 
         let consumer: BaseConsumer = client_config
             .create()

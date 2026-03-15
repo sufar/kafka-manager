@@ -29,6 +29,8 @@ pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
         "socket.timeout.ms",
         &kafka_config.request_timeout_ms.to_string(),
     );
+    // 强制使用 IPv4，避免 IPv6 连接问题
+    client_config.set("broker.address.family", "v4");
     client_config
 }
 
