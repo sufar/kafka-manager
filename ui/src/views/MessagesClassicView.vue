@@ -992,10 +992,11 @@ async function saveMaxMessagesSetting() {
   }
 }
 
-// 加载设置
+// 加载设置（静默加载，失败不影响使用）
 async function loadSettings() {
   if (settingsLoaded) return;
   try {
+    // 设置查询应该很快，使用 5 秒超时
     const settings = await apiClient.getSettings(['messages.max_messages', 'ui.language']);
     for (const setting of settings) {
       if (setting.key === 'messages.max_messages') {
@@ -1006,7 +1007,8 @@ async function loadSettings() {
       }
     }
   } catch (e) {
-    console.error('Failed to load settings:', e);
+    // 静默失败 - 设置加载不是关键功能，使用默认值即可
+    console.debug('Settings load failed (using defaults):', (e as { message?: string }).message);
   }
   settingsLoaded = true;
 }

@@ -80,14 +80,14 @@ async fn ensure_cluster_client(
                 tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
                 last_db_error = Some(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)));
                 if attempt < 2 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
             Err(e) => {
                 tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
                 last_db_error = Some(e);
                 if attempt < 2 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         }
@@ -159,14 +159,14 @@ async fn get_or_create_admin_client(
                 tracing::warn!("Cluster '{}' not found in database (attempt {}), retrying...", cluster_id, attempt + 1);
                 last_db_error = Some(AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)));
                 if attempt < 2 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
             Err(e) => {
                 tracing::warn!("Database error fetching cluster '{}': {} (attempt {}), retrying...", cluster_id, e, attempt + 1);
                 last_db_error = Some(e);
                 if attempt < 2 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         }
@@ -362,6 +362,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "cluster.update" => handle_cluster_update(state, body).await,
         "cluster.delete" => handle_cluster_delete(state, body).await,
         "cluster.test" => handle_cluster_test(state, body).await,
+        "cluster.test_config" => handle_cluster_test_with_config(state, body).await,
         "cluster.stats" => handle_cluster_stats(state, body).await,
 
         // Topic
@@ -632,6 +633,30 @@ async fn handle_cluster_test(state: AppState, body: Value) -> Result<Value> {
     let success = ClusterStore::test_connection(state.db.inner(), id).await?;
 
     Ok(serde_json::json!({ "success": success }))
+}
+
+/// Test cluster connection with temporary configuration (without saving to database)
+async fn handle_cluster_test_with_config(_state: AppState, body: Value) -> Result<Value> {
+    let brokers = get_string_param(&body, "brokers")?;
+    let request_timeout_ms = get_optional_i64_param(&body, "request_timeout_ms").unwrap_or(5000);
+    let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms").unwrap_or(5000);
+
+    use crate::config::KafkaConfig;
+    use crate::kafka::KafkaAdmin;
+
+    let config = KafkaConfig {
+        brokers,
+        request_timeout_ms: request_timeout_ms as u32,
+        operation_timeout_ms: operation_timeout_ms as u32,
+    };
+
+    match KafkaAdmin::new(&config) {
+        Ok(_) => Ok(serde_json::json!({ "success": true })),
+        Err(e) => Ok(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+    }
 }
 
 async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {

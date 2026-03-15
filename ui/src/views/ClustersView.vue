@@ -265,6 +265,24 @@
                 />
               </div>
             </div>
+            <!-- Test Connection Button -->
+            <div v-if="!editingCluster" class="flex items-center gap-2">
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="!formData.name || !formData.brokers || testingConnection"
+                @click="testConnectionConfig"
+              >
+                <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                </svg>
+                {{ testingConnection ? '测试中...' : '测试连接' }}
+              </button>
+              <span v-if="connectionTestResult" class="text-xs" :class="connectionTestResult.success ? 'text-success' : 'text-error'">
+                {{ connectionTestResult.success ? '连接成功' : `连接失败：${connectionTestResult.error}` }}
+              </span>
+            </div>
             <div class="modal-action mt-4">
               <button type="button" class="btn btn-outline" @click="closeModal">{{ t.common.cancel }}</button>
               <button type="submit" class="btn btn-primary" :disabled="submitting">
@@ -285,6 +303,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useLanguageStore } from '@/stores/language';
@@ -311,6 +330,8 @@ const disconnecting = ref(new Set<string>());
 const reconnecting = ref(new Set<string>());
 const refreshingTopics = ref(new Set<string>());
 const submitting = ref(false);
+const testingConnection = ref(false);
+const connectionTestResult = ref<{ success: boolean; error?: string } | null>(null);
 
 const formData = reactive({
   name: '',
@@ -348,6 +369,33 @@ function closeModal() {
   formData.operation_timeout_ms = 30000;
   // 清除路由参数
   router.replace({ path: '/clusters', query: {} });
+  // 清除测试结果
+  connectionTestResult.value = null;
+}
+
+// Test cluster connection with current form configuration
+async function testConnectionConfig() {
+  testingConnection.value = true;
+  connectionTestResult.value = null;
+  try {
+    const result = await apiClient.testClusterConfig({
+      name: formData.name,
+      brokers: formData.brokers,
+      request_timeout_ms: formData.request_timeout_ms,
+      operation_timeout_ms: formData.operation_timeout_ms,
+    });
+    connectionTestResult.value = result;
+    if (result.success) {
+      showSuccess(t.value.clusters.connected);
+    } else {
+      showError(result.error || t.value.clusters.connectionError);
+    }
+  } catch (e) {
+    connectionTestResult.value = { success: false, error: (e as { message: string }).message };
+    showError(`${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
+  } finally {
+    testingConnection.value = false;
+  }
 }
 
 async function handleSubmit() {

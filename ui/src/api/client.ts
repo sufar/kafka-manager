@@ -228,6 +228,16 @@ class ApiClient {
     return this.request('cluster.test', { id });
   }
 
+  // Test cluster connection with temporary configuration
+  async testClusterConfig(config: {
+    name: string;
+    brokers: string;
+    request_timeout_ms?: number;
+    operation_timeout_ms?: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    return this.request('cluster.test_config', config);
+  }
+
   // ==================== Topics ====================
   async getTopics(clusterId?: string): Promise<string[]> {
     const params: any = {};

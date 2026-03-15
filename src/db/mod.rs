@@ -61,9 +61,9 @@ impl DbPool {
         tracing::info!("[KAFKA-MANAGER] Database connection URL: {}", conn_url);
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .min_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(30))
+            .max_connections(20)
+            .min_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(&conn_url)
             .await?;
 

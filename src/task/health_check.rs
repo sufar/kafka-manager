@@ -93,88 +93,113 @@ impl HealthChecker {
                 // 获取所有集群
                 match ClusterStore::list(&db_pool).await {
                     Ok(clusters) => {
+                        // 并行检查所有集群，避免顺序执行导致长时间阻塞
+                        let mut tasks = Vec::new();
                         for cluster in clusters {
-                            let start = std::time::Instant::now();
+                            let pools_clone = pools.clone();
+                            let db_pool_clone = db_pool.clone();
+                            let statuses_clone = statuses.clone();
+                            let cluster_name = cluster.name.clone();
+                            let cluster_brokers = cluster.brokers.clone();
+                            let cluster_request_timeout = cluster.request_timeout_ms;
+                            let cluster_operation_timeout = cluster.operation_timeout_ms;
+                            let auto_reconnect = config.auto_reconnect;
+                            let max_reconnect_retries = config.max_reconnect_retries;
 
-                            // 检查连接状态
-                            let status = pools.check_connection(&cluster.name).await;
-                            let latency_ms = start.elapsed().as_millis() as i64;
+                            tasks.push(tokio::spawn(async move {
+                                let start = std::time::Instant::now();
 
-                            let conn_status = status.unwrap_or(ConnectionStatus::Disconnected);
+                                // 检查连接状态（带超时）
+                                let status = tokio::time::timeout(
+                                    Duration::from_secs(5),
+                                    pools_clone.check_connection(&cluster_name)
+                                ).await
+                                .unwrap_or(None)
+                                .unwrap_or(ConnectionStatus::Disconnected);
 
-                            // 更新内存状态
-                            {
-                                let mut status_map = statuses.write().await;
-                                let entry = status_map.entry(cluster.name.clone())
-                                    .or_insert_with(|| ClusterHealthStatus {
-                                        cluster_name: cluster.name.clone(),
-                                        status: conn_status.clone(),
-                                        last_check_time: chrono::Utc::now().timestamp_millis(),
-                                        consecutive_failures: 0,
-                                    });
+                                let latency_ms = start.elapsed().as_millis() as i64;
 
-                                entry.status = conn_status.clone();
-                                entry.last_check_time = chrono::Utc::now().timestamp_millis();
+                                let conn_status = status;
 
-                                if matches!(conn_status, ConnectionStatus::Error(_) | ConnectionStatus::Disconnected) {
-                                    entry.consecutive_failures += 1;
-                                } else {
-                                    entry.consecutive_failures = 0;
-                                }
-                            }
+                                // 更新内存状态
+                                {
+                                    let mut status_map = statuses_clone.write().await;
+                                    let entry = status_map.entry(cluster_name.clone())
+                                        .or_insert_with(|| ClusterHealthStatus {
+                                            cluster_name: cluster_name.clone(),
+                                            status: conn_status.clone(),
+                                            last_check_time: chrono::Utc::now().timestamp_millis(),
+                                            consecutive_failures: 0,
+                                        });
 
-                            // 记录到数据库
-                            let status_str = match &conn_status {
-                                ConnectionStatus::Connected => "connected",
-                                ConnectionStatus::Disconnected => "disconnected",
-                                ConnectionStatus::Error(_) => "error",
-                            };
+                                    entry.status = conn_status.clone();
+                                    entry.last_check_time = chrono::Utc::now().timestamp_millis();
 
-                            let error_message = match &conn_status {
-                                ConnectionStatus::Error(msg) => Some(msg.as_str()),
-                                _ => None,
-                            };
-
-                            let _ = ClusterConnectionStore::record(
-                                &db_pool,
-                                &cluster.name,
-                                status_str,
-                                error_message,
-                                Some(latency_ms),
-                            ).await;
-
-                            // 自动重连逻辑
-                            if config.auto_reconnect && matches!(conn_status, ConnectionStatus::Error(_)) {
-                                let current_failures = {
-                                    let status_map = statuses.read().await;
-                                    status_map.get(&cluster.name)
-                                        .map(|s| s.consecutive_failures)
-                                        .unwrap_or(0)
-                                };
-
-                                if current_failures <= config.max_reconnect_retries {
-                                    tracing::info!(
-                                        "Auto-reconnecting cluster {} (attempt {}/{})",
-                                        cluster.name,
-                                        current_failures,
-                                        config.max_reconnect_retries
-                                    );
-
-                                    let kafka_config = crate::config::KafkaConfig {
-                                        brokers: cluster.brokers.clone(),
-                                        request_timeout_ms: cluster.request_timeout_ms as u32,
-                                        operation_timeout_ms: cluster.operation_timeout_ms as u32,
-                                    };
-
-                                    if let Err(e) = pools.reconnect(&cluster.name, &kafka_config, &crate::config::PoolConfig::default()).await {
-                                        tracing::error!(
-                                            "Auto-reconnect failed for cluster {}: {}",
-                                            cluster.name,
-                                            e
-                                        );
+                                    if matches!(conn_status, ConnectionStatus::Error(_) | ConnectionStatus::Disconnected) {
+                                        entry.consecutive_failures += 1;
+                                    } else {
+                                        entry.consecutive_failures = 0;
                                     }
                                 }
-                            }
+
+                                // 记录到数据库
+                                let status_str = match &conn_status {
+                                    ConnectionStatus::Connected => "connected",
+                                    ConnectionStatus::Disconnected => "disconnected",
+                                    ConnectionStatus::Error(_) => "error",
+                                };
+
+                                let error_message = match &conn_status {
+                                    ConnectionStatus::Error(msg) => Some(msg.as_str()),
+                                    _ => None,
+                                };
+
+                                let _ = ClusterConnectionStore::record(
+                                    &db_pool_clone,
+                                    &cluster_name,
+                                    status_str,
+                                    error_message,
+                                    Some(latency_ms),
+                                ).await;
+
+                                // 自动重连逻辑
+                                if auto_reconnect && matches!(conn_status, ConnectionStatus::Error(_)) {
+                                    let current_failures = {
+                                        let status_map = statuses_clone.read().await;
+                                        status_map.get(&cluster_name)
+                                            .map(|s| s.consecutive_failures)
+                                            .unwrap_or(0)
+                                    };
+
+                                    if current_failures <= max_reconnect_retries {
+                                        tracing::info!(
+                                            "Auto-reconnecting cluster {} (attempt {}/{})",
+                                            cluster_name,
+                                            current_failures,
+                                            max_reconnect_retries
+                                        );
+
+                                        let kafka_config = crate::config::KafkaConfig {
+                                            brokers: cluster_brokers,
+                                            request_timeout_ms: cluster_request_timeout as u32,
+                                            operation_timeout_ms: cluster_operation_timeout as u32,
+                                        };
+
+                                        if let Err(e) = pools_clone.reconnect(&cluster_name, &kafka_config, &crate::config::PoolConfig::default()).await {
+                                            tracing::error!(
+                                                "Auto-reconnect failed for cluster {}: {}",
+                                                cluster_name,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }));
+                        }
+
+                        // 等待所有集群检查完成
+                        for task in tasks {
+                            let _ = task.await;
                         }
                     }
                     Err(e) => {
