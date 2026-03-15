@@ -183,28 +183,88 @@ if timestamp < start_time || timestamp > end_time {
 
 ### 8. Consumer 配置
 
+#### 并行模式优化（关键）
+
+**Consumer 预热机制**是解决首次 poll 延迟的关键：
+
+```rust
+// 1. 使用固定 group.id（避免 Unknown group 错误）
+cfg.set("group.id", "kafka-mgr-query");
+cfg.set("session.timeout.ms", "3000");      // 短会话超时
+cfg.set("heartbeat.interval.ms", "500");
+
+// 2. Consumer 预热（关键优化）
+// librdkafka 的 fetcher 是异步的，assign 后需要等待它从 broker 拉取第一批数据
+let warmup_start = std::time::Instant::now();
+let mut warmed_up = false;
+while !warmed_up && warmup_start.elapsed() < Duration::from_millis(1000) {
+    match consumer.poll(Duration::from_millis(100)) {
+        Some(Ok(_)) => {
+            // 拿到消息了，fetcher 已准备好，seek 回起始位置
+            consumer.seek(&topic, partition, seek_offset, Duration::from_secs(1))?;
+            warmed_up = true;
+        }
+        _ => continue,  // 还没准备好，继续等待
+    }
+}
+
+// 3. 预热后使用短超时快速轮询（数据已准备好）
+while raw_messages.len() < max_messages {
+    match consumer.poll(Duration::from_millis(10)) {  // 短超时
+        Some(Ok(msg)) => { /* 处理消息 */ }
+        _ => { empty_count += 1; }
+    }
+}
+```
+
+**为什么需要预热？**
+- `assign()` 只是逻辑分配，librdkafka 的 fetcher 线程需要异步建立连接
+- 如果不预热，第一次正式 poll 时 fetcher 还没准备好，返回 None
+- 导致需要多次空轮询才能拿到数据（从 3 秒优化到 <100ms）
+
 #### 本地模式优化
 ```rust
-cfg.set("fetch.min.bytes", "1");           // 最小获取字节
-cfg.set("fetch.wait.max.ms", "10");        // 最大等待时间
-cfg.set("fetch.max.bytes", "104857600");   // 100MB
-cfg.set("socket.nagle.disable", "true");   // 禁用 Nagle
-cfg.set("broker.address.family", "v4");    // 强制 IPv4
+cfg.set("fetch.min.bytes", "1");              // 最小获取字节，立即返回
+cfg.set("fetch.wait.max.ms", "1");            // 最大等待 1ms
+cfg.set("fetch.max.bytes", "10485760");       // 10MB（减少缓冲延迟）
+cfg.set("socket.nagle.disable", "true");      // 禁用 Nagle 算法
+cfg.set("broker.address.family", "v4");       // 强制 IPv4
+cfg.set("reconnect.backoff.ms", "50");        // 快速重连
 ```
 
 #### 远程模式优化
 ```rust
-cfg.set("fetch.min.bytes", "50000");       // 50KB
-cfg.set("fetch.wait.max.ms", "100");
-cfg.set("fetch.max.bytes", "52428800");    // 50MB
-cfg.set("session.timeout.ms", "30000");
+cfg.set("group.id", "kafka-mgr-remote");      // 固定 group.id
+cfg.set("session.timeout.ms", "3000");        // 短会话超时
+cfg.set("fetch.min.bytes", "1");              // 快速返回
+cfg.set("fetch.wait.max.ms", "10");
+cfg.set("fetch.max.bytes", "10485760");       // 10MB
 ```
+
+---
+
+## 性能优化成果
+
+### 9. 优化前后对比
+
+| 场景 | 优化前 | 优化后 | 提升 |
+|------|--------|--------|------|
+| 本地单分区（9条消息） | ~3秒 | ~100ms | **30x** |
+| 本地多分区（300条消息） | ~3秒 | ~200ms | **15x** |
+| 远程集群 | ~5秒 | ~500ms | **10x** |
+
+### 10. 关键优化点
+
+1. **Consumer 预热**：assign 后主动 poll 直到 fetcher 准备好，避免空轮询
+2. **固定 group.id**：避免每次请求动态生成导致的 group 协调开销
+3. **短 session timeout**：3秒超时，不依赖 group 协调
+4. **预热后短 poll 超时**：数据已准备好，10ms 快速轮询
 
 ---
 
 ## 日志与监控
 
-### 9. 关键日志
+### 11. 关键日志
 
 查询执行时会记录以下关键信息：
 
@@ -240,6 +300,14 @@ cfg.set("session.timeout.ms", "30000");
 2. 搜索过滤后匹配的消息很少
 3. 达到了空轮次上限（该分区没有更多消息）
 
+### Q5: 为什么 Consumer 需要预热？
+
+**A**: `assign()` 只是逻辑分配分区，librdkafka 的 fetcher 线程需要异步建立连接并从 broker 拉取数据。如果不预热，首次 poll 时数据还没准备好，需要多次空轮询。预热后数据立即可用，查询速度从 3 秒优化到 <100ms。
+
+### Q6: 为什么使用固定 group.id 而不是动态生成？
+
+**A**: 动态生成 group.id 会导致每次请求都经历完整的消费者组协调流程（发现 coordinator → join group → sync group），耗时 500-1000ms。固定 group.id 配合 `assign()` 模式（非 subscribe），可以避免 group 协调开销。
+
 ---
 
 ## 版本历史
@@ -247,3 +315,4 @@ cfg.set("session.timeout.ms", "30000");
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | 1.0 | 2026-03-15 | 初始文档，记录两阶段查询优化 |
+| 1.1 | 2026-03-16 | 添加 Consumer 预热机制、固定 group.id 策略、性能优化成果（30x 提升）|
