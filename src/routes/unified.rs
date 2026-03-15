@@ -1740,17 +1740,16 @@ fn fetch_partition_messages_parallel(
     };
 
     let search_lower = search.map(|s| s.to_lowercase());
-    let mut messages = Vec::with_capacity(max_messages);
+    let mut raw_messages = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
     let mut polled_count = 0;
     let max_empty = max_messages / 100 + 5; // 自适应空轮次上限，最小5
-    // 搜索时需要更大的采样量才能找到匹配的消息
-    let search_multiplier = if search_lower.is_some() { 100 } else { 3 };
-    let max_poll = max_messages * search_multiplier; // 最多poll N倍的消息量（用于搜索过滤）
+    // 无时间范围时：每个分区最多获取 max_messages 条，然后在这些消息中搜索过滤
+    // 有时间范围时：在时间范围内获取最多 max_messages 条，再进行搜索过滤
 
-    // 使用较短的 poll 时间，更快响应 timeout
-    while messages.len() < max_messages && empty_count < max_empty && polled_count < max_poll {
-        match consumer.poll(Duration::from_millis(50)) {
+    // 先收集原始消息（最多 max_messages 条）
+    while raw_messages.len() < max_messages && empty_count < max_empty {
+        match consumer.poll(Duration::from_millis(200)) {
             Some(Ok(msg)) => {
                 polled_count += 1;
                 empty_count = 0;
@@ -1763,6 +1762,8 @@ fn fetch_partition_messages_parallel(
                 }
 
                 let ts = msg.timestamp().to_millis();
+
+                // 时间范围过滤（在时间范围内才收集）
                 if let Some(start) = start_time {
                     if let Some(t) = ts { if t < start { continue; } }
                 }
@@ -1773,14 +1774,7 @@ fn fetch_partition_messages_parallel(
                 let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                 let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
-                // 搜索过滤
-                if let Some(ref term) = search_lower {
-                    let km = key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                    let vm = value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                    if !km && !vm { continue; }
-                }
-
-                messages.push(crate::kafka::consumer::KafkaMessage {
+                raw_messages.push(crate::kafka::consumer::KafkaMessage {
                     partition,
                     offset: msg.offset(),
                     key,
@@ -1798,7 +1792,22 @@ fn fetch_partition_messages_parallel(
         }
     }
 
-    tracing::info!("[Parallel] Fetched {} messages from partition {} (polled: {})", messages.len(), partition, polled_count);
+    // 对已收集的消息进行搜索过滤
+    let messages: Vec<_> = if let Some(ref term) = search_lower {
+        raw_messages
+            .into_iter()
+            .filter(|msg| {
+                let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
+                let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
+                km || vm
+            })
+            .collect()
+    } else {
+        raw_messages
+    };
+
+    tracing::info!("[Parallel] Fetched {} messages from partition {} (polled: {}, after search filter: {})",
+        messages.len(), partition, polled_count, messages.len());
     messages
 }
 
@@ -2025,27 +2034,26 @@ async fn fetch_messages_local(
             let search_lower = search.as_ref().map(|s| s.to_lowercase());
             let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() == Some("newest"));
 
+            // 第一步：收集原始消息（每个分区最多 max_messages 条）
             let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
-            let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
+            let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
             let mut total_empty = 0;
-            let mut polled_count = 0;
             let max_empty_rounds = (partition_count * max_messages).max(20); // 空轮次上限
-            // 搜索时需要更大的采样量才能找到匹配的消息
-            let search_multiplier = if search_lower.is_some() { 100 } else { 3 };
-            let max_poll = max_messages * partition_count * search_multiplier; // 最多poll N倍的消息量（用于搜索过滤）
 
-            while all_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds && polled_count < max_poll {
-                match consumer.poll(Duration::from_millis(50)) {
+            // 收集消息，每个分区最多 max_messages 条
+            while raw_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds {
+                match consumer.poll(Duration::from_millis(200)) {
                     Some(Ok(msg)) => {
-                        polled_count += 1;
                         let part = msg.partition();
                         let count = partition_counts.get(&part).copied().unwrap_or(0);
                         if count >= max_messages {
+                            // 该分区已满，跳过
                             continue;
                         }
                         total_empty = 0;
 
                         let ts = msg.timestamp().to_millis();
+                        // 时间范围过滤
                         if let Some(start) = start_time {
                             if let Some(t) = ts { if t < start { continue; } }
                         }
@@ -2056,14 +2064,8 @@ async fn fetch_messages_local(
                         let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                         let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
-                        if let Some(ref term) = search_lower {
-                            let km = key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                            let vm = value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                            if !km && !vm { continue; }
-                        }
-
                         partition_counts.insert(part, count + 1);
-                        all_msgs.push(crate::kafka::consumer::KafkaMessage {
+                        raw_msgs.push(crate::kafka::consumer::KafkaMessage {
                             partition: part,
                             offset: msg.offset(),
                             key,
@@ -2074,6 +2076,20 @@ async fn fetch_messages_local(
                     _ => { total_empty += 1; }
                 }
             }
+
+            // 第二步：对已收集的消息进行搜索过滤
+            let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = if let Some(ref term) = search_lower {
+                raw_msgs
+                    .into_iter()
+                    .filter(|msg| {
+                        let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
+                        let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
+                        km || vm
+                    })
+                    .collect()
+            } else {
+                raw_msgs
+            };
 
             all_msgs.sort_by(|a, b| {
                 match (a.timestamp, b.timestamp) {
@@ -2221,35 +2237,23 @@ async fn fetch_messages_remote(
 
         // 第四步：批量消费消息
         let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
-        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
+        let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
         let mut total_empty = 0;
-        // 优化：使用极大的空轮次限制，确保能取完所有分区的消息
-        // 基于分区数和单分区消息数动态计算，给足够的时间消费
-        let max_empty_rounds = (partition_count * max_messages).max(5000);
+        let max_empty_rounds = (partition_count * max_messages).max(20);
 
         // 计算需要获取的总消息数
         let target_total = max_messages * partition_count;
 
-        // 优化：使用 poll 的超时策略，前几次快速 poll，后面增加等待时间
-        let mut poll_attempts = 0;
-
-        while all_msgs.len() < target_total && total_empty < max_empty_rounds {
-            // 优化 poll 超时：前5次使用100ms，之后使用1000ms（给网络更多时间）
-            let poll_timeout = if poll_attempts < 5 {
-                Duration::from_millis(100)
-            } else {
-                Duration::from_millis(1000)
-            };
-            poll_attempts += 1;
-
-            match consumer.poll(poll_timeout) {
+        // 第一步：收集原始消息（每个分区最多 max_messages 条）
+        while raw_msgs.len() < target_total && total_empty < max_empty_rounds {
+            match consumer.poll(Duration::from_millis(200)) {
                 Some(Ok(msg)) => {
                     let part = msg.partition();
 
                     // 检查该分区是否已达上限
                     let count = partition_counts.get(&part).copied().unwrap_or(0);
                     if count >= max_messages {
-                        // 分区已满，跳过但不增加 total_empty（因为这不是真的没有消息）
+                        // 分区已满，跳过
                         continue;
                     }
 
@@ -2270,15 +2274,8 @@ async fn fetch_messages_remote(
                     let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
                     let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
-                    // 搜索过滤
-                    if let Some(ref term) = search_lower {
-                        let km = key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                        let vm = value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                        if !km && !vm { continue; }
-                    }
-
                     partition_counts.insert(part, count + 1);
-                    all_msgs.push(crate::kafka::consumer::KafkaMessage {
+                    raw_msgs.push(crate::kafka::consumer::KafkaMessage {
                         partition: part,
                         offset: msg.offset(),
                         key,
@@ -2294,6 +2291,20 @@ async fn fetch_messages_remote(
                 }
             }
         }
+
+        // 第二步：对已收集的消息进行搜索过滤
+        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = if let Some(ref term) = search_lower {
+            raw_msgs
+                .into_iter()
+                .filter(|msg| {
+                    let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
+                    let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
+                    km || vm
+                })
+                .collect()
+        } else {
+            raw_msgs
+        };
 
         // 第五步：排序
         let is_desc = sort_owned.as_deref() == Some("desc") || (sort_owned.is_none() && fetch_mode_owned.as_deref() != Some("oldest"));
