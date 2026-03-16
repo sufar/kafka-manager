@@ -99,6 +99,7 @@ impl UserStore {
     }
 
     /// 获取用户 by username
+    #[allow(dead_code)]
     pub async fn get_by_username(
         pool: &sqlx::SqlitePool,
         username: &str,
@@ -129,6 +130,7 @@ impl UserStore {
     }
 
     /// 获取所有用户
+    #[allow(dead_code)]
     pub async fn list(pool: &sqlx::SqlitePool) -> Result<Vec<User>> {
         let users = sqlx::query_as::<_, User>(
             "SELECT * FROM users ORDER BY id DESC"
@@ -184,6 +186,7 @@ impl UserStore {
     }
 
     /// 删除用户
+    #[allow(dead_code)]
     pub async fn delete(pool: &sqlx::SqlitePool, id: i64) -> Result<()> {
         sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(id)
@@ -254,6 +257,7 @@ impl UserStore {
 }
 
 /// 角色存储操作
+#[allow(dead_code)]
 pub struct RoleStore;
 
 impl RoleStore {

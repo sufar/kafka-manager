@@ -32,6 +32,7 @@ pub struct ClusterConnectionStore;
 
 impl ClusterConnectionStore {
     /// 记录连接状态
+    #[allow(dead_code)]
     pub async fn record(
         pool: &sqlx::SqlitePool,
         cluster_name: &str,
@@ -132,6 +133,7 @@ impl ClusterConnectionStore {
     }
 
     /// 获取所有集群的统计
+    #[allow(dead_code)]
     pub async fn get_all_stats(
         pool: &sqlx::SqlitePool,
     ) -> Result<Vec<ConnectionStats>> {
@@ -179,6 +181,7 @@ impl ClusterConnectionStore {
     }
 
     /// 清理旧的历史记录
+    #[allow(dead_code)]
     pub async fn cleanup_old(
         pool: &sqlx::SqlitePool,
         hours: i64,

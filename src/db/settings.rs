@@ -42,6 +42,7 @@ impl SettingStore {
     }
 
     /// 获取整数设置值
+    #[allow(dead_code)]
     pub async fn get_int(pool: &SqlitePool, key: &str, default: i64) -> Result<i64, sqlx::Error> {
         match Self::get(pool, key).await? {
             Some(val) => Ok(val.parse().unwrap_or(default)),
@@ -50,6 +51,7 @@ impl SettingStore {
     }
 
     /// 设置整数设置值
+    #[allow(dead_code)]
     pub async fn set_int(pool: &SqlitePool, key: &str, value: i64) -> Result<(), sqlx::Error> {
         Self::set(pool, key, &value.to_string()).await
     }

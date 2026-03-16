@@ -209,6 +209,7 @@ async fn get_or_create_admin_client(
 
 /// 获取或创建 admin 客户端和配置
 /// 如果内存中不存在，则从数据库加载集群配置并建立连接
+#[allow(dead_code)]
 async fn get_or_create_admin_client_and_config(
     state: &AppState,
     cluster_id: &str,
@@ -269,6 +270,7 @@ fn get_optional_i32_param(body: &Value, key: &str) -> Option<i32> {
     body.get(key).and_then(|v| v.as_i64()).map(|v| v as i32)
 }
 
+#[allow(dead_code)]
 fn get_bool_param(body: &Value, key: &str) -> Result<bool> {
     body.get(key)
         .and_then(|v| v.as_bool())

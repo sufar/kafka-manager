@@ -36,10 +36,13 @@ pub struct TransactionSummary {
 }
 
 /// 事务管理器
+#[allow(dead_code)]
 pub struct TransactionManager<'a> {
+    #[allow(dead_code)]
     admin_client: &'a AdminClient<DefaultClientContext>,
 }
 
+#[allow(dead_code)]
 impl<'a> TransactionManager<'a> {
     pub fn new(admin_client: &'a AdminClient<DefaultClientContext>) -> Self {
         Self { admin_client }
@@ -68,6 +71,7 @@ impl<'a> TransactionManager<'a> {
 
 /// 事务统计数据
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct TransactionStats {
     pub total_transactions: i64,
     pub active_transactions: i64,

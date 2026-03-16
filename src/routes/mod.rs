@@ -1,5 +1,4 @@
 pub mod audit_log;
-pub mod auth;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod health;

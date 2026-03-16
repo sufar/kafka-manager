@@ -18,6 +18,7 @@ pub struct TopicMetadata {
 
 /// Topic 分区详情
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TopicPartitionDetail {
     pub partition: i32,
     pub leader: i32,
@@ -27,6 +28,7 @@ pub struct TopicPartitionDetail {
 
 /// Topic 详情响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TopicDetail {
     pub topic_name: String,
     pub partition_count: i32,
@@ -92,6 +94,7 @@ impl TopicStore {
     }
 
     /// 获取指定 Topic 元数据
+    #[allow(dead_code)]
     pub async fn get_by_name(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -126,6 +129,7 @@ impl TopicStore {
     }
 
     /// 获取所有 Topic 元数据（用于搜索）
+    #[allow(dead_code)]
     pub async fn list_all(
         pool: &sqlx::SqlitePool,
     ) -> Result<Vec<TopicMetadata>> {
@@ -227,6 +231,7 @@ impl TopicStore {
     }
 
     /// 保存 Topic 列表到数据库（用于批量保存）
+    #[allow(dead_code)]
     pub async fn save_topics(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,

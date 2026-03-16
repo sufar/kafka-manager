@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod cache;
 mod config;
 mod db;

@@ -50,6 +50,7 @@ pub struct TaskInfo {
 
 /// 任务请求
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateTaskRequest {
     #[serde(rename = "type")]
     pub task_type: TaskType,
@@ -176,6 +177,7 @@ impl Default for TaskStore {
 }
 
 /// 路由
+#[allow(dead_code)]
 pub fn routes() -> Router<crate::AppState> {
     Router::new()
         .route("/tasks", post(create_task))
@@ -184,6 +186,7 @@ pub fn routes() -> Router<crate::AppState> {
         .route("/tasks/:id", delete(delete_task))
 }
 
+#[allow(dead_code)]
 async fn create_task(
     State(state): State<crate::AppState>,
     Json(req): Json<CreateTaskRequest>,
@@ -195,6 +198,7 @@ async fn create_task(
     })))
 }
 
+#[allow(dead_code)]
 async fn list_tasks(
     State(state): State<crate::AppState>,
 ) -> Result<Json<Vec<TaskInfo>>> {
@@ -202,6 +206,7 @@ async fn list_tasks(
     Ok(Json(tasks))
 }
 
+#[allow(dead_code)]
 async fn get_task(
     State(state): State<crate::AppState>,
     Path(id): Path<String>,
@@ -211,6 +216,7 @@ async fn get_task(
     Ok(Json(task))
 }
 
+#[allow(dead_code)]
 async fn delete_task(
     State(state): State<crate::AppState>,
     Path(id): Path<String>,

@@ -24,6 +24,7 @@ pub fn role_routes() -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub role_id: Option<i64>,
@@ -31,12 +32,14 @@ pub struct UpdateUserRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct UpdatePasswordRequest {
     pub old_password: String,
     pub new_password: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -45,6 +48,7 @@ pub struct UpdateRoleRequest {
 
 // 用户管理
 
+#[allow(dead_code)]
 async fn list_users(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<UserResponse>>> {
@@ -52,6 +56,7 @@ async fn list_users(
     Ok(Json(users))
 }
 
+#[allow(dead_code)]
 async fn create_user(
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
@@ -74,6 +79,7 @@ async fn create_user(
     })))
 }
 
+#[allow(dead_code)]
 async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -84,6 +90,7 @@ async fn get_user(
     Ok(Json(user))
 }
 
+#[allow(dead_code)]
 async fn update_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -100,6 +107,7 @@ async fn update_user(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
+#[allow(dead_code)]
 async fn update_password(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -127,6 +135,7 @@ async fn update_password(
 
 // 角色管理
 
+#[allow(dead_code)]
 async fn list_roles(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<RoleResponse>>> {
@@ -146,6 +155,7 @@ async fn list_roles(
     Ok(Json(responses))
 }
 
+#[allow(dead_code)]
 async fn create_role(
     State(state): State<AppState>,
     Json(req): Json<CreateRoleRequest>,
@@ -163,6 +173,7 @@ async fn create_role(
     })))
 }
 
+#[allow(dead_code)]
 async fn get_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -181,6 +192,7 @@ async fn get_role(
     }))
 }
 
+#[allow(dead_code)]
 async fn update_role(
     State(state): State<AppState>,
     Path(id): Path<i64>,

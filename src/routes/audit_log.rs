@@ -119,6 +119,7 @@ async fn list_audit_logs(
     }))
 }
 
+#[allow(dead_code)]
 async fn clear_old_logs(
     State(state): State<AppState>,
     Json(req): Json<ClearOldLogsRequest>,

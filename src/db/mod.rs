@@ -1,4 +1,3 @@
-pub mod api_key;
 pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;

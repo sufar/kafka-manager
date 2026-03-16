@@ -1,6 +1,7 @@
 //! Kafka Manager API
 //!
 //! A Kafka management tool with RESTful API
+#![allow(dead_code)]
 
 pub mod config;
 pub mod db;

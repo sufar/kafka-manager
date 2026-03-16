@@ -196,6 +196,7 @@ pub struct UpdateTopicTemplateRequest {
 
 /// Topic 模板响应
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct TopicTemplateResponse {
     pub id: i64,
     pub name: String,
@@ -226,6 +227,7 @@ impl From<TopicTemplateRecord> for TopicTemplateResponse {
 
 /// 使用模板创建 Topic 请求
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct CreateTopicFromTemplateRequest {
     pub topic_name: String,
     pub template_id: Option<i64>,

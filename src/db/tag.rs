@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 
 /// 标签记录
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TagRecord {
     pub id: i64,
     pub cluster_id: String,
@@ -14,10 +15,12 @@ pub struct TagRecord {
 }
 
 /// 标签存储
+#[allow(dead_code)]
 pub struct TagStore {
     pool: SqlitePool,
 }
 
+#[allow(dead_code)]
 impl TagStore {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -165,6 +168,7 @@ impl TagStore {
 
 /// 创建/更新标签请求
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct TagRequest {
     pub key: String,
     pub value: String,
@@ -172,12 +176,14 @@ pub struct TagRequest {
 
 /// 批量标签请求
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct BatchTagsRequest {
     pub tags: std::collections::HashMap<String, String>,
 }
 
 /// 标签响应
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct TagResponse {
     pub id: i64,
     pub cluster_id: String,
