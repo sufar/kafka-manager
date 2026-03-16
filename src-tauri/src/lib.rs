@@ -12,10 +12,9 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, comp
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
     Config, DbPool, KafkaClients, AuthMiddleware, ClusterPools,
-    MetadataCache, TaskStore, HealthChecker,
+    MetadataCache, TaskStore,
     AppState, create_router,
 };
-use kafka_manager_api::task::health_check::HealthCheckConfig;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -196,7 +195,6 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     // 创建其他组件
     let cache = MetadataCache::new();
     let task_store = TaskStore::new();
-    let health_checker = HealthChecker::new(HealthCheckConfig::default());
     let auth = AuthMiddleware::new(vec![], false);
 
     // 构建应用状态
@@ -208,7 +206,6 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         pools: kafka_pools,
         cache,
         task_store,
-        health_checker,
     };
 
     // 创建路由
