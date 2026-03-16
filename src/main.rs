@@ -9,7 +9,6 @@ mod middleware;
 mod models;
 mod pool;
 mod routes;
-mod task;
 
 #[cfg(test)]
 mod tests;
@@ -30,7 +29,6 @@ use crate::middleware::auth::{auth_middleware, AuthMiddleware};
 use crate::middleware::performance::performance_tracker;
 use crate::pool::ClusterPools;
 use crate::cache::MetadataCache;
-use crate::task::TaskStore;
 
 /// 应用状态
 #[derive(Clone)]
@@ -43,8 +41,6 @@ pub struct AppState {
     pub pools: ClusterPools,
     /// 元数据缓存
     pub cache: MetadataCache,
-    /// 异步任务队列
-    pub task_store: TaskStore,
 }
 
 impl AppState {
@@ -105,10 +101,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = MetadataCache::new();
     tracing::info!("Metadata cache initialized");
 
-    // 初始化任务队列
-    let task_store = TaskStore::new();
-    tracing::info!("Task queue initialized");
-
     // 从数据库加载 API Keys 并初始化认证中间件
     let api_keys = load_api_keys_from_db(db.inner()).await?;
     let auth_enabled = std::env::var("AUTH_ENABLED")
@@ -128,7 +120,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auth: auth.clone(),
         pools: pools.clone(),
         cache: cache.clone(),
-        task_store: task_store.clone(),
     };
 
     // 构建路由
@@ -151,18 +142,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Listening on {}", addr);
-
-    // 启动后台任务：定期清理旧任务
-    let cleanup_store = task_store.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(3600)).await; // 每小时清理一次
-            let removed = cleanup_store.cleanup_old(24).await;
-            if removed > 0 {
-                tracing::info!("Cleaned up {} old tasks", removed);
-            }
-        }
-    });
 
     axum::serve(listener, app).await?;
 

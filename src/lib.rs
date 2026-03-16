@@ -11,7 +11,6 @@ pub mod middleware;
 pub mod models;
 pub mod pool;
 pub mod routes;
-pub mod task;
 pub mod cache;
 
 use std::sync::Arc;
@@ -22,7 +21,6 @@ pub use db::DbPool;
 pub use kafka::KafkaClients;
 pub use pool::ClusterPools;
 pub use cache::MetadataCache;
-pub use task::TaskStore;
 pub use middleware::auth::{auth_middleware, AuthMiddleware};
 
 /// 应用状态
@@ -34,7 +32,6 @@ pub struct AppState {
     pub auth: AuthMiddleware,
     pub pools: ClusterPools,
     pub cache: MetadataCache,
-    pub task_store: TaskStore,
 }
 
 impl AppState {
