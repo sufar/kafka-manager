@@ -1712,21 +1712,28 @@ fn calculate_partition_offset(
 
     if let Some(time) = start_time {
         if time > 0 {
+            let time_calc_start = std::time::Instant::now();
             let mut tpl = TopicPartitionList::new();
             tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(time)).ok();
-            match consumer.offsets_for_times(tpl, Duration::from_secs(5)) {
+            tracing::info!("[calculate_partition_offset] Querying offset for time {} on partition {}", time, partition);
+            // 增加超时时间到 15 秒，避免时间戳查询超时
+            match consumer.offsets_for_times(tpl, Duration::from_secs(15)) {
                 Ok(r) => {
+                    let elapsed = time_calc_start.elapsed();
                     let elements = r.elements_for_topic(topic);
                     for elem in elements {
                         if elem.partition() == partition {
                             if let Some(offset) = elem.offset().to_raw() {
-                                tracing::info!("[calculate_partition_offset] Using time-based offset: {} for time {}", offset, time);
+                                tracing::info!("[calculate_partition_offset] Using time-based offset: {} for time {}, took {:?}", offset, time, elapsed);
                                 return Ok(offset);
                             }
                         }
                     }
+                    tracing::warn!("[calculate_partition_offset] No offset found for time {} on partition {}, took {:?}", time, partition, elapsed);
                 }
-                Err(e) => tracing::warn!("Failed to get offset for time: {}", e),
+                Err(e) => {
+                    tracing::error!("[calculate_partition_offset] Failed to get offset for time {} on partition {}: {}, took {:?}", time, partition, e, time_calc_start.elapsed());
+                }
             }
         }
     }
@@ -1845,7 +1852,13 @@ async fn fetch_messages_local(
 
             let handle = tokio::spawn(async move {
                 let _permit = sem.acquire().await.expect("Semaphore acquire failed");
-                timeout(TokioDuration::from_secs(30), tokio::task::spawn_blocking(move || {
+                // 时间戳查询可能需要更长时间，增加超时到 60 秒
+                let fetch_timeout = if start_time.is_some() || end_time.is_some() {
+                    TokioDuration::from_secs(60)
+                } else {
+                    TokioDuration::from_secs(30)
+                };
+                timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
                     fetch_partition_messages_parallel(
                         brokers, topic, part_id, msgs_per_partition, part_offset,
                         start_time, end_time, search, fetch_mode,
@@ -2098,15 +2111,24 @@ async fn fetch_messages_remote(
                 if start_time <= 0 {
                     offset_owned.unwrap_or(0)
                 } else {
+                    let time_query_start = std::time::Instant::now();
                     let mut time_tpl = TopicPartitionList::new();
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
-                    // 优化：增加超时时间到 3 秒
-                    match consumer.offsets_for_times(time_tpl, Duration::from_millis(3000)) {
-                        Ok(r) => r.elements_for_topic(&topic_owned)
-                            .iter().find(|e| e.partition() == part_id)
-                            .and_then(|e| e.offset().to_raw())
-                            .unwrap_or_else(|| offset_owned.unwrap_or(0)),
-                        Err(_) => offset_owned.unwrap_or(0),
+                    // 优化：增加超时时间到 15 秒，避免时间戳查询超时
+                    match consumer.offsets_for_times(time_tpl, Duration::from_secs(15)) {
+                        Ok(r) => {
+                            let elapsed = time_query_start.elapsed();
+                            let offset = r.elements_for_topic(&topic_owned)
+                                .iter().find(|e| e.partition() == part_id)
+                                .and_then(|e| e.offset().to_raw())
+                                .unwrap_or_else(|| offset_owned.unwrap_or(0));
+                            tracing::info!("[Remote] Got offset {} for time {} on partition {} in {:?}", offset, start_time, part_id, elapsed);
+                            offset
+                        }
+                        Err(e) => {
+                            tracing::warn!("[Remote] Failed to get offset for time {} on partition {}: {}, using fallback", start_time, part_id, e);
+                            offset_owned.unwrap_or(0)
+                        }
                     }
                 }
             } else if (fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none()) && offset_owned.is_none() {
