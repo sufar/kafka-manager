@@ -2108,32 +2108,40 @@ async fn fetch_messages_remote(
             }
         }
 
-        for &part_id in &partitions {
-            // 首先尝试根据时间戳获取 offset
-            let mut start_offset = None;
-            if let Some(start_time) = start_time {
-                if start_time > 0 {
-                    let time_query_start = std::time::Instant::now();
-                    let mut time_tpl = TopicPartitionList::new();
+        // 批量获取所有分区的时间戳 offset（如果需要）
+        let mut time_based_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+        if let Some(start_time) = start_time {
+            if start_time > 0 && !partitions.is_empty() {
+                let time_query_start = std::time::Instant::now();
+                let mut time_tpl = TopicPartitionList::new();
+                for &part_id in &partitions {
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
-                    // 优化：增加超时时间到 15 秒，避免时间戳查询超时
-                    match consumer.offsets_for_times(time_tpl, Duration::from_secs(15)) {
-                        Ok(r) => {
-                            let elapsed = time_query_start.elapsed();
-                            start_offset = r.elements_for_topic(&topic_owned)
-                                .iter().find(|e| e.partition() == part_id)
-                                .and_then(|e| e.offset().to_raw());
-                            if let Some(off) = start_offset {
-                                tracing::info!("[Remote] Got offset {} for time {} on partition {} in {:?}", off, start_time, part_id, elapsed);
-                            } else {
-                                tracing::warn!("[Remote] No offset found for time {} on partition {}, will use fetch_mode fallback", start_time, part_id);
+                }
+                // 批量查询所有分区的时间戳 offset，超时 5 秒
+                match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
+                    Ok(r) => {
+                        let elapsed = time_query_start.elapsed();
+                        for elem in r.elements_for_topic(&topic_owned) {
+                            if let Some(offset) = elem.offset().to_raw() {
+                                time_based_offsets.insert(elem.partition(), offset);
                             }
                         }
-                        Err(e) => {
-                            tracing::warn!("[Remote] Failed to get offset for time {} on partition {}: {}, will use fetch_mode fallback", start_time, part_id, e);
-                        }
+                        tracing::info!("[Remote] Batch queried offsets for time {} on {} partitions in {:?}, found {} results",
+                            start_time, partitions.len(), elapsed, time_based_offsets.len());
+                    }
+                    Err(e) => {
+                        tracing::warn!("[Remote] Failed to batch query offsets for time {}: {}, will use fetch_mode fallback",
+                            start_time, e);
                     }
                 }
+            }
+        }
+
+        for &part_id in &partitions {
+            // 首先尝试使用批量查询得到的时间戳 offset
+            let start_offset = time_based_offsets.get(&part_id).copied();
+            if start_offset.is_some() {
+                tracing::info!("[Remote] Using time-based offset: {} for partition {}", start_offset.unwrap(), part_id);
             }
 
             // 如果时间戳查询失败或未指定时间戳，根据 fetch_mode 计算 offset
