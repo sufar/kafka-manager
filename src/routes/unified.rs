@@ -1614,7 +1614,8 @@ fn fetch_partition_messages_parallel(
     let mut raw_messages = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
     let mut polled_count = 0;
-    let max_empty = max_messages / 100 + 5 * 4; // 自适应空轮次上限，最小5
+    // 自适应空轮次上限：基础 50 轮 + 每 100 条消息增加 5 轮，确保大数据量时有足够的等待时间
+    let max_empty = 50 + max_messages / 100 * 5;
     // 无时间范围时：每个分区最多获取 max_messages 条，然后在这些消息中搜索过滤
     // 有时间范围时：在时间范围内获取最多 max_messages 条，再进行搜索过滤
 
@@ -2095,16 +2096,14 @@ async fn fetch_messages_remote(
         // 注意：这里不能并行化，因为 consumer 不是线程安全的
         let mut watermark_cache: std::collections::HashMap<i32, (i64, i64)> = std::collections::HashMap::new();
 
-        // 只在需要 newest/oldest 模式时预获取 watermarks
-        let need_watermarks = start_time.is_none() && offset_owned.is_none();
-
-        if need_watermarks {
-            for &part_id in &partitions {
-                match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(5000)) {
-                    Ok(w) => { watermark_cache.insert(part_id, w); }
-                    Err(e) => {
-                        tracing::warn!("Failed to fetch watermarks for partition {}: {}", part_id, e);
-                    }
+        // 预获取所有分区的 watermarks，用于：
+        // 1. newest/oldest 模式计算起始 offset
+        // 2. 时间戳查询失败时的 fallback
+        for &part_id in &partitions {
+            match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(5000)) {
+                Ok(w) => { watermark_cache.insert(part_id, w); }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch watermarks for partition {}: {}", part_id, e);
                 }
             }
         }
