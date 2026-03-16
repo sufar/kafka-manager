@@ -60,6 +60,11 @@
         </span>
         <span v-if="messages.length > 0" class="text-base-content/70">
           共 <span class="font-mono font-bold text-success">{{ messages.length }}</span> 条
+          <button class="btn btn-ghost btn-xs ml-2" :disabled="messages.length === 0" @click="exportMessages" title="导出消息">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+          </button>
         </span>
         <span v-if="error" class="text-error">{{ error }}</span>
       </div>
@@ -89,6 +94,7 @@
         >
           <div
             class="flex items-center px-2 py-0.5 hover:bg-base-200/50 transition-colors border-b border-base-200/30 cursor-pointer w-full"
+            :class="{ 'bg-primary/20': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
             style="height: 24px;"
             @click="selectedMessage = (item as any)"
           >
@@ -127,6 +133,7 @@
       >
         <div
           class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-2 cursor-pointer"
+          :class="{ 'bg-primary/20 border-primary/50': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
           style="height: 62px;"
           @click="selectedMessage = (item as any)"
         >
