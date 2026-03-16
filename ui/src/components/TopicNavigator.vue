@@ -1,10 +1,10 @@
 <template>
   <div class="topic-navigator h-full flex flex-col">
     <!-- Header -->
-    <div class="flex items-center justify-between p-2 mb-2 flex-shrink-0 border-b border-base-200">
-      <div class="flex items-center gap-2">
-        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
+    <div class="flex items-center justify-between p-1.5 flex-shrink-0 border-b border-base-200">
+      <div class="flex items-center gap-1.5">
+        <div class="w-6 h-6 rounded bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-primary">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </div>
@@ -22,7 +22,7 @@
     </div>
 
     <!-- Search Box -->
-    <div class="px-2 mb-2 flex-shrink-0">
+    <div class="px-1.5 py-1 flex-shrink-0">
       <div class="relative">
         <input
           v-model="searchQuery"
@@ -74,18 +74,18 @@
         v-else
         class="h-full overflow-auto"
         :items="filteredTopicsWithUid"
-        :item-size="36"
+        :item-size="28"
         key-field="uid"
         v-slot="{ item }"
       >
         <div
-          class="group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:bg-base-200"
+          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
           :class="{ 'bg-primary/10': selectedTopic?.cluster === (item as TopicItem).topic.cluster && selectedTopic?.name === (item as TopicItem).topic.name }"
           @click="selectTopic((item as TopicItem).topic)"
         >
           <!-- Cluster Health Indicator -->
           <div
-            class="w-2 h-2 rounded-full flex-shrink-0"
+            class="w-1.5 h-1.5 rounded-full flex-shrink-0"
             :class="{
               'bg-success': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === true,
               'bg-error': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === false,
@@ -93,15 +93,10 @@
             }"
           ></div>
 
-          <!-- Topic Icon -->
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-          </svg>
-
           <!-- Topic Name with Tooltip -->
           <div class="flex-1 min-w-0 relative">
             <span
-              class="text-sm truncate block"
+              class="text-xs truncate block"
               :title="`${(item as TopicItem).topic.name} (${(item as TopicItem).topic.cluster})`"
             >
               {{ (item as TopicItem).topic.name }}
@@ -109,7 +104,7 @@
           </div>
 
           <!-- Cluster Badge -->
-          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-16">
+          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1">
             {{ (item as TopicItem).topic.cluster }}
           </span>
         </div>
@@ -117,7 +112,7 @@
     </div>
 
     <!-- Status Bar -->
-    <div class="p-2 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
+    <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
       <div class="flex items-center justify-between gap-2">
         <span>{{ filteredTopics.length }} topics</span>
         <div class="flex items-center gap-1">

@@ -100,12 +100,7 @@
             <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
             <div class="flex-1 min-w-0 text-[10px] font-mono truncate pr-2">{{ truncate(getMsgValue(item), 60) }}</div>
             <div class="w-16 flex-shrink-0 text-[10px] flex items-center justify-center gap-0.5">
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="selectedMessage = (item as any)" title="查看 JSON">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
-                </svg>
-              </button>
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessage(item as any)" title="复制">
+              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" title="复制 Value (JSON 格式化)">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
@@ -173,34 +168,22 @@
             <span class="text-[10px] text-base-content/50">{{ formatTime(selectedMessage.timestamp) }}</span>
           </div>
           <div class="flex items-center gap-1">
-            <button class="btn btn-ghost btn-xs px-1" @click="copyMessageJson" title="复制完整 JSON">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
-              </svg>
-            </button>
             <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">关闭</button>
           </div>
         </div>
-        <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto">
-          <div v-if="selectedMessage.key" class="mb-1 flex flex-col" :style="{ height: keySectionHeight + '%' }">
+        <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
+          <div v-if="selectedMessage.key" class="mb-1">
             <div class="flex items-center justify-between mb-0.5">
-              <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
-                Key:
-                <select v-model="keyViewFormat" class="select select-bordered select-xs scale-90 origin-left">
-                  <option value="json">JSON</option>
-                  <option value="raw">Raw</option>
-                  <option value="hex">Hex</option>
-                </select>
-              </div>
+              <div class="text-base-content/50 text-[10px] font-semibold">Key:</div>
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyKey" title="复制 Key">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
               </button>
             </div>
-            <pre class="bg-base-100 p-1 rounded text-[10px] font-mono overflow-auto border border-base-content/5 flex-1">{{ formatValue(selectedMessage.key, keyViewFormat) }}</pre>
+            <div class="bg-base-100 p-1 rounded text-[10px] font-mono border border-base-content/5 truncate">{{ selectedMessage.key }}</div>
           </div>
-          <div class="flex flex-col" :style="selectedMessage.key ? { height: (100 - keySectionHeight) + '%' } : { height: '100%' }">
+          <div class="flex flex-col flex-1">
             <div class="flex items-center justify-between mb-0.5">
               <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
                 Value:
@@ -253,10 +236,8 @@ const props = defineProps<{
 const partitions = ref<number[]>([]);
 const messages = ref<Message[]>([]);
 const selectedMessage = ref<any>(null);
-const keyViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const panelHeight = ref(280); // 默认高度增加到 280px
-const keySectionHeight = ref(35); // Key 区域占比 35%
 
 // 查询参数
 const selectedCluster = ref('');
@@ -354,13 +335,6 @@ function exportMessages() {
   URL.revokeObjectURL(url);
 }
 
-function copyMessage(msg: any) {
-  const text = JSON.stringify(msg, null, 2);
-  navigator.clipboard.writeText(text).then(() => {
-    showSuccess('已复制到剪贴板', 2000);
-  });
-}
-
 function formatTime(ts: number | null): string {
   if (!ts) return '-';
   const date = new Date(ts);
@@ -412,8 +386,7 @@ function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): stri
 
 function copyKey() {
   if (!selectedMessage.value?.key) return;
-  const text = formatValue(selectedMessage.value.key, keyViewFormat.value);
-  navigator.clipboard.writeText(text).then(() => {
+  navigator.clipboard.writeText(selectedMessage.value.key).then(() => {
     showSuccess('Key 已复制到剪贴板', 2000);
   });
 }
@@ -426,11 +399,12 @@ function copyValue() {
   });
 }
 
-function copyMessageJson() {
-  if (!selectedMessage.value) return;
-  const text = JSON.stringify(selectedMessage.value, null, 2);
+function copyMessageValue(msg: any) {
+  if (!msg?.value) return;
+  // 默认按 JSON 格式化复制
+  const text = formatValue(msg.value, 'json');
   navigator.clipboard.writeText(text).then(() => {
-    showSuccess('已复制到剪贴板', 2000);
+    showSuccess('Value 已复制到剪贴板', 2000);
   });
 }
 
