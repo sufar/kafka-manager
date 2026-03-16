@@ -41,10 +41,10 @@
         </svg>
       </button>
 
-      <!-- 导出 -->
-      <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages" title="导出消息">
+      <!-- 发送消息 -->
+      <button class="btn btn-ghost btn-sm" @click="openSendModal" title="发送消息">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
         </svg>
       </button>
     </div>
@@ -211,6 +211,73 @@
         </div>
       </div>
     </div>
+
+    <!-- Send Message Modal -->
+    <Teleport to="body">
+      <dialog ref="sendModalRef" class="modal" @click.self="closeSendModal">
+        <div class="modal-box w-full max-w-lg mx-2 md:mx-auto">
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeSendModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <h3 class="font-bold text-lg flex items-center gap-2 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-info">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
+            </svg>
+            发送消息 <span class="font-mono text-sm truncate max-w-[150px] md:max-w-xs">{{ selectedTopic }}</span>
+          </h3>
+          <form @submit.prevent="() => handleSendMessage(false)" class="flex flex-col gap-3">
+            <!-- Partition Dropdown -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">分区</span>
+              </label>
+              <select v-model.number="messageForm.partition" class="select select-bordered w-full sm:w-32" required :disabled="partitions.length === 0">
+                <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
+              </select>
+            </div>
+            <!-- Key Input -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">Key</span>
+                <span class="label-text-alt">可选</span>
+              </label>
+              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" placeholder="可选" />
+            </div>
+            <!-- Value Textarea -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">Value</span>
+                <span class="label-text-alt">必填</span>
+              </label>
+              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-24 sm:h-32 font-mono text-sm w-full" required placeholder='{"id": 1, "data": "example"}'></textarea>
+            </div>
+            <!-- Success Alert -->
+            <div v-if="sendSuccess" class="alert alert-success py-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              <span class="text-sm">消息发送成功! Offset: {{ lastOffset }}</span>
+            </div>
+            <!-- Actions -->
+            <div class="modal-action flex-wrap">
+              <button type="button" class="btn" @click="closeSendModal">取消</button>
+              <button type="button" class="btn btn-primary" @click="handleSendMessage(true)" :disabled="sending">
+                发送并继续
+              </button>
+              <button type="submit" class="btn btn-primary" :disabled="sending">
+                <svg v-if="sending" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                {{ sending ? '发送中...' : '发送' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </dialog>
+    </Teleport>
   </div>
 </template>
 
@@ -258,6 +325,17 @@ const searchKeyword = ref('');
 const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
+
+// 发送消息弹框状态
+const sendModalRef = ref<HTMLDialogElement | null>(null);
+const sending = ref(false);
+const sendSuccess = ref(false);
+const lastOffset = ref<number | null>(null);
+const messageForm = ref({
+  partition: 0,
+  key: '',
+  value: '',
+});
 
 // 计算属性
 const canQuery = computed(() => {
@@ -340,6 +418,57 @@ function exportMessages() {
   a.download = `${selectedTopic.value}_messages_${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// 发送消息弹框控制
+function openSendModal() {
+  // 如果没有选中分区，默认选第一个
+  if (partitions.value.length > 0 && messageForm.value.partition === 0) {
+    messageForm.value.partition = partitions.value[0] ?? 0;
+  }
+  sendModalRef.value?.showModal();
+}
+
+function closeSendModal() {
+  sendModalRef.value?.close();
+  sendSuccess.value = false;
+  lastOffset.value = null;
+}
+
+async function handleSendMessage(keepOpen: boolean) {
+  if (!selectedCluster.value || !selectedTopic.value) return;
+  if (!messageForm.value.value.trim()) return;
+
+  sending.value = true;
+  sendSuccess.value = false;
+
+  try {
+    const result = await apiClient.sendMessage(selectedCluster.value, selectedTopic.value, {
+      partition: messageForm.value.partition,
+      key: messageForm.value.key || undefined,
+      value: messageForm.value.value,
+    });
+
+    lastOffset.value = result.offset;
+    sendSuccess.value = true;
+    showSuccess('消息发送成功');
+
+    if (!keepOpen) {
+      // 清空表单并关闭弹框
+      setTimeout(() => {
+        messageForm.value.key = '';
+        messageForm.value.value = '';
+        closeSendModal();
+      }, 500);
+    } else {
+      // 只清空 value，保留 key 和 partition
+      messageForm.value.value = '';
+    }
+  } catch (e) {
+    console.error('Failed to send message:', e);
+  } finally {
+    sending.value = false;
+  }
 }
 
 function formatTime(ts: number | null): string {
