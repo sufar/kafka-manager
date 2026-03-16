@@ -97,23 +97,8 @@
                   </router-link>
                 </li>
                 <li>
-                  <router-link :to="`/consumer-groups?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
-                    {{ t.mainLayout.consumerGroups }}
-                  </router-link>
-                </li>
-                <li>
                   <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
                     {{ t.mainLayout.messages }}
-                  </router-link>
-                </li>
-                <li>
-                  <router-link :to="`/schema-registry?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
-                    {{ t.mainLayout.schemaRegistry }}
-                  </router-link>
-                </li>
-                <li>
-                  <router-link :to="`/acls?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
-                    {{ t.mainLayout.acls }}
                   </router-link>
                 </li>
               </ul>

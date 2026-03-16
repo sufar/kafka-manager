@@ -409,8 +409,6 @@ function copyMessageJson() {
     showSuccess('已复制到剪贴板', 2000);
   });
 }
-  });
-}
 
 onMounted(async () => {
   // 优先使用 props 传入的 cluster 和 topic

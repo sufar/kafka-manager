@@ -120,41 +120,6 @@ export interface ApiError {
   status: number;
 }
 
-// API 错误
-export interface ApiError {
-
-export interface UserResponse {
-  id: number;
-  username: string;
-  email?: string;
-  role_id?: number;
-  role_name?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateUserRequest {
-  username: string;
-  password: string;
-  email?: string;
-  role_id?: number;
-}
-
-export interface RoleResponse {
-  id: number;
-  name: string;
-  description?: string;
-  permissions: string[];
-  created_at: string;
-}
-
-export interface CreateRoleRequest {
-  name: string;
-  description?: string;
-  permissions: string[];
-}
-
 // ==================== 消息管理 ====================
 
 export interface MessageRecord {

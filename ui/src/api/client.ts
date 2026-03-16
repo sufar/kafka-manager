@@ -13,7 +13,6 @@ import type {
   BatchCreateTopicsResponse,
   BatchDeleteTopicsRequest,
   BatchDeleteTopicsResponse,
-  ClusterStatsResponse,
   HealthResponse,
   ApiError,
 } from '@/types/api';
@@ -360,41 +359,6 @@ class ApiClient {
     });
   }
 
-  // ==================== Cluster Stats ====================
-  async getClusterStats(clusterId: string): Promise<ClusterStatsResponse> {
-    return this.request('cluster.stats', { cluster_id: clusterId });
-  }
-
-  // ==================== 用户管理 ====================
-  async getUsers(): Promise<import('@/types/api').UserResponse[]> {
-    return this.request('user.list', {});
-  }
-
-  async createUser(user: import('@/types/api').CreateUserRequest): Promise<{ id: number; username: string }> {
-    return this.request('user.create', user);
-  }
-
-  async updateUser(id: number, user: { email?: string; role_id?: number; is_active?: boolean }): Promise<{ success: boolean }> {
-    return this.request('user.update', { id, ...user });
-  }
-
-  async updatePassword(id: number, passwords: { old_password: string; new_password: string }): Promise<{ success: boolean }> {
-    return this.request('user.password.update', { id, ...passwords });
-  }
-
-  // ==================== 角色管理 ====================
-  async getRoles(): Promise<import('@/types/api').RoleResponse[]> {
-    return this.request('role.list', {});
-  }
-
-  async createRole(role: import('@/types/api').CreateRoleRequest): Promise<{ id: number; name: string }> {
-    return this.request('role.create', role);
-  }
-
-  async updateRole(id: number, role: { name?: string; description?: string; permissions?: string[] }): Promise<{ success: boolean }> {
-    return this.request('role.update', { id, ...role });
-  }
-
   // ==================== 消息管理 ====================
   async getMessages(clusterId: string, topic: string, params?: {
     partition?: number;
@@ -451,6 +415,7 @@ class ApiClient {
   }
 
   // ==================== 集群连接管理 ====================
+  async getConnections(): Promise<{ cluster_id: string; status: string; error_message?: string }[]> {
     return this.request('connection.list', {});
   }
 

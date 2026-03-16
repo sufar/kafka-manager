@@ -61,8 +61,8 @@ export const useClusterConnectionStore = defineStore('clusterConnections', () =>
     loading.value = true;
     error.value = null;
     try {
-      const data = await apiClient.getAllConnectionStatus();
-      connections.value = data.connections;
+      const data = await apiClient.getConnections();
+      connections.value = data;
     } catch (e) {
       error.value = (e as { message: string }).message;
     } finally {

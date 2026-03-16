@@ -448,7 +448,6 @@
           <div class="tabs tabs-boxed bg-base-200 p-2">
             <a :class="['tab tab-sm', activeTab === 'partitions' ? 'tab-active' : '']" @click="activeTab = 'partitions'">Partitions</a>
             <a :class="['tab tab-sm', activeTab === 'config' ? 'tab-active' : '']" @click="activeTab = 'config'">Config</a>
-            <a :class="['tab tab-sm', activeTab === 'consumers' ? 'tab-active' : '']" @click="activeTab = 'consumers'">Consumers</a>
             <a :class="['tab tab-sm', activeTab === 'tags' ? 'tab-active' : '']" @click="activeTab = 'tags'">Tags</a>
           </div>
 
@@ -502,54 +501,6 @@
                 <div v-for="(value, key) in topicConfig" :key="key" class="flex items-center justify-between p-2 bg-base-100 rounded">
                   <span class="text-xs font-mono text-base-content/60">{{ key }}</span>
                   <span class="text-xs font-mono">{{ value }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Consumers Tab -->
-            <div v-if="activeTab === 'consumers'">
-              <div class="flex items-center justify-between mb-3">
-                <h4 class="font-semibold text-sm">Consumer Groups</h4>
-                <button class="btn btn-ghost btn-xs" @click="fetchConsumers">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                  Refresh
-                </button>
-              </div>
-              <div v-if="consumersLoading" class="text-center py-8">
-                <span class="loading loading-spinner loading-sm"></span>
-              </div>
-              <div v-else-if="!consumers || consumers.length === 0" class="text-center py-8 text-base-content/60">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-                </svg>
-                <p class="text-xs">No consumer groups found for this topic</p>
-              </div>
-              <div v-else class="space-y-2">
-                <div v-for="consumer in consumers" :key="consumer.groupId" class="p-3 bg-base-100 rounded border border-base-content/10">
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2">
-                      <span class="font-mono text-sm font-semibold">{{ consumer.groupId }}</span>
-                      <span :class="['badge badge-xs', consumer.state === 'Stable' ? 'badge-success' : 'badge-warning']">
-                        {{ consumer.state || 'Unknown' }}
-                      </span>
-                    </div>
-                    <span class="text-xs text-base-content/60">{{ consumer.members?.length || 0 }} members</span>
-                  </div>
-                  <div class="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <span class="text-base-content/60">Lag:</span>
-                      <span class="font-mono ml-1">{{ formatNumber(consumer.totalLag || 0) }}</span>
-                    </div>
-                    <div>
-                      <span class="text-base-content/60">Coordinator:</span>
-                      <span class="font-mono ml-1">{{ consumer.coordinator || '-' }}</span>
-                    </div>
-                    <div class="text-right">
-                      <button class="btn btn-ghost btn-xs text-primary" @click="viewConsumerDetail(consumer.groupId)">View Details</button>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -934,12 +885,10 @@ const selectedTopicCluster = ref<string>('');
 const currentCluster = ref<string>('');
 
 // 新增：Topic 详情增强功能相关变量
-const activeTab = ref<'partitions' | 'config' | 'consumers' | 'tags'>('partitions');
+const activeTab = ref<'partitions' | 'config' | 'tags'>('partitions');
 const topicConfig = ref<Record<string, string> | null>(null);
 const editConfigForm = ref<Record<string, string>>({});
 const updatingConfig = ref(false);
-const consumers = ref<Array<{ groupId: string; state?: string; members?: any[]; totalLag?: number; coordinator?: string }>>([]);
-const consumersLoading = ref(false);
 const topicTags = ref<Array<{ id: number; name: string; color: string }>>([]);
 const addTagForm = reactive({ name: '', color: 'primary' });
 const addingTag = ref(false);
@@ -1349,7 +1298,6 @@ function closeDetailModal() {
   selectedTopicDetail.value = null;
   selectedTopicCluster.value = '';
   topicConfig.value = null;
-  consumers.value = [];
   topicTags.value = [];
 }
 
@@ -1361,53 +1309,6 @@ async function fetchTopicConfig(clusterId: string, topicName: string) {
     console.error('Failed to fetch topic config:', e);
     topicConfig.value = {};
   }
-}
-
-// 获取消费者组列表
-async function fetchConsumers() {
-  if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
-
-  consumersLoading.value = true;
-  try {
-    const groups = await apiClient.getConsumerGroups(selectedTopicCluster.value);
-    // 过滤出消费该 topic 的 consumer groups
-    const topicName = selectedTopicDetail.value.name;
-    const filteredGroups = [];
-
-    for (const group of groups) {
-      try {
-        const detail = await apiClient.getConsumerGroupDetail(selectedTopicCluster.value, group.name);
-        // 检查该 consumer group 是否订阅了当前 topic
-        const offsets = detail.offsets || [];
-        const hasTopic = offsets.some((o: any) => o.topic === topicName);
-        if (hasTopic) {
-          const topicOffsets = offsets.filter((o: any) => o.topic === topicName);
-          const totalLag = topicOffsets.reduce((sum: number, o: any) => sum + (o.lag || 0), 0);
-          filteredGroups.push({
-            groupId: group.name,
-            state: detail.state,
-            members: detail.members,
-            totalLag,
-          });
-        }
-      } catch (e) {
-        // 忽略单个 consumer group 获取失败
-      }
-    }
-
-    consumers.value = filteredGroups;
-  } catch (e) {
-    console.error('Failed to fetch consumers:', e);
-  } finally {
-    consumersLoading.value = false;
-  }
-}
-
-// 查看 Consumer Group 详情
-function viewConsumerDetail(groupId: string) {
-  // 跳转到 Consumer Groups 页面
-  const route = `/consumer-groups?cluster=${selectedTopicCluster.value}&group=${groupId}`;
-  window.location.href = route;
 }
 
 // 获取 Topic 标签
@@ -1544,17 +1445,6 @@ function viewTopicMessagesFromDetail() {
 function confirmDeleteFromDetail() {
   if (!selectedTopicCluster.value || !selectedTopicDetail.value) return;
   confirmDelete(selectedTopicCluster.value, selectedTopicDetail.value.name);
-}
-
-// 格式化数字
-function formatNumber(num: number): string {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toString();
 }
 
 // 格式化相对时间
