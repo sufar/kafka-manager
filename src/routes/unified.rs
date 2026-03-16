@@ -1,18 +1,15 @@
 /// 统一 API 路由处理器
 /// 所有 API 请求都通过 POST /api 发送，method 放在 header 中，参数放在 body 中
 
-use crate::db::api_key::ApiKeyStore;
-use crate::db::audit_log::AuditLogStore;
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
 use crate::db::cluster_connection::ClusterConnectionStore;
+use crate::db::audit_log::AuditLogStore;
 use crate::db::settings::SettingStore;
-use crate::db::tag::{TagStore};
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
     CreateTopicTemplateRequest, TopicTemplateStore,
     UpdateTopicTemplateRequest,
 };
-use crate::db::user::{RoleStore, UserStore};
 use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
 use crate::kafka::throughput::KafkaThroughputCalculator;
@@ -648,6 +645,8 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
                 "broker_stats": [],
                 "error": format!("Failed to connect: {}", e),
             }));
@@ -661,6 +660,8 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
                 "broker_stats": [],
                 "error": format!("Task failed: {}", e),
             }));
@@ -674,6 +675,8 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
+                "consumer_group_count": 0,
+                "total_lag": 0,
                 "broker_stats": [],
                 "error": "Timeout connecting to cluster",
             }));
@@ -697,6 +700,9 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         })
         .collect();
 
+    // 注意：由于 rdkafka 限制，consumer group 数量暂时返回 0
+    // 实际应用中可以通过 offsets topic 来估算
+    let consumer_group_count = 0;
     let total_lag = 0;
 
     Ok(serde_json::json!({
@@ -706,6 +712,7 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         "topic_count": topics.len(),
         "partition_count": partition_count,
         "under_replicated_partitions": under_replicated,
+        "consumer_group_count": consumer_group_count,
         "total_lag": total_lag,
         "broker_stats": broker_stats,
     }))
@@ -2708,153 +2715,6 @@ async fn handle_connection_batch_reconnect(state: AppState, body: Value) -> Resu
 
 // ==================== Settings ====================
 
-    // Hash password
-    let password_hash = bcrypt::hash(&password, bcrypt::DEFAULT_COST)
-        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
-
-    let id = UserStore::create(
-        state.db.inner(),
-        &username,
-        &password_hash,
-        email.as_deref(),
-        role_id,
-    )
-    .await?;
-
-    Ok(serde_json::json!({
-        "id": id,
-        "username": username,
-    }))
-}
-
-async fn handle_user_update(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    let email = get_optional_string_param(&body, "email");
-    let role_id = get_optional_i64_param(&body, "role_id");
-    let is_active = get_optional_bool_param(&body, "is_active");
-
-    UserStore::update(
-        state.db.inner(),
-        id,
-        email.as_deref(),
-        role_id,
-        is_active,
-    )
-    .await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_user_password_update(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    let old_password = get_string_param(&body, "old_password")?;
-    let new_password = get_string_param(&body, "new_password")?;
-
-    // Verify old password
-    let user = UserStore::get_by_id(state.db.inner(), id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
-
-    let valid = bcrypt::verify(&old_password, &user.password_hash)
-        .map_err(|e| AppError::Internal(format!("Failed to verify password: {}", e)))?;
-
-    if !valid {
-        return Err(AppError::Unauthorized("Invalid old password".to_string()));
-    }
-
-    // Update password
-    let new_hash = bcrypt::hash(&new_password, bcrypt::DEFAULT_COST)
-        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
-
-    UserStore::update_password(state.db.inner(), id, &new_hash).await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-// ==================== Role ====================
-
-async fn handle_role_list(state: AppState) -> Result<Value> {
-    let roles = RoleStore::list(state.db.inner()).await?;
-
-    let role_list: Vec<Value> = roles
-        .into_iter()
-        .map(|r| {
-            let permissions: Vec<String> =
-                serde_json::from_str(&r.permissions).unwrap_or_default();
-            serde_json::json!({
-                "id": r.id,
-                "name": r.name,
-                "description": r.description,
-                "permissions": permissions,
-                "created_at": r.created_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "roles": role_list }))
-}
-
-async fn handle_role_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let role = RoleStore::get_by_id(state.db.inner(), id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Role {} not found", id)))?;
-
-    let permissions: Vec<String> = serde_json::from_str(&role.permissions).unwrap_or_default();
-
-    Ok(serde_json::json!({
-        "id": role.id,
-        "name": role.name,
-        "description": role.description,
-        "permissions": permissions,
-        "created_at": role.created_at,
-    }))
-}
-
-async fn handle_role_create(state: AppState, body: Value) -> Result<Value> {
-    let name = get_string_param(&body, "name")?;
-    let description = get_optional_string_param(&body, "description");
-    let permissions = get_string_array_param(&body, "permissions");
-
-    let id = RoleStore::create(
-        state.db.inner(),
-        &name,
-        description.as_deref(),
-        &permissions,
-    )
-    .await?;
-
-    Ok(serde_json::json!({
-        "id": id,
-        "name": name,
-    }))
-}
-
-async fn handle_role_update(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    let name = get_optional_string_param(&body, "name");
-    let description = get_optional_string_param(&body, "description");
-    let permissions = if body.get("permissions").is_some() {
-        Some(get_string_array_param(&body, "permissions"))
-    } else {
-        None
-    };
-
-    RoleStore::update(
-        state.db.inner(),
-        id,
-        name.as_deref(),
-        description.as_deref(),
-        permissions.as_deref(),
-    )
-    .await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-// ==================== Settings ====================
-
 async fn handle_settings_get(state: AppState, body: Value) -> Result<Value> {
     let keys = get_string_array_param(&body, "keys");
 
@@ -2891,169 +2751,6 @@ async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({
         "key": key,
         "value": value,
-    }))
-}
-
-// ==================== Cluster Stats/Monitor ====================
-
-async fn handle_monitor_stats(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    // Get all info in blocking thread
-    let admin = admin.clone();
-    let (cluster_info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts) =
-        tokio::task::spawn_blocking(move || {
-            let info = admin.get_cluster_info()?;
-            let topics = admin.list_topics()?;
-
-            let mut partition_count = 0;
-            let mut under_replicated = 0;
-            let mut broker_leader_counts: std::collections::HashMap<i32, i32> =
-                std::collections::HashMap::new();
-            let mut broker_replica_counts: std::collections::HashMap<i32, i32> =
-                std::collections::HashMap::new();
-
-            for topic in &topics {
-                let topic_info = admin.get_topic_info(topic)?;
-                for partition in &topic_info.partitions {
-                    partition_count += 1;
-
-                    // Check under replicated
-                    if partition.isr.len() < partition.replicas.len() {
-                        under_replicated += 1;
-                    }
-
-                    // Count leader and replica
-                    let leader = partition.leader;
-                    *broker_leader_counts.entry(leader).or_insert(0) += 1;
-                    for replica in &partition.replicas {
-                        *broker_replica_counts.entry(*replica).or_insert(0) += 1;
-                    }
-                }
-            }
-
-            Result::<_>::Ok((info, topics, partition_count, under_replicated, broker_leader_counts, broker_replica_counts))
-        }).await.map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
-
-    // Build broker stats
-    let broker_stats: Vec<Value> = cluster_info
-        .brokers
-        .iter()
-        .map(|b| {
-            let is_controller = cluster_info.controller_id == Some(b.id);
-            serde_json::json!({
-                "id": b.id,
-                "host": b.host,
-                "port": b.port,
-                "is_controller": is_controller,
-                "leader_partitions": broker_leader_counts.get(&b.id).unwrap_or(&0),
-                "replica_partitions": broker_replica_counts.get(&b.id).unwrap_or(&0),
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "cluster_id": cluster_id,
-        "broker_count": cluster_info.brokers.len() as i32,
-        "controller_id": cluster_info.controller_id,
-        "topic_count": topics.len() as i32,
-        "partition_count": partition_count,
-        "under_replicated_partitions": under_replicated,
-        "total_lag": 0,
-        "broker_stats": broker_stats,
-    }))
-}
-
-async fn handle_monitor_info(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
-        .await
-        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
-
-    Ok(serde_json::json!({
-        "brokers": info.brokers.iter().map(|b| serde_json::json!({
-            "id": b.id,
-            "host": b.host,
-            "port": b.port,
-        })).collect::<Vec<_>>(),
-        "controller_id": info.controller_id,
-        "cluster_id": info.cluster_id,
-        "topic_count": info.topic_count,
-        "total_partitions": info.total_partitions,
-    }))
-}
-
-async fn handle_monitor_metrics(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let metrics = admin.get_cluster_metrics()?;
-
-    Ok(serde_json::json!({
-        "broker_count": metrics.broker_count,
-        "controller_id": metrics.controller_id,
-        "topic_count": metrics.topic_count,
-        "partition_count": metrics.partition_count,
-        "under_replicated_partitions": metrics.under_replicated_partitions,
-    }))
-}
-
-async fn handle_monitor_brokers(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let info = tokio::task::spawn_blocking(move || admin.get_cluster_info())
-        .await
-        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
-
-    Ok(serde_json::json!({
-        "brokers": info.brokers.iter().map(|b| serde_json::json!({
-            "id": b.id,
-            "host": b.host,
-            "port": b.port,
-        })).collect::<Vec<_>>(),
-    }))
-}
-
-async fn handle_monitor_broker_get(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let broker_id = get_i32_param(&body, "broker_id")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let broker = tokio::task::spawn_blocking(move || admin.get_broker_info(broker_id))
-        .await
-        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
-
-    Ok(serde_json::json!({
-        "id": broker.id,
-        "host": broker.host,
-        "port": broker.port,
-        "is_controller": broker.is_controller,
-        "leader_partitions": broker.leader_partitions,
-        "replica_partitions": broker.replica_partitions,
     }))
 }
 
@@ -3255,176 +2952,6 @@ async fn handle_template_create_topic(state: AppState, body: Value) -> Result<Va
     }))
 }
 
-// ==================== Tag ====================
-
-async fn handle_tag_list(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_string_param(&body, "resource_type")?;
-    let resource_name = get_string_param(&body, "resource_name")?;
-
-    let store = TagStore::new(state.db.inner().clone());
-    let tags = store
-        .get_tags(&cluster_id, &resource_type, &resource_name)
-        .await?;
-
-    let tag_list: Vec<Value> = tags
-        .into_iter()
-        .map(|t| {
-            serde_json::json!({
-                "id": t.id,
-                "tag_key": t.tag_key,
-                "tag_value": t.tag_value,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "tags": tag_list }))
-}
-
-async fn handle_tag_create(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_string_param(&body, "resource_type")?;
-    let resource_name = get_string_param(&body, "resource_name")?;
-    let key = get_string_param(&body, "key")?;
-    let value = get_string_param(&body, "value")?;
-
-    let store = TagStore::new(state.db.inner().clone());
-    store
-        .add_tag(&cluster_id, &resource_type, &resource_name, &key, &value)
-        .await?;
-
-    Ok(serde_json::json!({
-        "cluster_id": cluster_id,
-        "resource_type": resource_type,
-        "resource_name": resource_name,
-        "key": key,
-        "value": value,
-        "success": true,
-    }))
-}
-
-async fn handle_tag_delete(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_string_param(&body, "resource_type")?;
-    let resource_name = get_string_param(&body, "resource_name")?;
-    let key = get_string_param(&body, "key")?;
-
-    let store = TagStore::new(state.db.inner().clone());
-    let deleted = store
-        .delete_tag(&cluster_id, &resource_type, &resource_name, &key)
-        .await?;
-
-    if !deleted {
-        return Err(AppError::NotFound(format!("Tag '{}' not found", key)));
-    }
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_tag_topics(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_optional_string_param(&body, "resource_type");
-    let resource_name = get_optional_string_param(&body, "resource_name");
-
-    let store = TagStore::new(state.db.inner().clone());
-
-    // If no filter, return empty list
-    let Some(resource_type) = resource_type else {
-        return Ok(serde_json::json!({ "tags": [] }));
-    };
-    let Some(resource_name) = resource_name else {
-        return Ok(serde_json::json!({ "tags": [] }));
-    };
-
-    let tags = store
-        .get_tags(
-            &cluster_id,
-            &resource_type,
-            &resource_name,
-        )
-        .await?;
-
-    let tag_list: Vec<Value> = tags
-        .into_iter()
-        .map(|t| {
-            serde_json::json!({
-                "id": t.id,
-                "tag_key": t.tag_key,
-                "tag_value": t.tag_value,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "tags": tag_list }))
-}
-
-async fn handle_tag_keys(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_optional_string_param(&body, "resource_type");
-
-    let store = TagStore::new(state.db.inner().clone());
-    let keys = store
-        .get_all_tag_keys(&cluster_id, resource_type.as_deref())
-        .await?;
-
-    Ok(serde_json::json!({ "keys": keys }))
-}
-
-async fn handle_tag_values(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let key = get_string_param(&body, "key")?;
-    let resource_type = get_optional_string_param(&body, "resource_type")
-        .unwrap_or_else(|| "topic".to_string());
-
-    let store = TagStore::new(state.db.inner().clone());
-    let values = store
-        .get_tag_values(&cluster_id, &resource_type, &key)
-        .await?;
-
-    Ok(serde_json::json!({ "values": values }))
-}
-
-async fn handle_tag_filter(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_string_param(&body, "resource_type")?;
-    let tag_key = get_string_param(&body, "tag_key")?;
-    let tag_value = get_optional_string_param(&body, "tag_value");
-
-    let store = TagStore::new(state.db.inner().clone());
-    let resources = store
-        .filter_by_tag(&cluster_id, &resource_type, &tag_key, tag_value.as_deref())
-        .await?;
-
-    Ok(serde_json::json!({ "resources": resources }))
-}
-
-async fn handle_tag_batch_update(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let resource_type = get_string_param(&body, "resource_type")?;
-    let resource_name = get_string_param(&body, "resource_name")?;
-
-    let tags = body
-        .get("tags")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::BadRequest("Missing tags object".to_string()))?;
-
-    let tag_map: HashMap<String, String> = tags
-        .iter()
-        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-        .collect();
-
-    let store = TagStore::new(state.db.inner().clone());
-    store
-        .batch_update_tags(&cluster_id, &resource_type, &resource_name, &tag_map)
-        .await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
 // ==================== Audit Log ====================
 
 async fn handle_audit_log_list(state: AppState, body: Value) -> Result<Value> {
@@ -3486,75 +3013,6 @@ async fn handle_audit_log_list(state: AppState, body: Value) -> Result<Value> {
     }))
 }
 
-// ==================== Auth ====================
-
-async fn handle_auth_api_keys(state: AppState) -> Result<Value> {
-    let keys = ApiKeyStore::list(state.db.inner()).await?;
-
-    let key_infos: Vec<Value> = keys
-        .into_iter()
-        .map(|k| {
-            serde_json::json!({
-                "id": k.id,
-                "key_prefix": k.key_prefix,
-                "name": k.name,
-                "created_at": k.created_at,
-                "expires_at": k.expires_at,
-                "is_active": k.is_active,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "keys": key_infos }))
-}
-
-async fn handle_auth_api_key_create(state: AppState, body: Value) -> Result<Value> {
-    let name = get_optional_string_param(&body, "name");
-    let expires_in_days = get_optional_i64_param(&body, "expires_in_days");
-
-    // Generate new API Key
-    let key = ApiKeyStore::generate_key();
-    let key_prefix = key[..7].to_string();
-    let key_hash = ApiKeyStore::hash_key(&key);
-
-    // Calculate expiration time
-    let expires_at = if let Some(days) = expires_in_days {
-        let expires = chrono::Utc::now()
-            .checked_add_signed(chrono::Duration::days(days))
-            .ok_or_else(|| AppError::Internal("Invalid date calculation".to_string()))?
-            .to_rfc3339();
-        Some(expires)
-    } else {
-        None
-    };
-
-    // Store in database
-    let record = ApiKeyStore::create(
-        state.db.inner(),
-        &key_hash,
-        &key_prefix,
-        name.as_deref(),
-        expires_at.as_deref(),
-    )
-    .await?;
-
-    Ok(serde_json::json!({
-        "id": record.id,
-        "key": key,
-        "key_prefix": record.key_prefix,
-        "name": record.name,
-        "created_at": record.created_at,
-        "expires_at": record.expires_at,
-    }))
-}
-
-async fn handle_auth_api_key_revoke(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    let deleted = ApiKeyStore::delete(state.db.inner(), id).await?;
-
-    Ok(serde_json::json!({ "success": deleted }))
-}
-
 // ==================== Additional Topic Handlers ====================
 
 async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
@@ -3567,4 +3025,3 @@ async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
 
     Ok(serde_json::json!({ "topics": topic_names }))
 }
-
