@@ -1719,8 +1719,8 @@ fn calculate_partition_offset(
             let mut tpl = TopicPartitionList::new();
             tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(time)).ok();
             tracing::info!("[calculate_partition_offset] Querying offset for time {} on partition {}", time, partition);
-            // 增加超时时间到 15 秒，避免时间戳查询超时
-            match consumer.offsets_for_times(tpl, Duration::from_secs(15)) {
+            // 优化：减少超时时间到 3 秒，避免长时间等待
+            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
                 Ok(r) => {
                     let elapsed = time_calc_start.elapsed();
                     let elements = r.elements_for_topic(topic);
