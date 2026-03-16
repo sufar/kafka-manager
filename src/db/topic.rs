@@ -243,6 +243,31 @@ impl TopicStore {
         }
         Ok(())
     }
+
+    /// 清理孤儿 Topic（所属集群已被删除的 Topic）
+    pub async fn cleanup_orphan_topics(
+        pool: &sqlx::SqlitePool,
+        valid_cluster_ids: &[String],
+    ) -> Result<Vec<(String, String)>> {
+        let valid_clusters: std::collections::HashSet<_> = valid_cluster_ids.iter().cloned().collect();
+
+        // 获取所有 Topic
+        let all_topics = Self::list_all(pool).await?;
+
+        // 找出孤儿 Topic
+        let orphan_topics: Vec<(String, String)> = all_topics
+            .into_iter()
+            .filter(|t| !valid_clusters.contains(&t.cluster_id))
+            .map(|t| (t.cluster_id.clone(), t.topic_name.clone()))
+            .collect();
+
+        // 删除孤儿 Topic
+        for (cluster_id, topic_name) in &orphan_topics {
+            Self::delete(pool, cluster_id, topic_name).await?;
+        }
+
+        Ok(orphan_topics)
+    }
 }
 
 /// 同步结果

@@ -98,7 +98,7 @@
             <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
             <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
             <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
-            <div class="flex-1 text-[10px] font-mono truncate pr-2">{{ truncate(getMsgValue(item), 60) }}</div>
+            <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;">{{ getMsgValue(item) }}</div>
             <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" title="复制 Value (JSON 格式化)">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">

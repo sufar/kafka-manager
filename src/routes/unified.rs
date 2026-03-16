@@ -381,6 +381,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.saved" => handle_topic_saved(state, body).await,
         "topic.search" => handle_topic_search(state, body).await,
         "topic.count" => handle_topic_count(state, body).await,
+        "topic.cleanup_orphans" => handle_topic_cleanup_orphans(state, body).await,
 
         // Message
         "message.list" => handle_message_list(state, body).await,
@@ -1411,6 +1412,24 @@ async fn handle_topic_count(state: AppState, body: Value) -> Result<Value> {
     let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
 
     Ok(serde_json::json!({ "count": topics.len() }))
+}
+
+async fn handle_topic_cleanup_orphans(state: AppState, _body: Value) -> Result<Value> {
+    use crate::db::cluster::ClusterStore;
+    use crate::db::topic::TopicStore;
+
+    // 获取所有有效的集群 ID
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let valid_cluster_ids: Vec<String> = clusters.into_iter().map(|c| c.name).collect();
+
+    // 清理孤儿 Topic
+    let removed = TopicStore::cleanup_orphan_topics(state.db.inner(), &valid_cluster_ids).await?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "removed": removed,
+        "count": removed.len()
+    }))
 }
 
 // ==================== Message ====================

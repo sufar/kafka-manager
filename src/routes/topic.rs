@@ -91,6 +91,7 @@ pub fn topic_operation_routes() -> Router<AppState> {
 pub fn global_routes() -> Router<AppState> {
     Router::new()
         .route("/search", get(search_topics_all_clusters))
+        .route("/cleanup-orphans", post(cleanup_orphan_topics))
 }
 
 #[derive(Debug, Deserialize)]
@@ -609,4 +610,35 @@ async fn search_topics_all_clusters(
     };
 
     Ok(Json(SearchTopicsResponse { results }))
+}
+
+// ==================== 清理孤儿 Topic ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CleanupOrphanTopicsResponse {
+    pub success: bool,
+    pub removed: Vec<(String, String)>, // (cluster_id, topic_name)
+    pub count: usize,
+}
+
+/// 清理孤儿 Topic（所属集群已被删除的 Topic）
+async fn cleanup_orphan_topics(
+    State(state): State<AppState>,
+) -> Result<Json<CleanupOrphanTopicsResponse>> {
+    use crate::db::cluster::ClusterStore;
+    use crate::db::topic::TopicStore;
+
+    // 获取所有有效的集群 ID
+    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let valid_cluster_ids: Vec<String> = clusters.into_iter().map(|c| c.name).collect();
+
+    // 清理孤儿 Topic
+    let removed = TopicStore::cleanup_orphan_topics(state.db.inner(), &valid_cluster_ids).await?;
+    let count = removed.len();
+
+    Ok(Json(CleanupOrphanTopicsResponse {
+        success: true,
+        removed,
+        count,
+    }))
 }

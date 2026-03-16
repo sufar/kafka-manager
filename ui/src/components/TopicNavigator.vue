@@ -159,7 +159,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -182,7 +182,6 @@ const emit = defineEmits<{
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const route = useRoute();
-const router = useRouter();
 const t = computed(() => languageStore.t);
 
 // State
@@ -289,6 +288,16 @@ async function refreshTopics() {
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
+
+      // 清理孤儿 Topic（所属集群已被删除的 Topic）
+      try {
+        const result = await apiClient.cleanupOrphanTopics();
+        if (result.count > 0) {
+          console.log(`Cleaned up ${result.count} orphan topics:`, result.removed);
+        }
+      } catch (e) {
+        console.warn('Failed to cleanup orphan topics:', e);
+      }
     }
 
     // Reload topics after refresh
@@ -344,36 +353,21 @@ watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
   loadAllTopics();
 }, { immediate: true });
 
-// Watch for route changes to handle cluster and search query params
+// Watch for route changes to handle cluster and topic query params
 watch(
   () => route.query,
   (newQuery) => {
     const cluster = newQuery.cluster as string;
-    const search = newQuery.search as string;
-
-    if (cluster && clusterStore.clusters.some(c => c.name === cluster)) {
-      selectedClusterFilter.value = cluster;
-    }
-
-    if (search) {
-      searchQuery.value = search;
-    }
-
-    // If both cluster and topic are provided, select the topic and navigate to messages
     const topic = newQuery.topic as string;
+
+    // 如果有 cluster 和 topic，在列表中高亮该 topic
     if (cluster && topic) {
-      // Wait for topics to load
       setTimeout(() => {
         const targetTopic = allTopics.value.find(
           t => t.cluster === cluster && t.name === topic
         );
         if (targetTopic) {
           selectedTopic.value = targetTopic;
-          // Navigate to messages view
-          router.replace({
-            path: '/messages',
-            query: { cluster, topic }
-          });
         }
       }, 100);
     }

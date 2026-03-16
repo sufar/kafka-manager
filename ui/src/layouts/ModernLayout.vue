@@ -566,17 +566,15 @@ async function selectSearchResult(result: { cluster: string; topic: string }) {
   showSearchDropdown.value = false;
   searchQuery.value = '';
 
+  // 统一跳转到 messages 页面，不管是 tree 还是 flat 模式
+  router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
+
   if (sidebarMode.value === 'tree') {
-    // Tree mode: expand tree and highlight topic (existing behavior)
-    router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
+    // Tree mode: expand tree and highlight topic
     clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
   } else {
-    // Flat mode: navigate to topics with cluster filter and search query
-    // TopicNavigator will handle selecting the topic and navigating to messages
-    router.push({
-      path: '/topics',
-      query: { cluster: result.cluster, search: result.topic }
-    });
+    // Flat mode: TopicNavigator 会通过路由监听自动高亮选中的 topic
+    // 不需要额外操作，因为 TopicNavigator 会 watch route.query
   }
 }
 

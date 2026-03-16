@@ -287,6 +287,10 @@ class ApiClient {
     return this.request('topic.refresh', { cluster_id: clusterId });
   }
 
+  async cleanupOrphanTopics(): Promise<{ success: boolean; removed: [string, string][]; count: number }> {
+    return this.request('topic.cleanup_orphans', {});
+  }
+
   async getSavedTopics(clusterId: string): Promise<string[]> {
     const data = await this.request<{ topics: string[] }>('topic.saved', { cluster_id: clusterId });
     return data.topics || [];
