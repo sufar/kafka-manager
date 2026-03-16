@@ -1731,12 +1731,13 @@ fn calculate_partition_offset(
                             }
                         }
                     }
-                    tracing::warn!("[calculate_partition_offset] No offset found for time {} on partition {}, took {:?}", time, partition, elapsed);
+                    tracing::warn!("[calculate_partition_offset] No offset found for time {} on partition {}, will try fetch_mode fallback", time, partition);
                 }
                 Err(e) => {
-                    tracing::error!("[calculate_partition_offset] Failed to get offset for time {} on partition {}: {}, took {:?}", time, partition, e, time_calc_start.elapsed());
+                    tracing::error!("[calculate_partition_offset] Failed to get offset for time {} on partition {}: {}, will try fetch_mode fallback", time, partition, e);
                 }
             }
+            // 时间戳查询失败，继续执行 fetch_mode 逻辑（newest/oldest）
         }
     }
 
@@ -2109,10 +2110,10 @@ async fn fetch_messages_remote(
         }
 
         for &part_id in &partitions {
-            let start_offset = if let Some(start_time) = start_time {
-                if start_time <= 0 {
-                    offset_owned.unwrap_or(0)
-                } else {
+            // 首先尝试根据时间戳获取 offset
+            let mut start_offset = None;
+            if let Some(start_time) = start_time {
+                if start_time > 0 {
                     let time_query_start = std::time::Instant::now();
                     let mut time_tpl = TopicPartitionList::new();
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
@@ -2120,35 +2121,43 @@ async fn fetch_messages_remote(
                     match consumer.offsets_for_times(time_tpl, Duration::from_secs(15)) {
                         Ok(r) => {
                             let elapsed = time_query_start.elapsed();
-                            let offset = r.elements_for_topic(&topic_owned)
+                            start_offset = r.elements_for_topic(&topic_owned)
                                 .iter().find(|e| e.partition() == part_id)
-                                .and_then(|e| e.offset().to_raw())
-                                .unwrap_or_else(|| offset_owned.unwrap_or(0));
-                            tracing::info!("[Remote] Got offset {} for time {} on partition {} in {:?}", offset, start_time, part_id, elapsed);
-                            offset
+                                .and_then(|e| e.offset().to_raw());
+                            if let Some(off) = start_offset {
+                                tracing::info!("[Remote] Got offset {} for time {} on partition {} in {:?}", off, start_time, part_id, elapsed);
+                            } else {
+                                tracing::warn!("[Remote] No offset found for time {} on partition {}, will use fetch_mode fallback", start_time, part_id);
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!("[Remote] Failed to get offset for time {} on partition {}: {}, using fallback", start_time, part_id, e);
-                            offset_owned.unwrap_or(0)
+                            tracing::warn!("[Remote] Failed to get offset for time {} on partition {}: {}, will use fetch_mode fallback", start_time, part_id, e);
                         }
                     }
                 }
-            } else if (fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none()) && offset_owned.is_none() {
-                watermark_cache.get(&part_id)
-                    .map(|(low, high)| {
-                        if *high > 0 {
-                            let latest = high.saturating_sub(1);
-                            latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(*low)
-                        } else {
-                            *low
-                        }
-                    })
-                    .unwrap_or(0)
-            } else if fetch_mode_owned.as_deref() == Some("oldest") && offset_owned.is_none() {
-                watermark_cache.get(&part_id).map(|(low, _)| *low).unwrap_or(0)
-            } else {
-                offset_owned.unwrap_or(0)
-            };
+            }
+
+            // 如果时间戳查询失败或未指定时间戳，根据 fetch_mode 计算 offset
+            let start_offset = start_offset.unwrap_or_else(|| {
+                if let Some(off) = offset_owned {
+                    off
+                } else if fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none() {
+                    watermark_cache.get(&part_id)
+                        .map(|(low, high)| {
+                            if *high > 0 {
+                                let latest = high.saturating_sub(1);
+                                latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(*low)
+                            } else {
+                                *low
+                            }
+                        })
+                        .unwrap_or(0)
+                } else if fetch_mode_owned.as_deref() == Some("oldest") {
+                    watermark_cache.get(&part_id).map(|(low, _)| *low).unwrap_or(0)
+                } else {
+                    0
+                }
+            });
 
             tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_offset))
                 .map_err(|e| AppError::Internal(format!("Failed to set offset: {}", e)))?;
