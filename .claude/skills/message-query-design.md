@@ -99,8 +99,20 @@ is_local = brokers.contains("localhost") ||
 ```
 
 **策略**：
-- **小批量（< 1000 条/分区）**：串行模式，单 consumer 多分区
-- **大批量（>= 1000 条/分区）**：并行模式，每分区独立 consumer，最多 10 个并发
+- **小批量（< 1000 条/分区）或 分区数 <= 5**：串行模式，单 consumer 多分区
+- **大批量（>= 1000 条/分区）且 分区数 > 5**：并行模式，每分区独立 consumer，最多 10 个并发
+
+**分区数优化**（关键）：
+```rust
+// 优化：分区数 <= 5 时使用串行模式，避免创建多个 consumer 的连接开销
+let messages = if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 {
+    // 并行模式（仅当分区数>5时）
+} else {
+    // 串行模式（分区数<=5时使用单consumer）
+}
+```
+
+**原理**：分区数较少时，串行模式的单连接比并行模式的多连接开销更小。实测3个分区时，串行模式比并行模式快10倍以上（3秒 vs 47秒）。
 
 #### 远程模式（Remote）
 
@@ -138,19 +150,72 @@ let semaphore = Arc::new(Semaphore::new(10));
 
 ### 6. 空轮次处理
 
+**自适应空轮次上限 + 分区末尾检测**：
 ```rust
-let max_empty_rounds = (partition_count * max_messages).max(20);
+// 优化前：固定值或过大
+let max_empty_rounds = (partition_count * max_messages).max(20);  // 可能导致3600轮！
 
-while total_empty < max_empty_rounds {
-    match consumer.poll(Duration::from_millis(200)) {
+// 优化后：自适应公式 + 时间保底 + 分区末尾检测
+let max_empty = 100 + max_messages / 100 * 10;  // 基础100轮 + 每100条加10轮
+let max_poll_time = Duration::from_secs(30);    // 30秒时间保底
+
+// 预获取所有分区的 watermark，用于判断分区末尾
+let mut partition_watermarks: HashMap<i32, (i64, i64)> = HashMap::new();
+for &part_id in &partitions {
+    if let Ok((low, high)) = consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(1000)) {
+        partition_watermarks.insert(part_id, (low, high));
+    }
+}
+
+// 记录每个分区是否已到达末尾
+let mut partition_reached_end: HashMap<i32, bool> = HashMap::new();
+
+while raw_messages.len() < max_messages
+    && empty_count < max_empty
+    && poll_start.elapsed() < max_poll_time
+    && !all_partitions_finished(&partition_counts, &partition_reached_end) {  // 检查分区是否全部完成
+    match consumer.poll(Duration::from_millis(10)) {
         Some(Ok(msg)) => {
-            total_empty = 0;  // 重置空轮次计数
+            empty_count = 0;
+            let part = msg.partition();
+            let count = partition_counts.get(&part).copied().unwrap_or(0);
+
+            // 检查是否到达分区末尾（消息数满 或 offset >= high watermark - 1）
+            if let Some((_, high)) = partition_watermarks.get(&part) {
+                if msg.offset() >= high.saturating_sub(1) || count + 1 >= max_messages {
+                    partition_reached_end.insert(part, true);
+                }
+            }
             // 处理消息...
         }
-        _ => { total_empty += 1; }
+        _ => { empty_count += 1; }
     }
 }
 ```
+
+**分区末尾检测逻辑**：
+```rust
+// 所有分区都完成时提前结束
+let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
+    partitions.iter().all(|&p| {
+        let count = counts.get(&p).copied().unwrap_or(0);
+        let reached = reached_end.get(&p).copied().unwrap_or(false);
+        count >= max_messages || reached  // 该分区已满 或 已到达末尾
+    })
+};
+```
+
+**关键参数说明**：
+| 场景 | max_messages | max_empty | 说明 |
+|------|-------------|-----------|------|
+| 小批量 | 100 | 110轮 | 快速返回 |
+| 中批量 | 1000 | 200轮 | 适中等待 |
+| 大批量 | 10000 | 1100轮 | 充足时间 |
+
+**时间保底机制**：
+- 轮次保证小数据量快速返回（数据收完即结束）
+- 时间保证大数据量不中断（最多等待30秒）
+- **分区末尾检测**：当分区数据较少时，检测到到达 watermark 后立即结束，避免空轮询
 
 ---
 
@@ -161,21 +226,91 @@ while total_empty < max_empty_rounds {
 当指定 `start_time` 或 `end_time` 时：
 
 1. **计算起始 Offset**：使用 `offsets_for_times` API 根据时间戳查找对应的 offset
-2. **时间范围过滤**：在 poll 消息时进行时间戳过滤
-3. **每个分区独立**：时间范围计算在每个分区上独立执行
+2. **计算结束 Offset**（优化）：如果指定了 `end_time`，同时查询该时间对应的 offset
+3. **时间范围边界检测**：在 poll 时检查是否到达时间范围的结束 offset，提前结束查询
+4. **每个分区独立**：时间范围计算在每个分区上独立执行
 
 ```rust
-// 计算基于时间戳的起始 offset
-if let Some(time) = start_time {
-    let offset = consumer.offsets_for_times(time)?;
-    // 从该 offset 开始消费
+// 查询 start_time 对应的起始 offset
+if let Some(start_time) = start_time {
+    let mut time_tpl = TopicPartitionList::new();
+    for &part_id in &partitions {
+        time_tpl.add_partition_offset(&topic, part_id, rdkafka::Offset::Offset(start_time)).ok();
+    }
+    match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
+        Ok(r) => {
+            for elem in r.elements_for_topic(&topic) {
+                if let Some(offset) = elem.offset().to_raw() {
+                    time_based_offsets.insert(elem.partition(), offset);
+                }
+            }
+        }
+        Err(e) => { /* 使用 fetch_mode fallback */ }
+    }
 }
 
-// poll 时进行时间过滤
-if timestamp < start_time || timestamp > end_time {
-    continue;  // 跳过不在时间范围内的消息
+// 优化：查询 end_time 对应的结束 offset，用于提前结束检测
+if let Some(end_time) = end_time {
+    let mut time_tpl = TopicPartitionList::new();
+    for &part_id in &partitions {
+        time_tpl.add_partition_offset(&topic, part_id, rdkafka::Offset::Offset(end_time)).ok();
+    }
+    match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
+        Ok(r) => {
+            for elem in r.elements_for_topic(&topic) {
+                if let Some(offset) = elem.offset().to_raw() {
+                    // end_time 对应的 offset 是大于等于该时间的第一条消息
+                    // 所以时间范围的有效结束 offset 是 offset - 1
+                    time_range_end_offsets.insert(elem.partition(), offset.saturating_sub(1));
+                }
+            }
+        }
+        Err(e) => { /* 忽略错误，依赖时间戳过滤 */ }
+    }
+}
+
+// poll 时检查是否到达时间范围结束
+while ... {
+    match consumer.poll(...) {
+        Some(Ok(msg)) => {
+            // 时间范围过滤
+            if let Some(start) = start_time {
+                if let Some(t) = ts { if t < start { continue; } }
+            }
+            if let Some(end) = end_time {
+                if let Some(t) = ts { if t > end { continue; } }
+            }
+
+            // 优化：检查是否到达时间范围的结束 offset
+            let reached_time_end = time_range_end_offsets.get(&part)
+                .map(|end_off| msg.offset() >= *end_off)
+                .unwrap_or(false);
+
+            if reached_time_end {
+                partition_reached_end.insert(part, true);
+                tracing::info!("Partition {} reached time range end at offset {}", part, msg.offset());
+            }
+        }
+    }
 }
 ```
+
+**为什么需要查询 end_time offset？**
+
+**优化前的问题**：
+- 只知道 start_time 对应的 offset
+- 需要不断 poll 并检查消息时间戳是否超过 end_time
+- 即使时间范围内没有更多消息，也要等待空轮次超时
+
+**优化后的效果**：
+- 同时知道 start_offset 和 end_offset
+- 当消费到 end_offset 时立即知道时间范围已结束
+- 可以提前结束该分区的查询，减少空轮询等待
+
+**使用场景**：
+- 查询 1 小时前的消息（start_time=now-1h, end_time=now）
+- 如果该时间范围内只有 10 条消息，获取完后立即结束
+- 不需要等待 max_messages 或空轮次超时
 
 ---
 
@@ -308,6 +443,131 @@ cfg.set("fetch.max.bytes", "10485760");       // 10MB
 
 **A**: 动态生成 group.id 会导致每次请求都经历完整的消费者组协调流程（发现 coordinator → join group → sync group），耗时 500-1000ms。固定 group.id 配合 `assign()` 模式（非 subscribe），可以避免 group 协调开销。
 
+### Q7: 为什么分区数少时查询反而慢（47秒）？
+
+**A**: 这是**并行模式的连接开销问题**。
+
+**现象**：
+- 3个分区，1200条消息，查询耗时47秒
+- 实际上只有123条消息数据
+
+**原因分析**：
+1. 并行模式下每个分区创建独立 consumer
+2. 每个 consumer 需要建立 TCP 连接、获取元数据
+3. 3个分区 × 15秒连接建立 = 45秒
+4. 实际数据查询只需2秒
+
+**解决方案**：
+```rust
+// 分区数 <= 5 时使用串行模式
+if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 {
+    // 并行模式
+} else {
+    // 串行模式（单consumer处理所有分区）
+}
+```
+
+**效果**：从47秒优化到2秒。
+
+### Q8: 为什么大数据量查询有时成功有时失败？
+
+**A**: **空轮次上限设置过低**。
+
+**现象**：
+- max_messages=1200
+- 消息很多的topic有时能查到，有时返回空
+
+**原因**：
+```rust
+// 过低的上限（54轮）
+let max_empty = 30 + max_messages / 100 * 2;  // 1200条 = 54轮
+```
+
+大数据量时需要更多轮次才能消费完，54轮可能不够用。
+
+**解决方案**：
+```rust
+// 提高上限并添加时间保底
+let max_empty = 100 + max_messages / 100 * 10;  // 1200条 = 220轮
+let max_poll_time = Duration::from_secs(30);    // 30秒保底
+```
+
+### Q9: 为什么数据很少的 topic 查询也要 5-6 秒？
+
+**A**: **空轮次等待问题**。
+
+**现象**：
+- max_messages=100，3个分区
+- topic 里只有 1 条消息
+- 查询耗时 5-6 秒
+
+**原因分析**：
+1. 设置 max_messages=100，期望获取 100×3=300 条消息
+2. 实际只有 1 条消息，后续 poll 都是空轮询
+3. 空轮次上限为 110 轮，每轮 50ms，总共 5.5 秒
+
+**解决方案 - 分区边界检测 + 空分区预标记**：
+
+```rust
+// 预获取 watermark（包含 low 和 high），同时预标记空分区
+let mut partition_watermarks: HashMap<i32, (i64, i64)> = HashMap::new();
+let mut partition_reached_end: HashMap<i32, bool> = HashMap::new();
+for &part_id in &partitions {
+    if let Ok((low, high)) = consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(1000)) {
+        partition_watermarks.insert(part_id, (low, high));
+        // 关键：预标记空分区（high <= low 或 high == 0），避免空轮询
+        if high <= low || high == 0 {
+            partition_reached_end.insert(part_id, true);
+            tracing::info!("[Local] Partition {} is empty (low={}, high={}), marked as finished", part_id, low, high);
+        }
+    }
+}
+
+// 检查是否到达分区边界
+while ... && !all_partitions_finished(&partition_counts, &partition_reached_end) {
+    match consumer.poll(...) {
+        Some(Ok(msg)) => {
+            let part = msg.partition();
+            let count = partition_counts.get(&part).copied().unwrap_or(0);
+
+            // 检测分区开头（消息过期）或末尾（最新消息）
+            if let Some((low, high)) = partition_watermarks.get(&part) {
+                let reached_beginning = msg.offset() <= *low;  // 到达最早消息
+                let reached_end = msg.offset() >= high - 1;     // 到达最新消息
+                let partition_full = count + 1 >= max_messages;
+
+                if reached_beginning || reached_end || partition_full {
+                    partition_reached_end.insert(part, true);  // 标记完成
+                }
+            }
+        }
+    }
+}
+
+// 所有分区都完成时提前结束
+let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
+    partitions.iter().all(|&p| {
+        let count = counts.get(&p).copied().unwrap_or(0);
+        let reached = reached_end.get(&p).copied().unwrap_or(false);
+        count >= max_messages || reached
+    })
+};
+```
+
+**关键优化点**：
+1. **预标记空分区**：在 poll 开始前，通过 `high <= low || high == 0` 识别空分区并标记为完成
+2. **避免空轮询**：当所有分区都标记为完成时，`all_partitions_finished` 返回 true，立即结束循环
+3. **效果**：从 5-6 秒优化到 <500ms（当分区为空时立即结束）
+
+**效果**：当检测到所有分区都到达边界时，立即结束查询，从 5 秒优化到 <500ms。
+
+**关键逻辑**：
+- `reached_beginning`: offset <= low（消息过期或已消费到最早）
+- `reached_end`: offset >= high - 1（已消费到最新）
+- `partition_full`: 已获取 max_messages 条消息
+
+---
+
 ---
 
 ## 版本历史
@@ -316,3 +576,7 @@ cfg.set("fetch.max.bytes", "10485760");       // 10MB
 |------|------|------|
 | 1.0 | 2026-03-15 | 初始文档，记录两阶段查询优化 |
 | 1.1 | 2026-03-16 | 添加 Consumer 预热机制、固定 group.id 策略、性能优化成果（30x 提升）|
+| 1.2 | 2026-03-16 | 添加分区数判断优化（<=5分区用串行模式）、空轮次上限调整（100+n/10）、时间保底机制（30秒）、Q7/Q8常见问题|
+| 1.3 | 2026-03-16 | 添加分区边界检测优化（检测 low/high watermark）、Q9常见问题（数据少的topic查询慢）|
+| 1.4 | 2026-03-16 | 添加时间范围查询优化（查询 end_time offset 用于提前结束）、更新 Q7/Q9 文档|
+| 1.5 | 2026-03-16 | 修复空分区检测（high=0 的分区也要预标记为完成），添加远程模式的空分区预标记|

@@ -409,6 +409,9 @@ function copyMessageValue(msg: any) {
 }
 
 onMounted(async () => {
+  // 加载设置（包括 max_messages）
+  await loadSettings();
+
   // 优先使用 props 传入的 cluster 和 topic
   if (props.cluster) {
     selectedCluster.value = props.cluster;
@@ -470,6 +473,38 @@ onUnmounted(() => {
     apiClient.cancelGetMessages();
   }
   stopResize();
+});
+
+// 加载设置（从数据库）
+async function loadSettings() {
+  try {
+    const settings = await apiClient.getSettings(['messages.max_messages']);
+    for (const setting of settings) {
+      if (setting.key === 'messages.max_messages') {
+        const savedMax = parseInt(setting.value, 10);
+        if (!isNaN(savedMax) && savedMax >= 1 && savedMax <= 10000) {
+          maxMessages.value = savedMax;
+        }
+      }
+    }
+  } catch (e) {
+    // 静默失败 - 使用默认值
+    console.debug('Settings load failed (using defaults):', (e as { message?: string }).message);
+  }
+}
+
+// 保存 max_messages 设置到数据库
+async function saveMaxMessagesSetting() {
+  try {
+    await apiClient.updateSetting('messages.max_messages', maxMessages.value.toString());
+  } catch (e) {
+    console.error('Failed to save max_messages setting:', e);
+  }
+}
+
+// 监听 max_messages 变化，自动保存
+watch(() => maxMessages.value, () => {
+  saveMaxMessagesSetting();
 });
 
 // 拖动调整高度

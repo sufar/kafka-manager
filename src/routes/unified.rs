@@ -1617,9 +1617,10 @@ fn fetch_partition_messages_parallel(
     let mut raw_messages = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
     let mut polled_count = 0;
-    // 自适应空轮次上限：基础 30 轮 + 每 100 条消息增加 2 轮
-    // 优化：降低空轮次上限，减少小数据量时的等待时间
-    let max_empty = 30 + max_messages / 100 * 2;
+    // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮
+    // 确保大数据量时有足够的等待时间，同时添加 30 秒时间保底
+    let max_empty = 100 + max_messages / 100 * 10;
+    let max_poll_time = std::time::Duration::from_secs(30);  // 最多 poll 30 秒
     // 无时间范围时：每个分区最多获取 max_messages 条，然后在这些消息中搜索过滤
     // 有时间范围时：在时间范围内获取最多 max_messages 条，再进行搜索过滤
 
@@ -1627,7 +1628,7 @@ fn fetch_partition_messages_parallel(
     // 预热已完成，数据应该立即可用，使用短超时
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
-    while raw_messages.len() < max_messages && empty_count < max_empty {
+    while raw_messages.len() < max_messages && empty_count < max_empty && poll_start.elapsed() < max_poll_time {
         // 预热后数据应该立即可用，使用短超时快速轮询
         match consumer.poll(Duration::from_millis(10)) {
             Some(Ok(msg)) => {
@@ -1921,6 +1922,45 @@ async fn fetch_messages_local(
             // 只有指定了特定分区时，才传递 offset 参数
             let effective_offset = if partition_filter.is_some() { offset } else { None };
 
+            // 优化：预获取所有分区的 watermark，用于判断是否到达分区末尾
+            let mut partition_watermarks: HashMap<i32, (i64, i64)> = HashMap::new();
+            // 优化：预标记空分区（high <= low 或 high == 0），避免空轮询
+            let mut partition_reached_end: HashMap<i32, bool> = HashMap::with_capacity(partition_count);
+            for &part_id in &partitions {
+                if let Ok((low, high)) = consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(1000)) {
+                    partition_watermarks.insert(part_id, (low, high));
+                    // 优化：如果分区为空（high <= low 或 high == 0），直接标记为完成
+                    if high <= low || high == 0 {
+                        partition_reached_end.insert(part_id, true);
+                        tracing::info!("[Local] Partition {} is empty (low={}, high={}), marked as finished", part_id, low, high);
+                    }
+                }
+            }
+
+            // 优化：如果指定了 end_time，查询对应的时间范围结束 offset
+            let mut time_range_end_offsets: HashMap<i32, i64> = HashMap::new();
+            if let Some(end_t) = end_time {
+                if end_t > 0 {
+                    let mut time_tpl = TopicPartitionList::new();
+                    for &part_id in &partitions {
+                        time_tpl.add_partition_offset(&topic, part_id, rdkafka::Offset::Offset(end_t)).ok();
+                    }
+                    match consumer.offsets_for_times(time_tpl, Duration::from_secs(3)) {
+                        Ok(r) => {
+                            for elem in r.elements_for_topic(&topic) {
+                                if let Some(off) = elem.offset().to_raw() {
+                                    time_range_end_offsets.insert(elem.partition(), off.saturating_sub(1));
+                                }
+                            }
+                            tracing::info!("[Local] Queried end_time offsets for time {}: {:?}", end_t, time_range_end_offsets);
+                        }
+                        Err(e) => {
+                            tracing::warn!("[Local] Failed to query end_time offsets for time {}: {}", end_t, e);
+                        }
+                    }
+                }
+            }
+
             // 构建 TopicPartitionList，直接在 assign 时指定 offset
             let mut tpl = TopicPartitionList::new();
             for &part_id in &partitions {
@@ -1948,14 +1988,27 @@ async fn fetch_messages_local(
             let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
             let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
             let mut total_empty = 0;
-            // 优化：自适应空轮次上限，减少小数据量时的等待
-            let max_empty_rounds = 30 + max_messages / 100 * 2;
+            // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮，同时添加 30 秒时间保底
+            let max_empty_rounds = 100 + max_messages / 100 * 10;
+            let max_poll_time = std::time::Duration::from_secs(30);
             let poll_start = std::time::Instant::now();
+            // 优化：partition_reached_end 已在前面初始化（预标记空分区）
+            let partitions_ref = &partitions; // 用于闭包捕获
+            let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
+                partitions_ref.iter().all(|&p| {
+                    let count = counts.get(&p).copied().unwrap_or(0);
+                    let reached = reached_end.get(&p).copied().unwrap_or(false);
+                    count >= max_messages || reached
+                })
+            };
 
             // 收集消息，每个分区最多 max_messages 条
             // 第一次 poll 给更多时间建立连接
             let mut first_poll = true;
-            while raw_msgs.len() < max_messages * partition_count && total_empty < max_empty_rounds {
+            while raw_msgs.len() < max_messages * partition_count
+                && total_empty < max_empty_rounds
+                && poll_start.elapsed() < max_poll_time
+                && !all_partitions_finished(&partition_counts, &partition_reached_end) {
                 let poll_timeout = if first_poll {
                     first_poll = false;
                     Duration::from_millis(500) // 第一次 poll 给足够时间建立连接
@@ -1967,7 +2020,13 @@ async fn fetch_messages_local(
                         let part = msg.partition();
                         let count = partition_counts.get(&part).copied().unwrap_or(0);
                         if count >= max_messages {
-                            // 该分区已满，跳过
+                            // 该分区已满，跳过但标记为可能已结束
+                            // 检查是否到达 watermark
+                            if let Some((_, high)) = partition_watermarks.get(&part) {
+                                if msg.offset() >= high.saturating_sub(1) {
+                                    partition_reached_end.insert(part, true);
+                                }
+                            }
                             continue;
                         }
                         total_empty = 0;
@@ -1985,6 +2044,29 @@ async fn fetch_messages_local(
                         let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
                         partition_counts.insert(part, count + 1);
+                        // 优化：检查是否到达分区边界（开头或末尾，或时间范围结束）
+                        if let Some((low, high)) = partition_watermarks.get(&part) {
+                            // 到达分区开头（消息过期或已消费到最早的消息）
+                            let reached_beginning = msg.offset() <= *low;
+                            // 到达分区结尾（已消费到最新的消息）
+                            let reached_end = msg.offset() >= high.saturating_sub(1);
+                            // 该分区消息数已满
+                            let partition_full = count + 1 >= max_messages;
+                            // 优化：到达时间范围的结束 offset
+                            let reached_time_end = time_range_end_offsets.get(&part)
+                                .map(|end_off| msg.offset() >= *end_off)
+                                .unwrap_or(false);
+
+                            if reached_beginning || reached_end || partition_full || reached_time_end {
+                                partition_reached_end.insert(part, true);
+                                let reason = if reached_beginning { "beginning" }
+                                    else if reached_end { "end" }
+                                    else if reached_time_end { "time_end" }
+                                    else { "full" };
+                                tracing::info!("[Local] Partition {} finished: offset={}, low={}, high={}, time_end={:?}, count={}, reason={}",
+                                    part, msg.offset(), low, high, time_range_end_offsets.get(&part), count + 1, reason);
+                            }
+                        }
                         raw_msgs.push(crate::kafka::consumer::KafkaMessage {
                             partition: part,
                             offset: msg.offset(),
@@ -2119,8 +2201,12 @@ async fn fetch_messages_remote(
             }
         }
 
-        // 批量获取所有分区的时间戳 offset（如果需要）
+        // 批量获取所有分区的时间戳 offset（start_time 和 end_time）
         let mut time_based_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+        // 优化：同时查询 end_time 对应的 offset，用于时间范围边界检测
+        let mut time_range_end_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+
+        // 查询 start_time 对应的 offset
         if let Some(start_time) = start_time {
             if start_time > 0 && !partitions.is_empty() {
                 let time_query_start = std::time::Instant::now();
@@ -2128,7 +2214,6 @@ async fn fetch_messages_remote(
                 for &part_id in &partitions {
                     time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
                 }
-                // 批量查询所有分区的时间戳 offset，超时 5 秒
                 match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
                     Ok(r) => {
                         let elapsed = time_query_start.elapsed();
@@ -2137,12 +2222,39 @@ async fn fetch_messages_remote(
                                 time_based_offsets.insert(elem.partition(), offset);
                             }
                         }
-                        tracing::info!("[Remote] Batch queried offsets for time {} on {} partitions in {:?}, found {} results",
+                        tracing::info!("[Remote] Batch queried start_time offsets for time {} on {} partitions in {:?}, found {} results",
                             start_time, partitions.len(), elapsed, time_based_offsets.len());
                     }
                     Err(e) => {
-                        tracing::warn!("[Remote] Failed to batch query offsets for time {}: {}, will use fetch_mode fallback",
-                            start_time, e);
+                        tracing::warn!("[Remote] Failed to batch query start_time offsets for time {}: {}", start_time, e);
+                    }
+                }
+            }
+        }
+
+        // 优化：查询 end_time 对应的 offset，用于提前结束检测
+        if let Some(end_time) = end_time {
+            if end_time > 0 && !partitions.is_empty() {
+                let time_query_start = std::time::Instant::now();
+                let mut time_tpl = TopicPartitionList::new();
+                for &part_id in &partitions {
+                    time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(end_time)).ok();
+                }
+                match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
+                    Ok(r) => {
+                        let elapsed = time_query_start.elapsed();
+                        for elem in r.elements_for_topic(&topic_owned) {
+                            if let Some(offset) = elem.offset().to_raw() {
+                                // end_time 对应的 offset 是大于等于该时间的第一条消息
+                                // 所以时间范围的有效结束 offset 是 offset - 1
+                                time_range_end_offsets.insert(elem.partition(), offset.saturating_sub(1));
+                            }
+                        }
+                        tracing::info!("[Remote] Batch queried end_time offsets for time {} on {} partitions in {:?}, found {} results",
+                            end_time, partitions.len(), elapsed, time_range_end_offsets.len());
+                    }
+                    Err(e) => {
+                        tracing::warn!("[Remote] Failed to batch query end_time offsets for time {}: {}", end_time, e);
                     }
                 }
             }
@@ -2189,8 +2301,28 @@ async fn fetch_messages_remote(
         let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
         let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
         let mut total_empty = 0;
-        // 优化：自适应空轮次上限，减少小数据量时的等待
-        let max_empty_rounds = 30 + max_messages / 100 * 2;
+        // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮，同时添加 30 秒时间保底
+        let max_empty_rounds = 100 + max_messages / 100 * 10;
+        let max_poll_time = std::time::Duration::from_secs(30);
+        // 优化：记录每个分区是否已到达末尾
+        let mut partition_reached_end: HashMap<i32, bool> = HashMap::with_capacity(partition_count);
+        // 优化：预标记空分区（high <= low 或 high == 0），避免空轮询
+        for &part_id in &partitions {
+            if let Some(&(low, high)) = watermark_cache.get(&part_id) {
+                if high <= low || high == 0 {
+                    partition_reached_end.insert(part_id, true);
+                    tracing::info!("[Remote] Partition {} is empty (low={}, high={}), marked as finished", part_id, low, high);
+                }
+            }
+        }
+        let partitions_ref = &partitions;
+        let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
+            partitions_ref.iter().all(|&p| {
+                let count = counts.get(&p).copied().unwrap_or(0);
+                let reached = reached_end.get(&p).copied().unwrap_or(false);
+                count >= max_messages || reached
+            })
+        };
 
         // 计算需要获取的总消息数
         let target_total = max_messages * partition_count;
@@ -2198,7 +2330,10 @@ async fn fetch_messages_remote(
         // 收集原始消息（每个分区最多 max_messages 条）
         let poll_start = std::time::Instant::now();
         let mut first_poll = true;
-        while raw_msgs.len() < target_total && total_empty < max_empty_rounds {
+        while raw_msgs.len() < target_total
+            && total_empty < max_empty_rounds
+            && poll_start.elapsed() < max_poll_time
+            && !all_partitions_finished(&partition_counts, &partition_reached_end) {
             // 第一次 poll 给更多时间建立连接
             let poll_timeout = if first_poll {
                 first_poll = false;
@@ -2213,7 +2348,12 @@ async fn fetch_messages_remote(
                     // 检查该分区是否已达上限
                     let count = partition_counts.get(&part).copied().unwrap_or(0);
                     if count >= max_messages {
-                        // 分区已满，跳过
+                        // 分区已满，检查是否到达 watermark
+                        if let Some((_, high)) = watermark_cache.get(&part) {
+                            if msg.offset() >= high.saturating_sub(1) {
+                                partition_reached_end.insert(part, true);
+                            }
+                        }
                         continue;
                     }
 
@@ -2235,6 +2375,29 @@ async fn fetch_messages_remote(
                     let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
 
                     partition_counts.insert(part, count + 1);
+                    // 优化：检查是否到达分区边界（开头或末尾，或时间范围结束）
+                    if let Some((low, high)) = watermark_cache.get(&part) {
+                        // 到达分区开头（消息过期或已消费到最早的消息）
+                        let reached_beginning = msg.offset() <= *low;
+                        // 到达分区结尾（已消费到最新的消息）
+                        let reached_end = msg.offset() >= high.saturating_sub(1);
+                        // 该分区消息数已满
+                        let partition_full = count + 1 >= max_messages;
+                        // 优化：到达时间范围的结束 offset
+                        let reached_time_end = time_range_end_offsets.get(&part)
+                            .map(|end_off| msg.offset() >= *end_off)
+                            .unwrap_or(false);
+
+                        if reached_beginning || reached_end || partition_full || reached_time_end {
+                            partition_reached_end.insert(part, true);
+                            let reason = if reached_beginning { "beginning" }
+                                else if reached_end { "end" }
+                                else if reached_time_end { "time_end" }
+                                else { "full" };
+                            tracing::info!("[Remote] Partition {} finished: offset={}, low={}, high={}, time_end={:?}, count={}, reason={}",
+                                part, msg.offset(), low, high, time_range_end_offsets.get(&part), count + 1, reason);
+                        }
+                    }
                     raw_msgs.push(crate::kafka::consumer::KafkaMessage {
                         partition: part,
                         offset: msg.offset(),
