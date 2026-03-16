@@ -1529,10 +1529,13 @@ fn fetch_partition_messages_parallel(
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "65536");
     cfg.set("enable.partition.eof", "false");
-    // 低延迟连接配置
+    // 低延迟连接配置 - 优化：减少连接建立时间
     cfg.set("connections.max.idle.ms", "540000");
     cfg.set("reconnect.backoff.ms", "50");
-    cfg.set("reconnect.backoff.max.ms", "1000");
+    cfg.set("reconnect.backoff.max.ms", "500");  // 优化：从 1000 减少到 500
+    cfg.set("socket.connection.setup.timeout.ms", "3000");  // 优化：从默认值减少到 3000
+    // 优化：减少元数据请求超时和间隔
+    cfg.set("metadata.max.age.ms", "5000");  // 优化：5秒刷新一次元数据
     // 禁用 group 协调：assign 模式不需要 group 协调
     cfg.set("partition.assignment.strategy", "");
     // 强制使用 IPv4
@@ -1614,8 +1617,9 @@ fn fetch_partition_messages_parallel(
     let mut raw_messages = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
     let mut polled_count = 0;
-    // 自适应空轮次上限：基础 50 轮 + 每 100 条消息增加 5 轮，确保大数据量时有足够的等待时间
-    let max_empty = 50 + max_messages / 100 * 5;
+    // 自适应空轮次上限：基础 30 轮 + 每 100 条消息增加 2 轮
+    // 优化：降低空轮次上限，减少小数据量时的等待时间
+    let max_empty = 30 + max_messages / 100 * 2;
     // 无时间范围时：每个分区最多获取 max_messages 条，然后在这些消息中搜索过滤
     // 有时间范围时：在时间范围内获取最多 max_messages 条，再进行搜索过滤
 
@@ -1825,11 +1829,12 @@ async fn fetch_messages_local(
 
     tracing::info!("[Local] {} partitions, {} messages per partition, total {}. Mode: {}",
         partition_count, max_messages, total_target,
-        if max_messages >= 1000 || partition_count == 1 { "parallel" } else { "sequential" });
+        if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 { "parallel" } else { "sequential" });
 
-    // 本地 Kafka 单分区时使用并行模式（无 group.id，直接分配分区）
-    let messages = if max_messages >= 1000 || partition_count == 1 {
-        // === 大批量并行模式（>=1000条/分区）===
+    // 本地 Kafka 单分区或少分区时使用并行模式（无 group.id，直接分配分区）
+    // 优化：分区数 <= 5 时使用串行模式，避免创建多个 consumer 的连接开销
+    let messages = if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 {
+        // === 大批量并行模式（>=1000条/分区且分区数>5）===
         // 每个分区都请求 max_messages 条（max_messages 是 per partition 的）
         // 限制并发数以避免对 Kafka 造成过大压力
         let msgs_per_partition = max_messages;
@@ -1886,7 +1891,8 @@ async fn fetch_messages_local(
         }
         all_msgs
     } else {
-        // === 小批量串行模式（<1000条/分区）===
+        // === 串行模式（<1000条/分区 或 分区数<=5）===
+        // 优化：使用单个 consumer 处理所有分区，避免多个连接开销
         // 捕获 partition 变量用于判断是否应该使用 offset
         let partition_filter = partition;
         tokio::task::spawn_blocking(move || {
@@ -1902,6 +1908,10 @@ async fn fetch_messages_local(
             cfg.set("fetch.max.bytes", "52428800");
             cfg.set("socket.nagle.disable", "true");
             cfg.set("broker.address.family", "v4");
+            // 优化：添加连接超时配置
+            cfg.set("socket.connection.setup.timeout.ms", "3000");
+            cfg.set("reconnect.backoff.ms", "50");
+            cfg.set("reconnect.backoff.max.ms", "500");
 
             let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
                 Ok(c) => c,
@@ -1938,7 +1948,8 @@ async fn fetch_messages_local(
             let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
             let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
             let mut total_empty = 0;
-            let max_empty_rounds = 100; // 空轮次上限
+            // 优化：自适应空轮次上限，减少小数据量时的等待
+            let max_empty_rounds = 30 + max_messages / 100 * 2;
             let poll_start = std::time::Instant::now();
 
             // 收集消息，每个分区最多 max_messages 条
@@ -2178,14 +2189,24 @@ async fn fetch_messages_remote(
         let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
         let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
         let mut total_empty = 0;
-        let max_empty_rounds = (partition_count * max_messages).max(20);
+        // 优化：自适应空轮次上限，减少小数据量时的等待
+        let max_empty_rounds = 30 + max_messages / 100 * 2;
 
         // 计算需要获取的总消息数
         let target_total = max_messages * partition_count;
 
-        // 第一步：收集原始消息（每个分区最多 max_messages 条）
+        // 收集原始消息（每个分区最多 max_messages 条）
+        let poll_start = std::time::Instant::now();
+        let mut first_poll = true;
         while raw_msgs.len() < target_total && total_empty < max_empty_rounds {
-            match consumer.poll(Duration::from_millis(10)) {  // 减少超时，快速轮询
+            // 第一次 poll 给更多时间建立连接
+            let poll_timeout = if first_poll {
+                first_poll = false;
+                Duration::from_millis(500)
+            } else {
+                Duration::from_millis(10)  // 使用短超时快速轮询
+            };
+            match consumer.poll(poll_timeout) {
                 Some(Ok(msg)) => {
                     let part = msg.partition();
 
@@ -2230,6 +2251,7 @@ async fn fetch_messages_remote(
                 }
             }
         }
+        tracing::info!("[Remote] Poll loop took {:?}, collected {} messages", poll_start.elapsed(), raw_msgs.len());
 
         // 第二步：对已收集的消息进行搜索过滤
         let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = if let Some(ref term) = search_lower {
