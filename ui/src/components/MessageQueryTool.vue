@@ -70,25 +70,25 @@
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
-        <div class="flex bg-base-200 px-2 py-1 text-[10px] font-semibold min-w-[600px] uppercase tracking-wide">
+        <div class="flex bg-base-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide w-full">
           <div class="w-12 flex-shrink-0">分区</div>
           <div class="w-16 flex-shrink-0">Offset</div>
           <div class="w-28 flex-shrink-0">时间戳</div>
           <div class="w-20 flex-shrink-0">Key</div>
-          <div class="flex-1 min-w-0">Value</div>
-          <div class="w-16 flex-shrink-0 text-center">操作</div>
+          <div class="flex-1">Value</div>
+          <div class="w-10 flex-shrink-0 text-center">操作</div>
         </div>
         <!-- Virtual Scroll List -->
         <RecycleScroller
           v-if="messages.length > 0"
-          class="flex-1 overflow-auto min-w-[600px]"
+          class="flex-1 overflow-auto w-full"
           :items="messages"
           :item-size="24"
           key-field="uid"
           v-slot="{ item }"
         >
           <div
-            class="flex items-center px-2 py-0.5 hover:bg-base-200/50 transition-colors border-b border-base-200/30 cursor-pointer"
+            class="flex items-center px-2 py-0.5 hover:bg-base-200/50 transition-colors border-b border-base-200/30 cursor-pointer w-full"
             style="height: 24px;"
             @click="selectedMessage = (item as any)"
           >
@@ -98,8 +98,8 @@
             <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
             <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
             <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
-            <div class="flex-1 min-w-0 text-[10px] font-mono truncate pr-2">{{ truncate(getMsgValue(item), 60) }}</div>
-            <div class="w-16 flex-shrink-0 text-[10px] flex items-center justify-center gap-0.5">
+            <div class="flex-1 text-[10px] font-mono truncate pr-2">{{ truncate(getMsgValue(item), 60) }}</div>
+            <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" title="复制 Value (JSON 格式化)">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
