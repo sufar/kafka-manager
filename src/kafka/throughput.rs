@@ -1,10 +1,8 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use crate::models::{
-    ConsumerGroupPartitionThroughput, ConsumerGroupThroughputResponse,
     PartitionThroughput, ThroughputStats, TopicThroughputResponse,
 };
-use crate::kafka::offset::KafkaOffsetManager;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::topic_partition_list::TopicPartitionList;
 use rdkafka::{ClientConfig, Message, Offset};
@@ -122,97 +120,6 @@ impl KafkaThroughputCalculator {
         })
     }
 
-    /// 计算 Consumer Group 的消费吞吐量
-    pub fn calculate_consumer_group_throughput(
-        &self,
-        kafka_config: &KafkaConfig,
-        group_id: &str,
-        topic: &str,
-    ) -> Result<ConsumerGroupThroughputResponse> {
-        // 获取 Topic 的 watermarks
-        let topic_throughput = self.calculate_topic_throughput(kafka_config, topic)?;
-
-        // 创建 consumer 获取 committed offsets
-        let mut client_config = ClientConfig::new();
-        client_config.set("bootstrap.servers", &kafka_config.brokers);
-        client_config.set("group.id", group_id);
-        // 强制使用 IPv4，避免 IPv6 连接问题
-        client_config.set("broker.address.family", "v4");
-
-        let consumer: BaseConsumer = client_config
-            .create()
-            .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
-
-        let mut total_lag = 0i64;
-        let mut partition_stats = Vec::new();
-        let mut total_consume_rate = 0.0;
-
-        for partition in &topic_throughput.partitions {
-            let mut tpl = TopicPartitionList::new();
-            tpl.add_partition(topic, partition.partition);
-
-            // 获取 committed offset
-            let committed_offsets = consumer
-                .committed_offsets(tpl.clone(), std::time::Duration::from_millis(self.timeout_ms))
-                .ok();
-
-            let current_offset = committed_offsets
-                .as_ref()
-                .and_then(|offsets| {
-                    offsets.elements().iter().find(|e| {
-                        e.topic() == topic && e.partition() == partition.partition
-                    }).and_then(|e| e.offset().to_raw())
-                })
-                .unwrap_or(-1);
-
-            let lag = if current_offset >= 0 && partition.latest_offset > 0 {
-                partition.latest_offset - current_offset
-            } else {
-                0
-            };
-            total_lag += lag.max(0);
-
-            // 消费速率估算（基于 lag 和时间窗口）
-            // 注意：这是近似值，因为没有历史 offset 数据
-            let consume_rate = if lag > 0 && topic_throughput.produce_throughput.window_seconds > 0 {
-                // 假设消费者在追赶，估算消费速率
-                topic_throughput.produce_throughput.messages_per_second * 0.8
-            } else {
-                topic_throughput.produce_throughput.messages_per_second
-            } as f64;
-
-            total_consume_rate += consume_rate;
-
-            partition_stats.push(ConsumerGroupPartitionThroughput {
-                partition: partition.partition,
-                current_offset: if current_offset >= 0 { current_offset } else { 0 },
-                log_end_offset: partition.latest_offset,
-                lag,
-                consume_rate,
-            });
-        }
-
-        // 预估追上时间
-        let estimated_time_to_catch_up = if total_consume_rate > 0.0 && total_lag > 0 {
-            Some(total_lag as f64 / total_consume_rate)
-        } else {
-            None
-        };
-
-        Ok(ConsumerGroupThroughputResponse {
-            group_name: group_id.to_string(),
-            topic: topic.to_string(),
-            consume_throughput: ThroughputStats {
-                messages_per_second: total_consume_rate,
-                bytes_per_second: None,
-                window_seconds: topic_throughput.produce_throughput.window_seconds,
-            },
-            total_lag,
-            estimated_time_to_catch_up,
-            partitions: partition_stats,
-        })
-    }
-
     /// 获取分区的时间戳（最早和最新消息）
     fn get_partition_timestamps(
         &self,
@@ -318,84 +225,5 @@ impl OffsetCache {
 impl Default for OffsetCache {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ==================== 历史积压数据（用于折线图） ====================
-
-use crate::models::{ConsumerGroupLagSummary, TopicConsumerLagResponse, ConsumerGroupPartitionDetail};
-
-impl KafkaThroughputCalculator {
-    /// 获取 Topic 所有 Consumer Group 的当前积压数据（用于实时折线图）
-    ///
-    /// 注意：由于 Kafka 不存储历史 offset 数据，此接口返回当前时刻的快照数据
-    /// 前端可以定期调用此接口采集数据点，构建实时折线图
-    pub fn get_topic_consumer_lag_snapshot(
-        &self,
-        kafka_config: &KafkaConfig,
-        topic: &str,
-        admin: &crate::kafka::KafkaAdmin,
-    ) -> Result<TopicConsumerLagResponse> {
-        // 获取所有 consumer groups
-        let groups = admin.list_consumer_groups(kafka_config)?;
-
-        let offset_manager = KafkaOffsetManager::new(kafka_config);
-        let mut consumer_group_lags = Vec::new();
-        let mut total_lag = 0i64;
-
-        for group in &groups {
-            // 获取该 group 在指定 topic 上的 offset
-            let offsets = offset_manager.get_consumer_group_offsets(
-                kafka_config,
-                &group.name,
-                Some(topic),
-            )?;
-
-            if offsets.is_empty() {
-                // 该 group 没有消费过这个 topic
-                continue;
-            }
-
-            let group_lag: i64 = offsets.iter().map(|o| o.lag).sum();
-            total_lag += group_lag;
-
-            let partitions: Vec<ConsumerGroupPartitionDetail> = offsets
-                .into_iter()
-                .map(|o| ConsumerGroupPartitionDetail {
-                    partition: o.partition,
-                    current_offset: o.current_offset,
-                    log_end_offset: o.log_end_offset,
-                    lag: o.lag,
-                    state: if o.current_offset >= 0 {
-                        "Active".to_string()
-                    } else {
-                        "Empty".to_string()
-                    },
-                    last_commit_time: None,
-                    topic: o.topic.clone(),
-                })
-                .collect();
-
-            consumer_group_lags.push(ConsumerGroupLagSummary {
-                group_name: group.name.clone(),
-                total_lag: group_lag,
-                partitions: partitions.into_iter().map(|p| crate::models::PartitionLagDetail {
-                    partition: p.partition,
-                    current_offset: p.current_offset,
-                    log_end_offset: p.log_end_offset,
-                    lag: p.lag,
-                    state: p.state,
-                }).collect(),
-            });
-        }
-
-        // 按 lag 降序排序
-        consumer_group_lags.sort_by(|a, b| b.total_lag.cmp(&a.total_lag));
-
-        Ok(TopicConsumerLagResponse {
-            topic: topic.to_string(),
-            total_lag,
-            consumer_groups: consumer_group_lags,
-        })
     }
 }

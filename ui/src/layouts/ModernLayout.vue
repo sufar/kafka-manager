@@ -731,9 +731,6 @@ function handleClusterAction(action: string, cluster: string) {
     case 'refreshConnection':
       refreshConnectionStatus(cluster);
       break;
-    case 'viewConsumers':
-      router.push({ path: '/consumer-groups', query: { cluster } });
-      break;
     case 'createTopic':
       router.push({ path: '/topics', query: { cluster, action: 'create' } });
       break;

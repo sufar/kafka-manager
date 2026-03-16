@@ -28,8 +28,7 @@ use crate::middleware::auth::{auth_middleware, AuthMiddleware};
 use crate::middleware::performance::performance_tracker;
 use crate::pool::ClusterPools;
 use crate::cache::MetadataCache;
-use crate::task::{TaskStore, HealthChecker};
-use crate::task::health_check::HealthCheckConfig;
+use crate::task::TaskStore;
 
 /// 应用状态
 #[derive(Clone)]
@@ -44,8 +43,6 @@ pub struct AppState {
     pub cache: MetadataCache,
     /// 异步任务队列
     pub task_store: TaskStore,
-    /// 健康检查器
-    pub health_checker: HealthChecker,
 }
 
 impl AppState {
@@ -110,9 +107,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let task_store = TaskStore::new();
     tracing::info!("Task queue initialized");
 
-    // 初始化健康检查器（仅用于内存状态跟踪，不运行后台自动检查）
-    let health_checker = HealthChecker::new(HealthCheckConfig::default());
-
     // 从数据库加载 API Keys 并初始化认证中间件
     let api_keys = load_api_keys_from_db(db.inner()).await?;
     let auth_enabled = std::env::var("AUTH_ENABLED")
@@ -133,7 +127,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pools: pools.clone(),
         cache: cache.clone(),
         task_store: task_store.clone(),
-        health_checker: health_checker.clone(),
     };
 
     // 构建路由

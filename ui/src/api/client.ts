@@ -13,17 +13,9 @@ import type {
   BatchCreateTopicsResponse,
   BatchDeleteTopicsRequest,
   BatchDeleteTopicsResponse,
-  ConsumerGroupListResponse,
-  ConsumerGroupDetailResponse,
-  ConsumerGroupOffsetDetailResponse,
-  ResetConsumerGroupOffsetRequest,
-  BatchDeleteConsumerGroupsRequest,
-  BatchDeleteConsumerGroupsResponse,
   ClusterStatsResponse,
   HealthResponse,
   ApiError,
-  ConsumerGroupSummary,
-  ConsumerOffsetsListResponse,
 } from '@/types/api';
 
 // 检测是否在 Tauri 环境下运行
@@ -368,149 +360,9 @@ class ApiClient {
     });
   }
 
-  // ==================== Consumer Groups ====================
-  async getConsumerGroups(clusterId: string): Promise<ConsumerGroupSummary[]> {
-    const data = await this.request<ConsumerGroupListResponse>('consumer_group.list', { cluster_id: clusterId });
-    return data.groups;
-  }
-
-  async getAllConsumerOffsets(clusterId: string): Promise<ConsumerOffsetsListResponse> {
-    return this.request('consumer_group.consumer_offsets', { cluster_id: clusterId });
-  }
-
-  async getConsumerGroupDetail(
-    clusterId: string,
-    groupName: string
-  ): Promise<ConsumerGroupDetailResponse> {
-    return this.request('consumer_group.get', { cluster_id: clusterId, name: groupName });
-  }
-
-  async getConsumerGroupOffsets(
-    clusterId: string,
-    groupName: string,
-    topic?: string
-  ): Promise<ConsumerGroupOffsetDetailResponse> {
-    return this.request('consumer_group.offsets', { cluster_id: clusterId, group_name: groupName, topic });
-  }
-
-  async resetConsumerGroupOffset(
-    clusterId: string,
-    groupName: string,
-    request: ResetConsumerGroupOffsetRequest
-  ): Promise<void> {
-    return this.request('consumer_group.offsets.reset', {
-      cluster_id: clusterId,
-      group_name: groupName,
-      ...request
-    });
-  }
-
-  async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
-    return this.request('consumer_group.delete', { cluster_id: clusterId, name: groupName });
-  }
-
-  async batchDeleteConsumerGroups(
-    clusterId: string,
-    request: BatchDeleteConsumerGroupsRequest
-  ): Promise<BatchDeleteConsumerGroupsResponse> {
-    return this.request('consumer_group.batch_delete', { cluster_id: clusterId, ...request });
-  }
-
-  async getConsumerLag(clusterId: string, topic: string): Promise<{
-    topic: string;
-    total_lag: number;
-    consumer_groups: {
-      name: string;
-      total_lag: number;
-      partitions: {
-        partition: number;
-        current_offset: number;
-        log_end_offset: number;
-        lag: number;
-        state: string;
-      }[];
-    }[];
-  }> {
-    return this.request('consumer_lag.get', { cluster_id: clusterId, topic });
-  }
-
-  async getConsumerLagHistory(clusterId: string, topic: string): Promise<{
-    topic: string;
-    start_time: number;
-    end_time: number;
-    data_points: number;
-    timestamps: number[];
-    consumer_groups: {
-      name: string;
-      lag_series: number[];
-      consumed_series: number[];
-      produced_series: number[];
-    }[];
-  }> {
-    return this.request('consumer_lag.history', { cluster_id: clusterId, topic });
-  }
-
   // ==================== Cluster Stats ====================
   async getClusterStats(clusterId: string): Promise<ClusterStatsResponse> {
     return this.request('cluster.stats', { cluster_id: clusterId });
-  }
-
-  // ==================== Schema Registry ====================
-  async getSchemaSubjects(clusterId: string, schemaRegistryUrl: string): Promise<string[]> {
-    const data = await this.request<{ subjects: string[] }>('schema.subjects', {
-      cluster_id: clusterId,
-      schema_registry_url: schemaRegistryUrl
-    });
-    return data.subjects;
-  }
-
-  async getSchemaSubjectVersions(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
-    const data = await this.request<{ versions: number[] }>('schema.versions', {
-      cluster_id: clusterId,
-      subject,
-      schema_registry_url: schemaRegistryUrl
-    });
-    return data.versions;
-  }
-
-  async getSchema(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<import('@/types/api').SchemaInfo> {
-    return this.request('schema.get', {
-      cluster_id: clusterId,
-      subject,
-      version,
-      schema_registry_url: schemaRegistryUrl
-    });
-  }
-
-  async registerSchema(clusterId: string, schema: import('@/types/api').RegisterSchemaRequest): Promise<{ id: number; subject: string; success: boolean }> {
-    return this.request('schema.register', { cluster_id: clusterId, ...schema });
-  }
-
-  async deleteSchema(clusterId: string, subject: string, schemaRegistryUrl: string): Promise<number[]> {
-    const data = await this.request<{ deleted_versions: number[] }>('schema.delete', {
-      cluster_id: clusterId,
-      subject,
-      schema_registry_url: schemaRegistryUrl
-    });
-    return data.deleted_versions;
-  }
-
-  async deleteSchemaVersion(clusterId: string, subject: string, version: string, schemaRegistryUrl: string): Promise<number> {
-    const data = await this.request<{ deleted_version: number }>('schema.version.delete', {
-      cluster_id: clusterId,
-      subject,
-      version,
-      schema_registry_url: schemaRegistryUrl
-    });
-    return data.deleted_version;
-  }
-
-  async getCompatibilityLevel(clusterId: string, schemaRegistryUrl: string): Promise<string> {
-    const data = await this.request<{ level: string }>('schema.compatibility_level', {
-      cluster_id: clusterId,
-      schema_registry_url: schemaRegistryUrl
-    });
-    return data.level;
   }
 
   // ==================== 用户管理 ====================
@@ -541,35 +393,6 @@ class ApiClient {
 
   async updateRole(id: number, role: { name?: string; description?: string; permissions?: string[] }): Promise<{ success: boolean }> {
     return this.request('role.update', { id, ...role });
-  }
-
-  // ==================== 通知管理 ====================
-  async getNotifications(): Promise<import('@/types/api').NotificationConfig[]> {
-    return this.request('notification.list', {});
-  }
-
-  async createNotification(notification: import('@/types/api').CreateNotificationConfigRequest): Promise<{ id: number; success: boolean }> {
-    return this.request('notification.create', notification);
-  }
-
-  async getNotification(id: number): Promise<import('@/types/api').NotificationConfig> {
-    return this.request('notification.get', { id });
-  }
-
-  async deleteNotification(id: number): Promise<void> {
-    return this.request('notification.delete', { id });
-  }
-
-  async enableNotification(id: number): Promise<{ success: boolean }> {
-    return this.request('notification.enable', { id });
-  }
-
-  async disableNotification(id: number): Promise<{ success: boolean }> {
-    return this.request('notification.disable', { id });
-  }
-
-  async getAlertHistory(query?: { limit?: number; severity?: string; notified?: boolean }): Promise<import('@/types/api').AlertHistoryItem[]> {
-    return this.request('alert.history', query || {});
   }
 
   // ==================== 消息管理 ====================
@@ -626,26 +449,8 @@ class ApiClient {
       end_time: params?.end_time,
     });
   }
-  // ==================== 集群监控 ====================
-  async getClusterInfo(clusterId: string): Promise<import('@/types/api').ClusterInfoResponse> {
-    return this.request('cluster.info', { cluster_id: clusterId });
-  }
-
-  async getClusterMetrics(clusterId: string): Promise<import('@/types/api').ClusterMetricsResponse> {
-    return this.request('cluster.metrics', { cluster_id: clusterId });
-  }
-
-  async getBrokers(clusterId: string): Promise<import('@/types/api').BrokerInfo[]> {
-    const data = await this.request<{ brokers: import('@/types/api').BrokerInfo[] }>('cluster.brokers', { cluster_id: clusterId });
-    return data.brokers;
-  }
-
-  async getBrokerDetail(clusterId: string, brokerId: number): Promise<import('@/types/api').BrokerDetailResponse> {
-    return this.request('cluster.broker.get', { cluster_id: clusterId, broker_id: brokerId });
-  }
 
   // ==================== 集群连接管理 ====================
-  async getAllConnectionStatus(): Promise<{ connections: { cluster_id: string; status: string; error_message?: string }[] }> {
     return this.request('connection.list', {});
   }
 

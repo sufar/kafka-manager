@@ -5,7 +5,6 @@ use crate::db::api_key::ApiKeyStore;
 use crate::db::audit_log::AuditLogStore;
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
 use crate::db::cluster_connection::ClusterConnectionStore;
-use crate::db::notification::{CreateNotificationConfigRequest, NotificationStore};
 use crate::db::settings::SettingStore;
 use crate::db::tag::{TagStore};
 use crate::db::topic::TopicStore;
@@ -16,7 +15,6 @@ use crate::db::topic_template::{
 use crate::db::user::{RoleStore, UserStore};
 use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
-use crate::kafka::schema::SchemaRegistryClient;
 use crate::kafka::throughput::KafkaThroughputCalculator;
 use crate::AppState;
 use axum::{
@@ -385,20 +383,6 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.search" => handle_topic_search(state, body).await,
         "topic.count" => handle_topic_count(state, body).await,
 
-        // Consumer Group
-        "consumer_group.list" => handle_consumer_group_list(state, body).await,
-        "consumer_group.get" => handle_consumer_group_get(state, body).await,
-        "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
-        "consumer_group.offsets" => handle_consumer_group_offsets(state, body).await,
-        "consumer_group.offsets_reset" => handle_consumer_group_offsets_reset(state, body).await,
-        "consumer_group.throughput" => handle_consumer_group_throughput(state, body).await,
-        "consumer_group.batch_delete" => handle_consumer_group_batch_delete(state, body).await,
-        "consumer_group.consumer_offsets" => handle_consumer_group_consumer_offsets(state, body).await,
-
-        // Consumer Lag
-        "consumer_lag.get" => handle_consumer_lag_get(state, body).await,
-        "consumer_lag.history" => handle_consumer_lag_history(state, body).await,
-
         // Message
         "message.list" => handle_message_list(state, body).await,
         "message.send" => handle_message_send(state, body).await,
@@ -416,49 +400,9 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "connection.batch_disconnect" => handle_connection_batch_disconnect(state, body).await,
         "connection.batch_reconnect" => handle_connection_batch_reconnect(state, body).await,
 
-        // User
-        "user.list" => handle_user_list(state).await,
-        "user.get" => handle_user_get(state, body).await,
-        "user.create" => handle_user_create(state, body).await,
-        "user.update" => handle_user_update(state, body).await,
-        "user.password_update" => handle_user_password_update(state, body).await,
-
-        // Role
-        "role.list" => handle_role_list(state).await,
-        "role.get" => handle_role_get(state, body).await,
-        "role.create" => handle_role_create(state, body).await,
-        "role.update" => handle_role_update(state, body).await,
-
-        // Notification
-        "notification.list" => handle_notification_list(state).await,
-        "notification.get" => handle_notification_get(state, body).await,
-        "notification.create" => handle_notification_create(state, body).await,
-        "notification.delete" => handle_notification_delete(state, body).await,
-        "notification.enable" => handle_notification_enable(state, body).await,
-        "notification.disable" => handle_notification_disable(state, body).await,
-
-        // Alert History
-        "alert_history.list" => handle_alert_history_list(state, body).await,
-
-        // Schema Registry
-        "schema.subjects" => handle_schema_subjects(body).await,
-        "schema.versions" => handle_schema_versions(body).await,
-        "schema.get" => handle_schema_get(body).await,
-        "schema.register" => handle_schema_register(state, body).await,
-        "schema.delete" => handle_schema_delete(body).await,
-        "schema.version_delete" => handle_schema_version_delete(body).await,
-        "schema.compatibility_level" => handle_schema_compatibility_level(body).await,
-
         // Settings
         "settings.get" => handle_settings_get(state, body).await,
         "settings.update" => handle_settings_update(state, body).await,
-
-        // Cluster Stats/Monitor
-        "monitor.stats" => handle_monitor_stats(state, body).await,
-        "monitor.info" => handle_monitor_info(state, body).await,
-        "monitor.metrics" => handle_monitor_metrics(state, body).await,
-        "monitor.brokers" => handle_monitor_brokers(state, body).await,
-        "monitor.broker_get" => handle_monitor_broker_get(state, body).await,
 
         // Topic Template
         "template.list" => handle_template_list(state).await,
@@ -469,23 +413,8 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "template.presets" => handle_template_presets().await,
         "template.create_topic" => handle_template_create_topic(state, body).await,
 
-        // Tag
-        "tag.list" => handle_tag_list(state, body).await,
-        "tag.create" => handle_tag_create(state, body).await,
-        "tag.delete" => handle_tag_delete(state, body).await,
-        "tag.topics" => handle_tag_topics(state, body).await,
-        "tag.keys" => handle_tag_keys(state, body).await,
-        "tag.values" => handle_tag_values(state, body).await,
-        "tag.filter" => handle_tag_filter(state, body).await,
-        "tag.batch_update" => handle_tag_batch_update(state, body).await,
-
         // Audit Log
         "audit_log.list" => handle_audit_log_list(state, body).await,
-
-        // Auth
-        "auth.api_keys" => handle_auth_api_keys(state).await,
-        "auth.api_key_create" => handle_auth_api_key_create(state, body).await,
-        "auth.api_key_revoke" => handle_auth_api_key_revoke(state, body).await,
 
         _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
     }
@@ -719,8 +648,6 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
-                "consumer_group_count": 0,
-                "total_lag": 0,
                 "broker_stats": [],
                 "error": format!("Failed to connect: {}", e),
             }));
@@ -734,8 +661,6 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
-                "consumer_group_count": 0,
-                "total_lag": 0,
                 "broker_stats": [],
                 "error": format!("Task failed: {}", e),
             }));
@@ -749,8 +674,6 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
                 "topic_count": 0,
                 "partition_count": 0,
                 "under_replicated_partitions": 0,
-                "consumer_group_count": 0,
-                "total_lag": 0,
                 "broker_stats": [],
                 "error": "Timeout connecting to cluster",
             }));
@@ -774,9 +697,6 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         })
         .collect();
 
-    // 注意：由于 rdkafka 限制，consumer group 数量暂时返回 0
-    // 实际应用中可以通过 offsets topic 来估算
-    let consumer_group_count = 0;
     let total_lag = 0;
 
     Ok(serde_json::json!({
@@ -786,7 +706,6 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         "topic_count": topics.len(),
         "partition_count": partition_count,
         "under_replicated_partitions": under_replicated,
-        "consumer_group_count": consumer_group_count,
         "total_lag": total_lag,
         "broker_stats": broker_stats,
     }))
@@ -1483,288 +1402,6 @@ async fn handle_topic_count(state: AppState, body: Value) -> Result<Value> {
     let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
 
     Ok(serde_json::json!({ "count": topics.len() }))
-}
-
-// ==================== Consumer Group ====================
-
-async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    // Try cache first
-    if let Some(cached_groups) = state.cache.get_consumer_group_list(&cluster_id).await {
-        let groups: Vec<Value> = cached_groups
-            .into_iter()
-            .map(|name| {
-                serde_json::json!({
-                    "name": name,
-                    "state": "Unknown"
-                })
-            })
-            .collect();
-        return Ok(serde_json::json!({ "groups": groups }));
-    }
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let groups = admin.list_consumer_groups(&config)?;
-    let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
-
-    // Write to cache
-    state
-        .cache
-        .set_consumer_group_list(&cluster_id, group_names.clone())
-        .await;
-
-    let group_summaries: Vec<Value> = groups
-        .into_iter()
-        .map(|g| {
-            serde_json::json!({
-                "name": g.name,
-                "state": g.state,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "groups": group_summaries }))
-}
-
-async fn handle_consumer_group_get(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let name = get_string_param(&body, "name")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let group_info = admin.get_consumer_group_info(&config, &name)?;
-
-    Ok(serde_json::json!({
-        "name": group_info.name,
-        "state": group_info.state,
-        "protocol": group_info.protocol,
-        "members": group_info
-            .members
-            .into_iter()
-            .map(|m| serde_json::json!({
-                "client_id": m.client_id,
-                "host": m.host,
-            }))
-            .collect::<Vec<_>>(),
-        "offsets": [],
-    }))
-}
-
-async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let name = get_string_param(&body, "name")?;
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    admin.delete_consumer_group(&name).await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let group_name = get_string_param(&body, "group_name")?;
-    let topic = get_optional_string_param(&body, "topic");
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let offset_manager = KafkaOffsetManager::new(&config);
-    let offsets =
-        offset_manager.get_consumer_group_offsets(&config, &group_name, topic.as_deref())?;
-
-    let topic_name = offsets.first().map(|o| o.topic.clone()).unwrap_or_default();
-    let total_lag: i64 = offsets.iter().map(|o| o.lag).sum();
-
-    let partitions: Vec<Value> = offsets
-        .into_iter()
-        .map(|o| {
-            serde_json::json!({
-                "partition": o.partition,
-                "current_offset": o.current_offset,
-                "log_end_offset": o.log_end_offset,
-                "lag": o.lag,
-                "state": if o.current_offset >= 0 { "Active" } else { "Empty" },
-                "topic": o.topic,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "group_name": group_name,
-        "topic": topic_name,
-        "partitions": partitions,
-        "total_lag": total_lag,
-    }))
-}
-
-async fn handle_consumer_group_offsets_reset(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let group_name = get_string_param(&body, "group_name")?;
-    let topic = get_string_param(&body, "topic")?;
-    let partition = get_optional_i32_param(&body, "partition");
-
-    // Parse offset type
-    let offset_type = if let Some(offset_val) = get_optional_i64_param(&body, "value") {
-        crate::kafka::admin::OffsetType::Value(offset_val)
-    } else if let Some(ts) = get_optional_i64_param(&body, "timestamp") {
-        crate::kafka::admin::OffsetType::Timestamp(ts)
-    } else if body.get("earliest").is_some() {
-        crate::kafka::admin::OffsetType::Earliest
-    } else {
-        crate::kafka::admin::OffsetType::Latest
-    };
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    if let Some(partition) = partition {
-        admin
-            .reset_consumer_group_offset(&config, &group_name, &topic, partition, offset_type)
-            .await?;
-    } else {
-        admin
-            .reset_consumer_group_offsets(&config, &group_name, &topic, offset_type)
-            .await?;
-    }
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_consumer_group_throughput(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let group_name = get_string_param(&body, "group_name")?;
-    let topic = get_string_param(&body, "topic")?;
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let calculator = KafkaThroughputCalculator::new(&config);
-    let throughput = calculator.calculate_consumer_group_throughput(&config, &group_name, &topic)?;
-
-    Ok(serde_json::json!({
-        "group_name": throughput.group_name,
-        "topic": throughput.topic,
-        "consume_throughput": {
-            "messages_per_second": throughput.consume_throughput.messages_per_second,
-            "bytes_per_second": throughput.consume_throughput.bytes_per_second,
-            "window_seconds": throughput.consume_throughput.window_seconds,
-        },
-        "total_lag": throughput.total_lag,
-        "estimated_time_to_catch_up": throughput.estimated_time_to_catch_up,
-        "partitions": throughput.partitions.iter().map(|p| serde_json::json!({
-            "partition": p.partition,
-            "current_offset": p.current_offset,
-            "log_end_offset": p.log_end_offset,
-            "lag": p.lag,
-            "consume_rate": p.consume_rate,
-        })).collect::<Vec<_>>(),
-    }))
-}
-
-async fn handle_consumer_group_batch_delete(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let group_names = get_string_array_param(&body, "group_names");
-    let continue_on_error = get_optional_bool_param(&body, "continue_on_error").unwrap_or(false);
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let mut deleted = Vec::new();
-    let mut failed = Vec::new();
-
-    for group_name in group_names {
-        match admin.delete_consumer_group(&group_name).await {
-            Ok(_) => deleted.push(group_name),
-            Err(e) => {
-                failed.push(serde_json::json!({
-                    "name": group_name,
-                    "error": e.to_string()
-                }));
-                if !continue_on_error {
-                    return Ok(serde_json::json!({
-                        "success": false,
-                        "deleted": deleted,
-                        "failed": failed
-                    }));
-                }
-            }
-        }
-    }
-
-    Ok(serde_json::json!({
-        "success": failed.is_empty(),
-        "deleted": deleted,
-        "failed": failed
-    }))
-}
-
-async fn handle_consumer_group_consumer_offsets(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let offset_manager = KafkaOffsetManager::new(&config);
-    let all_offsets = offset_manager.get_all_consumer_offsets(&config)?;
-
-    let consumer_groups: Vec<Value> = all_offsets
-        .into_iter()
-        .map(|group| {
-            serde_json::json!({
-                "group_name": group.group_name,
-                "state": group.state,
-                "total_lag": group.total_lag,
-                "topics": group.topics.iter().map(|topic| serde_json::json!({
-                    "topic": topic.topic,
-                    "total_lag": topic.total_lag,
-                    "partitions": topic.partitions.iter().map(|p| serde_json::json!({
-                        "partition": p.partition,
-                        "start_offset": p.start_offset,
-                        "end_offset": p.end_offset,
-                        "current_offset": p.current_offset,
-                        "lag": p.lag,
-                        "state": if p.current_offset >= 0 { "Active" } else { "Empty" },
-                    })).collect::<Vec<_>>(),
-                })).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "cluster_id": cluster_id,
-        "consumer_groups": consumer_groups,
-    }))
 }
 
 // ==================== Message ====================
@@ -3069,52 +2706,7 @@ async fn handle_connection_batch_reconnect(state: AppState, body: Value) -> Resu
     }))
 }
 
-// ==================== User ====================
-
-async fn handle_user_list(state: AppState) -> Result<Value> {
-    let users = UserStore::list_with_roles(state.db.inner()).await?;
-
-    let user_list: Vec<Value> = users
-        .into_iter()
-        .map(|u| {
-            serde_json::json!({
-                "id": u.id,
-                "username": u.username,
-                "email": u.email,
-                "role_id": u.role_id,
-                "role_name": u.role_name,
-                "is_active": u.is_active,
-                "created_at": u.created_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "users": user_list }))
-}
-
-async fn handle_user_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let user = UserStore::get_with_role(state.db.inner(), id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
-
-    Ok(serde_json::json!({
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "role_id": user.role_id,
-        "role_name": user.role_name,
-        "is_active": user.is_active,
-        "created_at": user.created_at,
-    }))
-}
-
-async fn handle_user_create(state: AppState, body: Value) -> Result<Value> {
-    let username = get_string_param(&body, "username")?;
-    let password = get_string_param(&body, "password")?;
-    let email = get_optional_string_param(&body, "email");
-    let role_id = get_i64_param(&body, "role_id")?;
+// ==================== Settings ====================
 
     // Hash password
     let password_hash = bcrypt::hash(&password, bcrypt::DEFAULT_COST)
@@ -3261,230 +2853,6 @@ async fn handle_role_update(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "success": true }))
 }
 
-// ==================== Notification ====================
-
-async fn handle_notification_list(state: AppState) -> Result<Value> {
-    let configs = NotificationStore::list(state.db.inner()).await?;
-    Ok(serde_json::json!({ "notifications": configs }))
-}
-
-async fn handle_notification_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let config = NotificationStore::get_by_id(state.db.inner(), id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Notification config {} not found", id)))?;
-
-    Ok(serde_json::json!(config))
-}
-
-async fn handle_notification_create(state: AppState, body: Value) -> Result<Value> {
-    let name = get_string_param(&body, "name")?;
-    let config_type = get_string_param(&body, "config_type")?;
-    let webhook_url = get_optional_string_param(&body, "webhook_url");
-
-    // email_recipients is Option<Vec<String>>
-    let email_recipients = body.get("email_recipients")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        });
-
-    let dingtalk_webhook = get_optional_string_param(&body, "dingtalk_webhook");
-    let dingtalk_secret = get_optional_string_param(&body, "dingtalk_secret");
-    let wechat_webhook = get_optional_string_param(&body, "wechat_webhook");
-    let slack_webhook = get_optional_string_param(&body, "slack_webhook");
-
-    let req = CreateNotificationConfigRequest {
-        name,
-        config_type,
-        webhook_url,
-        email_recipients,
-        dingtalk_webhook,
-        dingtalk_secret,
-        wechat_webhook,
-        slack_webhook,
-    };
-
-    let id = NotificationStore::create(state.db.inner(), &req).await?;
-
-    Ok(serde_json::json!({
-        "id": id,
-        "success": true
-    }))
-}
-
-async fn handle_notification_delete(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    NotificationStore::delete(state.db.inner(), id).await?;
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_notification_enable(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    NotificationStore::update(state.db.inner(), id, Some(true)).await?;
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_notification_disable(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    NotificationStore::update(state.db.inner(), id, Some(false)).await?;
-    Ok(serde_json::json!({ "success": true }))
-}
-
-// ==================== Alert History ====================
-
-async fn handle_alert_history_list(state: AppState, body: Value) -> Result<Value> {
-    let limit = get_optional_i64_param(&body, "limit");
-    let cluster_id = get_optional_string_param(&body, "cluster_id");
-    let rule_id = get_optional_i64_param(&body, "rule_id");
-    let severity = get_optional_string_param(&body, "severity");
-
-    let query = crate::db::notification::AlertHistoryQuery {
-        limit,
-        cluster_id,
-        rule_id,
-        severity,
-    };
-
-    let history = NotificationStore::list_history(state.db.inner(), &query).await?;
-
-    let responses: Vec<Value> = history
-        .into_iter()
-        .map(|h| {
-            serde_json::json!({
-                "id": h.id,
-                "rule_id": h.rule_id,
-                "cluster_id": h.cluster_id,
-                "alert_type": h.alert_type,
-                "alert_message": h.alert_message,
-                "alert_value": h.alert_value,
-                "threshold": h.threshold,
-                "severity": h.severity,
-                "notified": h.notified,
-                "created_at": h.created_at
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "history": responses }))
-}
-
-// ==================== Schema Registry ====================
-
-async fn handle_schema_subjects(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let subjects = client.get_subjects().await?;
-
-    Ok(serde_json::json!({ "subjects": subjects }))
-}
-
-async fn handle_schema_versions(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-    let subject = get_string_param(&body, "subject")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let versions = client.get_versions(&subject).await?;
-
-    Ok(serde_json::json!({
-        "subject": subject,
-        "versions": versions,
-    }))
-}
-
-async fn handle_schema_get(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-    let subject = get_string_param(&body, "subject")?;
-    let version = get_string_param(&body, "version")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let schema = client.get_schema(&subject, &version).await?;
-
-    Ok(serde_json::json!(schema))
-}
-
-async fn handle_schema_register(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let subject = get_string_param(&body, "subject")?;
-    let schema = get_string_param(&body, "schema")?;
-    let schema_type = get_string_param(&body, "schema_type")?;
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    // Get Schema Registry URL from env or construct from brokers
-    let registry_url = std::env::var("SCHEMA_REGISTRY_URL").unwrap_or_else(|_| {
-        format!(
-            "http://{}:8081",
-            config.brokers.split(',').next().unwrap_or("localhost")
-        )
-    });
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let id = client
-        .register_schema(&subject, &schema, &schema_type)
-        .await?;
-
-    Ok(serde_json::json!({
-        "id": id,
-        "subject": subject,
-        "success": true
-    }))
-}
-
-async fn handle_schema_delete(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-    let subject = get_string_param(&body, "subject")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let deleted_versions = client.delete_subject(&subject).await?;
-
-    Ok(serde_json::json!({
-        "deleted_versions": deleted_versions,
-        "subject": subject,
-        "success": true
-    }))
-}
-
-async fn handle_schema_version_delete(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-    let subject = get_string_param(&body, "subject")?;
-    let version = get_string_param(&body, "version")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-    let deleted_version = client.delete_schema_version(&subject, &version).await?;
-
-    Ok(serde_json::json!({
-        "deleted_version": deleted_version,
-        "subject": subject,
-        "success": true
-    }))
-}
-
-async fn handle_schema_compatibility_level(body: Value) -> Result<Value> {
-    let registry_url = get_string_param(&body, "schema_registry_url")?;
-
-    let client = SchemaRegistryClient::new(&registry_url);
-
-    // If level is provided, update it; otherwise, get it
-    if let Some(level) = get_optional_string_param(&body, "level") {
-        client.update_compatibility_level(&level).await?;
-        Ok(serde_json::json!({
-            "level": level,
-            "success": true
-        }))
-    } else {
-        let level = client.get_compatibility_level().await?;
-        Ok(serde_json::json!({ "level": level }))
-    }
-}
-
 // ==================== Settings ====================
 
 async fn handle_settings_get(state: AppState, body: Value) -> Result<Value> {
@@ -3596,7 +2964,6 @@ async fn handle_monitor_stats(state: AppState, body: Value) -> Result<Value> {
         "topic_count": topics.len() as i32,
         "partition_count": partition_count,
         "under_replicated_partitions": under_replicated,
-        "consumer_group_count": 0, // Not implemented in original
         "total_lag": 0,
         "broker_stats": broker_stats,
     }))
@@ -4201,131 +3568,3 @@ async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "topics": topic_names }))
 }
 
-// ==================== Consumer Lag Handlers ====================
-
-async fn handle_consumer_lag_get(state: AppState, body: Value) -> Result<Value> {
-    use crate::kafka::offset::KafkaOffsetManager;
-
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let topic = get_string_param(&body, "topic")?;
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    // 获取所有 consumer groups
-    let groups = admin.list_consumer_groups(&config)?;
-
-    let offset_manager = KafkaOffsetManager::new(&config);
-    let mut consumer_group_lags = Vec::new();
-    let mut total_lag = 0i64;
-
-    for group in &groups {
-        // 获取该 group 在指定 topic 上的 offset
-        let offsets = offset_manager.get_consumer_group_offsets(
-            &config,
-            &group.name,
-            Some(&topic),
-        )?;
-
-        if offsets.is_empty() {
-            // 该 group 没有消费过这个 topic
-            continue;
-        }
-
-        let group_lag: i64 = offsets.iter().map(|o| o.lag).sum();
-        total_lag += group_lag;
-
-        let partitions: Vec<Value> = offsets
-            .into_iter()
-            .map(|o| {
-                serde_json::json!({
-                    "partition": o.partition,
-                    "current_offset": o.current_offset,
-                    "log_end_offset": o.log_end_offset,
-                    "lag": o.lag,
-                    "state": if o.current_offset >= 0 { "Active" } else { "Empty" },
-                })
-            })
-            .collect();
-
-        consumer_group_lags.push(serde_json::json!({
-            "name": group.name,
-            "total_lag": group_lag,
-            "partitions": partitions,
-        }));
-    }
-
-    // 按 lag 降序排序
-    consumer_group_lags.sort_by(|a: &Value, b: &Value| {
-        let a_lag = a.get("total_lag").and_then(|v| v.as_i64()).unwrap_or(0);
-        let b_lag = b.get("total_lag").and_then(|v| v.as_i64()).unwrap_or(0);
-        b_lag.cmp(&a_lag)
-    });
-
-    Ok(serde_json::json!({
-        "topic": topic,
-        "total_lag": total_lag,
-        "consumer_groups": consumer_group_lags,
-    }))
-}
-
-async fn handle_consumer_lag_history(state: AppState, body: Value) -> Result<Value> {
-    use crate::kafka::throughput::KafkaThroughputCalculator;
-
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let topic = get_string_param(&body, "topic")?;
-
-    let clients = state.get_clients();
-    let config = clients
-        .get_config(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let calculator = KafkaThroughputCalculator::new(&config);
-    let snapshot = calculator.get_topic_consumer_lag_snapshot(&config, &topic, &admin)?;
-
-    // 获取当前时间戳
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("SystemTime before UNIX epoch")
-        .as_millis() as i64;
-
-    let groups: Vec<Value> = snapshot
-        .consumer_groups
-        .into_iter()
-        .map(|g| {
-            let partitions: Vec<Value> = g
-                .partitions
-                .into_iter()
-                .map(|p| {
-                    serde_json::json!({
-                        "partition": p.partition,
-                        "current_offset": p.current_offset,
-                        "latest_offset": p.log_end_offset,
-                        "lag": p.lag,
-                    })
-                })
-                .collect();
-
-            serde_json::json!({
-                "name": g.group_name,
-                "total_lag": g.total_lag,
-                "partitions": partitions,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "topic": snapshot.topic,
-        "total_lag": snapshot.total_lag,
-        "groups": groups,
-        "timestamp": now,
-    }))
-}

@@ -21,7 +21,7 @@ pub use db::DbPool;
 pub use kafka::KafkaClients;
 pub use pool::ClusterPools;
 pub use cache::MetadataCache;
-pub use task::{TaskStore, HealthChecker};
+pub use task::TaskStore;
 pub use middleware::auth::{auth_middleware, AuthMiddleware};
 
 /// 应用状态
@@ -34,7 +34,6 @@ pub struct AppState {
     pub pools: ClusterPools,
     pub cache: MetadataCache,
     pub task_store: TaskStore,
-    pub health_checker: HealthChecker,
 }
 
 impl AppState {

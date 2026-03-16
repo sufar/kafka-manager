@@ -2,7 +2,6 @@ pub mod api_key;
 pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
-pub mod notification;
 pub mod settings;
 pub mod tag;
 pub mod topic;
@@ -296,47 +295,6 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
-        // 创建通知配置表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS notification_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                config_type TEXT NOT NULL,
-                webhook_url TEXT,
-                email_recipients TEXT,
-                dingtalk_webhook TEXT,
-                dingtalk_secret TEXT,
-                wechat_webhook TEXT,
-                slack_webhook TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建 Consumer Lag 历史表（用于折线图）
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS consumer_lag_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic TEXT NOT NULL,
-                group_name TEXT NOT NULL,
-                partition INTEGER NOT NULL,
-                current_offset INTEGER NOT NULL,
-                log_end_offset INTEGER NOT NULL,
-                lag INTEGER NOT NULL,
-                timestamp TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
         // 创建全局设置表
         sqlx::query(
             r#"
@@ -416,19 +374,6 @@ impl DbPool {
             .execute(self.inner()).await?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs(status)")
-            .execute(self.inner()).await?;
-
-        // Consumer Lag 历史数据索引
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_consumer_lag_history_topic ON consumer_lag_history(topic)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_consumer_lag_history_timestamp ON consumer_lag_history(timestamp)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_consumer_lag_history_topic_timestamp ON consumer_lag_history(topic, timestamp)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_consumer_lag_history_group ON consumer_lag_history(group_name)")
             .execute(self.inner()).await?;
 
         // API Key 索引

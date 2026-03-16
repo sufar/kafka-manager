@@ -6,10 +6,6 @@ export interface Translation {
     clusters: string;
     topics: string;
     messages: string;
-    consumers: string;
-    consumerGroups: string;
-    consumerLag: string;
-    schemaRegistry: string;
     users: string;
     settings: string;
   };
@@ -43,8 +39,6 @@ export interface Translation {
     totalClusters: string;
     totalTopics: string;
     totalPartitions: string;
-    consumerGroups: string;
-    totalLag: string;
     healthyClusters: string;
     unhealthyClusters: string;
     partitionsPerTopic: string;
@@ -53,13 +47,7 @@ export interface Translation {
     deselectAll: string;
     topics: string;
     partitions: string;
-    lag: string;
     lastChecked: string;
-    consumerLagTitle: string;
-    last24Hours: string;
-    last7Days: string;
-    last30Days: string;
-    chartComingSoon: string;
     byCluster: string;
   };
   clusters: {
@@ -75,7 +63,6 @@ export interface Translation {
     removeCluster: string;
     viewBrokers: string;
     viewTopics: string;
-    viewConsumerGroups: string;
     createTopic: string;
     connectionError: string;
     retry: string;
@@ -110,14 +97,12 @@ export interface Translation {
     viewMessages: string;
     viewDetails: string;
     viewPartitions: string;
-    viewConsumerLag: string;
     sendMessage: string;
     deleteTopic: string;
     exportData: string;
     allTopics: string;
     topicDetails: string;
     partitions: string;
-    consumers: string;
     settings: string;
     refreshed: string;
   };
@@ -164,38 +149,6 @@ export interface Translation {
     selectedOffset: string;
     ready: string;
   };
-  consumerGroups: {
-    title: string;
-    description: string;
-    groupId: string;
-    state: string;
-    members: string;
-    totalLag: string;
-    coordinator: string;
-    topics: string;
-    resetOffset: string;
-    deleteGroup: string;
-    groupDetails: string;
-    partitions: string;
-    offsetInfo: string;
-    startOffset: string;
-    endOffset: string;
-    currentOffset: string;
-    lag: string;
-    partition: string;
-    stateLabel: string;
-    selectCluster: string;
-    noActiveMembers: string;
-    noGroupsFound: string;
-    noGroupsInCluster: string;
-    groups: string;
-    offsetType: string;
-    earliest: string;
-    latest: string;
-    specificValue: string;
-    value: string;
-    allPartitionsPlaceholder: string;
-  };
   settings: {
     title: string;
     description: string;
@@ -216,117 +169,6 @@ export interface Translation {
     flatMode: string;
     treeModeDesc: string;
     flatModeDesc: string;
-  };
-  notifications: {
-    title: string;
-    description: string;
-    addNotification: string;
-    editNotification: string;
-    name: string;
-    type: string;
-    enabled: string;
-    disabled: string;
-    enable: string;
-    disable: string;
-    edit: string;
-    delete: string;
-    update: string;
-    create: string;
-    cancel: string;
-    config: string;
-    webhookUrl: string;
-    channel: string;
-    url: string;
-    method: string;
-    smtpServer: string;
-    port: string;
-    fromEmail: string;
-    toEmails: string;
-    commaSeparatedEmails: string;
-    noNotifications: string;
-    noNotificationsDesc: string;
-    confirmDelete: string;
-    updated: string;
-    created: string;
-    deleted: string;
-    updatedDesc: string;
-    createdDesc: string;
-  };
-  schemaRegistry: {
-    title: string;
-    description: string;
-    registerSchema: string;
-    deleteSchema: string;
-    deleteVersion: string;
-    view: string;
-    copy: string;
-    close: string;
-    subjectName: string;
-    schemaType: string;
-    schemaDefinition: string;
-    versions: string;
-    type: string;
-    schemaId: string;
-    noSchemasFound: string;
-    noSchemasFoundDesc: string;
-    selectClusterDesc: string;
-    confirmDeleteSubject: string;
-    confirmDeleteVersion: string;
-    schemaCopied: string;
-  };
-  users: {
-    title: string;
-    description: string;
-    showUsers: string;
-    showRoles: string;
-    createUser: string;
-    createRole: string;
-    editUser: string;
-    editRole: string;
-    username: string;
-    email: string;
-    role: string;
-    status: string;
-    active: string;
-    inactive: string;
-    noRole: string;
-    created: string;
-    actions: string;
-    edit: string;
-    activate: string;
-    deactivate: string;
-    noUsers: string;
-    noUsersDesc: string;
-    noRoles: string;
-    noRolesDesc: string;
-    roleName: string;
-    roleDescription: string;
-    permissions: string;
-    noDescription: string;
-    cancel: string;
-    update: string;
-    create: string;
-    updated: string;
-    password: string;
-    selectRole: string;
-  };
-  consumerLag: {
-    title: string;
-    cluster: string;
-    refresh: string;
-    totalLag: string;
-    consumerGroups: string;
-    groups: string;
-    partitions: string;
-    maxLagGroup: string;
-    lagTrend: string;
-    loadingData: string;
-    noHistoricalData: string;
-    consumerGroupDetails: string;
-    partitionDetails: string;
-    noConsumerGroups: string;
-    noConsumerGroupsDesc: string;
-    messages: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -354,7 +196,6 @@ export interface Translation {
     viewMessages: string;
     viewDetails: string;
     viewPartitions: string;
-    viewConsumerLag: string;
     sendMessage: string;
     exportData: string;
     deleteTopic: string;
@@ -373,10 +214,7 @@ export interface Translation {
     clearSelection: string;
     manageClusters: string;
     topics: string;
-    consumerGroups: string;
     messages: string;
-    schemaRegistry: string;
-    acls: string;
   };
   navigator: {
     allClusters: string;
@@ -390,10 +228,6 @@ export const translations: Record<Language, Translation> = {
       clusters: '集群',
       topics: '主题',
       messages: '消息',
-      consumers: '消费者',
-      consumerGroups: '消费者组',
-      consumerLag: '消费延迟',
-      schemaRegistry: 'Schema 注册',
       users: '用户',
       settings: '设置',
     },
@@ -427,8 +261,6 @@ export const translations: Record<Language, Translation> = {
       totalClusters: '集群总数',
       totalTopics: '主题总数',
       totalPartitions: '分区总数',
-      consumerGroups: '消费者组',
-      totalLag: '总延迟',
       healthyClusters: '健康',
       unhealthyClusters: '不健康',
       partitionsPerTopic: '平均每主题分区',
@@ -437,13 +269,7 @@ export const translations: Record<Language, Translation> = {
       deselectAll: '取消全选',
       topics: '主题',
       partitions: '分区',
-      lag: '延迟',
       lastChecked: '最后检查',
-      consumerLagTitle: '消费延迟概览',
-      last24Hours: '过去 24 小时',
-      last7Days: '过去 7 天',
-      last30Days: '过去 30 天',
-      chartComingSoon: '图表功能即将推出',
       byCluster: '按集群',
     },
     clusters: {
@@ -459,7 +285,6 @@ export const translations: Record<Language, Translation> = {
       removeCluster: '移除集群',
       viewBrokers: '查看 Brokers',
       viewTopics: '查看 Topics',
-      viewConsumerGroups: '查看消费者组',
       createTopic: '创建 Topic',
       connectionError: '连接错误',
       retry: '重试',
@@ -494,14 +319,12 @@ export const translations: Record<Language, Translation> = {
       viewMessages: '查看消息',
       viewDetails: '查看详情',
       viewPartitions: '查看分区',
-      viewConsumerLag: '查看消费延迟',
       sendMessage: '发送消息',
       deleteTopic: '删除主题',
       exportData: '导出数据',
       allTopics: '所有主题',
       topicDetails: '主题详情',
       partitions: '分区',
-      consumers: '消费者',
       settings: '设置',
       refreshed: 'Topic 已刷新',
     },
@@ -548,38 +371,6 @@ export const translations: Record<Language, Translation> = {
       selectedOffset: '选中偏移量',
       ready: '就绪',
     },
-    consumerGroups: {
-      title: '消费者组',
-      description: '管理消费者组',
-      groupId: '组 ID',
-      state: '状态',
-      members: '成员',
-      totalLag: '总延迟',
-      coordinator: '协调器',
-      topics: '主题',
-      resetOffset: '重置偏移量',
-      deleteGroup: '删除组',
-      groupDetails: '组详情',
-      partitions: '分区',
-      offsetInfo: '偏移量信息',
-      startOffset: '起始偏移量',
-      endOffset: '结束偏移量',
-      currentOffset: '当前偏移量',
-      lag: '延迟',
-      partition: '分区',
-      stateLabel: '状态',
-      selectCluster: '请从侧边栏选择一个集群来查看消费者组',
-      noActiveMembers: '没有活跃成员 - 该消费者组似乎为空',
-      noGroupsFound: '消费者组将在消费者连接到集群时出现',
-      noGroupsInCluster: '该集群中没有消费者组',
-      groups: '组',
-      offsetType: '偏移量类型',
-      earliest: '最早',
-      latest: '最新',
-      specificValue: '指定值',
-      value: '值',
-      allPartitionsPlaceholder: '留空表示所有分区',
-    },
     settings: {
       title: '设置',
       description: '管理全局设置',
@@ -600,117 +391,6 @@ export const translations: Record<Language, Translation> = {
       flatMode: '列表模式',
       treeModeDesc: '按集群分组显示主题',
       flatModeDesc: '平铺显示所有主题',
-    },
-    notifications: {
-      title: '通知设置',
-      description: '配置告警通知渠道',
-      addNotification: '添加通知',
-      editNotification: '编辑通知',
-      name: '名称',
-      type: '类型',
-      enabled: '已启用',
-      disabled: '已禁用',
-      enable: '启用',
-      disable: '禁用',
-      edit: '编辑',
-      delete: '删除',
-      update: '更新',
-      create: '创建',
-      cancel: '取消',
-      config: '配置',
-      webhookUrl: 'Webhook 地址',
-      channel: '频道',
-      url: '地址',
-      method: '方法',
-      smtpServer: 'SMTP 服务器',
-      port: '端口',
-      fromEmail: '发件人邮箱',
-      toEmails: '收件人邮箱',
-      commaSeparatedEmails: '逗号分隔的邮箱地址',
-      noNotifications: '暂无通知渠道',
-      noNotificationsDesc: '配置通知渠道以接收告警',
-      confirmDelete: '确定要删除此通知渠道吗？',
-      updated: '通知已更新',
-      created: '通知已创建',
-      deleted: '通知已删除',
-      updatedDesc: '通知配置已成功更新',
-      createdDesc: '通知配置已成功创建',
-    },
-    schemaRegistry: {
-      title: 'Schema 注册',
-      description: '管理 Avro、JSON 和 Protobuf Schema',
-      registerSchema: '注册 Schema',
-      deleteSchema: '删除 Schema',
-      deleteVersion: '删除版本',
-      view: '查看',
-      copy: '复制',
-      close: '关闭',
-      subjectName: 'Subject 名称',
-      schemaType: 'Schema 类型',
-      schemaDefinition: 'Schema 定义',
-      versions: '版本',
-      type: '类型',
-      schemaId: 'Schema ID',
-      noSchemasFound: '暂无 Schema',
-      noSchemasFoundDesc: '注册您的第一个 Schema 以开始使用',
-      selectClusterDesc: '请从侧边栏选择集群以查看 Schema',
-      confirmDeleteSubject: '确定要删除 subject "{subject}" 的所有版本吗？',
-      confirmDeleteVersion: '确定要删除 subject "{subject}" 的版本 {version} 吗？',
-      schemaCopied: 'Schema 已复制到剪贴板！',
-    },
-    users: {
-      title: '用户管理',
-      description: '管理用户和角色',
-      showUsers: '显示用户',
-      showRoles: '显示角色',
-      createUser: '创建用户',
-      createRole: '创建角色',
-      editUser: '编辑用户',
-      editRole: '编辑角色',
-      username: '用户名',
-      email: '邮箱',
-      role: '角色',
-      status: '状态',
-      active: '活跃',
-      inactive: '未激活',
-      noRole: '无角色',
-      created: '创建时间',
-      actions: '操作',
-      edit: '编辑',
-      activate: '激活',
-      deactivate: '停用',
-      noUsers: '暂无用户',
-      noUsersDesc: '创建您的第一个用户以开始使用',
-      noRoles: '暂无角色',
-      noRolesDesc: '创建角色以管理用户权限',
-      roleName: '角色名称',
-      roleDescription: '描述',
-      permissions: '权限',
-      noDescription: '暂无描述',
-      cancel: '取消',
-      update: '更新',
-      create: '创建',
-      updated: '用户已更新',
-      password: '密码',
-      selectRole: '选择角色',
-    },
-    consumerLag: {
-      title: '消费延迟',
-      cluster: '集群',
-      refresh: '刷新',
-      totalLag: '总延迟',
-      consumerGroups: '消费者组',
-      groups: '组',
-      partitions: '分区',
-      maxLagGroup: '最大延迟组',
-      lagTrend: '延迟趋势',
-      loadingData: '加载数据中...',
-      noHistoricalData: '暂无历史数据',
-      consumerGroupDetails: '消费者组详情',
-      partitionDetails: '分区详情',
-      noConsumerGroups: '暂无消费者组',
-      noConsumerGroupsDesc: '此主题暂无消费者组',
-      messages: '消息',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -738,7 +418,6 @@ export const translations: Record<Language, Translation> = {
       viewMessages: '查看消息',
       viewDetails: '查看详情',
       viewPartitions: '查看分区',
-      viewConsumerLag: '查看消费延迟',
       sendMessage: '发送消息',
       exportData: '导出数据',
       deleteTopic: '删除主题',
@@ -757,10 +436,7 @@ export const translations: Record<Language, Translation> = {
       clearSelection: '清除',
       manageClusters: '管理集群',
       topics: '主题',
-      consumerGroups: '消费者组',
       messages: '消息',
-      schemaRegistry: 'Schema 注册',
-      acls: 'ACLs',
     },
     navigator: {
       allClusters: '所有集群',
@@ -772,10 +448,6 @@ export const translations: Record<Language, Translation> = {
       clusters: 'Clusters',
       topics: 'Topics',
       messages: 'Messages',
-      consumers: 'Consumers',
-      consumerGroups: 'Consumer Groups',
-      consumerLag: 'Consumer Lag',
-      schemaRegistry: 'Schema Registry',
       users: 'Users',
       settings: 'Settings',
     },
@@ -809,8 +481,6 @@ export const translations: Record<Language, Translation> = {
       totalClusters: 'Total Clusters',
       totalTopics: 'Total Topics',
       totalPartitions: 'Total Partitions',
-      consumerGroups: 'Consumer Groups',
-      totalLag: 'Total Lag',
       healthyClusters: 'healthy',
       unhealthyClusters: 'unhealthy',
       partitionsPerTopic: 'partitions/topic avg',
@@ -819,13 +489,7 @@ export const translations: Record<Language, Translation> = {
       deselectAll: 'Deselect All',
       topics: 'Topics',
       partitions: 'Partitions',
-      lag: 'Lag',
       lastChecked: 'Last checked',
-      consumerLagTitle: 'Consumer Lag Overview',
-      last24Hours: 'Last 24 hours',
-      last7Days: 'Last 7 days',
-      last30Days: 'Last 30 days',
-      chartComingSoon: 'Chart integration coming soon',
       byCluster: 'By Cluster',
     },
     clusters: {

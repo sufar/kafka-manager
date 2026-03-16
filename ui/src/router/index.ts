@@ -28,34 +28,9 @@ const router = createRouter({
           component: () => import('@/views/TopicsView.vue'),
         },
         {
-          path: 'consumer-groups',
-          name: 'ConsumerGroups',
-          component: () => import('@/views/ConsumerGroupsView.vue'),
-        },
-        {
           path: 'messages',
           name: 'Messages',
           component: () => import('@/views/MessagesView.vue'),
-        },
-        {
-          path: 'schema-registry',
-          name: 'SchemaRegistry',
-          component: () => import('@/views/SchemaRegistryView.vue'),
-        },
-        {
-          path: 'users',
-          name: 'Users',
-          component: () => import('@/views/UsersView.vue'),
-        },
-        {
-          path: 'notifications',
-          name: 'Notifications',
-          component: () => import('@/views/NotificationsView.vue'),
-        },
-        {
-          path: 'consumer-lag',
-          name: 'ConsumerLag',
-          component: () => import('@/views/ConsumerLagView.vue'),
         },
         {
           path: 'settings',

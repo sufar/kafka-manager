@@ -2,10 +2,6 @@
 ///
 /// 用于处理耗时任务（如大批量导出），避免请求超时
 
-pub mod health_check;
-
-pub use health_check::HealthChecker;
-
 use crate::error::Result;
 use axum::{
     extract::{Path, State},
@@ -33,7 +29,6 @@ pub enum TaskStatus {
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
     ExportMessages,
-    ExportConsumerLag,
     BulkImport,
 }
 
