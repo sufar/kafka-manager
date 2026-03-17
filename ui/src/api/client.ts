@@ -420,7 +420,8 @@ class ApiClient {
 
   // ==================== 集群连接管理 ====================
   async getConnections(): Promise<{ cluster_id: string; status: string; error_message?: string }[]> {
-    return this.request('connection.list', {});
+    const data = await this.request<{ connections: { cluster_id: string; status: string; error_message?: string }[] }>('connection.list', {});
+    return data.connections || [];
   }
 
   async getConnectionStatus(clusterId: string): Promise<{ cluster_id: string; status: string; error_message?: string }> {
