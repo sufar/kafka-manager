@@ -68,6 +68,23 @@
         </span>
         <span v-if="error" class="text-error">{{ error }}</span>
       </div>
+      <!-- Pool 状态指示器 -->
+      <div class="flex items-center gap-2">
+        <span
+          v-if="poolStatus"
+          class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium"
+          :class="poolStatus.available > 0 ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'"
+          :title="`Consumer Pool: ${poolStatus.available}/${poolStatus.maxSize} available (current: ${poolStatus.size})`"
+        >
+          <svg v-if="poolStatus.available > 0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75" />
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          Pool: {{ poolStatus.available }}/{{ poolStatus.maxSize }}
+        </span>
+      </div>
     </div>
 
     <!-- 消息列表 -->
@@ -313,6 +330,9 @@ const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const panelHeight = ref(280); // 默认高度增加到 280px
 
+// Pool 状态
+const poolStatus = ref<{ size: number; available: number; maxSize: number } | null>(null);
+
 // 查询参数
 const selectedCluster = ref('');
 const selectedTopic = ref('');
@@ -351,6 +371,26 @@ async function loadPartitions() {
     partitions.value = detail.partitions?.map((p: { id: number }) => p.id) || [];
   } catch (e) {
     console.error('Failed to fetch partitions:', e);
+  }
+}
+
+// 加载 Pool 状态
+async function loadPoolStatus() {
+  if (!selectedCluster.value) {
+    poolStatus.value = null;
+    return;
+  }
+
+  try {
+    const metrics = await apiClient.getConnectionMetrics(selectedCluster.value);
+    poolStatus.value = {
+      size: metrics.consumer_pool_size,
+      available: metrics.consumer_pool_available,
+      maxSize: metrics.consumer_pool_max_size,
+    };
+  } catch (e) {
+    console.debug('Failed to load pool status:', e);
+    poolStatus.value = null;
   }
 }
 
@@ -576,6 +616,7 @@ onMounted(async () => {
   // 加载分区信息并自动查询
   if (selectedCluster.value && selectedTopic.value) {
     await loadPartitions();
+    await loadPoolStatus();
     await queryMessages();
   }
 });
@@ -585,6 +626,7 @@ watch(() => props.cluster, async (newCluster) => {
   if (newCluster && newCluster !== selectedCluster.value) {
     selectedCluster.value = newCluster;
     await loadPartitions();
+    await loadPoolStatus();
     if (selectedCluster.value && selectedTopic.value) {
       await queryMessages();
     }
@@ -598,6 +640,7 @@ watch(() => props.topic, async (newTopic) => {
     partitions.value = [];
     messages.value = [];
     await loadPartitions();
+    await loadPoolStatus();
     if (selectedCluster.value && selectedTopic.value) {
       await queryMessages();
     }

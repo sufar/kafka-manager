@@ -439,7 +439,7 @@ class ApiClient {
     return this.request('connection.health_check', { cluster_id: clusterId });
   }
 
-  async getConnectionMetrics(clusterId: string): Promise<{ cluster_id: string; consumer_pool_size: number; producer_pool_size: number; consumer_pool_available: number; producer_pool_available: number }> {
+  async getConnectionMetrics(clusterId: string): Promise<{ cluster_id: string; consumer_pool_size: number; producer_pool_size: number; consumer_pool_available: number; producer_pool_available: number; consumer_pool_used: number; producer_pool_used: number; consumer_pool_waiting: number; consumer_pool_max_size: number; consumer_pool_min_size: number; producer_pool_max_size: number; producer_pool_min_size: number }> {
     return this.request('connection.metrics', { cluster_id: clusterId });
   }
 

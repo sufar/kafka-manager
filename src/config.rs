@@ -60,9 +60,9 @@ impl Default for PoolConfig {
     }
 }
 
-/// 默认连接池最大大小 - 优化：从 20 提升到 50，支持更高并发
+/// 默认连接池最大大小 - 优化：从 50 降低到 10，适合查询场景
 fn default_pool_max_size() -> usize {
-    50
+    10
 }
 
 /// 默认连接池最小大小 - 优化：从 2 提升到 5，减少冷启动延迟
@@ -91,6 +91,11 @@ impl Config {
             .set_default("server.host", "127.0.0.1")?
             .set_default("server.port", 9732)?
             .set_default("kafka.request_timeout_ms", 5000)?
+            // Pool 默认配置
+            .set_default("pool.max_size", default_pool_max_size() as i64)?
+            .set_default("pool.min_size", default_pool_min_size() as i64)?
+            .set_default("pool.acquire_timeout_secs", default_pool_timeout() as i64)?
+            .set_default("pool.idle_timeout_secs", default_pool_idle_timeout() as i64)?
             // 加载配置文件
             .add_source(config::File::from(path.as_ref()).required(false))
             // 环境变量覆盖 (前缀：KAFKA_MANAGER)

@@ -2,6 +2,7 @@ pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod health;
+pub mod messages;
 pub mod settings;
 pub mod tag;
 pub mod topic;

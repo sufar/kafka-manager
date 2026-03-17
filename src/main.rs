@@ -77,6 +77,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.server.host,
         config.server.port
     );
+    tracing::info!(
+        "Pool config: max_size={}, min_size={}, acquire_timeout={}s, idle_timeout={}s",
+        config.pool.max_size,
+        config.pool.min_size,
+        config.pool.acquire_timeout_secs,
+        config.pool.idle_timeout_secs
+    );
 
     // 初始化数据库
     let db = DbPool::new("kafka_manager.db").await?;

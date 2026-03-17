@@ -13,6 +13,23 @@ use crate::error::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// 连接池创建选项
+pub struct PoolOptions {
+    pub min_size: usize,
+    pub max_size: usize,
+    pub acquire_timeout_secs: u64,
+}
+
+impl From<&PoolConfig> for PoolOptions {
+    fn from(config: &PoolConfig) -> Self {
+        Self {
+            min_size: config.min_size,
+            max_size: config.max_size,
+            acquire_timeout_secs: config.acquire_timeout_secs,
+        }
+    }
+}
+
 /// 连接状态
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionStatus {
@@ -24,8 +41,15 @@ pub enum ConnectionStatus {
 /// 集群连接池集合
 #[derive(Clone)]
 pub struct ClusterPools {
-    /// 集群 ID -> (Consumer Pool, Producer Pool)
-    pools: Arc<tokio::sync::RwLock<HashMap<String, (KafkaConsumerPool, KafkaProducerPool)>>>,
+    /// 集群 ID -> (Consumer Pool, Producer Pool, PoolConfig)
+    pools: Arc<tokio::sync::RwLock<HashMap<String, (KafkaConsumerPool, KafkaProducerPool, PoolConfig)>>>,
+}
+
+/// Pool 配置信息（用于前端显示）
+#[derive(Debug, Clone)]
+pub struct PoolConfigInfo {
+    pub max_size: usize,
+    pub min_size: usize,
 }
 
 impl ClusterPools {
@@ -37,6 +61,13 @@ impl ClusterPools {
 
     /// 初始化所有集群的连接池
     pub async fn init(&self, clusters: &HashMap<String, KafkaConfig>, pool_config: &PoolConfig) -> Result<()> {
+        tracing::info!(
+            "[PoolInit] Starting with config: max_size={}, min_size={}, acquire_timeout={}s",
+            pool_config.max_size,
+            pool_config.min_size,
+            pool_config.acquire_timeout_secs
+        );
+
         let mut pools = self.pools.write().await;
 
         for (cluster_id, config) in clusters {
@@ -46,7 +77,14 @@ impl ClusterPools {
             let consumer_pool = build_pool(consumer_mgr, pool_config);
             let producer_pool = build_pool(producer_mgr, pool_config);
 
-            pools.insert(cluster_id.clone(), (consumer_pool, producer_pool));
+            tracing::info!(
+                "[PoolInit] Cluster '{}' pools created: consumer={:?}, producer={:?}",
+                cluster_id,
+                consumer_pool.status(),
+                producer_pool.status()
+            );
+
+            pools.insert(cluster_id.clone(), (consumer_pool, producer_pool, pool_config.clone()));
         }
 
         Ok(())
@@ -55,13 +93,22 @@ impl ClusterPools {
     /// 获取指定集群的 Consumer 连接池
     pub async fn get_consumer_pool(&self, cluster_id: &str) -> Option<KafkaConsumerPool> {
         let pools = self.pools.read().await;
-        pools.get(cluster_id).map(|(c, _)| c.clone())
+        pools.get(cluster_id).map(|(c, _, _)| c.clone())
     }
 
     /// 获取指定集群的 Producer 连接池
     pub async fn get_producer_pool(&self, cluster_id: &str) -> Option<KafkaProducerPool> {
         let pools = self.pools.read().await;
-        pools.get(cluster_id).map(|(_, p)| p.clone())
+        pools.get(cluster_id).map(|(_, p, _)| p.clone())
+    }
+
+    /// 获取指定集群的 Pool 配置
+    pub async fn get_pool_config(&self, cluster_id: &str) -> Option<PoolConfigInfo> {
+        let pools = self.pools.read().await;
+        pools.get(cluster_id).map(|(_, _, config)| PoolConfigInfo {
+            max_size: config.max_size,
+            min_size: config.min_size,
+        })
     }
 
     /// 添加新的集群连接池
@@ -74,7 +121,7 @@ impl ClusterPools {
         let consumer_pool = build_pool(consumer_mgr, pool_config);
         let producer_pool = build_pool(producer_mgr, pool_config);
 
-        pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
+        pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool, pool_config.clone()));
 
         Ok(())
     }
@@ -91,7 +138,7 @@ impl ClusterPools {
         use std::time::Duration;
 
         let pools = self.pools.read().await;
-        let (_, producer_pool) = pools.get(cluster_id)?;
+        let (_, producer_pool, _) = pools.get(cluster_id)?;
 
         // 尝试从连接池获取一个连接并执行健康检查
         match producer_pool.get().await {
@@ -160,7 +207,7 @@ impl ClusterPools {
         let consumer_pool = build_pool(consumer_mgr, pool_config);
         let producer_pool = build_pool(producer_mgr, pool_config);
 
-        pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
+        pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool, pool_config.clone()));
         tracing::info!("Reconnected cluster: {}", cluster_id);
 
         Ok(())
@@ -195,7 +242,13 @@ where
     use deadpool::Runtime;
     use std::time::Duration;
 
-    deadpool::managed::Pool::builder(manager)
+    tracing::info!(
+        "[build_pool] Creating pool with max_size={}, min_size={}",
+        config.max_size,
+        config.min_size
+    );
+
+    let pool = deadpool::managed::Pool::builder(manager)
         .max_size(config.max_size)
         .wait_timeout(Some(Duration::from_secs(config.acquire_timeout_secs)))
         .timeouts(Timeouts {
@@ -209,7 +262,61 @@ where
             Box::pin(async move { Ok(()) })
         }))
         .build()
-        .expect("Failed to create pool")
+        .expect("Failed to create pool");
+
+    tracing::info!("[build_pool] Pool created with status: {:?}", pool.status());
+
+    // 预热：异步创建最小连接数
+    let min_size = config.min_size;
+    if min_size > 0 {
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            warmup_pool(&pool_clone, min_size).await;
+        });
+    }
+
+    pool
+}
+
+/// 预热连接池：预先创建指定数量的连接
+async fn warmup_pool<M>(pool: &deadpool::managed::Pool<M>, target_size: usize)
+where
+    M: deadpool::managed::Manager + Send + Sync + 'static,
+    M::Type: Send + Sync,
+{
+    use std::time::Duration;
+
+    tracing::info!("[PoolWarmup] Starting warmup for {} connections", target_size);
+    let start = std::time::Instant::now();
+
+    let mut created = 0;
+    let mut failed = 0;
+
+    for i in 0..target_size {
+        match tokio::time::timeout(Duration::from_secs(5), pool.get()).await {
+            Ok(Ok(_conn)) => {
+                created += 1;
+                tracing::debug!("[PoolWarmup] Connection {}/{} created", i + 1, target_size);
+                // 连接会自动归还到 pool
+            }
+            Ok(Err(_e)) => {
+                failed += 1;
+                tracing::warn!("[PoolWarmup] Connection {}/{} failed", i + 1, target_size);
+            }
+            Err(_) => {
+                failed += 1;
+                tracing::warn!("[PoolWarmup] Connection {}/{} timeout", i + 1, target_size);
+            }
+        }
+    }
+
+    tracing::info!(
+        "[PoolWarmup] Completed: {}/{} created, {} failed in {:?}",
+        created,
+        target_size,
+        failed,
+        start.elapsed()
+    );
 }
 
 impl Default for ClusterPools {
