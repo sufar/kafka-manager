@@ -166,18 +166,41 @@ impl ClusterPools {
         Ok(())
     }
 
-    /// 获取所有集群连接状态
+    /// 获取所有集群连接状态（轻量级，只检查内存中是否存在连接池，不实际连接 Kafka）
     pub async fn get_all_connections_status(&self) -> Vec<(String, ConnectionStatus)> {
+        let pools = self.pools.read().await;
+
+        pools
+            .iter()
+            .map(|(cluster_id, _)| (cluster_id.clone(), ConnectionStatus::Connected))
+            .collect()
+    }
+
+    /// 健康检查所有集群（重量级，实际连接 Kafka 检查，可能很慢）
+    pub async fn health_check_all(&self) -> Vec<(String, ConnectionStatus)> {
         let cluster_ids: Vec<String> = {
             let pools = self.pools.read().await;
             pools.keys().cloned().collect()
         };
 
-        let mut statuses = Vec::new();
+        // 并行检查所有集群
+        let mut tasks = Vec::new();
         for cluster_id in cluster_ids {
-            let status = self.check_connection(&cluster_id).await
-                .unwrap_or(ConnectionStatus::Disconnected);
-            statuses.push((cluster_id, status));
+            let this = self.clone();
+            let task = tokio::spawn(async move {
+                let status = this.check_connection(&cluster_id).await
+                    .unwrap_or(ConnectionStatus::Disconnected);
+                (cluster_id, status)
+            });
+            tasks.push(task);
+        }
+
+        let mut statuses = Vec::new();
+        for task in tasks {
+            match task.await {
+                Ok(status) => statuses.push(status),
+                Err(e) => tracing::error!("Health check task failed: {}", e),
+            }
         }
 
         statuses
