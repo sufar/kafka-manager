@@ -15,8 +15,8 @@ impl KafkaProducer {
     }
 
     /// 发送消息（不指定分区，由 Kafka 决定）
-    pub async fn send(&self, topic: &str, key: Option<&str>, value: &str) -> Result<(i32, i64)> {
-        self.send_to_partition(topic, None, key, value).await
+    pub async fn send(&self, topic: &str, key: Option<&str>, value: &str, headers: Option<&std::collections::HashMap<String, String>>) -> Result<(i32, i64)> {
+        self.send_to_partition(topic, None, key, value, headers).await
     }
 
     /// 发送到指定分区
@@ -26,6 +26,7 @@ impl KafkaProducer {
         partition: Option<i32>,
         key: Option<&str>,
         value: &str,
+        headers: Option<&std::collections::HashMap<String, String>>,
     ) -> Result<(i32, i64)> {
         let mut record = FutureRecord::to(topic).payload(value);
 
@@ -35,6 +36,18 @@ impl KafkaProducer {
 
         if let Some(p) = partition {
             record = record.partition(p);
+        }
+
+        // 添加 headers
+        if let Some(hdrs) = headers {
+            let mut owned_headers = rdkafka::message::OwnedHeaders::new();
+            for (k, v) in hdrs {
+                owned_headers = owned_headers.insert(rdkafka::message::Header {
+                    key: k,
+                    value: Some(v.as_bytes()),
+                });
+            }
+            record = record.headers(owned_headers);
         }
 
         // 使用 send 方法等待结果

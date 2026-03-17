@@ -2656,14 +2656,16 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
     let key = get_optional_string_param(&body, "key");
     let value = get_string_param(&body, "value")?;
     let partition = get_optional_i32_param(&body, "partition");
+    let headers = get_hashmap_param(&body, "headers");
 
     let clients = state.get_clients();
     let producer = clients
         .get_producer(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
+    let headers_opt = if headers.is_empty() { None } else { Some(&headers) };
     let (partition_result, offset) = producer
-        .send_to_partition(&topic, partition, key.as_deref(), &value)
+        .send_to_partition(&topic, partition, key.as_deref(), &value, headers_opt)
         .await?;
 
     Ok(serde_json::json!({

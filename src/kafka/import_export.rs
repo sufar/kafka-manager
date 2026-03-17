@@ -183,7 +183,7 @@ pub async fn import_messages_from_file(
         for line in batch {
             match parse_message(&line, &req.format) {
                 Ok(record) => {
-                    match producer.send(&req.topic, record.key.as_deref(), &record.value).await {
+                    match producer.send(&req.topic, record.key.as_deref(), &record.value, None).await {
                         Ok(_) => imported += 1,
                         Err(e) => {
                             errors.push(format!("Send error: {}", e));

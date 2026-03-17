@@ -267,6 +267,44 @@
               </label>
               <textarea v-model="messageForm.value" class="textarea textarea-bordered h-24 sm:h-32 font-mono text-sm w-full" required placeholder='{"id": 1, "data": "example"}'></textarea>
             </div>
+            <!-- Headers Toggle -->
+            <div>
+              <button type="button" class="btn btn-ghost btn-sm" @click="showHeaders = !showHeaders">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                </svg>
+                Headers
+                <span v-if="messageForm.headers.length > 0" class="badge badge-primary badge-xs">{{ messageForm.headers.length }}</span>
+              </button>
+            </div>
+            <!-- Headers Input -->
+            <div v-if="showHeaders" class="border border-base-300 rounded-lg p-3 space-y-2">
+              <div v-for="(header, index) in messageForm.headers" :key="index" class="flex gap-2">
+                <input
+                  v-model="header.key"
+                  type="text"
+                  class="input input-bordered input-sm flex-1"
+                  placeholder="Header key"
+                />
+                <input
+                  v-model="header.value"
+                  type="text"
+                  class="input input-bordered input-sm flex-1"
+                  placeholder="Header value"
+                />
+                <button type="button" class="btn btn-ghost btn-sm" @click="messageForm.headers.splice(index, 1)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm w-full" @click="messageForm.headers.push({ key: '', value: '' })">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Add Header
+              </button>
+            </div>
             <!-- Success Alert -->
             <div v-if="sendSuccess" class="alert alert-success py-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -353,7 +391,9 @@ const messageForm = ref({
   partition: 0,
   key: '',
   value: '',
+  headers: [] as Array<{ key: string; value: string }>,
 });
+const showHeaders = ref(false);
 
 // 计算属性
 const canQuery = computed(() => {
@@ -467,10 +507,19 @@ async function handleSendMessage(keepOpen: boolean) {
   sendSuccess.value = false;
 
   try {
+    // 转换 headers 数组为对象
+    const headers: Record<string, string> = {};
+    for (const h of messageForm.value.headers) {
+      if (h.key.trim()) {
+        headers[h.key.trim()] = h.value;
+      }
+    }
+
     const result = await apiClient.sendMessage(selectedCluster.value, selectedTopic.value, {
       partition: messageForm.value.partition,
       key: messageForm.value.key || undefined,
       value: messageForm.value.value,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
     });
 
     lastOffset.value = result.offset;
@@ -482,6 +531,8 @@ async function handleSendMessage(keepOpen: boolean) {
       setTimeout(() => {
         messageForm.value.key = '';
         messageForm.value.value = '';
+        messageForm.value.headers = [];
+        showHeaders.value = false;
         closeSendModal();
       }, 500);
     }
