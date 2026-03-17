@@ -396,6 +396,7 @@ function onClusterFilterChange() {
 // Clear search
 function clearSearch() {
   searchQuery.value = '';
+  internalClusterFilter.value = '';
 }
 
 // Select topic
