@@ -1,7 +1,7 @@
 <template>
   <div class="message-query-tool h-full flex flex-col">
     <!-- 简洁搜索栏 -->
-    <div class="toolbar flex flex-wrap items-center gap-2 p-2 border-b border-base-300 bg-base-100">
+    <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 分区选择 -->
       <select v-model="selectedPartition" class="select select-bordered select-sm w-28">
         <option value="all">全部分区</option>
@@ -41,13 +41,6 @@
         </svg>
       </button>
 
-      <!-- 导出 -->
-      <button class="btn btn-ghost btn-sm" :disabled="messages.length === 0" @click="exportMessages" title="导出消息">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-        </svg>
-      </button>
-
       <!-- 发送消息 -->
       <button class="btn btn-ghost btn-sm" @click="openSendModal" title="发送消息">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -82,7 +75,7 @@
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
-        <div class="flex bg-base-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide w-full">
+        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
           <div class="w-12 flex-shrink-0">分区</div>
           <div class="w-16 flex-shrink-0">Offset</div>
           <div class="w-28 flex-shrink-0">时间戳</div>
