@@ -4,22 +4,22 @@
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 分区选择 -->
       <select v-model="selectedPartition" class="select select-bordered select-sm w-28">
-        <option value="all">全部分区</option>
-        <option v-for="p in partitions" :key="p" :value="p">分区 {{ p }}</option>
+        <option value="all">{{ t.messages.allPartitions }}</option>
+        <option v-for="p in partitions" :key="p" :value="p">{{ t.messages.partition }} {{ p }}</option>
       </select>
 
       <!-- 查询模式 -->
       <select v-model="fetchMode" class="select select-bordered select-sm w-24">
-        <option value="newest">最新</option>
-        <option value="oldest">最早</option>
+        <option value="newest">{{ t.messages.newest }}</option>
+        <option value="oldest">{{ t.messages.oldest }}</option>
       </select>
 
       <!-- 数量 -->
-      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" title="消息数量" />
+      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" :title="t.messages.maxMessages" />
 
       <!-- 搜索 -->
       <div class="flex-1 min-w-[120px] relative">
-        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" placeholder="搜索消息内容..." @keyup.enter="queryMessages" />
+        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.valuePlaceholder" @keyup.enter="queryMessages" />
         <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''; queryMessages()">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -42,7 +42,7 @@
       </button>
 
       <!-- 发送消息 -->
-      <button class="btn btn-ghost btn-sm" @click="openSendModal" title="发送消息">
+      <button class="btn btn-ghost btn-sm" @click="openSendModal" :title="t.messages.sendMessage">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
         </svg>
@@ -56,11 +56,11 @@
           Topic: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
         </span>
         <span v-if="lastQueryTime > 0" class="text-base-content/70">
-          耗时: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
+          {{ t.messages.elapsedTime }}: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
         </span>
         <span v-if="messages.length > 0" class="text-base-content/70">
-          共 <span class="font-mono font-bold text-success">{{ messages.length }}</span> 条
-          <button class="btn btn-ghost btn-xs ml-2" :disabled="messages.length === 0" @click="exportMessages" title="导出消息">
+          {{ t.messages.totalMessages }} <span class="font-mono font-bold text-success">{{ messages.length }}</span> {{ t.messages.messages }}
+          <button class="btn btn-ghost btn-xs ml-2" :disabled="messages.length === 0" @click="exportMessages" :title="t.messages.exportMessages">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
@@ -76,12 +76,12 @@
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
         <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
-          <div class="w-12 flex-shrink-0">分区</div>
-          <div class="w-16 flex-shrink-0">Offset</div>
-          <div class="w-28 flex-shrink-0">时间戳</div>
-          <div class="w-20 flex-shrink-0">Key</div>
-          <div class="flex-1">Value</div>
-          <div class="w-10 flex-shrink-0 text-center">操作</div>
+          <div class="w-12 flex-shrink-0">{{ t.messages.partitionLabel2 }}</div>
+          <div class="w-16 flex-shrink-0">{{ t.messages.offsetLabel }}</div>
+          <div class="w-28 flex-shrink-0">{{ t.messages.timestampLabel }}</div>
+          <div class="w-20 flex-shrink-0">{{ t.messages.key }}</div>
+          <div class="flex-1">{{ t.messages.value }}</div>
+          <div class="w-10 flex-shrink-0 text-center">{{ t.messages.actions }}</div>
         </div>
         <!-- Virtual Scroll List -->
         <RecycleScroller
@@ -108,7 +108,7 @@
             <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
             <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;">{{ getMsgValue(item) }}</div>
             <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" title="复制 Value (JSON 格式化)">
+              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
@@ -120,7 +120,7 @@
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
           </svg>
-          <span>暂无消息</span>
+          <span>{{ t.messages.noMessages }}</span>
         </div>
       </div>
 
@@ -160,7 +160,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
         </svg>
-        <span>暂无消息</span>
+        <span>{{ t.messages.noMessages }}</span>
       </div>
     </div>
 
@@ -173,20 +173,20 @@
       <div class="flex-1 overflow-hidden p-2">
         <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-base-content/10">
           <div class="flex items-center gap-2 flex-wrap">
-            <h4 class="text-xs font-bold">消息详情</h4>
-            <span class="text-[10px] text-base-content/50">Partition: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
-            <span class="text-[10px] text-base-content/50">Offset: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
+            <h4 class="text-xs font-bold">{{ t.messages.messageDetail }}</h4>
+            <span class="text-[10px] text-base-content/50">{{ t.messages.partition }}: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
+            <span class="text-[10px] text-base-content/50">{{ t.messages.offset }}: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
             <span class="text-[10px] text-base-content/50">{{ formatTime(selectedMessage.timestamp) }}</span>
           </div>
           <div class="flex items-center gap-1">
-            <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">关闭</button>
+            <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">{{ t.messages.close }}</button>
           </div>
         </div>
         <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
           <div v-if="selectedMessage.key" class="mb-1">
             <div class="flex items-center justify-between mb-0.5">
-              <div class="text-base-content/50 text-[10px] font-semibold">Key:</div>
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyKey" title="复制 Key">
+              <div class="text-base-content/50 text-[10px] font-semibold">{{ t.messages.key }}:</div>
+              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyKey" :title="t.messages.copyKey">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
@@ -197,20 +197,28 @@
           <div class="flex flex-col flex-1">
             <div class="flex items-center justify-between mb-0.5">
               <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
-                Value:
+                {{ t.messages.value }}:
                 <select v-model="valueViewFormat" class="select select-bordered select-xs scale-90 origin-left">
-                  <option value="json">JSON</option>
-                  <option value="raw">Raw</option>
-                  <option value="hex">Hex</option>
+                  <option value="json">{{ t.messages.json }}</option>
+                  <option value="raw">{{ t.messages.raw }}</option>
+                  <option value="hex">{{ t.messages.hex }}</option>
                 </select>
               </div>
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyValue" title="复制 Value">
+              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyValue" :title="t.messages.copyValue">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
               </button>
             </div>
-            <pre class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1">{{ formatValue(selectedMessage.value, valueViewFormat) }}</pre>
+            <pre
+              v-if="valueViewFormat === 'json'"
+              class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1 json-highlight"
+              v-html="highlightJson(formatValue(selectedMessage.value, valueViewFormat))"
+            ></pre>
+            <pre
+              v-else
+              class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1"
+            >{{ formatValue(selectedMessage.value, valueViewFormat) }}</pre>
           </div>
         </div>
       </div>
@@ -229,13 +237,13 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-info">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
             </svg>
-            发送消息 <span class="font-mono text-sm truncate max-w-[150px] md:max-w-xs">{{ selectedTopic }}</span>
+            {{ t.messages.sendMessage }} <span class="font-mono text-sm truncate max-w-[150px] md:max-w-xs">{{ selectedTopic }}</span>
           </h3>
           <form @submit.prevent="() => handleSendMessage(false)" class="flex flex-col gap-3">
             <!-- Partition Dropdown -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">分区</span>
+                <span class="label-text font-medium">{{ t.messages.partition }}</span>
               </label>
               <select v-model.number="messageForm.partition" class="select select-bordered w-full sm:w-32" required :disabled="partitions.length === 0">
                 <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
@@ -244,16 +252,16 @@
             <!-- Key Input -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">Key</span>
-                <span class="label-text-alt">可选</span>
+                <span class="label-text font-medium">{{ t.messages.key }}</span>
+                <span class="label-text-alt">{{ t.messages.keyOptional }}</span>
               </label>
-              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" placeholder="可选" />
+              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" :placeholder="t.messages.keyOptional" />
             </div>
             <!-- Value Textarea -->
             <div>
               <label class="label">
-                <span class="label-text font-medium">Value</span>
-                <span class="label-text-alt">必填</span>
+                <span class="label-text font-medium">{{ t.messages.value }}</span>
+                <span class="label-text-alt">{{ t.messages.valueRequired }}</span>
               </label>
               <textarea v-model="messageForm.value" class="textarea textarea-bordered h-24 sm:h-32 font-mono text-sm w-full" required placeholder='{"id": 1, "data": "example"}'></textarea>
             </div>
@@ -262,20 +270,20 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
               </svg>
-              <span class="text-sm">消息发送成功! Offset: {{ lastOffset }}</span>
+              <span class="text-sm">{{ t.messages.messageSent }}! {{ t.messages.offset }}: {{ lastOffset }}</span>
             </div>
             <!-- Actions -->
             <div class="modal-action flex-wrap">
-              <button type="button" class="btn" @click="closeSendModal">取消</button>
+              <button type="button" class="btn" @click="closeSendModal">{{ t.messages.cancel }}</button>
               <button type="button" class="btn btn-primary" @click="handleSendMessage(true)" :disabled="sending">
-                发送并继续
+                {{ t.messages.continue }}
               </button>
               <button type="submit" class="btn btn-primary" :disabled="sending">
                 <svg v-if="sending" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                {{ sending ? '发送中...' : '发送' }}
+                {{ sending ? t.messages.sending : t.messages.send }}
               </button>
             </div>
           </form>
@@ -291,9 +299,12 @@ import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
+import { useLanguageStore } from '@/stores/language';
 
 const route = useRoute();
 const { showSuccess } = useToast();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
 
 interface Message {
   partition: number;
@@ -406,7 +417,7 @@ async function queryMessages() {
     lastQueryTime.value = Math.round(performance.now() - startTime);
   } catch (e: any) {
     console.error('Query failed:', e);
-    error.value = e.message || '查询失败';
+    error.value = e.message || t.value.messages.queryFailed;
     messages.value = [];
   } finally {
     loading.value = false;
@@ -462,7 +473,7 @@ async function handleSendMessage(keepOpen: boolean) {
 
     lastOffset.value = result.offset;
     sendSuccess.value = true;
-    showSuccess('消息发送成功');
+    showSuccess(t.value.messages.messageSent);
 
     if (!keepOpen) {
       // 清空表单并关闭弹框
@@ -531,10 +542,50 @@ function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): stri
   return value;
 }
 
+// JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML
+function highlightJson(json: string): string {
+  if (!json) return '';
+
+  // 转义 HTML 特殊字符
+  let html = json
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 高亮字符串（包括键和字符串值）
+  html = html.replace(
+    /("(?:\\.|[^"\\])*")/g,
+    '<span class="json-string">$1</span>'
+  );
+
+  // 高亮数字
+  html = html.replace(
+    /:\s*(-?\d+\.?\d*)/g,
+    ': <span class="json-number">$1</span>'
+  );
+
+  // 高亮布尔值和 null
+  html = html.replace(
+    /:\s*(true|false|null)/g,
+    ': <span class="json-boolean">$1</span>'
+  );
+
+  // 高亮键名（在 : 前面的字符串）
+  html = html.replace(
+    /(<span class="json-string">)([^<]+)(<\/span>)(\s*:)/g,
+    '<span class="json-key">$2</span>$4'
+  );
+
+  // 高亮标点符号
+  html = html.replace(/([{}[\],])/g, '<span class="json-punctuation">$1</span>');
+
+  return html;
+}
+
 function copyKey() {
   if (!selectedMessage.value?.key) return;
   navigator.clipboard.writeText(selectedMessage.value.key).then(() => {
-    showSuccess('Key 已复制到剪贴板', 2000);
+    showSuccess(`${t.value.messages.key} ${t.value.messages.copied}`, 2000);
   });
 }
 
@@ -542,7 +593,7 @@ function copyValue() {
   if (!selectedMessage.value?.value) return;
   const text = formatValue(selectedMessage.value.value, valueViewFormat.value);
   navigator.clipboard.writeText(text).then(() => {
-    showSuccess('Value 已复制到剪贴板', 2000);
+    showSuccess(`${t.value.messages.value} ${t.value.messages.copied}`, 2000);
   });
 }
 
@@ -551,7 +602,7 @@ function copyMessageValue(msg: any) {
   // 默认按 JSON 格式化复制
   const text = formatValue(msg.value, 'json');
   navigator.clipboard.writeText(text).then(() => {
-    showSuccess('Value 已复制到剪贴板', 2000);
+    showSuccess(`${t.value.messages.value} ${t.value.messages.copied}`, 2000);
   });
 }
 
@@ -722,5 +773,46 @@ pre {
   top: 0;
   left: 0;
   will-change: transform;
+}
+
+/* JSON 语法高亮样式 */
+.json-highlight .json-key {
+  color: #9cdcfe;
+}
+
+.json-highlight .json-string {
+  color: #ce9178;
+}
+
+.json-highlight .json-number {
+  color: #b5cea8;
+}
+
+.json-highlight .json-boolean {
+  color: #569cd6;
+}
+
+.json-highlight .json-punctuation {
+  color: #d4d4d4;
+}
+
+[data-theme="light"] .json-highlight .json-key {
+  color: #001080;
+}
+
+[data-theme="light"] .json-highlight .json-string {
+  color: #a31515;
+}
+
+[data-theme="light"] .json-highlight .json-number {
+  color: #098658;
+}
+
+[data-theme="light"] .json-highlight .json-boolean {
+  color: #0000ff;
+}
+
+[data-theme="light"] .json-highlight .json-punctuation {
+  color: #333;
 }
 </style>

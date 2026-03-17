@@ -1,61 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <!-- 更深的渐变背景增强对比 -->
+    <!-- 纯色深蓝紫背景 -->
     <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#312e81"/>
-      <stop offset="40%" style="stop-color:#4c1d95"/>
-      <stop offset="80%" style="stop-color:#be185d"/>
-      <stop offset="100%" style="stop-color:#9d174d"/>
+      <stop offset="0%" style="stop-color:#1e1b4b"/>
+      <stop offset="50%" style="stop-color:#312e81"/>
+      <stop offset="100%" style="stop-color:#4c1d95"/>
     </linearGradient>
-
-    <!-- 图标投影 - 增加立体感 -->
-    <filter id="iconShadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#1e1b4b" flood-opacity="0.5"/>
-    </filter>
-
-    <!-- 外发光让白色更突出 -->
-    <filter id="whiteGlow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-    <!-- 背景阴影 -->
-    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#312e81" flood-opacity="0.6"/>
-    </filter>
   </defs>
 
-  <!-- 背景圆形 - 更深的颜色 -->
-  <circle cx="256" cy="256" r="240" fill="url(#bgGradient)" filter="url(#shadow)"/>
+  <!-- 背景圆形 -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGradient)"/>
 
-  <!-- 内圈装饰线 -->
-  <circle cx="256" cy="256" r="220" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+  <!-- 白色K字母图标 - 无任何滤镜，纯白色 -->
+  <!-- 左侧粗竖条 -->
+  <rect x="140" y="120" width="44" height="272" rx="22" fill="white"/>
 
-  <!-- 主图标 - 白色K字母变形，带深色描边增加清晰度 -->
-  <g filter="url(#iconShadow)">
-    <!-- 左侧竖条 - 加粗，底部圆角 -->
-    <rect x="135" y="115" width="40" height="282" rx="20" fill="white"/>
-    <!-- 竖条的深色描边效果（底层） -->
-    <rect x="133" y="113" width="44" height="286" rx="22" fill="none" stroke="#1e1b4b" stroke-width="2" opacity="0.3"/>
+  <!-- 中间斜线 -->
+  <rect x="210" y="155" width="38" height="202" rx="19" fill="white" transform="rotate(15 229 256)"/>
 
-    <!-- 中间斜线 -->
-    <rect x="195" y="155" width="34" height="202" rx="17" fill="white" transform="rotate(18 212 256)"/>
+  <!-- 右侧三个实心圆 -->
+  <circle cx="350" cy="175" r="45" fill="white"/>
+  <circle cx="405" cy="256" r="40" fill="white"/>
+  <circle cx="350" cy="337" r="35" fill="white"/>
 
-    <!-- 右侧三个圆点/气泡 - 代表消息，从小到大 -->
-    <circle cx="340" cy="175" r="42" fill="white"/>
-    <circle cx="395" cy="256" r="36" fill="white"/>
-    <circle cx="340" cy="337" r="30" fill="white"/>
+  <!-- 连接线 -->
+  <rect x="245" y="178" width="90" height="16" rx="8" fill="white" transform="rotate(10 290 186)"/>
+  <rect x="260" y="308" width="80" height="16" rx="8" fill="white" transform="rotate(-10 300 316)"/>
 
-    <!-- 连接线 - 更粗，连接斜线和圆点 -->
-    <rect x="230" y="180" width="85" height="14" rx="7" fill="white" transform="rotate(12 272 187)"/>
-    <rect x="245" y="310" width="75" height="14" rx="7" fill="white" transform="rotate(-12 282 317)"/>
-  </g>
-
-  <!-- 黄色装饰点 - 表示活跃状态 -->
-  <circle cx="190" cy="190" r="10" fill="#fbbf24"/>
-  <circle cx="165" cy="256" r="8" fill="#fbbf24"/>
-  <circle cx="190" cy="322" r="7" fill="#fbbf24"/>
+  <!-- 黄色点缀 -->
+  <circle cx="195" cy="190" r="12" fill="#fbbf24"/>
+  <circle cx="170" cy="256" r="10" fill="#fbbf24"/>
+  <circle cx="195" cy="322" r="8" fill="#fbbf24"/>
 </svg>

@@ -147,6 +147,25 @@ export interface Translation {
     time: string;
     selectedOffset: string;
     ready: string;
+    query: string;
+    stop: string;
+    exportMessages: string;
+    messageDetail: string;
+    copyValue: string;
+    copyKey: string;
+    valuePlaceholder: string;
+    searchPlaceholder: string;
+    elapsedTime: string;
+    totalMessages: string;
+    actions: string;
+    close: string;
+    cancel: string;
+    continue: string;
+    keyOptional: string;
+    valueRequired: string;
+    partitionLabel2: string;
+    queryFailed: string;
+    fetchFailed: string;
   };
   settings: {
     title: string;
@@ -368,6 +387,25 @@ export const translations: Record<Language, Translation> = {
       time: '耗时',
       selectedOffset: '选中偏移量',
       ready: '就绪',
+      query: '查询',
+      stop: '停止',
+      exportMessages: '导出消息',
+      messageDetail: '消息详情',
+      copyValue: '复制 Value',
+      copyKey: '复制 Key',
+      valuePlaceholder: '搜索消息内容...',
+      searchPlaceholder: '可选',
+      elapsedTime: '耗时',
+      totalMessages: '共',
+      actions: '操作',
+      close: '关闭',
+      cancel: '取消',
+      continue: '发送并继续',
+      keyOptional: '可选',
+      valueRequired: '必填',
+      partitionLabel2: '分区',
+      queryFailed: '查询失败',
+      fetchFailed: '获取失败',
     },
     settings: {
       title: '设置',
@@ -587,6 +625,25 @@ export const translations: Record<Language, Translation> = {
       time: 'Time',
       selectedOffset: 'Selected Offset',
       ready: 'Ready',
+      query: 'Query',
+      stop: 'Stop',
+      exportMessages: 'Export Messages',
+      messageDetail: 'Message Detail',
+      copyValue: 'Copy Value',
+      copyKey: 'Copy Key',
+      valuePlaceholder: 'Search message content...',
+      searchPlaceholder: 'Optional',
+      elapsedTime: 'Elapsed',
+      totalMessages: 'Total',
+      actions: 'Actions',
+      close: 'Close',
+      cancel: 'Cancel',
+      continue: 'Send & Continue',
+      keyOptional: 'Optional',
+      valueRequired: 'Required',
+      partitionLabel2: 'Partition',
+      queryFailed: 'Query failed',
+      fetchFailed: 'Fetch failed',
     },
     settings: {
       title: 'Settings',
