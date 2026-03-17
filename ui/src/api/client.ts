@@ -469,6 +469,48 @@ class ApiClient {
   async updateSetting(key: string, value: string): Promise<{ key: string; value: string }> {
     return this.request('settings.update', { key, value });
   }
+
+  // ==================== Topic 收藏 ====================
+  async getFavoriteGroups(): Promise<Array<{ id: number; name: string; description?: string; sort_order: number; item_count: number; created_at: string; updated_at: string }>> {
+    return this.request('favorite.group.list', {});
+  }
+
+  async createFavoriteGroup(params: { name: string; description?: string; sort_order?: number }): Promise<{ id: number; name: string; description?: string; sort_order: number; created_at: string; updated_at: string }> {
+    return this.request('favorite.group.create', params);
+  }
+
+  async updateFavoriteGroup(id: number, params: { name?: string; description?: string; sort_order?: number }): Promise<{ id: number; name: string; description?: string; sort_order: number; created_at: string; updated_at: string }> {
+    return this.request('favorite.group.update', { id, ...params });
+  }
+
+  async deleteFavoriteGroup(id: number): Promise<void> {
+    return this.request('favorite.group.delete', { id });
+  }
+
+  async getFavorites(): Promise<Array<{ id: number; name: string; description?: string; sort_order: number; items: Array<{ id: number; group_id: number; cluster_id: string; topic_name: string; description?: string; sort_order: number; created_at: string; updated_at: string }> }>> {
+    return this.request('favorite.list', {});
+  }
+
+  async createFavorite(params: { group_id: number; cluster_id: string; topic_name: string; description?: string; sort_order?: number }): Promise<{ id: number; group_id: number; cluster_id: string; topic_name: string; description?: string; sort_order: number; created_at: string; updated_at: string }> {
+    return this.request('favorite.create', params);
+  }
+
+  async updateFavorite(id: number, params: { group_id?: number; description?: string; sort_order?: number }): Promise<{ id: number; group_id: number; cluster_id: string; topic_name: string; description?: string; sort_order: number; created_at: string; updated_at: string }> {
+    return this.request('favorite.update', { id, ...params });
+  }
+
+  async deleteFavorite(id: number): Promise<void> {
+    return this.request('favorite.delete', { id });
+  }
+
+  async checkFavorite(clusterId: string, topicName: string): Promise<boolean> {
+    const data = await this.request<{ is_favorite: boolean }>('favorite.check', { cluster_id: clusterId, topic_name: topicName });
+    return data.is_favorite;
+  }
+
+  async deleteFavoriteByTopic(clusterId: string, topicName: string): Promise<void> {
+    return this.request('favorite.delete_by_topic', { cluster_id: clusterId, topic_name: topicName });
+  }
 }
 
 // 导出单例

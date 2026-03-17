@@ -138,6 +138,12 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
                     </svg>
                   </div>
+                  <FavoriteButton
+                    :cluster-id="clusterParam"
+                    :topic-name="topic.name"
+                    :t="t"
+                    @update="refreshFavorites"
+                  />
                   <span class="font-medium">{{ topic.name }}</span>
                 </div>
               </td>
@@ -246,6 +252,12 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
                           </svg>
                         </div>
+                        <FavoriteButton
+                          :cluster-id="clusterName"
+                          :topic-name="topic.name"
+                          :t="t"
+                          @update="refreshFavorites"
+                        />
                         <span class="font-medium">{{ topic.name }}</span>
                       </div>
                     </td>
@@ -831,6 +843,7 @@ import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
+import FavoriteButton from '@/components/FavoriteButton.vue';
 import type { TopicDetailResponse, MessageRecord } from '@/types/api';
 
 // 定义本地类型
@@ -858,6 +871,12 @@ const clusterParam = computed(() => {
 
 const actionParam = computed(() => {
   const val = route.query.action;
+  return Array.isArray(val) ? val[0] : (val || '');
+});
+
+// 从URL读取搜索参数
+const searchParam = computed(() => {
+  const val = route.query.search;
   return Array.isArray(val) ? val[0] : (val || '');
 });
 
@@ -1120,6 +1139,13 @@ const filteredClusterTopics = computed(() => {
 onBeforeRouteUpdate((to) => {
   if (to.query.cluster) {
     fetchTopics();
+  }
+  // 处理 search 参数变化
+  const searchVal = Array.isArray(to.query.search) ? to.query.search[0] : (to.query.search || '');
+  if (searchVal) {
+    searchQuery.value = searchVal;
+  } else {
+    searchQuery.value = '';
   }
   // 检查是否有 action=create 参数，打开创建模态框
   const action = Array.isArray(to.query.action) ? to.query.action[0] : (to.query.action || '');
@@ -1663,7 +1689,17 @@ async function refreshAllTopics() {
   }
 }
 
+// Placeholder function for refreshing favorites (called when favorites are updated)
+async function refreshFavorites() {
+  // Favorites are refreshed automatically in the FavoriteButton component
+  // This function is called via emit to notify parent if needed
+}
+
 onMounted(() => {
+  // 从URL读取搜索参数
+  if (searchParam.value) {
+    searchQuery.value = searchParam.value;
+  }
   // watch 已经处理了初始化调用，这里只需要处理 action 参数
   if (actionParam.value === 'create') {
     openCreateModal(true);

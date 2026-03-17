@@ -52,8 +52,14 @@
     <!-- 状态栏 -->
     <div class="status-bar flex items-center justify-between px-3 py-1 text-xs border-b border-base-300 bg-base-200/50">
       <div class="flex items-center gap-4">
-        <span v-if="selectedTopic" class="text-base-content/70">
+        <span v-if="selectedTopic" class="text-base-content/70 flex items-center gap-1">
           Topic: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
+          <FavoriteButton
+            v-if="props.cluster && selectedTopic"
+            :cluster-id="props.cluster"
+            :topic-name="selectedTopic"
+            :t="t"
+          />
         </span>
         <span v-if="lastQueryTime > 0" class="text-base-content/70">
           {{ t.messages.elapsedTime }}: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
@@ -340,6 +346,7 @@ import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
+import FavoriteButton from '@/components/FavoriteButton.vue';
 
 const route = useRoute();
 const { showSuccess } = useToast();
@@ -826,7 +833,50 @@ pre {
   will-change: transform;
 }
 
-/* JSON 语法高亮样式 */
+/* JSON 语法高亮样式 - 使用 :deep 穿透 scoped 限制 */
+:deep(.json-highlight .json-key) {
+  color: #9cdcfe;
+}
+
+:deep(.json-highlight .json-string) {
+  color: #ce9178;
+}
+
+:deep(.json-highlight .json-number) {
+  color: #b5cea8;
+}
+
+:deep(.json-highlight .json-boolean) {
+  color: #569cd6;
+}
+
+:deep(.json-highlight .json-punctuation) {
+  color: #d4d4d4;
+}
+
+:deep([data-theme="light"] .json-highlight .json-key) {
+  color: #2c7a7b;
+}
+
+:deep([data-theme="light"] .json-highlight .json-string) {
+  color: #b07d58;
+}
+
+:deep([data-theme="light"] .json-highlight .json-number) {
+  color: #2f855a;
+}
+
+:deep([data-theme="light"] .json-highlight .json-boolean) {
+  color: #2b6cb0;
+}
+
+:deep([data-theme="light"] .json-highlight .json-punctuation) {
+  color: #718096;
+}
+</style>
+
+<style>
+/* JSON 语法高亮样式 - 全局样式，用于 v-html 内容 */
 .json-highlight .json-key {
   color: #9cdcfe;
 }
@@ -848,22 +898,22 @@ pre {
 }
 
 [data-theme="light"] .json-highlight .json-key {
-  color: #001080;
+  color: #2c7a7b;
 }
 
 [data-theme="light"] .json-highlight .json-string {
-  color: #a31515;
+  color: #b07d58;
 }
 
 [data-theme="light"] .json-highlight .json-number {
-  color: #098658;
+  color: #2f855a;
 }
 
 [data-theme="light"] .json-highlight .json-boolean {
-  color: #0000ff;
+  color: #2b6cb0;
 }
 
 [data-theme="light"] .json-highlight .json-punctuation {
-  color: #333;
+  color: #718096;
 }
 </style>

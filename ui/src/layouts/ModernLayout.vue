@@ -411,7 +411,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useThemeStore } from '@/stores/theme';
@@ -511,6 +511,18 @@ watch(searchQuery, (newQuery) => {
     searchResults.value = [];
   }
 });
+
+// 监听路由变化，处理从 TopicFavorites 双击跳转的情况
+const route = useRoute();
+watch(() => route.query, (newQuery) => {
+  const cluster = newQuery.cluster as string;
+  const topic = newQuery.topic as string;
+
+  // 如果是跳转到 messages 页面且有 cluster 和 topic 参数，且是树形模式，则展开并高亮
+  if (route.path === '/messages' && cluster && topic && sidebarMode.value === 'tree') {
+    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+  }
+}, { immediate: true });
 
 async function performSearch() {
   const query = searchQuery.value.trim();
@@ -713,6 +725,45 @@ function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: st
 // 从 TopicsView 调用：展开并选中左侧树中的特定 Topic
 function handleSelectTopicInTree(topicName: string, clusterName: string) {
   clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+}
+
+// 处理从 TopicFavorites 双击跳转的事件
+function handleNavigateFromFavoritesEvent(event: CustomEvent) {
+  const { clusterId, topicName } = event.detail;
+  handleNavigateFromFavorites(clusterId, topicName);
+}
+
+// 处理设置变化事件
+function handleSettingsChanged(event: CustomEvent) {
+  const { key, value } = event.detail;
+  if (key === 'ui.sidebar_mode' && (value === 'tree' || value === 'flat')) {
+    sidebarMode.value = value;
+  }
+}
+
+// 处理 select-topic-in-tree 事件
+function handleSelectTopicInTreeEvent(event: CustomEvent) {
+  const { topicName, clusterName } = event.detail;
+  handleSelectTopicInTree(topicName, clusterName);
+}
+
+// 从 TopicFavorites 双击跳转：根据 sidebar mode 决定导航方式
+function handleNavigateFromFavorites(clusterId: string, topicName: string) {
+  if (sidebarMode.value === 'tree') {
+    // 树形模式：展开树并选中 topic，然后跳转到 messages
+    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterId);
+    // highlightAndSelectTopic 内部会处理导航到 messages
+  } else {
+    // 扁平模式：导航到 messages 页面，TopicNavigator 会根据 URL 参数过滤
+    router.push({
+      path: '/messages',
+      query: { cluster: clusterId, topic: topicName },
+    });
+    // 关闭移动端侧边栏
+    if (isMobile.value) {
+      sidebarOpen.value = false;
+    }
+  }
 }
 
 function handleClusterAction(action: string, cluster: string) {
@@ -998,21 +1049,16 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
 
   // 监听 TopicsView 的双击 Topic 事件
-  window.addEventListener('select-topic-in-tree', ((event: CustomEvent) => {
-    const { topicName, clusterName } = event.detail;
-    handleSelectTopicInTree(topicName, clusterName);
-  }) as EventListener);
+  window.addEventListener('select-topic-in-tree', handleSelectTopicInTreeEvent as EventListener);
 
   // 监听打开创建集群弹窗事件
   window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
 
   // 监听设置变化事件
-  window.addEventListener('settings-changed', ((event: CustomEvent) => {
-    const { key, value } = event.detail;
-    if (key === 'ui.sidebar_mode' && (value === 'tree' || value === 'flat')) {
-      sidebarMode.value = value;
-    }
-  }) as EventListener);
+  window.addEventListener('settings-changed', handleSettingsChanged as EventListener);
+
+  // 监听从 TopicFavorites 双击跳转的事件
+  window.addEventListener('navigate-to-topic-from-favorites', handleNavigateFromFavoritesEvent as EventListener);
 });
 
 function handleOpenCreateClusterModal() {
@@ -1029,6 +1075,9 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('mousemove', resize);
   document.removeEventListener('mouseup', stopResize);
+  window.removeEventListener('select-topic-in-tree', handleSelectTopicInTreeEvent as EventListener);
+  window.removeEventListener('settings-changed', handleSettingsChanged as EventListener);
+  window.removeEventListener('navigate-to-topic-from-favorites', handleNavigateFromFavoritesEvent as EventListener);
 });
 
 function handleClickOutside(e: MouseEvent) {

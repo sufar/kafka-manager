@@ -4,6 +4,7 @@ export interface Translation {
   nav: {
     dashboard: string;
     clusters: string;
+    favorites: string;
     topics: string;
     messages: string;
     settings: string;
@@ -237,6 +238,34 @@ export interface Translation {
   navigator: {
     allClusters: string;
   };
+  favorites: {
+    title: string;
+    description: string;
+    add: string;
+    remove: string;
+    added: string;
+    removed: string;
+    selectGroup: string;
+    noGroups: string;
+    createGroup: string;
+    addGroup: string;
+    editGroup: string;
+    groupName: string;
+    groupNamePlaceholder: string;
+    groupDescription: string;
+    groupDescPlaceholder: string;
+    sortOrder: string;
+    sortOrderPlaceholder: string;
+    empty: string;
+    emptyHint: string;
+    noItems: string;
+    editFavorite: string;
+    favoriteDescription: string;
+    favoriteDescPlaceholder: string;
+    confirmDeleteGroup: string;
+    confirmDeleteFavorite: string;
+    createGroupHint: string;
+  };
 }
 
 export const translations: Record<Language, Translation> = {
@@ -244,6 +273,7 @@ export const translations: Record<Language, Translation> = {
     nav: {
       dashboard: '仪表盘',
       clusters: '集群',
+      favorites: '收藏',
       topics: '主题',
       messages: '消息',
       settings: '设置',
@@ -477,11 +507,40 @@ export const translations: Record<Language, Translation> = {
     navigator: {
       allClusters: '所有集群',
     },
+    favorites: {
+      title: 'Topic 收藏',
+      description: '管理您收藏的 Topic，支持分组管理',
+      add: '收藏',
+      remove: '取消收藏',
+      added: '已添加到收藏',
+      removed: '已取消收藏',
+      selectGroup: '选择收藏分组',
+      noGroups: '暂无分组',
+      createGroup: '创建分组',
+      addGroup: '新建分组',
+      editGroup: '编辑分组',
+      groupName: '分组名称',
+      groupNamePlaceholder: '请输入分组名称',
+      groupDescription: '分组描述',
+      groupDescPlaceholder: '请输入分组描述（可选）',
+      sortOrder: '排序',
+      sortOrderPlaceholder: '数字越小越靠前',
+      empty: '暂无收藏分组',
+      emptyHint: '点击右上角创建分组',
+      noItems: '该分组暂无收藏',
+      editFavorite: '编辑收藏',
+      favoriteDescription: '描述',
+      favoriteDescPlaceholder: '请输入描述（可选）',
+      confirmDeleteGroup: '确定要删除这个分组吗？分组内的收藏也会被删除。',
+      confirmDeleteFavorite: '确定要删除这个收藏吗？',
+      createGroupHint: '请先在收藏管理中创建分组',
+    },
   },
   en: {
     nav: {
       dashboard: 'Dashboard',
       clusters: 'Clusters',
+      favorites: 'Favorites',
       topics: 'Topics',
       messages: 'Messages',
       settings: 'Settings',
@@ -714,6 +773,34 @@ export const translations: Record<Language, Translation> = {
     },
     navigator: {
       allClusters: 'All Clusters',
+    },
+    favorites: {
+      title: 'Topic Favorites',
+      description: 'Manage your favorite Topics with group support',
+      add: 'Add to Favorites',
+      remove: 'Remove from Favorites',
+      added: 'Added to favorites',
+      removed: 'Removed from favorites',
+      selectGroup: 'Select Group',
+      noGroups: 'No groups yet',
+      createGroup: 'Create Group',
+      addGroup: 'New Group',
+      editGroup: 'Edit Group',
+      groupName: 'Group Name',
+      groupNamePlaceholder: 'Enter group name',
+      groupDescription: 'Description',
+      groupDescPlaceholder: 'Enter description (optional)',
+      sortOrder: 'Sort Order',
+      sortOrderPlaceholder: 'Smaller numbers appear first',
+      empty: 'No favorite groups yet',
+      emptyHint: 'Click the button above to create a group',
+      noItems: 'No items in this group',
+      editFavorite: 'Edit Favorite',
+      favoriteDescription: 'Description',
+      favoriteDescPlaceholder: 'Enter description (optional)',
+      confirmDeleteGroup: 'Are you sure you want to delete this group? Favorites in this group will also be deleted.',
+      confirmDeleteFavorite: 'Are you sure you want to delete this favorite?',
+      createGroupHint: 'Please create a group in favorite management first',
     },
   },
 };

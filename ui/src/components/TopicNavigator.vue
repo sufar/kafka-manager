@@ -10,15 +10,26 @@
         </div>
         <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Topics</span>
       </div>
-      <button
-        class="btn btn-ghost btn-xs"
-        @click="goToClusters"
-        title="Manage Clusters"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-        </svg>
-      </button>
+      <div class="flex items-center gap-0.5">
+        <button
+          class="btn btn-ghost btn-xs"
+          @click="goToFavorites"
+          title="Topic Favorites"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+          </svg>
+        </button>
+        <button
+          class="btn btn-ghost btn-xs"
+          @click="goToClusters"
+          title="Manage Clusters"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Search Box -->
@@ -186,7 +197,8 @@ const t = computed(() => languageStore.t);
 
 // State
 const searchQuery = ref('');
-const selectedClusterFilter = ref(''); // 空表示所有集群
+const selectedClusterFilter = ref(''); // 空表示所有集群（UI 选择器，用户手动选择）
+const internalClusterFilter = ref(''); // 内部使用，收藏跳转时临时设置，不改变 UI
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
@@ -230,6 +242,9 @@ function getClusterHealth(clusterName: string) {
   return clusterStore.clusterHealth[clusterName];
 }
 
+// Track pending highlight for after topics load
+const pendingHighlight = ref<{ cluster: string; topic: string } | null>(null);
+
 // Load all topics from all clusters or selected cluster
 async function loadAllTopics() {
   if (isUnmounted.value) return;
@@ -238,9 +253,12 @@ async function loadAllTopics() {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
+    // 优先使用内部过滤器（收藏跳转等场景），否则使用 UI 选择器
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+
     // If a specific cluster is selected, only load topics from that cluster
-    if (selectedClusterFilter.value) {
-      const cluster = clusters.find(c => c.name === selectedClusterFilter.value);
+    if (clusterFilter) {
+      const cluster = clusters.find(c => c.name === clusterFilter);
       if (cluster) {
         const clusterTopics = await apiClient.getTopics(cluster.name);
         if (isUnmounted.value) return; // Check after async
@@ -273,6 +291,18 @@ async function loadAllTopics() {
 
     if (!isUnmounted.value) {
       allTopics.value = topics;
+
+      // Check if there's a pending highlight after topics load
+      if (pendingHighlight.value) {
+        const { cluster, topic } = pendingHighlight.value;
+        const targetTopic = allTopics.value.find(
+          t => t.cluster === cluster && t.name === topic
+        );
+        if (targetTopic) {
+          selectedTopic.value = targetTopic;
+        }
+        pendingHighlight.value = null;
+      }
     }
   } catch (e) {
     if (!isUnmounted.value) {
@@ -293,9 +323,12 @@ async function refreshTopics() {
   try {
     const clusters = clusterStore.clusters;
 
+    // 优先使用内部 cluster 过滤器，否则使用 UI 选择器
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+
     // If a specific cluster is selected, only refresh that cluster
-    if (selectedClusterFilter.value) {
-      await apiClient.refreshTopics(selectedClusterFilter.value);
+    if (clusterFilter) {
+      await apiClient.refreshTopics(clusterFilter);
       if (isUnmounted.value) return;
     } else {
       // No cluster selected - refresh all clusters one by one
@@ -354,6 +387,8 @@ function onSearchInput() {
 
 // Cluster filter change handler
 function onClusterFilterChange() {
+  // 清除内部 cluster 过滤器，让用户手动选择生效
+  internalClusterFilter.value = '';
   // Clear search query when changing cluster filter
   searchQuery.value = '';
 }
@@ -390,6 +425,13 @@ function goToClusters() {
   });
 }
 
+// Go to favorites page
+function goToFavorites() {
+  emit('navigate', {
+    path: '/favorites'
+  });
+}
+
 watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
   loadAllTopics();
 }, { immediate: true });
@@ -400,17 +442,32 @@ watch(
   (newQuery) => {
     const cluster = newQuery.cluster as string;
     const topic = newQuery.topic as string;
+    const search = newQuery.search as string;
 
-    // 如果有 cluster 和 topic，在列表中高亮该 topic
+    // 如果有 search 参数，设置搜索框
+    if (search) {
+      searchQuery.value = search;
+    }
+
+    // 如果有 cluster 和 topic，处理高亮和搜索框
     if (cluster && topic) {
-      setTimeout(() => {
-        const targetTopic = allTopics.value.find(
-          t => t.cluster === cluster && t.name === topic
-        );
-        if (targetTopic) {
-          selectedTopic.value = targetTopic;
-        }
-      }, 100);
+      pendingHighlight.value = { cluster, topic };
+
+      // 检查是否已经在该 topic（内部点击）
+      const isAlreadyOnThisTopic = selectedTopic.value?.cluster === cluster && selectedTopic.value?.name === topic;
+
+      if (!isAlreadyOnThisTopic) {
+        // 来自外部导航（如收藏双击、顶部搜索）
+        // 设置内部 cluster 过滤器（不改变 UI 选择器）
+        internalClusterFilter.value = cluster;
+        // 填入搜索框
+        searchQuery.value = topic;
+        // 重新加载 topics（根据 internalClusterFilter）
+        loadAllTopics();
+      }
+    } else {
+      // 清除内部 cluster 过滤器
+      internalClusterFilter.value = '';
     }
   },
   { immediate: true }

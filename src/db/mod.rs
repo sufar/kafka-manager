@@ -1,6 +1,7 @@
 pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
+pub mod favorite;
 pub mod settings;
 pub mod tag;
 pub mod topic;
@@ -306,6 +307,9 @@ impl DbPool {
         )
         .execute(self.inner())
         .await?;
+
+        // 创建收藏表
+        favorite::init_tables(self.inner()).await?;
 
         // 运行额外的索引优化迁移
         self.run_indexes_migration().await?;

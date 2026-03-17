@@ -13,6 +13,14 @@
           </div>
           <span class="text-xs font-bold text-base-content/80 hidden sm:inline">{{ t.topics.title }}</span>
           <span v-if="selectedTopic" class="text-xs font-mono text-accent truncate max-w-[120px] sm:max-w-xs">: {{ selectedTopic }}</span>
+          <!-- Favorite Button -->
+          <FavoriteButton
+            v-if="selectedClusterId && selectedTopic"
+            :cluster-id="selectedClusterId"
+            :topic-name="selectedTopic"
+            :t="t"
+            class="ml-1"
+          />
         </div>
 
         <div class="w-px h-5 bg-base-content/20 hidden sm:block" />
@@ -228,7 +236,7 @@
               </svg>
             </button>
           </div>
-          <pre ref="keyPreRef" class="bg-base-200/50 backdrop-blur-sm p-1.5 rounded-lg text-[10px] font-mono overflow-auto cursor-text select-text border border-base-content/5" tabindex="0">{{ formatKeyValue(selectedMessage.key) }}</pre>
+          <pre ref="keyPreRef" class="bg-base-200/50 backdrop-blur-sm p-1.5 rounded-lg text-[10px] font-mono overflow-auto cursor-text select-text border border-base-content/5 json-highlight" tabindex="0" v-html="highlightJson(formatKeyValue(selectedMessage.key))"></pre>
         </div>
 
         <!-- Value -->
@@ -241,7 +249,7 @@
               </svg>
             </button>
           </div>
-          <pre ref="valuePreRef" class="bg-base-200/50 backdrop-blur-sm p-2 rounded-xl text-xs font-mono overflow-auto cursor-text select-text whitespace-pre-wrap border border-base-content/5" tabindex="0">{{ formatMessageValue(selectedMessage.value) }}</pre>
+          <pre ref="valuePreRef" class="bg-base-200/50 backdrop-blur-sm p-2 rounded-xl text-xs font-mono overflow-auto cursor-text select-text whitespace-pre-wrap border border-base-content/5 json-highlight" tabindex="0" v-html="highlightJson(formatMessageValue(selectedMessage.value))"></pre>
         </div>
       </div>
       <div v-else class="flex items-center justify-center h-full text-base-content/40 text-sm">
@@ -339,6 +347,7 @@ import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import FavoriteButton from '@/components/FavoriteButton.vue';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
@@ -540,6 +549,46 @@ function formatMessagePreview(value?: string): string {
   } catch {
     return value.substring(0, 100);
   }
+}
+
+// JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML
+function highlightJson(json: string): string {
+  if (!json) return '';
+
+  // 转义 HTML 特殊字符
+  let html = json
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 高亮字符串（包括键和字符串值）
+  html = html.replace(
+    /("(?:\\.|[^"\\])*")/g,
+    '<span class="json-string">$1</span>'
+  );
+
+  // 高亮数字
+  html = html.replace(
+    /:\s*(-?\d+\.?\d*)/g,
+    ': <span class="json-number">$1</span>'
+  );
+
+  // 高亮布尔值和 null
+  html = html.replace(
+    /:\s*(true|false|null)/g,
+    ': <span class="json-boolean">$1</span>'
+  );
+
+  // 高亮键名（在 : 前面的字符串）
+  html = html.replace(
+    /(<span class="json-string">)([^<]+)(<\/span>)(\s*:)/g,
+    '<span class="json-key">$2</span>$4'
+  );
+
+  // 高亮标点符号
+  html = html.replace(/([{}\[\],])/g, '<span class="json-punctuation">$1</span>');
+
+  return html;
 }
 
 function formatKeyValue(key: string): string {
@@ -1035,3 +1084,89 @@ onBeforeUnmount(() => {
   apiClient.cancelGetMessages();
 });
 </script>
+
+<style scoped>
+/* JSON 语法高亮样式 - 使用 :deep 穿透 scoped 限制 */
+:deep(.json-highlight .json-key) {
+  color: #9cdcfe;
+}
+
+:deep(.json-highlight .json-string) {
+  color: #ce9178;
+}
+
+:deep(.json-highlight .json-number) {
+  color: #b5cea8;
+}
+
+:deep(.json-highlight .json-boolean) {
+  color: #569cd6;
+}
+
+:deep(.json-highlight .json-punctuation) {
+  color: #d4d4d4;
+}
+
+:deep([data-theme="light"] .json-highlight .json-key) {
+  color: #2c7a7b;
+}
+
+:deep([data-theme="light"] .json-highlight .json-string) {
+  color: #b07d58;
+}
+
+:deep([data-theme="light"] .json-highlight .json-number) {
+  color: #2f855a;
+}
+
+:deep([data-theme="light"] .json-highlight .json-boolean) {
+  color: #2b6cb0;
+}
+
+:deep([data-theme="light"] .json-highlight .json-punctuation) {
+  color: #718096;
+}
+</style>
+
+<style>
+/* JSON 语法高亮样式 - 全局样式，用于 v-html 内容 */
+.json-highlight .json-key {
+  color: #9cdcfe;
+}
+
+.json-highlight .json-string {
+  color: #ce9178;
+}
+
+.json-highlight .json-number {
+  color: #b5cea8;
+}
+
+.json-highlight .json-boolean {
+  color: #569cd6;
+}
+
+.json-highlight .json-punctuation {
+  color: #d4d4d4;
+}
+
+[data-theme="light"] .json-highlight .json-key {
+  color: #2c7a7b;
+}
+
+[data-theme="light"] .json-highlight .json-string {
+  color: #b07d58;
+}
+
+[data-theme="light"] .json-highlight .json-number {
+  color: #2f855a;
+}
+
+[data-theme="light"] .json-highlight .json-boolean {
+  color: #2b6cb0;
+}
+
+[data-theme="light"] .json-highlight .json-punctuation {
+  color: #718096;
+}
+</style>
