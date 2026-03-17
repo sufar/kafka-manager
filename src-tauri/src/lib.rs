@@ -29,7 +29,7 @@ fn log(msg: &str) {
 }
 
 // 全局AppState存储
-static GLOBAL_APP_STATE: once_cell::sync::OnceCell<AppState> = once_cell::sync::OnceCell::new();
+static GLOBAL_APP_STATE: once_cell::sync::OnceCell<Arc<AppState>> = once_cell::sync::OnceCell::new();
 
 // 取消查询handles
 static CANCEL_HANDLES: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<()>>>>> =
@@ -243,20 +243,20 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     let auth = AuthMiddleware::new(vec![], false);
 
     // 构建应用状态
-    let state = AppState {
+    let state = Arc::new(AppState {
         db: pool,
         clients,
         config: config.clone(),
         auth,
         pools: kafka_pools,
         cache,
-    };
+    });
 
     // 存储到全局变量
-    let _ = GLOBAL_APP_STATE.set(Arc::new(state));
+    let _ = GLOBAL_APP_STATE.set(state.clone());
 
     // 创建路由
-    let app = create_router((*GLOBAL_APP_STATE.get().unwrap()).clone())
+    let app = create_router((**GLOBAL_APP_STATE.get().unwrap()).clone())
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::new(Duration::from_secs(60)))
         .layer(CompressionLayer::new())
@@ -339,7 +339,7 @@ async fn query_messages_sse(
     }
 
     // 获取AppState
-    let app_state: AppState = GLOBAL_APP_STATE.get()
+    let app_state: Arc<AppState> = GLOBAL_APP_STATE.get()
         .ok_or_else(|| "AppState not initialized".to_string())?
         .clone();
 
@@ -378,7 +378,7 @@ async fn query_messages_sse(
 /// 执行消息查询并发送事件
 async fn execute_message_query(
     window: &tauri::Window,
-    app_state: AppState,
+    app_state: Arc<AppState>,
     request: &MessageQueryRequest,
     cancel_rx: &mut tokio::sync::mpsc::Receiver<()>,
     query_id: &str,
