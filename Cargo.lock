@@ -2603,6 +2603,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "kafka-manager-api",
+ "once_cell",
  "rdkafka",
  "reqwest 0.12.28",
  "serde",

@@ -141,3 +141,13 @@ export interface SendMessageResponse {
   partition: number;
   offset: number;
 }
+
+// SSE 消息查询事件
+export interface MessageEvent {
+  type: 'message' | 'progress' | 'completed' | 'error' | 'cancelled';
+  data?: MessageRecord;
+  current?: number;
+  total?: number;
+  count?: number;
+  message?: string;
+}

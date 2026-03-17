@@ -15,10 +15,15 @@ import type {
   BatchDeleteTopicsResponse,
   HealthResponse,
   ApiError,
+  MessageRecord,
+  SendMessageRequest,
+  SendMessageResponse,
 } from '@/types/api';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 // 检测是否在 Tauri 环境下运行
-function isTauri(): boolean {
+export function isTauri(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
@@ -45,6 +50,8 @@ class ApiClient {
   private apiKey: string | null;
   private currentAbortController: AbortController | null = null;
   private backendReady: boolean | null = null;
+  private activeQueryId: string | null = null;
+  private unlistenFns: Map<string, UnlistenFn> = new Map();
 
   constructor(baseURL: string = getBaseURL(), apiKey: string | null = null) {
     this.baseURL = baseURL;
@@ -367,7 +374,7 @@ class ApiClient {
   async getMessages(clusterId: string, topic: string, params?: {
     partition?: number;
     offset?: number;
-    max_messages?: number;  // 每个分区最大获取消息数（从Kafka获取的最大数量）
+    max_messages?: number;
     order_by?: 'timestamp' | 'offset';
     sort?: 'asc' | 'desc';
     search?: string;
@@ -375,9 +382,21 @@ class ApiClient {
     start_time?: number;
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
-  }): Promise<import('@/types/api').MessageRecord[]> {
-    // 消息查询可能需要较长时间，设置 60 秒超时
-    const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
+  }): Promise<MessageRecord[]> {
+    // 在 Tauri 环境下，如果支持 SSE，则使用 SSE 方式
+    if (isTauri()) {
+      return new Promise((resolve, reject) => {
+        const messages: MessageRecord[] = [];
+        this.getMessagesSSE(clusterId, topic, params, {
+          onMessage: (msg) => messages.push(msg),
+          onCompleted: () => resolve(messages),
+          onError: (error) => reject(new Error(error)),
+        }).catch(reject);
+      });
+    }
+
+    // 非 Tauri 环境使用 HTTP API
+    const data = await this.request<{ messages: MessageRecord[] }>('message.list', {
       cluster_id: clusterId,
       topic,
       ...params
@@ -387,9 +406,142 @@ class ApiClient {
 
   cancelGetMessages() {
     this.cancelRequest();
+    // 同时取消 SSE 查询
+    if (this.activeQueryId) {
+      this.cancelMessageQuery(this.activeQueryId);
+    }
   }
 
-  async sendMessage(clusterId: string, topic: string, message: import('@/types/api').SendMessageRequest): Promise<import('@/types/api').SendMessageResponse> {
+  // 生成唯一查询ID
+  private generateQueryId(): string {
+    return `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // 取消消息查询（SSE 方式）
+  async cancelMessageQuery(queryId: string): Promise<void> {
+    try {
+      await invoke('cancel_message_query', { queryId });
+    } catch (e) {
+      console.warn('[ApiClient] Cancel message query failed:', e);
+    }
+    // 清理监听器
+    const unlisten = this.unlistenFns.get(queryId);
+    if (unlisten) {
+      unlisten();
+      this.unlistenFns.delete(queryId);
+    }
+    if (this.activeQueryId === queryId) {
+      this.activeQueryId = null;
+    }
+  }
+
+  // SSE 方式获取消息（支持实时流式返回）
+  async getMessagesSSE(
+    clusterId: string,
+    topic: string,
+    params: {
+      partition?: number;
+      offset?: number;
+      max_messages?: number;
+      order_by?: 'timestamp' | 'offset';
+      sort?: 'asc' | 'desc';
+      search?: string;
+      search_in?: 'key' | 'value' | 'all';
+      start_time?: number;
+      end_time?: number;
+      fetchMode?: 'oldest' | 'newest';
+    } = {},
+    callbacks: {
+      onMessage: (msg: MessageRecord) => void;
+      onProgress?: (current: number, total: number) => void;
+      onCompleted?: (count: number) => void;
+      onError?: (error: string) => void;
+    }
+  ): Promise<void> {
+    // 生成查询ID
+    const queryId = this.generateQueryId();
+    this.activeQueryId = queryId;
+
+    // 设置事件监听
+    const eventName = `message-query-${queryId}`;
+    const unlisten = await listen<MessageEvent>(eventName, (event) => {
+      const payload = event.payload;
+
+      switch (payload.event_type) {
+        case 'message':
+          if (payload.data) {
+            callbacks.onMessage(payload.data);
+          }
+          break;
+        case 'progress':
+          if (callbacks.onProgress && payload.current !== undefined && payload.total !== undefined) {
+            callbacks.onProgress(payload.current, payload.total);
+          }
+          break;
+        case 'completed':
+          if (callbacks.onCompleted && payload.count !== undefined) {
+            callbacks.onCompleted(payload.count);
+          }
+          // 清理
+          this.unlistenFns.get(queryId)?.();
+          this.unlistenFns.delete(queryId);
+          if (this.activeQueryId === queryId) {
+            this.activeQueryId = null;
+          }
+          break;
+        case 'error':
+          if (callbacks.onError && payload.message) {
+            callbacks.onError(payload.message);
+          }
+          // 清理
+          this.unlistenFns.get(queryId)?.();
+          this.unlistenFns.delete(queryId);
+          if (this.activeQueryId === queryId) {
+            this.activeQueryId = null;
+          }
+          break;
+        case 'cancelled':
+          // 查询被取消，清理
+          this.unlistenFns.get(queryId)?.();
+          this.unlistenFns.delete(queryId);
+          if (this.activeQueryId === queryId) {
+            this.activeQueryId = null;
+          }
+          break;
+      }
+    });
+
+    this.unlistenFns.set(queryId, unlisten);
+
+    // 调用 Tauri 命令开始查询
+    try {
+      await invoke('query_messages_sse', {
+        request: {
+          cluster_id: clusterId,
+          topic,
+          partition: params.partition,
+          offset: params.offset,
+          max_messages: params.max_messages,
+          start_time: params.start_time,
+          end_time: params.end_time,
+          search: params.search,
+          fetch_mode: params.fetchMode,
+          sort: params.sort,
+        },
+        queryId,
+      });
+    } catch (e) {
+      // 启动查询失败，清理监听器
+      unlisten();
+      this.unlistenFns.delete(queryId);
+      if (this.activeQueryId === queryId) {
+        this.activeQueryId = null;
+      }
+      throw e;
+    }
+  }
+
+  async sendMessage(clusterId: string, topic: string, message: SendMessageRequest): Promise<SendMessageResponse> {
     return this.request('message.send', {
       cluster_id: clusterId,
       topic,

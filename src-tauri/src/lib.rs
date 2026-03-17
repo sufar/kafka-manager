@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
@@ -15,13 +17,57 @@ use kafka_manager_api::{
     MetadataCache,
     AppState, create_router,
 };
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
+use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 /// 简单的日志函数，确保在 Windows 上也能看到输出
 fn log(msg: &str) {
     eprintln!("[KAFKA-MANAGER] {}", msg);
+}
+
+// 全局AppState存储
+static GLOBAL_APP_STATE: once_cell::sync::OnceCell<AppState> = once_cell::sync::OnceCell::new();
+
+// 取消查询handles
+static CANCEL_HANDLES: once_cell::sync::Lazy<Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<()>>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+// 消息查询SSE相关类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MessageQueryRequest {
+    cluster_id: String,
+    topic: String,
+    partition: Option<i32>,
+    offset: Option<i64>,
+    max_messages: Option<usize>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<String>,
+    sort: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MessageRecord {
+    partition: i32,
+    offset: i64,
+    key: Option<String>,
+    value: Option<String>,
+    timestamp: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MessageEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    data: Option<MessageRecord>,
+    current: Option<usize>,
+    total: Option<usize>,
+    count: Option<usize>,
+    message: Option<String>,
 }
 
 /// 启动后端服务器
@@ -206,8 +252,11 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         cache,
     };
 
+    // 存储到全局变量
+    let _ = GLOBAL_APP_STATE.set(Arc::new(state));
+
     // 创建路由
-    let app = create_router(state)
+    let app = create_router((*GLOBAL_APP_STATE.get().unwrap()).clone())
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::new(Duration::from_secs(60)))
         .layer(CompressionLayer::new())
@@ -263,6 +312,416 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// 取消消息查询
+#[tauri::command]
+async fn cancel_message_query(query_id: String) -> Result<bool, String> {
+    let mut handles = CANCEL_HANDLES.lock().await;
+    if let Some(sender) = handles.remove(&query_id) {
+        let _ = sender.send(()).await;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// 使用SSE方式查询Kafka消息
+#[tauri::command]
+async fn query_messages_sse(
+    window: tauri::Window,
+    request: MessageQueryRequest,
+    query_id: String,
+) -> Result<(), String> {
+    // 创建取消channel
+    let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+    {
+        let mut handles = CANCEL_HANDLES.lock().await;
+        handles.insert(query_id.clone(), cancel_tx);
+    }
+
+    // 获取AppState
+    let app_state: AppState = GLOBAL_APP_STATE.get()
+        .ok_or_else(|| "AppState not initialized".to_string())?
+        .clone();
+
+    // 在后台任务中执行查询
+    tokio::spawn(async move {
+        let result = execute_message_query(
+            &window,
+            app_state.clone(),
+            &request,
+            &mut cancel_rx,
+            &query_id,
+        ).await;
+
+        // 发送错误或完成事件
+        if let Err(e) = &result {
+            let event = MessageEvent {
+                event_type: "error".to_string(),
+                data: None,
+                current: None,
+                total: None,
+                count: None,
+                message: Some(e.clone()),
+            };
+            let _ = window.emit(&format!("message-query-{}", query_id), event);
+        }
+
+        // 从cancel_handles中移除
+        let _ = CANCEL_HANDLES.lock().await.remove(&query_id);
+
+        result
+    });
+
+    Ok(())
+}
+
+/// 执行消息查询并发送事件
+async fn execute_message_query(
+    window: &tauri::Window,
+    app_state: AppState,
+    request: &MessageQueryRequest,
+    cancel_rx: &mut tokio::sync::mpsc::Receiver<()>,
+    query_id: &str,
+) -> Result<(), String> {
+    use kafka_manager_api::db::cluster::ClusterStore;
+    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
+    use rdkafka::ClientConfig;
+
+    // 获取集群配置
+    let cluster = ClusterStore::get_by_name(app_state.db.inner(), &request.cluster_id)
+        .await
+        .map_err(|e| format!("数据库错误: {}", e))?
+        .ok_or_else(|| format!("集群 '{}' 不存在", request.cluster_id))?;
+
+    let brokers = cluster.brokers;
+    let max_messages = request.max_messages.unwrap_or(100);
+
+    // 创建consumer配置
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", &brokers);
+    cfg.set("group.id", &format!("kafka-mgr-query-{}", query_id));
+    cfg.set("enable.auto.commit", "false");
+    cfg.set("auto.offset.reset", "earliest");
+    cfg.set("session.timeout.ms", "3000");
+    cfg.set("heartbeat.interval.ms", "500");
+    cfg.set("fetch.min.bytes", "1");
+    cfg.set("fetch.wait.max.ms", "1");
+    cfg.set("fetch.max.bytes", "10485760");
+    cfg.set("max.partition.fetch.bytes", "10485760");
+    cfg.set("socket.nagle.disable", "true");
+    cfg.set("enable.partition.eof", "false");
+    cfg.set("connections.max.idle.ms", "540000");
+    cfg.set("reconnect.backoff.ms", "50");
+    cfg.set("reconnect.backoff.max.ms", "500");
+    cfg.set("socket.connection.setup.timeout.ms", "3000");
+    cfg.set("metadata.max.age.ms", "5000");
+    cfg.set("partition.assignment.strategy", "");
+    cfg.set("broker.address.family", "v4");
+
+    let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
+        .map_err(|e| format!("创建Consumer失败: {}", e))?;
+
+    // 获取分区列表
+    let partition_count: usize;
+    let partitions: Vec<i32> = if let Some(p) = request.partition {
+        partition_count = 1;
+        vec![p]
+    } else {
+        // 获取topic的所有分区
+        let metadata = consumer.fetch_metadata(Some(&request.topic), Duration::from_secs(5))
+            .map_err(|e| format!("获取元数据失败: {}", e))?;
+        let topic_metadata = metadata.topics()
+            .iter()
+            .find(|t| t.name() == request.topic)
+            .ok_or_else(|| format!("Topic '{}' 不存在", request.topic))?;
+        let parts: Vec<i32> = topic_metadata.partitions()
+            .iter()
+            .map(|p| p.id())
+            .collect();
+        partition_count = parts.len();
+        parts
+    };
+
+    if partitions.is_empty() {
+        let event = MessageEvent {
+            event_type: "completed".to_string(),
+            data: None,
+            current: None,
+            total: None,
+            count: Some(0),
+            message: None,
+        };
+        let _ = window.emit(&format!("message-query-{}", query_id), event);
+        return Ok(());
+    }
+
+    let total_count: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+    let search_lower: Option<String> = request.search.as_ref().map(|s| s.to_lowercase());
+    let fetch_mode: &str = request.fetch_mode.as_deref().unwrap_or("newest");
+    let topic_name: String = request.topic.clone();
+    let req_offset: Option<i64> = request.offset;
+    let req_start_time: Option<i64> = request.start_time;
+    let req_end_time: Option<i64> = request.end_time;
+
+    // 并行处理每个分区
+    let mut handles: Vec<tokio::task::JoinHandle<Result<(), String>>> = vec![];
+
+    for partition in &partitions {
+        let partition: i32 = *partition;
+        let window: tauri::Window = window.clone();
+        let query_id: String = query_id.to_string();
+        let topic: String = topic_name.clone();
+        let total_count: Arc<AtomicUsize> = total_count.clone();
+        let search_lower: Option<String> = search_lower.clone();
+        let brokers: String = brokers.clone();
+        let max_msgs: usize = max_messages / partition_count.max(1);
+        let offset: Option<i64> = req_offset;
+        let start_time: Option<i64> = req_start_time;
+        let end_time: Option<i64> = req_end_time;
+        let mode: String = fetch_mode.to_string();
+
+        let handle: tokio::task::JoinHandle<Result<(), String>> = tokio::spawn(async move {
+            let result: Result<(), String> = fetch_partition_messages_sse(
+                &window,
+                &brokers,
+                &topic,
+                partition,
+                max_msgs,
+                offset,
+                start_time,
+                end_time,
+                search_lower,
+                &mode,
+                &query_id,
+                total_count,
+            ).await;
+
+            if let Err(ref e) = result {
+                let event: MessageEvent = MessageEvent {
+                    event_type: "error".to_string(),
+                    data: None,
+                    current: None,
+                    total: None,
+                    count: None,
+                    message: Some(format!("分区 {} 查询失败: {}", partition, e)),
+                };
+                let _ = window.emit(&format!("message-query-{}", query_id), event);
+            }
+
+            result
+        });
+
+        handles.push(handle);
+    }
+
+    // 等待所有分区查询完成或取消信号
+    tokio::select! {
+        _ = async {
+            for handle in handles {
+                let _ = handle.await;
+            }
+        } => {
+            // 所有任务完成
+        }
+        _ = cancel_rx.recv() => {
+            // 收到取消信号
+            log(&format!("Message query {} cancelled", query_id));
+        }
+    }
+
+    // 发送完成事件
+    let count = total_count.load(Ordering::SeqCst);
+    let event = MessageEvent {
+        event_type: "completed".to_string(),
+        data: None,
+        current: None,
+        total: None,
+        count: Some(count),
+        message: None,
+    };
+    let _ = window.emit(&format!("message-query-{}", query_id), event);
+
+    Ok(())
+}
+
+/// 从单个分区获取消息并发送SSE事件
+async fn fetch_partition_messages_sse(
+    window: &tauri::Window,
+    brokers: &str,
+    topic: &str,
+    partition: i32,
+    max_messages: usize,
+    offset: Option<i64>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search_lower: Option<String>,
+    fetch_mode: &str,
+    query_id: &str,
+    total_count: Arc<AtomicUsize>,
+) -> Result<(), String> {
+    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
+    use rdkafka::Message;
+    use rdkafka::TopicPartitionList;
+    use rdkafka::ClientConfig;
+
+    // 创建consumer
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", brokers);
+    cfg.set("group.id", &format!("kafka-mgr-query-partition-{}", query_id));
+    cfg.set("enable.auto.commit", "false");
+    cfg.set("auto.offset.reset", "earliest");
+    cfg.set("session.timeout.ms", "3000");
+    cfg.set("fetch.min.bytes", "1");
+    cfg.set("fetch.wait.max.ms", "1");
+    cfg.set("broker.address.family", "v4");
+
+    let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
+        .map_err(|e| format!("创建Consumer失败: {}", e))?;
+
+    // 计算起始offset
+    let start_offset = if let Some(off) = offset {
+        off
+    } else if let Some(ts) = start_time {
+        // 根据时间戳查找offset
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(ts))
+            .map_err(|e| e.to_string())?;
+
+        let result = consumer.offsets_for_times(tpl, Duration::from_secs(5))
+            .map_err(|e| format!("时间戳查询失败: {}", e))?;
+
+        result.elements()
+            .iter()
+            .find(|e| e.topic() == topic && e.partition() == partition)
+            .and_then(|e| match e.offset() {
+                rdkafka::Offset::Offset(o) => Some(o),
+                _ => None,
+            })
+            .unwrap_or(0)
+    } else if fetch_mode == "newest" {
+        // 获取最新消息，计算起始offset
+        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
+            Ok((low, high)) => {
+                let start = std::cmp::max(low, high - max_messages as i64);
+                start
+            }
+            Err(_) => 0,
+        }
+    } else {
+        // 从最早开始
+        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
+            Ok((low, _)) => low,
+            Err(_) => 0,
+        }
+    };
+
+    // 分配分区
+    let mut tpl = TopicPartitionList::new();
+    let seek_offset = if start_offset < 0 {
+        rdkafka::Offset::Beginning
+    } else {
+        rdkafka::Offset::Offset(start_offset)
+    };
+    tpl.add_partition_offset(topic, partition, seek_offset)
+        .map_err(|e| e.to_string())?;
+    consumer.assign(&tpl).map_err(|e| e.to_string())?;
+
+    // 计算结束offset（用于 newest 模式）
+    let end_offset = if fetch_mode == "newest" {
+        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
+            Ok((_, high)) => Some(high),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let mut messages_sent = 0usize;
+    let timeout = Duration::from_millis(100);
+    let mut consecutive_timeouts = 0;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
+
+    loop {
+        if messages_sent >= max_messages {
+            break;
+        }
+
+        match consumer.poll(timeout) {
+            Some(Ok(msg)) => {
+                consecutive_timeouts = 0;
+
+                let msg_partition = msg.partition();
+                let msg_offset = msg.offset();
+
+                // 检查是否超过结束offset
+                if let Some(end) = end_offset {
+                    if fetch_mode == "newest" && msg_offset >= end {
+                        break;
+                    }
+                }
+
+                // 检查时间戳
+                if let Some(end_ts) = end_time {
+                    if let Some(ts) = msg.timestamp().to_millis() {
+                        if ts > end_ts {
+                            break;
+                        }
+                    }
+                }
+
+                let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
+                let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
+                let timestamp = msg.timestamp().to_millis();
+
+                // 搜索过滤
+                if let Some(ref search) = search_lower {
+                    let key_match = key.as_ref().map(|k| k.to_lowercase().contains(search)).unwrap_or(false);
+                    let value_match = value.as_ref().map(|v| v.to_lowercase().contains(search)).unwrap_or(false);
+                    if !key_match && !value_match {
+                        continue;
+                    }
+                }
+
+                let record = MessageRecord {
+                    partition: msg_partition,
+                    offset: msg_offset,
+                    key,
+                    value,
+                    timestamp,
+                };
+
+                // 发送消息事件
+                let event = MessageEvent {
+                    event_type: "message".to_string(),
+                    data: Some(record),
+                    current: None,
+                    total: None,
+                    count: None,
+                    message: None,
+                };
+                let _ = window.emit(&format!("message-query-{}", query_id), event);
+
+                messages_sent += 1;
+                total_count.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(Err(_)) => {
+                consecutive_timeouts += 1;
+                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    break;
+                }
+            }
+            None => {
+                consecutive_timeouts += 1;
+                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn run() {
     log("Tauri application starting...");
 
@@ -316,7 +775,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, query_messages_sse, cancel_message_query])
         .setup(|app| {
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;

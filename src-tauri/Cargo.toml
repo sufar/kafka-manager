@@ -43,3 +43,6 @@ dirs = "5"
 
 # Lock-free Arc for AppState
 arc-swap = "1.7"
+
+# Lazy static
+once_cell = "1"

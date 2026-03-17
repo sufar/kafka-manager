@@ -285,7 +285,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
-import { apiClient } from '@/api/client';
+import { apiClient, isTauri } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
 const route = useRoute();
@@ -359,7 +359,9 @@ async function queryMessages() {
 
   loading.value = true;
   error.value = '';
+  messages.value = []; // 清空旧消息，准备接收新消息
   const startTime = performance.now();
+  let receivedCount = 0;
 
   try {
     const params: any = {
@@ -377,27 +379,62 @@ async function queryMessages() {
       params.search_in = 'value';
     }
 
-    const result = await apiClient.getMessages(
-      selectedCluster.value,
-      selectedTopic.value,
-      params
-    );
+    // 在 Tauri 环境下使用 SSE 方式，实现边查边显示
+    if (isTauri()) {
+      await apiClient.getMessagesSSE(
+        selectedCluster.value,
+        selectedTopic.value,
+        params,
+        {
+          onMessage: (msg) => {
+            // 实时添加消息到列表
+            messages.value.push({
+              partition: msg.partition,
+              offset: msg.offset,
+              key: msg.key ?? null,
+              value: msg.value ?? null,
+              timestamp: msg.timestamp ?? null,
+              uid: `${msg.partition}-${msg.offset}-${receivedCount++}`,
+            });
+          },
+          onProgress: (current, total) => {
+            // 可以在这里更新进度（如果需要）
+            console.debug(`[MessageQuery] Progress: ${current}/${total}`);
+          },
+          onCompleted: (count) => {
+            lastQueryTime.value = Math.round(performance.now() - startTime);
+            loading.value = false;
+            console.debug(`[MessageQuery] Completed: ${count} messages`);
+          },
+          onError: (errMsg) => {
+            error.value = errMsg;
+            loading.value = false;
+          },
+        }
+      );
+    } else {
+      // 非 Tauri 环境使用传统 HTTP API
+      const result = await apiClient.getMessages(
+        selectedCluster.value,
+        selectedTopic.value,
+        params
+      );
 
-    messages.value = result.map((msg: any, index: number) => ({
-      partition: msg.partition,
-      offset: msg.offset,
-      key: msg.key,
-      value: msg.value,
-      timestamp: msg.timestamp,
-      uid: `${msg.partition}-${msg.offset}-${index}`,
-    }));
+      messages.value = result.map((msg: any, index: number) => ({
+        partition: msg.partition,
+        offset: msg.offset,
+        key: msg.key,
+        value: msg.value,
+        timestamp: msg.timestamp,
+        uid: `${msg.partition}-${msg.offset}-${index}`,
+      }));
 
-    lastQueryTime.value = Math.round(performance.now() - startTime);
+      lastQueryTime.value = Math.round(performance.now() - startTime);
+      loading.value = false;
+    }
   } catch (e: any) {
     console.error('Query failed:', e);
     error.value = e.message || '查询失败';
-    messages.value = [];
-  } finally {
     loading.value = false;
   }
 }
