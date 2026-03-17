@@ -143,7 +143,7 @@ export interface SendMessageResponse {
 }
 
 // SSE 消息查询事件
-export interface MessageEvent {
+export interface KafkaMessageEvent {
   type: 'message' | 'progress' | 'completed' | 'error' | 'cancelled';
   data?: MessageRecord;
   current?: number;

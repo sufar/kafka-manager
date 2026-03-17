@@ -18,6 +18,7 @@ import type {
   MessageRecord,
   SendMessageRequest,
   SendMessageResponse,
+  KafkaMessageEvent,
 } from '@/types/api';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -464,10 +465,10 @@ class ApiClient {
 
     // 设置事件监听
     const eventName = `message-query-${queryId}`;
-    const unlisten = await listen<MessageEvent>(eventName, (event) => {
+    const unlisten = await listen<KafkaMessageEvent>(eventName, (event) => {
       const payload = event.payload;
 
-      switch (payload.event_type) {
+      switch (payload.type) {
         case 'message':
           if (payload.data) {
             callbacks.onMessage(payload.data);
