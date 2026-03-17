@@ -125,42 +125,44 @@
       </div>
 
       <!-- Mobile Card View with Virtual Scroll -->
-      <RecycleScroller
-        v-if="messages.length > 0"
-        ref="scrollerRef"
-        class="md:hidden overflow-auto p-2 pb-20"
-        :items="messages"
-        :item-size="70"
-        key-field="uid"
-        :buffer="100"
-        v-slot="{ item }"
-      >
-        <div
-          class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-2 cursor-pointer"
-          :class="{ 'bg-primary/20 border-primary/50': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
-          style="height: 62px;"
-          @click="selectedMessage = (item as any)"
+      <div class="md:hidden flex flex-col h-full">
+        <RecycleScroller
+          v-if="messages.length > 0"
+          ref="scrollerRefMobile"
+          class="flex-1 overflow-auto p-2 pb-20"
+          :items="messages"
+          :item-size="70"
+          key-field="uid"
+          :buffer="100"
+          v-slot="{ item }"
         >
-          <div class="flex items-center justify-between mb-1">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-ghost badge-xs">P{{ getMsgPartition(item) }}</span>
-              <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
+          <div
+            class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-2 cursor-pointer"
+            :class="{ 'bg-primary/20 border-primary/50': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
+            style="height: 62px;"
+            @click="selectedMessage = (item as any)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-ghost badge-xs">P{{ getMsgPartition(item) }}</span>
+                <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
+              </div>
+              <span class="text-xs text-base-content/50">{{ formatTime(getMsgTimestamp(item)) }}</span>
             </div>
-            <span class="text-xs text-base-content/50">{{ formatTime(getMsgTimestamp(item)) }}</span>
+            <div v-if="getMsgKey(item)" class="text-xs font-mono text-secondary mb-1 truncate">
+              Key: {{ getMsgKey(item) }}
+            </div>
+            <div class="text-xs font-mono truncate text-base-content/80">
+              {{ truncate(getMsgValue(item), 100) }}
+            </div>
           </div>
-          <div v-if="getMsgKey(item)" class="text-xs font-mono text-secondary mb-1 truncate">
-            Key: {{ getMsgKey(item) }}
-          </div>
-          <div class="text-xs font-mono truncate text-base-content/80">
-            {{ truncate(getMsgValue(item), 100) }}
-          </div>
+        </RecycleScroller>
+        <div v-else-if="messages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50 p-2">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
+          </svg>
+          <span>{{ t.messages.noMessages }}</span>
         </div>
-      </RecycleScroller>
-      <div v-else-if="messages.length === 0 && !loading" class="md:hidden h-full flex flex-col items-center justify-center text-base-content/50 p-2">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
-        </svg>
-        <span>{{ t.messages.noMessages }}</span>
       </div>
     </div>
 
@@ -482,10 +484,8 @@ async function handleSendMessage(keepOpen: boolean) {
         messageForm.value.value = '';
         closeSendModal();
       }, 500);
-    } else {
-      // 只清空 value，保留 key 和 partition
-      messageForm.value.value = '';
     }
+    // keepOpen 为 true 时不清空任何内容，方便重复发送相同消息
   } catch (e) {
     console.error('Failed to send message:', e);
   } finally {
