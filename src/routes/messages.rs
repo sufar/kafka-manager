@@ -36,12 +36,14 @@ pub async fn fetch_messages_with_pool(
     );
 
     // 从 pool 获取 consumer
+    let pool_get_start = std::time::Instant::now();
     let consumer: deadpool::managed::Object<crate::pool::kafka_consumer::KafkaConsumerManager> =
         pool.get().await.map_err(|e| {
             AppError::Internal(format!("Failed to get consumer from pool: {}", e))
         })?;
+    let pool_get_elapsed = pool_get_start.elapsed();
 
-    tracing::debug!("[PoolQuery] Got consumer from pool");
+    tracing::info!("[PoolQuery] Got consumer from pool in {:?}", pool_get_elapsed);
 
     // 获取分区列表
     let partitions: Vec<i32> = {
@@ -75,6 +77,7 @@ pub async fn fetch_messages_with_pool(
     );
 
     // 使用 spawn_blocking 在同步上下文中执行消费逻辑
+    let blocking_start = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {
         // 优化：预获取所有分区的 watermark
         let mut partition_watermarks: HashMap<i32, (i64, i64)> = HashMap::new();
@@ -143,10 +146,13 @@ pub async fn fetch_messages_with_pool(
             tpl.add_partition_offset(&topic, part_id, assign_offset).ok();
         }
 
+        let assign_start = std::time::Instant::now();
         if let Err(e) = consumer.assign(&tpl) {
             tracing::error!("[Pool] Failed to assign partitions: {}", e);
             return Vec::new();
         }
+        let assign_elapsed = assign_start.elapsed();
+        tracing::info!("[Pool] Assigned {} partitions in {:?}", partitions.len(), assign_elapsed);
 
         let search_lower = search.as_ref().map(|s| s.to_lowercase());
         let is_desc = sort.as_deref() == Some("desc")
@@ -272,9 +278,11 @@ pub async fn fetch_messages_with_pool(
         );
 
         // 清理：unassign 分区，确保 consumer 可以安全归还 pool
+        let unassign_start = std::time::Instant::now();
         if let Err(e) = consumer.unassign() {
             tracing::warn!("[Pool] Failed to unassign consumer: {}", e);
         }
+        tracing::info!("[Pool] Unassign took {:?}", unassign_start.elapsed());
 
         // 第二步：搜索过滤
         let filtered = if let Some(term) = search_lower {
@@ -312,9 +320,11 @@ pub async fn fetch_messages_with_pool(
     .map_err(|e| AppError::Internal(format!("Spawn blocking error: {:?}", e)))?;
 
     tracing::info!(
-        "[PoolQuery] Fetched {} messages in {:?}",
+        "[PoolQuery] Fetched {} messages in {:?} (pool_get: {:?}, blocking_task: {:?})",
         result.len(),
-        start_time_total.elapsed()
+        start_time_total.elapsed(),
+        pool_get_elapsed,
+        blocking_start.elapsed()
     );
     Ok(result)
 }
