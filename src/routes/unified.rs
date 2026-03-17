@@ -1568,15 +1568,17 @@ fn fetch_partition_messages_parallel(
         }
     };
 
-    // 计算起始 offset
-    let start_offset = match calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, fetch_mode.as_deref()) {
-        Ok(o) => o,
+    // 计算时间范围 offset 信息
+    let time_range = match calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, end_time, fetch_mode.as_deref()) {
+        Ok(tr) => tr,
         Err(e) => {
             tracing::error!("[Parallel] Failed to calculate offset for partition {}: {}", partition, e);
             return Vec::new();
         }
     };
-    tracing::info!("[Parallel] Partition {} start_offset: {}", partition, start_offset);
+    let start_offset = time_range.start_offset;
+    let time_range_end = time_range.end_offset;
+    tracing::info!("[Parallel] Partition {} start_offset: {}, end_offset: {}", partition, start_offset, time_range_end);
 
     // 分配到指定分区
     let mut tpl = TopicPartitionList::new();
@@ -1619,7 +1621,10 @@ fn fetch_partition_messages_parallel(
     }
 
     // 计算结束 offset
-    let end_offset = if fetch_mode.as_deref() == Some("newest") {
+    // 如果有时间范围，使用 time_range_end 作为边界
+    let end_offset = if time_range_end > 0 {
+        Some(time_range_end + 1) // +1 因为检查使用的是 >=
+    } else if fetch_mode.as_deref() == Some("newest") {
         match consumer.fetch_watermarks(&topic, partition, Duration::from_secs(5)) {
             Ok((_, high)) if high > 0 => Some(high),
             Err(e) => {
@@ -1715,7 +1720,112 @@ fn fetch_partition_messages_parallel(
     messages
 }
 
+/// 时间范围信息
+#[derive(Debug, Clone)]
+struct TimeRangeInfo {
+    /// 时间范围起始 offset（对应 start_time）
+    start_offset: i64,
+    /// 时间范围结束 offset（对应 end_time，如果未指定则为 high watermark - 1）
+    end_offset: i64,
+    /// 分区的 low watermark
+    low_watermark: i64,
+    /// 分区的 high watermark
+    high_watermark: i64,
+}
+
+/// 计算分区的时间范围 offset 信息
+/// 返回 (start_offset, end_offset) 以及 watermark 信息
+fn calculate_time_range_offsets(
+    consumer: &rdkafka::consumer::BaseConsumer,
+    topic: &str,
+    partition: i32,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+) -> Result<TimeRangeInfo> {
+    use rdkafka::consumer::Consumer;
+    use rdkafka::TopicPartitionList;
+    use std::time::Duration;
+
+    // 获取 watermark
+    let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))
+        .unwrap_or((0, 0));
+    let high_offset = high.saturating_sub(1).max(0);
+
+    // 查询 start_time 对应的 offset
+    let start_offset = if let Some(start_time) = start_time {
+        if start_time > 0 {
+            let mut tpl = TopicPartitionList::new();
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_time)).ok();
+            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
+                Ok(r) => {
+                    let mut found_offset = low;
+                    for elem in r.elements_for_topic(topic) {
+                        if elem.partition() == partition {
+                            if let Some(offset) = elem.offset().to_raw() {
+                                tracing::info!("[calculate_time_range_offsets] start_time={} -> offset={} on partition {}",
+                                    start_time, offset, partition);
+                                // 确保不小于 low watermark
+                                found_offset = offset.max(low);
+                                break;
+                            }
+                        }
+                    }
+                    found_offset
+                }
+                Err(_) => low,
+            }
+        } else {
+            low
+        }
+    } else {
+        low
+    };
+
+    // 查询 end_time 对应的 offset
+    let end_offset = if let Some(end_time) = end_time {
+        if end_time > 0 {
+            let mut tpl = TopicPartitionList::new();
+            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(end_time)).ok();
+            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
+                Ok(r) => {
+                    let mut found_offset = high_offset;
+                    for elem in r.elements_for_topic(topic) {
+                        if elem.partition() == partition {
+                            if let Some(offset) = elem.offset().to_raw() {
+                                // end_time 对应的 offset 是大于等于该时间的第一条消息
+                                // 所以时间范围的有效结束 offset 是 offset - 1
+                                let effective_end = offset.saturating_sub(1);
+                                tracing::info!("[calculate_time_range_offsets] end_time={} -> raw_offset={}, effective_end={} on partition {}",
+                                    end_time, offset, effective_end, partition);
+                                // 确保不超过 high watermark
+                                found_offset = effective_end.min(high_offset);
+                                break;
+                            }
+                        }
+                    }
+                    found_offset
+                }
+                Err(_) => high_offset,
+            }
+        } else {
+            high_offset
+        }
+    } else {
+        high_offset
+    };
+
+    Ok(TimeRangeInfo {
+        start_offset,
+        end_offset,
+        low_watermark: low,
+        high_watermark: high,
+    })
+}
+
 /// 计算分区的起始 offset
+/// 当同时指定了时间范围和 fetch_mode 时：
+/// - oldest: 从时间范围的 start_offset 开始，向前读取
+/// - newest: 从时间范围的 end_offset 开始，向后读取（需要 reverse seek）
 fn calculate_partition_offset(
     consumer: &rdkafka::consumer::BaseConsumer,
     topic: &str,
@@ -1723,49 +1833,74 @@ fn calculate_partition_offset(
     max_messages: usize,
     offset: Option<i64>,
     start_time: Option<i64>,
+    end_time: Option<i64>,
     fetch_mode: Option<&str>,
-) -> Result<i64> {
+) -> Result<TimeRangeInfo> {
     use rdkafka::consumer::Consumer;
-    use rdkafka::TopicPartitionList;
     use std::time::Duration;
 
     // 如果用户指定了特定 offset，优先使用
     if let Some(off) = offset {
         if off >= 0 {
             tracing::info!("[calculate_partition_offset] Using user-specified offset: {}", off);
-            return Ok(off);
+            // 获取 watermark 来构建 TimeRangeInfo
+            let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))
+                .unwrap_or((0, 0));
+            return Ok(TimeRangeInfo {
+                start_offset: off,
+                end_offset: high.saturating_sub(1).max(0),
+                low_watermark: low,
+                high_watermark: high,
+            });
         }
     }
 
-    if let Some(time) = start_time {
-        if time > 0 {
-            let time_calc_start = std::time::Instant::now();
-            let mut tpl = TopicPartitionList::new();
-            tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(time)).ok();
-            tracing::info!("[calculate_partition_offset] Querying offset for time {} on partition {}", time, partition);
-            // 优化：减少超时时间到 3 秒，避免长时间等待
-            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
-                Ok(r) => {
-                    let elapsed = time_calc_start.elapsed();
-                    let elements = r.elements_for_topic(topic);
-                    for elem in elements {
-                        if elem.partition() == partition {
-                            if let Some(offset) = elem.offset().to_raw() {
-                                tracing::info!("[calculate_partition_offset] Using time-based offset: {} for time {}, took {:?}", offset, time, elapsed);
-                                return Ok(offset);
-                            }
-                        }
-                    }
-                    tracing::warn!("[calculate_partition_offset] No offset found for time {} on partition {}, will try fetch_mode fallback", time, partition);
-                }
-                Err(e) => {
-                    tracing::error!("[calculate_partition_offset] Failed to get offset for time {} on partition {}: {}, will try fetch_mode fallback", time, partition, e);
-                }
+    // 计算时间范围 offset
+    let time_range = calculate_time_range_offsets(consumer, topic, partition, start_time, end_time)?;
+
+    // 如果指定了时间范围，根据 fetch_mode 决定起始位置
+    let has_time_range = start_time.is_some() || end_time.is_some();
+
+    if has_time_range {
+        match fetch_mode {
+            Some("newest") => {
+                // newest 模式：从 end_offset 开始，向后读取
+                // 需要在时间范围 [start_offset, end_offset] 内从后往前取 max_messages 条
+                let range_size = time_range.end_offset.saturating_sub(time_range.start_offset) + 1;
+                let messages_to_fetch = (max_messages as i64).min(range_size);
+                let actual_start = time_range.end_offset.saturating_sub(messages_to_fetch - 1)
+                    .max(time_range.start_offset);
+
+                tracing::info!(
+                    "[calculate_partition_offset] fetch_mode=newest with time range: start_offset={}, end_offset={}, range_size={}, messages_to_fetch={}, actual_start={}",
+                    time_range.start_offset, time_range.end_offset, range_size, messages_to_fetch, actual_start
+                );
+
+                return Ok(TimeRangeInfo {
+                    start_offset: actual_start,
+                    end_offset: time_range.end_offset,
+                    low_watermark: time_range.low_watermark,
+                    high_watermark: time_range.high_watermark,
+                });
             }
-            // 时间戳查询失败，继续执行 fetch_mode 逻辑（newest/oldest）
+            Some("oldest") | _ => {
+                // oldest 模式：从 start_offset 开始，向前读取
+                tracing::info!(
+                    "[calculate_partition_offset] fetch_mode=oldest with time range: start_offset={}, end_offset={}",
+                    time_range.start_offset, time_range.end_offset
+                );
+
+                return Ok(TimeRangeInfo {
+                    start_offset: time_range.start_offset,
+                    end_offset: time_range.end_offset,
+                    low_watermark: time_range.low_watermark,
+                    high_watermark: time_range.high_watermark,
+                });
+            }
         }
     }
 
+    // 没有时间范围，使用传统的 fetch_mode 逻辑
     match fetch_mode {
         Some("newest") | None => {
             match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
@@ -1774,24 +1909,49 @@ fn calculate_partition_offset(
                     let start = latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low);
                     tracing::info!("[calculate_partition_offset] fetch_mode={:?}, watermarks=({}, {}), start_offset={}, latest={}, max_messages={}",
                                    fetch_mode, low, high, start, latest, max_messages);
-                    Ok(start)
+                    Ok(TimeRangeInfo {
+                        start_offset: start,
+                        end_offset: latest,
+                        low_watermark: low,
+                        high_watermark: high,
+                    })
                 }
                 _ => {
                     tracing::info!("[calculate_partition_offset] watermarks invalid or high=0, using offset 0");
-                    Ok(0)
+                    Ok(TimeRangeInfo {
+                        start_offset: 0,
+                        end_offset: 0,
+                        low_watermark: 0,
+                        high_watermark: 0,
+                    })
                 }
             }
         }
         Some("oldest") => {
             match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-                Ok((low, _)) => {
+                Ok((low, high)) => {
                     tracing::info!("[calculate_partition_offset] fetch_mode=oldest, watermark low={}, using offset {}", low, low);
-                    Ok(low)
+                    Ok(TimeRangeInfo {
+                        start_offset: low,
+                        end_offset: high.saturating_sub(1).max(0),
+                        low_watermark: low,
+                        high_watermark: high,
+                    })
                 }
-                Err(_) => Ok(0),
+                Err(_) => Ok(TimeRangeInfo {
+                    start_offset: 0,
+                    end_offset: 0,
+                    low_watermark: 0,
+                    high_watermark: 0,
+                }),
             }
         }
-        _ => Ok(0),
+        _ => Ok(TimeRangeInfo {
+            start_offset: 0,
+            end_offset: 0,
+            low_watermark: 0,
+            high_watermark: 0,
+        }),
     }
 }
 
@@ -1983,12 +2143,12 @@ async fn fetch_messages_local(
             // 构建 TopicPartitionList，直接在 assign 时指定 offset
             let mut tpl = TopicPartitionList::new();
             for &part_id in &partitions {
-                let start_offset = calculate_partition_offset(&consumer, &topic, part_id, max_messages, effective_offset, start_time, fetch_mode.as_deref())
-                    .unwrap_or(0);
-                let assign_offset = if start_offset < 0 {
+                let time_range = calculate_partition_offset(&consumer, &topic, part_id, max_messages, effective_offset, start_time, end_time, fetch_mode.as_deref())
+                    .unwrap_or(TimeRangeInfo { start_offset: 0, end_offset: 0, low_watermark: 0, high_watermark: 0 });
+                let assign_offset = if time_range.start_offset < 0 {
                     rdkafka::Offset::Beginning
                 } else {
-                    rdkafka::Offset::Offset(start_offset)
+                    rdkafka::Offset::Offset(time_range.start_offset)
                 };
                 tpl.add_partition_offset(&topic, part_id, assign_offset).ok();
             }
@@ -2280,33 +2440,55 @@ async fn fetch_messages_remote(
         }
 
         for &part_id in &partitions {
-            // 首先尝试使用批量查询得到的时间戳 offset
-            let start_offset = time_based_offsets.get(&part_id).copied();
-            if start_offset.is_some() {
-                tracing::info!("[Remote] Using time-based offset: {} for partition {}", start_offset.unwrap(), part_id);
-            }
+            let (low, high) = watermark_cache.get(&part_id).copied().unwrap_or((0, 0));
 
-            // 如果时间戳查询失败或未指定时间戳，根据 fetch_mode 计算 offset
-            let start_offset = start_offset.unwrap_or_else(|| {
-                if let Some(off) = offset_owned {
-                    off
-                } else if fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none() {
-                    watermark_cache.get(&part_id)
-                        .map(|(low, high)| {
-                            if *high > 0 {
-                                let latest = high.saturating_sub(1);
-                                latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(*low)
-                            } else {
-                                *low
-                            }
-                        })
-                        .unwrap_or(0)
-                } else if fetch_mode_owned.as_deref() == Some("oldest") {
-                    watermark_cache.get(&part_id).map(|(low, _)| *low).unwrap_or(0)
-                } else {
-                    0
+            // 获取时间范围对应的 offset
+            let time_start_offset = time_based_offsets.get(&part_id).copied();
+            let time_end_offset = time_range_end_offsets.get(&part_id).copied();
+
+            // 判断是否有有效的时间范围
+            let has_time_range = time_start_offset.is_some() || time_end_offset.is_some();
+            let time_start = time_start_offset.unwrap_or(low);
+            let time_end = time_end_offset.unwrap_or(high.saturating_sub(1).max(low));
+
+            // 计算起始 offset
+            let start_offset = if let Some(off) = offset_owned {
+                // 如果明确指定了 offset，使用指定的 offset
+                off
+            } else if has_time_range {
+                // 有时间范围：根据 fetch_mode 决定在时间范围内的起始位置
+                match fetch_mode_owned.as_deref() {
+                    Some("newest") => {
+                        // newest 模式：从时间范围的末尾往前推 max_messages 条
+                        let range_size = time_end.saturating_sub(time_start) + 1;
+                        let messages_to_fetch = (max_messages as i64).min(range_size);
+                        time_end.saturating_sub(messages_to_fetch - 1).max(time_start)
+                    }
+                    Some("oldest") | None => {
+                        // oldest 模式（默认）：从时间范围的开头开始
+                        time_start
+                    }
+                    _ => time_start,
                 }
-            });
+            } else if fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none() {
+                // 无时间范围，newest 模式：从分区末尾往前推
+                if high > 0 {
+                    let latest = high.saturating_sub(1);
+                    latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low)
+                } else {
+                    low
+                }
+            } else if fetch_mode_owned.as_deref() == Some("oldest") {
+                // 无时间范围，oldest 模式：从分区开头开始
+                low
+            } else {
+                low
+            };
+
+            if time_start_offset.is_some() || time_end_offset.is_some() {
+                tracing::info!("[Remote] Partition {} time range: start_offset={:?}, end_offset={:?}, calculated start={}",
+                    part_id, time_start_offset, time_end_offset, start_offset);
+            }
 
             tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_offset))
                 .map_err(|e| AppError::Internal(format!("Failed to set offset: {}", e)))?;
