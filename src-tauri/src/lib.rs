@@ -475,19 +475,41 @@ async fn execute_message_query(
         let total_count: Arc<AtomicUsize> = total_count.clone();
         let search_lower: Option<String> = search_lower.clone();
         let brokers: String = brokers.clone();
-        let max_msgs: usize = max_messages;
+        let max_messages: usize = max_messages;
         let offset: Option<i64> = req_offset;
         let start_time: Option<i64> = req_start_time;
         let end_time: Option<i64> = req_end_time;
         let mode: String = fetch_mode.to_string();
 
         let handle: tokio::task::JoinHandle<Result<(), String>> = tokio::spawn(async move {
+            // 检查是否已取消
+            {
+                let cancel_handles = CANCEL_HANDLES.lock().await;
+                if !cancel_handles.contains_key(&query_id) {
+                    return Ok(());
+                }
+            }
+
+            // 获取当前已发送的消息数
+            let current_count = total_count.load(Ordering::SeqCst);
+            if current_count >= max_messages {
+                return Ok(());
+            }
+
+            // 计算该分区实际可以发送的消息数
+            let remaining = max_messages - current_count;
+            let partition_quota = remaining;
+
+            if partition_quota == 0 {
+                return Ok(());
+            }
+
             let result: Result<(), String> = fetch_partition_messages_sse(
                 &window,
                 &brokers,
                 &topic,
                 partition,
-                max_msgs,
+                partition_quota,
                 offset,
                 start_time,
                 end_time,
