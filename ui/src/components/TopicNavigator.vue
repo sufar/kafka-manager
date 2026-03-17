@@ -73,7 +73,7 @@
       <RecycleScroller
         v-else
         :key="scrollerKey"
-        class="h-full overflow-auto pb-20"
+        class="h-full overflow-auto"
         :items="filteredTopicsWithUid"
         :item-size="28"
         key-field="uid"
