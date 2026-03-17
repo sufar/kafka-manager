@@ -152,6 +152,23 @@ export const useClusterConnectionStore = defineStore('clusterConnections', () =>
     error.value = null;
   }
 
+  function updateConnectionStatus(clusterId: string, status: string, errorMessage?: string) {
+    const index = connections.value.findIndex((c) => c.cluster_id === clusterId);
+    if (index !== -1) {
+      connections.value[index] = {
+        cluster_id: clusterId,
+        status,
+        error_message: errorMessage,
+      };
+    } else {
+      connections.value.push({
+        cluster_id: clusterId,
+        status,
+        error_message: errorMessage,
+      });
+    }
+  }
+
   return {
     connections,
     loading,
@@ -173,5 +190,6 @@ export const useClusterConnectionStore = defineStore('clusterConnections', () =>
     getConnectionStatus,
     isClusterConnected,
     clearError,
+    updateConnectionStatus,
   };
 });

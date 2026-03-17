@@ -451,7 +451,17 @@ async function testConnection(id: number) {
   testing.value.add(id);
   try {
     const result = await clusterStore.testCluster(id);
-    // 测试后刷新连接状态
+    // 获取集群名称
+    const cluster = clusters.value.find((c) => c.id === id);
+    if (cluster) {
+      // 立即更新 connectionStore 中的状态，让 UI 立即反映
+      if (result.success) {
+        connectionStore.updateConnectionStatus(cluster.name, 'connected');
+      } else {
+        connectionStore.updateConnectionStatus(cluster.name, 'error', result.error);
+      }
+    }
+    // 然后刷新所有连接状态
     await connectionStore.fetchAllConnections();
     if (result.success) {
       showSuccess(t.value.clusters.connected);
@@ -459,6 +469,10 @@ async function testConnection(id: number) {
       showError(t.value.clusters.connectionError);
     }
   } catch (e) {
+    const cluster = clusters.value.find((c) => c.id === id);
+    if (cluster) {
+      connectionStore.updateConnectionStatus(cluster.name, 'error', (e as { message: string }).message);
+    }
     // 测试失败后也要刷新连接状态
     await connectionStore.fetchAllConnections();
     showError(`${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);

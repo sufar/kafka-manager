@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
@@ -191,9 +191,20 @@ const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
+const isUnmounted = ref(false);
 
 // Debounce timer
 let searchTimer: number | null = null;
+
+// Cleanup on unmount to prevent blocking navigation
+onUnmounted(() => {
+  isUnmounted.value = true;
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+  }
+  // Cancel any pending API requests
+  apiClient.cancelRequest();
+});
 
 // Filtered topics - search only (cluster filtering is done on backend)
 const filteredTopics = computed(() => {
@@ -221,6 +232,7 @@ function getClusterHealth(clusterName: string) {
 
 // Load all topics from all clusters or selected cluster
 async function loadAllTopics() {
+  if (isUnmounted.value) return;
   loading.value = true;
   try {
     const clusters = clusterStore.clusters;
@@ -231,6 +243,7 @@ async function loadAllTopics() {
       const cluster = clusters.find(c => c.name === selectedClusterFilter.value);
       if (cluster) {
         const clusterTopics = await apiClient.getTopics(cluster.name);
+        if (isUnmounted.value) return; // Check after async
         for (const topicName of clusterTopics) {
           topics.push({
             name: topicName,
@@ -241,6 +254,7 @@ async function loadAllTopics() {
     } else {
       // No cluster selected - load all topics from all clusters with cluster info
       const allTopicsWithCluster = await apiClient.getTopicsWithCluster();
+      if (isUnmounted.value) return; // Check after async
       for (const topic of allTopicsWithCluster) {
         topics.push({
           name: topic.name,
@@ -257,17 +271,23 @@ async function loadAllTopics() {
       return a.name.localeCompare(b.name);
     });
 
-    allTopics.value = topics;
+    if (!isUnmounted.value) {
+      allTopics.value = topics;
+    }
   } catch (e) {
-    console.error('Failed to load topics:', e);
+    if (!isUnmounted.value) {
+      console.error('Failed to load topics:', e);
+    }
   } finally {
-    loading.value = false;
+    if (!isUnmounted.value) {
+      loading.value = false;
+    }
   }
 }
 
 // Refresh topics from Kafka to SQLite database
 async function refreshTopics() {
-  if (refreshing.value) return;
+  if (refreshing.value || isUnmounted.value) return;
 
   refreshing.value = true;
   try {
@@ -276,36 +296,49 @@ async function refreshTopics() {
     // If a specific cluster is selected, only refresh that cluster
     if (selectedClusterFilter.value) {
       await apiClient.refreshTopics(selectedClusterFilter.value);
+      if (isUnmounted.value) return;
     } else {
       // No cluster selected - refresh all clusters one by one
       // If a cluster is unreachable, wait 5 seconds silently and continue to next cluster
       for (const cluster of clusters) {
+        if (isUnmounted.value) return;
         try {
           await apiClient.refreshTopics(cluster.name);
         } catch (e) {
+          if (isUnmounted.value) return;
           // Silent failure - wait 5 seconds then continue to next cluster
           console.warn(`Failed to refresh topics for cluster ${cluster.name}, waiting 5s before continuing...`);
           await new Promise(resolve => setTimeout(resolve, 5000));
+          if (isUnmounted.value) return;
         }
       }
 
       // 清理孤儿 Topic（所属集群已被删除的 Topic）
       try {
         const result = await apiClient.cleanupOrphanTopics();
+        if (isUnmounted.value) return;
         if (result.count > 0) {
           console.log(`Cleaned up ${result.count} orphan topics:`, result.removed);
         }
       } catch (e) {
-        console.warn('Failed to cleanup orphan topics:', e);
+        if (!isUnmounted.value) {
+          console.warn('Failed to cleanup orphan topics:', e);
+        }
       }
     }
 
     // Reload topics after refresh
-    await loadAllTopics();
+    if (!isUnmounted.value) {
+      await loadAllTopics();
+    }
   } catch (e) {
-    console.error('Failed to refresh topics:', e);
+    if (!isUnmounted.value) {
+      console.error('Failed to refresh topics:', e);
+    }
   } finally {
-    refreshing.value = false;
+    if (!isUnmounted.value) {
+      refreshing.value = false;
+    }
   }
 }
 
@@ -344,6 +377,14 @@ function selectTopic(topic: TopicInfo) {
 
 // Go to clusters page
 function goToClusters() {
+  // Cancel any pending operations before navigation
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+  }
+  apiClient.cancelRequest();
+
+  // Emit navigation event immediately
   emit('navigate', {
     path: '/clusters'
   });
