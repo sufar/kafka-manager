@@ -704,6 +704,13 @@ async fn fetch_partition_messages_sse(
     const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
 
     loop {
+        // 每次循环都检查全局计数器是否已达到上限
+        let global_count = total_count.load(Ordering::SeqCst);
+        if global_count >= max_messages {
+            break;
+        }
+
+        // 同时检查本分区的发送数
         if messages_sent >= max_messages {
             break;
         }
@@ -744,6 +751,14 @@ async fn fetch_partition_messages_sse(
                     }
                 }
 
+                // 原子地增加全局计数，并检查是否超过限制
+                let global_count = total_count.fetch_add(1, Ordering::SeqCst);
+                if global_count >= max_messages {
+                    // 超过限制，回滚计数并退出
+                    total_count.fetch_sub(1, Ordering::SeqCst);
+                    break;
+                }
+
                 let record = MessageRecord {
                     partition: msg_partition,
                     offset: msg_offset,
@@ -764,7 +779,6 @@ async fn fetch_partition_messages_sse(
                 let _ = window.emit(&format!("message-query-{}", query_id), event);
 
                 messages_sent += 1;
-                total_count.fetch_add(1, Ordering::SeqCst);
             }
             Some(Err(_)) => {
                 consecutive_timeouts += 1;
