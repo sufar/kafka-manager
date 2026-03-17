@@ -1,9 +1,9 @@
 <template>
   <div class="messages-browser h-full flex flex-col min-w-0 overflow-hidden">
     <!-- Top Toolbar -->
-    <div class="toolbar flex-shrink-0 flex flex-col md:flex-row md:items-center gap-1.5 p-1.5 border-b border-base-content/10 glass rounded-t-xl overflow-visible md:overflow-x-auto min-w-full">
+    <div class="toolbar flex-shrink-0 flex flex-col md:flex-row md:items-center gap-1 p-1 border-b border-base-content/10 glass rounded-t-xl overflow-visible md:overflow-x-auto min-w-full">
       <!-- Row 1: Topic Info & Main Actions -->
-      <div class="flex items-center gap-1.5 flex-wrap">
+      <div class="flex items-center gap-1 flex-wrap">
         <!-- Topic Indicator -->
         <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gradient-to-r from-secondary/10 to-accent/10 glow-primary">
           <div class="w-5 h-5 rounded-md bg-gradient-to-br from-secondary/20 to-accent/20 flex items-center justify-center animate-float">
@@ -41,7 +41,7 @@
       <div class="hidden md:block flex-1 min-w-0" />
 
       <!-- Row 2: Filters & Selectors -->
-      <div class="flex items-center gap-1.5 flex-wrap">
+      <div class="flex items-center gap-1 flex-wrap">
         <!-- Topic Selector -->
         <select v-if="!topicParam" v-model="selectedTopic" class="select select-bordered select-xs flex-1 md:flex-none md:max-w-xs" @change="fetchMessages">
           <option value="">{{ t.messages.selectTopic }}</option>
@@ -64,7 +64,7 @@
         </select>
 
         <!-- Time Range Filter - Hidden on small mobile -->
-        <div class="hidden sm:flex items-center gap-1.5">
+        <div class="hidden sm:flex items-center gap-1">
           <div style="position: relative; display: inline-block;" class="flex-shrink-0">
             <input v-model="filters.startTime" type="datetime-local" class="input input-bordered input-xs w-32 md:w-36" :placeholder="t.messages.startTime" @change="fetchMessages" />
             <button v-if="filters.startTime" style="position: absolute; right: 0.25rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5;" class="hover:opacity-100" @click="filters.startTime = ''; fetchMessages()" title="Clear start time">
@@ -102,9 +102,9 @@
         <table class="table table-sm w-full min-w-[600px]">
           <thead v-if="sortedMessages.length > 0" class="sticky top-0 z-10 bg-base-100/95 backdrop-blur-md rounded-t-xl shadow-sm">
             <tr>
-              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-2 px-1">{{ t.messages.offset }}</th>
-              <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-2 px-1">{{ t.messages.partition }}</th>
-              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-2 px-1 whitespace-nowrap" @click="toggleTimestampSort">
+              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-1 px-1">{{ t.messages.offset }}</th>
+              <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-1 px-1">{{ t.messages.partition }}</th>
+              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-1 px-1 whitespace-nowrap" @click="toggleTimestampSort">
                 <div class="flex items-center gap-0.5">
                   <span>{{ t.messages.timestampLabel }}</span>
                   <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
