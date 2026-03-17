@@ -125,7 +125,7 @@
       <!-- Mobile Card View with Virtual Scroll -->
       <RecycleScroller
         v-if="messages.length > 0"
-        class="md:hidden h-full overflow-auto p-2"
+        class="md:hidden overflow-auto p-2 pb-20"
         :items="messages"
         :item-size="70"
         key-field="uid"

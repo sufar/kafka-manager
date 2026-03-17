@@ -23,7 +23,7 @@
     </div>
 
     <!-- Settings Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20 md:pb-4">
       <!-- Language Setting -->
       <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
         <div class="card-body p-3">
