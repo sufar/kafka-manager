@@ -86,10 +86,12 @@
         <!-- Virtual Scroll List -->
         <RecycleScroller
           v-if="messages.length > 0"
+          ref="scrollerRef"
           class="flex-1 overflow-auto w-full"
           :items="messages"
           :item-size="24"
           key-field="uid"
+          :buffer="200"
           v-slot="{ item }"
         >
           <div
@@ -125,10 +127,12 @@
       <!-- Mobile Card View with Virtual Scroll -->
       <RecycleScroller
         v-if="messages.length > 0"
+        ref="scrollerRef"
         class="md:hidden overflow-auto p-2 pb-20"
         :items="messages"
         :item-size="70"
         key-field="uid"
+        :buffer="100"
         v-slot="{ item }"
       >
         <div
@@ -282,7 +286,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
@@ -312,6 +316,7 @@ const messages = ref<Message[]>([]);
 const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const panelHeight = ref(280); // 默认高度增加到 280px
+const scrollerRef = ref<any>(null); // RecycleScroller ref
 
 // 查询参数
 const selectedCluster = ref('');
@@ -391,6 +396,12 @@ async function queryMessages() {
       timestamp: msg.timestamp,
       uid: `${msg.partition}-${msg.offset}-${index}`,
     }));
+
+    // 强制刷新虚拟滚动组件
+    await nextTick();
+    if (scrollerRef.value) {
+      scrollerRef.value.scrollToItem(0);
+    }
 
     lastQueryTime.value = Math.round(performance.now() - startTime);
   } catch (e: any) {
