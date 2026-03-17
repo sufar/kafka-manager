@@ -72,7 +72,8 @@
       <!-- Virtual Scroll Topic Items -->
       <RecycleScroller
         v-else
-        class="h-full overflow-auto"
+        :key="scrollerKey"
+        class="h-full overflow-auto pb-20"
         :items="filteredTopicsWithUid"
         :item-size="28"
         key-field="uid"
@@ -191,6 +192,7 @@ const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
+const scrollerKey = ref(0); // 用于强制虚拟滚动器重新渲染
 
 // Debounce timer
 let searchTimer: number | null = null;
@@ -258,6 +260,7 @@ async function loadAllTopics() {
     });
 
     allTopics.value = topics;
+    scrollerKey.value++; // 强制虚拟滚动器重新渲染
   } catch (e) {
     console.error('Failed to load topics:', e);
   } finally {

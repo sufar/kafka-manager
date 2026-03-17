@@ -528,6 +528,7 @@ class ApiClient {
           search: params.search,
           fetch_mode: params.fetchMode,
           sort: params.sort,
+          order_by: params.order_by,
         },
         queryId,
       });

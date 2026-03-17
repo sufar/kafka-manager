@@ -48,6 +48,7 @@ struct MessageQueryRequest {
     search: Option<String>,
     fetch_mode: Option<String>,
     sort: Option<String>,
+    order_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -474,7 +475,7 @@ async fn execute_message_query(
         let total_count: Arc<AtomicUsize> = total_count.clone();
         let search_lower: Option<String> = search_lower.clone();
         let brokers: String = brokers.clone();
-        let max_msgs: usize = max_messages / partition_count.max(1);
+        let max_msgs: usize = max_messages;
         let offset: Option<i64> = req_offset;
         let start_time: Option<i64> = req_start_time;
         let end_time: Option<i64> = req_end_time;
@@ -531,6 +532,7 @@ async fn execute_message_query(
 
     // 发送完成事件
     let count = total_count.load(Ordering::SeqCst);
+    log(&format!("Message query {} completed: total {} messages from {} partitions", query_id, count, partitions.len()));
     let event = MessageEvent {
         event_type: "completed".to_string(),
         data: None,
@@ -578,17 +580,14 @@ async fn fetch_partition_messages_sse(
     let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
         .map_err(|e| format!("创建Consumer失败: {}", e))?;
 
-    // 计算起始offset
-    let start_offset = if let Some(off) = offset {
-        off
-    } else if let Some(ts) = start_time {
-        // 根据时间戳查找offset
+    // 计算时间戳对应的 offset（如果需要）
+    let start_offset_from_time = if let Some(ts) = start_time {
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(ts))
             .map_err(|e| e.to_string())?;
 
         let result = consumer.offsets_for_times(tpl, Duration::from_secs(10))
-            .map_err(|e| format!("时间戳查询失败: {}", e))?;
+            .map_err(|e| format!("开始时间戳查询失败: {}", e))?;
 
         result.elements()
             .iter()
@@ -597,64 +596,13 @@ async fn fetch_partition_messages_sse(
                 rdkafka::Offset::Offset(o) => Some(o),
                 _ => None,
             })
-            .unwrap_or(0)
-    } else if fetch_mode == "newest" {
-        // 获取最新消息，计算起始offset
-        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-            Ok((low, high)) => {
-                let start = std::cmp::max(low, high - max_messages as i64);
-                start
-            }
-            Err(_) => 0,
-        }
-    } else if let Some(end_ts) = end_time {
-        // 如果只指定了 end_time，从 end_time 对应的 offset 往前推 max_messages
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(end_ts))
-            .map_err(|e| e.to_string())?;
-
-        match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
-            Ok(result) => {
-                let end_offset_for_time = result.elements()
-                    .iter()
-                    .find(|e| e.topic() == topic && e.partition() == partition)
-                    .and_then(|e| match e.offset() {
-                        rdkafka::Offset::Offset(o) => Some(o),
-                        _ => None,
-                    })
-                    .unwrap_or(0);
-                // 从 end_offset 往前推 max_messages
-                match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-                    Ok((low, _)) => std::cmp::max(low, end_offset_for_time - max_messages as i64),
-                    Err(_) => std::cmp::max(0, end_offset_for_time - max_messages as i64),
-                }
-            }
-            Err(_) => 0,
-        }
     } else {
-        // 从最早开始
-        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-            Ok((low, _)) => low,
-            Err(_) => 0,
-        }
+        None
     };
 
-    // 分配分区
-    let mut tpl = TopicPartitionList::new();
-    let seek_offset = if start_offset < 0 {
-        rdkafka::Offset::Beginning
-    } else {
-        rdkafka::Offset::Offset(start_offset)
-    };
-    tpl.add_partition_offset(topic, partition, seek_offset)
-        .map_err(|e| e.to_string())?;
-    consumer.assign(&tpl).map_err(|e| e.to_string())?;
-
-    // 计算结束offset（用于 newest 模式或 end_time）
-    let end_offset = if let Some(end_ts) = end_time {
-        // 根据结束时间戳查找offset
+    let end_offset_from_time = if let Some(ts) = end_time {
         let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(end_ts))
+        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(ts))
             .map_err(|e| e.to_string())?;
 
         match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
@@ -669,14 +617,64 @@ async fn fetch_partition_messages_sse(
             }
             Err(_) => None,
         }
-    } else if fetch_mode == "newest" {
-        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-            Ok((_, high)) => Some(high),
-            Err(_) => None,
-        }
     } else {
         None
     };
+
+    // 获取 watermark
+    let (low, high) = match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
+        Ok((l, h)) => (l, h),
+        Err(_) => (0, i64::MAX),
+    };
+
+    // 计算起始 offset：考虑 fetch_mode 和时间戳范围
+    let start_offset = if let Some(off) = offset {
+        // 如果明确指定了 offset，优先使用
+        off
+    } else if fetch_mode == "newest" {
+        // newest 模式：从时间戳范围（或全局）的最新位置往回推 max_messages
+        let effective_end = end_offset_from_time.unwrap_or(high);
+        let candidate_start = std::cmp::max(low, effective_end - max_messages as i64);
+
+        // 如果有 start_time，起始位置不能早于 start_time 对应的 offset
+        if let Some(start_from_time) = start_offset_from_time {
+            std::cmp::max(candidate_start, start_from_time)
+        } else {
+            candidate_start
+        }
+    } else {
+        // oldest 模式：从时间戳范围（或全局）的最早位置开始
+        if let Some(start_from_time) = start_offset_from_time {
+            start_from_time
+        } else {
+            low
+        }
+    };
+
+    log(&format!("Partition {}: low={}, high={}, fetch_mode={}, start_time={:?}, end_time={:?}, start_offset={}, will_read_approx={}",
+        partition, low, high, fetch_mode, start_time, end_time, start_offset,
+        end_offset_from_time.unwrap_or(high) - start_offset));
+
+    // 计算结束 offset
+    let end_offset = if let Some(end_from_time) = end_offset_from_time {
+        Some(end_from_time)
+    } else if fetch_mode == "newest" && start_time.is_none() {
+        // 只有 newest 模式且没有 start_time 限制时，才用 high 作为结束
+        Some(high)
+    } else {
+        None
+    };
+
+    // 分配分区
+    let mut tpl = TopicPartitionList::new();
+    let seek_offset = if start_offset < 0 {
+        rdkafka::Offset::Beginning
+    } else {
+        rdkafka::Offset::Offset(start_offset)
+    };
+    tpl.add_partition_offset(topic, partition, seek_offset)
+        .map_err(|e| e.to_string())?;
+    consumer.assign(&tpl).map_err(|e| e.to_string())?;
 
     let mut messages_sent = 0usize;
     let timeout = Duration::from_millis(100);
@@ -760,6 +758,8 @@ async fn fetch_partition_messages_sse(
             }
         }
     }
+
+    log(&format!("Partition {} query completed: sent {} messages", partition, messages_sent));
 
     Ok(())
 }

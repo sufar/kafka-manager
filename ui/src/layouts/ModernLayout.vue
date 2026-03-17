@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-base-100">
+  <div class="h-[100dvh] bg-base-100 overflow-hidden">
     <!-- Top Navigation Bar -->
     <header class="fixed top-0 left-0 right-0 h-10 bg-base-100/80 backdrop-blur border-b border-base-200 z-50 px-2 flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -205,7 +205,7 @@
     </div>
 
     <!-- Main Layout Container -->
-    <div class="flex h-screen pt-12 overflow-hidden p-2">
+    <div class="flex h-[100dvh] pt-12 overflow-hidden p-2">
       <!-- Left Sidebar - Navigator - Desktop Only (shown in normal flow) -->
       <aside
         v-if="!isMobile"
@@ -303,7 +303,7 @@
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto p-2">
+          <div class="flex-1 overflow-y-auto p-2 pb-16">
             <!-- Tree Mode -->
             <ClusterTreeNavigator
               v-if="sidebarMode === 'tree'"

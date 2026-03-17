@@ -86,6 +86,7 @@
         <!-- Virtual Scroll List -->
         <RecycleScroller
           v-if="messages.length > 0"
+          :key="scrollerKey"
           class="flex-1 overflow-auto w-full"
           :items="messages"
           :item-size="24"
@@ -125,7 +126,9 @@
       <!-- Mobile Card View with Virtual Scroll -->
       <RecycleScroller
         v-if="messages.length > 0"
-        class="md:hidden h-full overflow-auto p-2"
+        :key="'mobile-' + scrollerKey"
+        class="md:hidden overflow-auto p-2"
+        :class="selectedMessage ? 'pb-[300px]' : 'pb-20'"
         :items="messages"
         :item-size="70"
         key-field="uid"
@@ -325,6 +328,7 @@ const searchKeyword = ref('');
 const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
+const scrollerKey = ref(0); // 用于强制虚拟滚动器重新渲染
 
 // 发送消息弹框状态
 const sendModalRef = ref<HTMLDialogElement | null>(null);
@@ -368,6 +372,7 @@ async function queryMessages() {
       max_messages: maxMessages.value,
       fetchMode: fetchMode.value,
       sort: fetchMode.value === 'newest' ? 'desc' : 'asc',
+      order_by: 'timestamp', // 默认按时间戳排序
     };
 
     if (selectedPartition.value !== 'all') {
@@ -381,14 +386,18 @@ async function queryMessages() {
 
     // 在 Tauri 环境下使用 SSE 方式，实现边查边显示
     if (isTauri()) {
+      const receivedMessages: any[] = [];
+      let lastSortTime = Date.now();
+      const SORT_INTERVAL = 300; // 每 300ms 重新排序一次
+
       await apiClient.getMessagesSSE(
         selectedCluster.value,
         selectedTopic.value,
         params,
         {
           onMessage: (msg) => {
-            // 实时添加消息到列表
-            messages.value.push({
+            // 实时添加消息
+            receivedMessages.push({
               partition: msg.partition,
               offset: msg.offset,
               key: msg.key ?? null,
@@ -396,12 +405,40 @@ async function queryMessages() {
               timestamp: msg.timestamp ?? null,
               uid: `${msg.partition}-${msg.offset}-${receivedCount++}`,
             });
+
+            // 定期重新排序并更新显示
+            const now = Date.now();
+            if (now - lastSortTime > SORT_INTERVAL) {
+              if (params.order_by === 'timestamp') {
+                const sortOrder = params.sort === 'asc' ? 1 : -1;
+                const sorted = [...receivedMessages].sort((a, b) => {
+                  const tsA = a.timestamp ?? 0;
+                  const tsB = b.timestamp ?? 0;
+                  return (tsA - tsB) * sortOrder;
+                });
+                messages.value = sorted;
+              } else {
+                messages.value = [...receivedMessages];
+              }
+              scrollerKey.value++; // 强制虚拟滚动器重新渲染
+              lastSortTime = now;
+            }
           },
           onProgress: (current, total) => {
-            // 可以在这里更新进度（如果需要）
             console.debug(`[MessageQuery] Progress: ${current}/${total}`);
           },
           onCompleted: (count) => {
+            // 最终排序
+            if (params.order_by === 'timestamp') {
+              const sortOrder = params.sort === 'asc' ? 1 : -1;
+              receivedMessages.sort((a, b) => {
+                const tsA = a.timestamp ?? 0;
+                const tsB = b.timestamp ?? 0;
+                return (tsA - tsB) * sortOrder;
+              });
+            }
+            messages.value = receivedMessages;
+            scrollerKey.value++; // 强制虚拟滚动器重新渲染
             lastQueryTime.value = Math.round(performance.now() - startTime);
             loading.value = false;
             console.debug(`[MessageQuery] Completed: ${count} messages`);
