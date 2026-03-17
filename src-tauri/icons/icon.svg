@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- 渐变背景 -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="50%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#d946ef"/>
+    </linearGradient>
+
+    <!-- 内部发光效果 -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- 阴影 -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#6366f1" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- 背景圆形 -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGradient)" filter="url(#shadow)"/>
+
+  <!-- 内圈装饰 -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
+
+  <!-- Kafka 风格的 K 字母变形 - 使用消息队列元素 -->
+  <g fill="white" filter="url(#glow)">
+    <!-- 左侧竖条 - 消息流 -->
+    <rect x="140" y="120" width="24" height="272" rx="12" fill="white" opacity="0.95"/>
+
+    <!-- 中间斜线 - 连接流 -->
+    <rect x="200" y="160" width="24" height="192" rx="12" fill="white" opacity="0.9" transform="rotate(20 212 256)"/>
+
+    <!-- 右侧消息气泡/节点 -->
+    <circle cx="340" cy="180" r="32" fill="white" opacity="0.95"/>
+    <circle cx="380" cy="256" r="28" fill="white" opacity="0.85"/>
+    <circle cx="340" cy="332" r="24" fill="white" opacity="0.75"/>
+
+    <!-- 连接线 - 表示消息流动 -->
+    <rect x="228" y="190" width="80" height="8" rx="4" fill="white" opacity="0.6" transform="rotate(15 268 194)"/>
+    <rect x="240" y="314" width="72" height="8" rx="4" fill="white" opacity="0.5" transform="rotate(-15 276 318)"/>
+  </g>
+
+  <!-- 装饰性小点 - 表示活跃的消息 -->
+  <circle cx="180" cy="200" r="6" fill="#fcd34d" opacity="0.9"/>
+  <circle cx="160" cy="256" r="5" fill="#fcd34d" opacity="0.8"/>
+  <circle cx="180" cy="312" r="4" fill="#fcd34d" opacity="0.7"/>
+</svg>
