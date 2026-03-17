@@ -158,7 +158,7 @@
 
         <div class="card-actions justify-start p-2 bg-base-200 gap-1">
           <button
-            class="btn btn-xs btn-outline"
+            class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="testConnection(cluster.id)"
             :disabled="testing.has(cluster.id)"
           >
@@ -169,7 +169,7 @@
             Test
           </button>
           <button
-            class="btn btn-xs btn-outline"
+            class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="reconnectCluster(cluster.name)"
             :disabled="reconnecting.has(cluster.name)"
           >
@@ -180,7 +180,7 @@
             Reconnect
           </button>
           <button
-            class="btn btn-xs btn-outline"
+            class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="refreshClusterTopics(cluster.name)"
             :disabled="refreshingTopics.has(cluster.name)"
             title="Refresh all topics for this cluster"
@@ -269,7 +269,7 @@
             <div v-if="!editingCluster" class="flex items-center gap-2">
               <button
                 type="button"
-                class="btn btn-outline btn-sm"
+                class="btn btn-outline btn-sm flex items-center gap-2"
                 :disabled="!formData.name || !formData.brokers || testingConnection"
                 @click="testConnectionConfig"
               >
@@ -285,7 +285,7 @@
             </div>
             <div class="modal-action mt-4">
               <button type="button" class="btn btn-outline" @click="closeModal">{{ t.common.cancel }}</button>
-              <button type="submit" class="btn btn-primary" :disabled="submitting">
+              <button type="submit" class="btn btn-primary flex items-center gap-2" :disabled="submitting">
                 <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
                 {{ editingCluster ? t.common.edit : t.common.create }}
               </button>
