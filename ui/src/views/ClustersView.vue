@@ -549,20 +549,15 @@ async function refreshClusters() {
 }
 
 onMounted(() => {
-  // 先快速加载列表（只查 SQLite，不检查 Kafka 连接）
+  // 只加载集群列表和连接状态（都是轻量级查询，不涉及 Kafka 连接）
   clusterStore.fetchClusters();
   connectionStore.fetchAllConnections();
-
-  // 健康检查延迟执行，不阻塞页面加载
-  setTimeout(() => {
-    clusterStore.refreshAllHealth();
-  }, 100);
 
   // 检查路由参数，如果 action=create 则打开创建模态框
   if (route.query.action === 'create') {
     setTimeout(() => {
       openCreateModal();
-    }, 50);
+    }, 100);
   }
   // 检查路由参数，如果 action=edit 则打开编辑模态框
   if (route.query.action === 'edit' && route.query.cluster) {
@@ -570,7 +565,7 @@ onMounted(() => {
     if (clusterToEdit) {
       setTimeout(() => {
         editCluster(clusterToEdit);
-      }, 50);
+      }, 100);
     }
   }
 });

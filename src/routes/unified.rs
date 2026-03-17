@@ -2837,13 +2837,16 @@ async fn handle_connection_reconnect(state: AppState, body: Value) -> Result<Val
 
 async fn handle_connection_health_check(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
-    let status = state.pools.check_connection(&cluster_id).await;
 
-    match status {
-        Some(conn_status) => {
+    // 轻量级健康检查：只检查内存中的连接池状态，不实际连接 Kafka
+    // 避免在页面加载时触发重型 Kafka 元数据获取操作
+    let statuses = state.pools.get_all_connections_status().await;
+
+    match statuses.into_iter().find(|(id, _)| id == &cluster_id) {
+        Some((_, conn_status)) => {
             let (healthy, status_str, error_message) = match conn_status {
                 crate::pool::ConnectionStatus::Connected => {
-                    (true, "healthy".to_string(), None::<String>)
+                    (true, "connected".to_string(), None::<String>)
                 }
                 crate::pool::ConnectionStatus::Disconnected => {
                     (false, "disconnected".to_string(), None)
@@ -2861,51 +2864,13 @@ async fn handle_connection_health_check(state: AppState, body: Value) -> Result<
             }))
         }
         None => {
-            // 连接池中不存在，尝试从数据库获取集群配置并建立临时连接
-            let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
-                .await?
-                .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-            let config = crate::config::KafkaConfig {
-                brokers: cluster.brokers,
-                request_timeout_ms: cluster.request_timeout_ms as u32,
-                operation_timeout_ms: cluster.operation_timeout_ms as u32,
-            };
-
-            // 临时建立连接进行健康检查
-            match state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await {
-                Ok(_) => {
-                    // 连接建立后再次检查
-                    let new_status = state.pools.check_connection(&cluster_id).await;
-                    let (healthy, status_str, error_message) = match new_status {
-                        Some(conn_status) => match conn_status {
-                            crate::pool::ConnectionStatus::Connected => {
-                                (true, "healthy".to_string(), None::<String>)
-                            }
-                            crate::pool::ConnectionStatus::Disconnected => {
-                                (false, "disconnected".to_string(), None)
-                            }
-                            crate::pool::ConnectionStatus::Error(msg) => {
-                                (false, "error".to_string(), Some(msg))
-                            }
-                        },
-                        None => (false, "error".to_string(), Some("Failed to check connection after adding cluster".to_string())),
-                    };
-
-                    Ok(serde_json::json!({
-                        "cluster_id": cluster_id,
-                        "healthy": healthy,
-                        "status": status_str,
-                        "error_message": error_message,
-                    }))
-                }
-                Err(e) => Ok(serde_json::json!({
-                    "cluster_id": cluster_id,
-                    "healthy": false,
-                    "status": "error",
-                    "error_message": format!("Failed to add cluster: {}", e),
-                })),
-            }
+            // 连接池中不存在，返回未找到状态（不重连）
+            Ok(serde_json::json!({
+                "cluster_id": cluster_id,
+                "healthy": false,
+                "status": "not_found",
+                "error_message": "Cluster not found in connection pool",
+            }))
         }
     }
 }
