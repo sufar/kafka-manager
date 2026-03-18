@@ -447,8 +447,14 @@ function clearMessageBuffer() {
     clearTimeout(bufferFlushTimer);
     bufferFlushTimer = null;
   }
-  // 如果有未刷新的数据，先刷新再清空
-  if (messageBuffer.value.length > 0 && !isFlushing) {
+  // 如果有未刷新的数据，等待刷新完成后再清空
+  if (messageBuffer.value.length > 0) {
+    // 如果正在刷新，等待一帧让刷新完成
+    if (isFlushing) {
+      setTimeout(() => clearMessageBuffer(), 10);
+      return;
+    }
+    // 否则直接刷新到主列表
     const batch = [...messageBuffer.value];
     messageBuffer.value = [];
     messages.value.push(...batch);
@@ -862,12 +868,22 @@ async function fetchMessages() {
           },
           onComplete: () => {
             if (requestId !== currentFetchRequestId) return;
-            // 刷新剩余缓冲
-            flushMessageBuffer();
-            loading.value = false;
-            streamingProgress.value.isStreaming = false;
-            currentAbortController = null;
-            console.log('[SSE] Fetch completed, total:', messages.value.length);
+            // 刷新剩余缓冲 - 如果正在刷新则等待完成
+            if (isFlushing) {
+              setTimeout(() => {
+                flushMessageBuffer();
+                loading.value = false;
+                streamingProgress.value.isStreaming = false;
+                currentAbortController = null;
+                console.log('[SSE] Fetch completed, total:', messages.value.length);
+              }, 20);
+            } else {
+              flushMessageBuffer();
+              loading.value = false;
+              streamingProgress.value.isStreaming = false;
+              currentAbortController = null;
+              console.log('[SSE] Fetch completed, total:', messages.value.length);
+            }
           },
           onError: (error) => {
             if (requestId !== currentFetchRequestId) return;
