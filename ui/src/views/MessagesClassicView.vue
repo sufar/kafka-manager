@@ -404,7 +404,8 @@ const streamingProgress = ref<{ received: number; total: number; isStreaming: bo
 // 流式渲染缓冲 - 避免Vue过度更新
 const messageBuffer = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
 let bufferFlushTimer: number | null = null;
-const BUFFER_FLUSH_INTERVAL = 100; // 每100ms刷新一次UI
+let isFlushing = false;
+const BUFFER_FLUSH_INTERVAL = 50; // 每50ms刷新一次UI
 
 // 批量添加消息到缓冲
 function bufferMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
@@ -414,24 +415,45 @@ function bufferMessages(newMessages: Array<{ partition: number; offset: number; 
 
 // 调度缓冲刷新
 function scheduleBufferFlush() {
-  if (bufferFlushTimer) return;
+  if (bufferFlushTimer || isFlushing) return;
   bufferFlushTimer = window.setTimeout(() => {
     flushMessageBuffer();
   }, BUFFER_FLUSH_INTERVAL);
 }
 
-// 刷新缓冲到主消息列表
+// 刷新缓冲到主消息列表 - 使用安全的方式避免数据丢失
 function flushMessageBuffer() {
-  if (messageBuffer.value.length === 0) {
+  if (isFlushing || messageBuffer.value.length === 0) {
     bufferFlushTimer = null;
     return;
   }
-  const batch = messageBuffer.value.splice(0, messageBuffer.value.length);
+
+  isFlushing = true;
+  // 先复制当前缓冲区的所有消息
+  const batch = [...messageBuffer.value];
+  // 清空缓冲区（只移除已复制的数量）
+  messageBuffer.value = [];
+
+  // 批量添加到主列表
   messages.value.push(...batch);
+
+  isFlushing = false;
   bufferFlushTimer = null;
 }
 
 // 清空缓冲
+function clearMessageBuffer() {
+  if (bufferFlushTimer) {
+    clearTimeout(bufferFlushTimer);
+    bufferFlushTimer = null;
+  }
+  // 如果有未刷新的数据，先刷新再清空
+  if (messageBuffer.value.length > 0 && !isFlushing) {
+    const batch = [...messageBuffer.value];
+    messageBuffer.value = [];
+    messages.value.push(...batch);
+  }
+}
 function clearMessageBuffer() {
   if (bufferFlushTimer) {
     clearTimeout(bufferFlushTimer);

@@ -409,7 +409,8 @@ const lastQueryTime = ref(0);
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
 const messageBuffer = ref<Message[]>([]);
 let bufferFlushTimer: number | null = null;
-const BUFFER_FLUSH_INTERVAL = 100; // 每100ms刷新一次UI
+let isFlushing = false;
+const BUFFER_FLUSH_INTERVAL = 50; // 每50ms刷新一次UI
 let currentAbortController: AbortController | null = null;
 let currentFetchRequestId = 0;
 
