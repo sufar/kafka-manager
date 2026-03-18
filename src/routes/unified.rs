@@ -1694,8 +1694,22 @@ async fn fetch_messages_streaming_sse(
 
     // 流式归并并发送
     let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
+    let mut stop_receiving = false; // 标记是否停止从channel接收新消息
 
-    while completed_partitions < partition_count && sent_count < total_target {
+    while completed_partitions < partition_count {
+        // 如果达到目标且堆已空，则退出
+        if stop_receiving && heap.is_empty() {
+            break;
+        }
+
+        // 检查是否达到目标数量
+        if !stop_receiving && sent_count >= total_target {
+            stop_receiving = true;
+            tracing::info!("[SSE Stream] Target reached: {}, stopping receive from channels", total_target);
+            // 继续清空堆中已有的消息，不再从 channel 接收新消息
+            continue;
+        }
+
         if let Some(Reverse(heap_msg)) = heap.pop() {
             let part_id = heap_msg.message.partition;
 
@@ -1721,6 +1735,11 @@ async fn fetch_messages_streaming_sse(
                 sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
                     .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
                 batch.clear();
+            }
+
+            // 如果已达到目标，不再从 channel 接收新消息
+            if stop_receiving {
+                continue;
             }
 
             // 从对应分区再取一条
@@ -2494,7 +2513,7 @@ async fn fetch_partition_messages_streaming(
                     timestamp: ts,
                 };
 
-                if tx.send(kafka_msg).await.is_err() {
+                if tx.try_send(kafka_msg).is_err() {
                     tracing::warn!("[Streaming] Channel closed for partition {}", partition);
                     return;
                 }
