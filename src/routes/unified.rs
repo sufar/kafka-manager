@@ -1598,7 +1598,13 @@ async fn fetch_messages_with_temp_consumer(
             handles.push(handle);
         }
 
-        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target);
+        // 预估实际消息数：有搜索条件时通常返回较少，无搜索时可能接近max_messages per partition
+        let estimated = if search.is_some() {
+            max_messages * 2  // 搜索时预估更少
+        } else {
+            total_target
+        }.min(50000);  // 最大预分配5万条，避免过大
+        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(estimated);
         for handle in handles {
             match handle.await {
                 Ok((part_id, task_result)) => match task_result {
@@ -1644,6 +1650,19 @@ async fn fetch_messages_with_temp_consumer(
         all_msgs.len(), partition_count, start_time_total.elapsed());
 
     Ok(all_msgs)
+}
+
+/// 检查消息是否匹配搜索条件
+fn message_matches_search(
+    key_bytes: &Option<Vec<u8>>,
+    value_bytes: &Option<Vec<u8>>,
+    search_term: &str,
+) -> bool {
+    let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
+    let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
+    let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(search_term));
+    let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(search_term));
+    key_match || value_match
 }
 
 /// 统一分区消息获取 - 优化版
@@ -1697,6 +1716,8 @@ fn fetch_partition_messages_unified(
 
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "262144");  // 256KB
+    cfg.set("socket.timeout.ms", "10000");             // socket操作超时10秒
+    cfg.set("request.timeout.ms", "30000");            // API请求超时30秒
     cfg.set("enable.partition.eof", "false");
     cfg.set("connections.max.idle.ms", "540000");
     cfg.set("reconnect.backoff.ms", "50");
@@ -1748,6 +1769,9 @@ fn fetch_partition_messages_unified(
         return Vec::new();
     }
 
+    // 提取 high_watermark 供后续使用，避免重复获取
+    let high_watermark = time_range.high_watermark;
+
     // 分配到指定分区
     let mut tpl = TopicPartitionList::new();
     let seek_offset = if start_offset < 0 {
@@ -1768,13 +1792,11 @@ fn fetch_partition_messages_unified(
     let end_offset = if time_range_end > 0 {
         Some(time_range_end + 1)
     } else if fetch_mode.as_deref() == Some("newest") {
-        match consumer.fetch_watermarks(&topic, partition, Duration::from_secs(5)) {
-            Ok((_, high)) if high > 0 => Some(high),
-            Err(e) => {
-                tracing::warn!("[Unified Partition] Failed to fetch watermarks for partition {}: {}", partition, e);
-                None
-            }
-            _ => None,
+        // 直接使用已获取的 high_watermark，避免重复请求
+        if high_watermark > 0 {
+            Some(high_watermark)
+        } else {
+            None
         }
     } else {
         None
@@ -1797,6 +1819,7 @@ fn fetch_partition_messages_unified(
     let mut empty_count = 0;
 
     // 优化：空轮询150ms一次，最多10次（总共1.5秒）
+    const FIRST_POLL_TIMEOUT_MS: u64 = 500;  // 首次poll等待更长时间，因为可能需要建立连接
     const POLL_TIMEOUT_MS: u64 = 150;
     const MAX_EMPTY_POLLS: usize = 10;
     const MAX_POLL_TIME_SECS: u64 = 30;
@@ -1804,14 +1827,18 @@ fn fetch_partition_messages_unified(
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
 
-    // 获取high watermark用于末尾检测
-    let high_watermark = time_range.high_watermark;
-
     while raw_messages.len() < max_messages
         && empty_count < MAX_EMPTY_POLLS
         && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
     {
-        match consumer.poll(Duration::from_millis(POLL_TIMEOUT_MS)) {
+        // 自适应poll超时：首次等待500ms，后续150ms
+        let poll_timeout = if !got_first {
+            Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
+        } else {
+            Duration::from_millis(POLL_TIMEOUT_MS)
+        };
+
+        match consumer.poll(poll_timeout) {
             Some(Ok(msg)) => {
                 if !got_first {
                     got_first = true;
@@ -1848,12 +1875,8 @@ fn fetch_partition_messages_unified(
 
                     // 搜索过滤
                     if need_search {
-                        let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
-                        let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
                         let term = search_lower.as_ref().unwrap();
-                        let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(term));
-                        let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(term));
-                        if !key_match && !value_match {
+                        if !message_matches_search(&key_bytes, &value_bytes, term) {
                             // 不匹配，直接退出（已经到末尾了）
                             break;
                         }
@@ -1885,12 +1908,8 @@ fn fetch_partition_messages_unified(
 
                 // 如果需要搜索，立即进行过滤（避免保存不需要的消息）
                 if need_search {
-                    let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
-                    let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
                     let term = search_lower.as_ref().unwrap();
-                    let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(term));
-                    let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(term));
-                    if !key_match && !value_match {
+                    if !message_matches_search(&key_bytes, &value_bytes, term) {
                         continue; // 不匹配搜索条件，跳过
                     }
                 }

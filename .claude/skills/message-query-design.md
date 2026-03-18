@@ -698,4 +698,4 @@ if time_range_end > 0 && time_range_end < start_offset {
 | 1.3 | 2026-03-16 | 添加分区边界检测优化（检测 low/high watermark）、Q9常见问题（数据少的topic查询慢）|
 | 1.4 | 2026-03-16 | 添加时间范围查询优化（查询 end_time offset 用于提前结束）、更新 Q7/Q9 文档|
 | 1.5 | 2026-03-16 | 修复空分区检测（high=0 的分区也要预标记为完成），添加远程模式的空分区预标记|
-| 1.6 | 2026-03-18 | 统一本地/远程模式为 `fetch_partition_messages_unified`，分区数>1自动并行，添加分区末尾检测（msg.offset >= high_watermark - 1），修复 group.id 冲突（每个分区使用唯一 group.id）|
+| 1.6 | 2026-03-18 | 统一本地/远程模式为 `fetch_partition_messages_unified`，分区数>1自动并行，添加分区末尾检测（msg.offset >= high_watermark - 1），修复 group.id 冲突（每个分区使用唯一 group.id），优化内存预分配、提取搜索过滤函数、避免重复获取 watermark、添加 socket 超时、自适应 poll 超时 |

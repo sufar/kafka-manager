@@ -325,11 +325,14 @@ fn calculate_partition_offset(
 |--------|------|------|
 | **并行模式触发** | 分区数>1时自动并行，Semaphore(10)限制并发 | 多分区场景3x加速 |
 | **唯一group.id** | `kafka-mgr-{partition}-{timestamp}` | 避免并发冲突导致结果不稳定 |
-| **空轮询限制** | 150ms × 10次 = 1.5秒 | 无数据时快速返回 |
+| **空轮询限制** | 首次500ms，后续150ms × 10次 | 首次更宽容，无数据快速返回 |
 | **提前退出** | start≥high或high≤low时立即返回 | 空分区0ms返回 |
 | **分区末尾检测** | offset ≥ high_watermark - 1 | 数据取完立即退出 |
 | **延迟字符串转换** | 先存字节，需要时再转UTF-8 | 减少不必要分配 |
-| **搜索提前过滤** | 收到消息立即检查，不匹配则跳过 | 减少内存占用 |
+| **搜索提前过滤** | 提取`message_matches_search`函数复用 | 减少内存占用，代码更简洁 |
+| **内存预分配优化** | 搜索时预估更少，上限5万条 | 避免大内存分配 |
+| **避免重复watermark** | 复用已获取的high_watermark | 减少一次网络请求 |
+| **Socket超时配置** | socket.timeout.ms=10s, request.timeout.ms=30s | 避免无限等待 |
 
 ## 前端调用
 
