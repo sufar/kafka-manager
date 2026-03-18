@@ -1503,7 +1503,8 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "messages": records }))
 }
 
-/// 使用临时 consumer 获取消息（支持过滤）- 自动适配本地/远程Kafka
+/// 使用临时 consumer 获取消息（支持过滤）- 统一优化版
+/// 分区数>1时使用并行模式，空轮询最多10次×150ms=1.5秒
 async fn fetch_messages_with_temp_consumer(
     brokers: &str,
     topic: &str,
@@ -1516,22 +1517,132 @@ async fn fetch_messages_with_temp_consumer(
     fetch_mode: Option<&str>,
     sort: Option<&str>,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    // 检测是否是本地Kafka
-    let is_local = brokers.contains("localhost") ||
-                   brokers.contains("127.0.0.1") ||
-                   brokers.contains("::1") ||
-                   brokers.contains("host.docker.internal");
+    use rdkafka::consumer::{Consumer, BaseConsumer};
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
 
-    if is_local {
-        fetch_messages_local(brokers, topic, partition, offset, max_messages, start_time, end_time, search, fetch_mode, sort).await
+    let start_time_total = std::time::Instant::now();
+    let topic = topic.to_string();
+    let brokers = brokers.to_string();
+    let search = search.clone();
+    let fetch_mode = fetch_mode.map(|s| s.to_string());
+    let sort = sort.map(|s| s.to_string());
+
+    tracing::info!("[Unified] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
+                   topic, partition, max_messages, fetch_mode);
+
+    // 获取分区列表
+    let partitions: Vec<i32> = {
+        let cfg = ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .set("broker.address.family", "v4")
+            .create::<BaseConsumer>()?;
+        if partition.is_none() {
+            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
+                Ok(metadata) => metadata.topics().first()
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_else(|| vec![0]),
+                Err(_) => vec![0],
+            }
+        } else {
+            vec![partition.unwrap_or(0)]
+        }
+    };
+
+    let partition_count = partitions.len();
+    let total_target = max_messages * partition_count;
+
+    // 分区数>1时使用并行模式
+    let use_parallel = partition_count > 1;
+    tracing::info!("[Unified] {} partitions, {} messages per partition, total {}. Mode: {}",
+        partition_count, max_messages, total_target,
+        if use_parallel { "parallel" } else { "sequential" });
+
+    // 预计算排序方向（在fetch_mode被move之前）
+    let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
+
+    let messages = if use_parallel {
+        // === 并行模式（分区数>1）===
+        let msgs_per_partition = max_messages;
+        let partition_has_specific_offset = partition.is_some();
+        let partition_offset_val = if partition_has_specific_offset { offset } else { None };
+
+        use tokio::sync::Semaphore;
+        use tokio::time::{timeout, Duration as TokioDuration};
+        use std::sync::Arc;
+
+        // 最多10个并发
+        let semaphore = Arc::new(Semaphore::new(10));
+        let mut handles = vec![];
+
+        for &part_id in &partitions {
+            let brokers = brokers.clone();
+            let topic = topic.clone();
+            let search = search.clone();
+            let fetch_mode = fetch_mode.clone();
+            let part_offset = if partition_has_specific_offset { partition_offset_val } else { None };
+            let sem = semaphore.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("Semaphore acquire failed");
+                let fetch_timeout = if start_time.is_some() || end_time.is_some() {
+                    TokioDuration::from_secs(60)
+                } else {
+                    TokioDuration::from_secs(30)
+                };
+                timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
+                    fetch_partition_messages_unified(
+                        brokers, topic, part_id, msgs_per_partition, part_offset,
+                        start_time, end_time, search, fetch_mode,
+                    )
+                })).await
+            });
+            handles.push(handle);
+        }
+
+        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target);
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(Ok(msgs))) => {
+                    tracing::info!("[Parallel] Got {} messages from task", msgs.len());
+                    all_msgs.extend(msgs);
+                }
+                Ok(Ok(Err(_))) => tracing::warn!("Partition fetch timeout"),
+                Ok(Err(e)) => tracing::warn!("Task join error: {}", e),
+                Err(e) => tracing::warn!("Spawn error: {}", e),
+            }
+        }
+        all_msgs
     } else {
-        fetch_messages_remote(brokers, topic, partition, offset, max_messages, start_time, end_time, search, fetch_mode, sort).await
-    }
+        // === 单分区串行模式 ===
+        tokio::task::spawn_blocking(move || {
+            fetch_partition_messages_unified(
+                brokers, topic, 0, max_messages, offset,
+                start_time, end_time, search, fetch_mode,
+            )
+        }).await.map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+    };
+
+    // 排序
+    let mut all_msgs = messages;
+    all_msgs.sort_by(|a, b| {
+        match (a.timestamp, b.timestamp) {
+            (Some(ta), Some(tb)) => if is_desc { tb.cmp(&ta) } else { ta.cmp(&tb) },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => if is_desc { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
+        }
+    });
+
+    tracing::info!("[Unified] Fetched {} messages from {} partitions in {:?}",
+        all_msgs.len(), partition_count, start_time_total.elapsed());
+
+    Ok(all_msgs)
 }
 
-/// 本地Docker优化版 - 单consumer多分区
-/// 并行获取单个分区的消息
-fn fetch_partition_messages_parallel(
+/// 统一分区消息获取 - 优化版
+/// 空轮询：150ms一次，最多10次（总共1.5秒）
+fn fetch_partition_messages_unified(
     brokers: String,
     topic: String,
     partition: i32,
@@ -1548,42 +1659,45 @@ fn fetch_partition_messages_parallel(
     use rdkafka::ClientConfig;
     use std::time::Duration;
 
-    tracing::info!("[Parallel] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
+    tracing::info!("[Unified Partition] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
 
-    // 创建独立的 consumer（使用固定 group.id 避免 Unknown group 错误，但设置短 session timeout）
+    // 创建独立的 consumer
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &brokers);
-    // 使用固定 group.id（避免 Unknown group 错误），但设置短 session timeout 避免协调开销
-    cfg.set("group.id", "kafka-mgr-query");
+    cfg.set("group.id", "kafka-mgr-unified");
     cfg.set("enable.auto.commit", "false");
     cfg.set("auto.offset.reset", "earliest");
-    // 最小化 group 协调延迟：会话超时很短，消费者不加入 group
     cfg.set("session.timeout.ms", "3000");
     cfg.set("heartbeat.interval.ms", "500");
-    // 最小化延迟：立即返回数据，不等待批量
-    cfg.set("fetch.min.bytes", "1");
-    cfg.set("fetch.wait.max.ms", "1");
-    cfg.set("fetch.max.bytes", "10485760");        // 10MB
-    cfg.set("max.partition.fetch.bytes", "10485760"); // 10MB per partition
+
+    // 优化批量fetch配置：大数据量时增加批处理大小
+    if max_messages > 1000 {
+        cfg.set("fetch.min.bytes", "65536");           // 64KB
+        cfg.set("fetch.wait.max.ms", "100");           // 最多等100ms
+        cfg.set("fetch.max.bytes", "52428800");        // 50MB
+        cfg.set("max.partition.fetch.bytes", "52428800"); // 50MB per partition
+    } else {
+        cfg.set("fetch.min.bytes", "1");
+        cfg.set("fetch.wait.max.ms", "10");
+        cfg.set("fetch.max.bytes", "10485760");        // 10MB
+        cfg.set("max.partition.fetch.bytes", "10485760"); // 10MB per partition
+    }
+
     cfg.set("socket.nagle.disable", "true");
-    cfg.set("socket.receive.buffer.bytes", "65536");
+    cfg.set("socket.receive.buffer.bytes", "262144");  // 256KB
     cfg.set("enable.partition.eof", "false");
-    // 低延迟连接配置 - 优化：减少连接建立时间
     cfg.set("connections.max.idle.ms", "540000");
     cfg.set("reconnect.backoff.ms", "50");
-    cfg.set("reconnect.backoff.max.ms", "500");  // 优化：从 1000 减少到 500
-    cfg.set("socket.connection.setup.timeout.ms", "3000");  // 优化：从默认值减少到 3000
-    // 优化：减少元数据请求超时和间隔
-    cfg.set("metadata.max.age.ms", "5000");  // 优化：5秒刷新一次元数据
-    // 禁用 group 协调：assign 模式不需要 group 协调
+    cfg.set("reconnect.backoff.max.ms", "500");
+    cfg.set("socket.connection.setup.timeout.ms", "3000");
+    cfg.set("metadata.max.age.ms", "5000");
     cfg.set("partition.assignment.strategy", "");
-    // 强制使用 IPv4
     cfg.set("broker.address.family", "v4");
 
     let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("[Parallel] Failed to create consumer for partition {}: {}", partition, e);
+            tracing::error!("[Unified Partition] Failed to create consumer for partition {}: {}", partition, e);
             return Vec::new();
         }
     };
@@ -1592,13 +1706,35 @@ fn fetch_partition_messages_parallel(
     let time_range = match calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, end_time, fetch_mode.as_deref()) {
         Ok(tr) => tr,
         Err(e) => {
-            tracing::error!("[Parallel] Failed to calculate offset for partition {}: {}", partition, e);
+            tracing::error!("[Unified Partition] Failed to calculate offset for partition {}: {}", partition, e);
             return Vec::new();
         }
     };
     let start_offset = time_range.start_offset;
     let time_range_end = time_range.end_offset;
-    tracing::info!("[Parallel] Partition {} start_offset: {}, end_offset: {}", partition, start_offset, time_range_end);
+    tracing::info!("[Unified Partition] Partition {} start_offset: {}, end_offset: {}", partition, start_offset, time_range_end);
+
+    // 提前退出：如果分区完全没有数据（high <= low，表示没有消息）
+    if time_range.high_watermark <= time_range.low_watermark {
+        tracing::info!("[Unified Partition] Partition {} has no data (high {} <= low {}), skipping",
+            partition, time_range.high_watermark, time_range.low_watermark);
+        return Vec::new();
+    }
+
+    // 提前退出：如果起始offset已经超过或等于high_watermark，说明没有新数据可读
+    // 有效数据范围是 [low_watermark, high_watermark)，即 high_watermark > offset >= low_watermark
+    if start_offset >= time_range.high_watermark {
+        tracing::info!("[Unified Partition] Partition {} start_offset {} >= high_watermark {}, no new data, skipping",
+            partition, start_offset, time_range.high_watermark);
+        return Vec::new();
+    }
+
+    // 提前退出：如果结束offset已经小于等于起始offset，说明没有数据可读
+    if time_range_end > 0 && time_range_end < start_offset {
+        tracing::info!("[Unified Partition] Partition {} end_offset {} < start_offset {}, no data in range, skipping",
+            partition, time_range_end, start_offset);
+        return Vec::new();
+    }
 
     // 分配到指定分区
     let mut tpl = TopicPartitionList::new();
@@ -1608,47 +1744,22 @@ fn fetch_partition_messages_parallel(
         rdkafka::Offset::Offset(start_offset)
     };
     if let Err(e) = tpl.add_partition_offset(&topic, partition, seek_offset) {
-        tracing::error!("[Parallel] Failed to add partition {}: {}", partition, e);
+        tracing::error!("[Unified Partition] Failed to add partition {}: {}", partition, e);
         return Vec::new();
     }
     if let Err(e) = consumer.assign(&tpl) {
-        tracing::error!("[Parallel] Failed to assign partition {}: {}", partition, e);
+        tracing::error!("[Unified Partition] Failed to assign partition {}: {}", partition, e);
         return Vec::new();
     }
 
-    // 预热线程：等待 consumer 的 fetcher 准备好（最多 1000ms）
-    // librdkafka 的 fetcher 是异步的，需要等它从 broker 拉取第一批数据
-    let warmup_start = std::time::Instant::now();
-    let mut warmed_up = false;
-    while !warmed_up && warmup_start.elapsed() < Duration::from_millis(1000) {
-        match consumer.poll(Duration::from_millis(100)) {
-            Some(Ok(_)) => {
-                // 拿到消息了，fetcher 已准备好，seek 回起始位置
-                if let Err(e) = consumer.seek(&topic, partition, seek_offset, Duration::from_secs(1)) {
-                    tracing::warn!("[Parallel] Failed to seek back after warmup: {}", e);
-                }
-                warmed_up = true;
-                tracing::info!("[Parallel] Warmup complete in {:?}, fetcher ready", warmup_start.elapsed());
-            }
-            Some(Err(_)) | None => {
-                // 还没准备好，继续等待
-                continue;
-            }
-        }
-    }
-    if !warmed_up {
-        tracing::warn!("[Parallel] Warmup timeout after {:?}, fetcher may not be ready", warmup_start.elapsed());
-    }
-
     // 计算结束 offset
-    // 如果有时间范围，使用 time_range_end 作为边界
     let end_offset = if time_range_end > 0 {
-        Some(time_range_end + 1) // +1 因为检查使用的是 >=
+        Some(time_range_end + 1)
     } else if fetch_mode.as_deref() == Some("newest") {
         match consumer.fetch_watermarks(&topic, partition, Duration::from_secs(5)) {
             Ok((_, high)) if high > 0 => Some(high),
             Err(e) => {
-                tracing::warn!("[Parallel] Failed to fetch watermarks for partition {}: {}", partition, e);
+                tracing::warn!("[Unified Partition] Failed to fetch watermarks for partition {}: {}", partition, e);
                 None
             }
             _ => None,
@@ -1657,42 +1768,98 @@ fn fetch_partition_messages_parallel(
         None
     };
 
-    let search_lower = search.map(|s| s.to_lowercase());
-    let mut raw_messages = Vec::with_capacity(max_messages);
-    let mut empty_count = 0;
-    let mut polled_count = 0;
-    // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮
-    // 确保大数据量时有足够的等待时间，同时添加 30 秒时间保底
-    let max_empty = 100 + max_messages / 100 * 10;
-    let max_poll_time = std::time::Duration::from_secs(30);  // 最多 poll 30 秒
-    // 无时间范围时：每个分区最多获取 max_messages 条，然后在这些消息中搜索过滤
-    // 有时间范围时：在时间范围内获取最多 max_messages 条，再进行搜索过滤
+    // 延迟字符串转换：先收集原始字节，需要搜索时再转换
+    let search_lower = search.as_ref().map(|s| s.to_lowercase());
+    let need_search = search_lower.is_some();
 
-    // 先收集原始消息（最多 max_messages 条）
-    // 预热已完成，数据应该立即可用，使用短超时
+    // 原始消息存储结构
+    struct RawMessage {
+        partition: i32,
+        offset: i64,
+        key_bytes: Option<Vec<u8>>,
+        value_bytes: Option<Vec<u8>>,
+        timestamp: Option<i64>,
+    }
+
+    let mut raw_messages: Vec<RawMessage> = Vec::with_capacity(max_messages);
+    let mut empty_count = 0;
+
+    // 优化：空轮询150ms一次，最多10次（总共1.5秒）
+    const POLL_TIMEOUT_MS: u64 = 150;
+    const MAX_EMPTY_POLLS: usize = 10;
+    const MAX_POLL_TIME_SECS: u64 = 30;
+
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
-    while raw_messages.len() < max_messages && empty_count < max_empty && poll_start.elapsed() < max_poll_time {
-        // 预热后数据应该立即可用，使用短超时快速轮询
-        match consumer.poll(Duration::from_millis(10)) {
+
+    // 获取high watermark用于末尾检测
+    let high_watermark = time_range.high_watermark;
+
+    while raw_messages.len() < max_messages
+        && empty_count < MAX_EMPTY_POLLS
+        && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
+    {
+        match consumer.poll(Duration::from_millis(POLL_TIMEOUT_MS)) {
             Some(Ok(msg)) => {
                 if !got_first {
                     got_first = true;
-                    tracing::info!("[Parallel] First message received after {:?}", poll_start.elapsed());
+                    tracing::info!("[Unified Partition] First message received after {:?}", poll_start.elapsed());
                 }
-                polled_count += 1;
                 empty_count = 0;
+
+                let msg_offset = msg.offset();
 
                 // newest 模式下检查是否到达末尾
                 if let Some(end) = end_offset {
-                    if msg.offset() >= end {
+                    if msg_offset >= end {
                         break;
                     }
                 }
 
+                // 检查是否已到达分区末尾（已消费到最后一条消息）
+                if msg_offset >= high_watermark - 1 {
+                    tracing::info!("[Unified Partition] Reached end of partition {} at offset {} (high_watermark: {})",
+                        partition, msg_offset, high_watermark);
+                    // 处理完这条消息后退出
+                    let ts = msg.timestamp().to_millis();
+
+                    // 时间范围过滤
+                    if let Some(start) = start_time {
+                        if let Some(t) = ts { if t < start { continue; } }
+                    }
+                    if let Some(end) = end_time {
+                        if let Some(t) = ts { if t > end { continue; } }
+                    }
+
+                    let key_bytes = msg.key().map(|k| k.to_vec());
+                    let value_bytes = msg.payload().map(|p| p.to_vec());
+
+                    // 搜索过滤
+                    if need_search {
+                        let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
+                        let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
+                        let term = search_lower.as_ref().unwrap();
+                        let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(term));
+                        let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(term));
+                        if !key_match && !value_match {
+                            // 不匹配，直接退出（已经到末尾了）
+                            break;
+                        }
+                    }
+
+                    raw_messages.push(RawMessage {
+                        partition,
+                        offset: msg_offset,
+                        key_bytes,
+                        value_bytes,
+                        timestamp: ts,
+                    });
+                    break; // 到达末尾，立即退出
+                }
+
                 let ts = msg.timestamp().to_millis();
 
-                // 时间范围过滤（在时间范围内才收集）
+                // 时间范围过滤
                 if let Some(start) = start_time {
                     if let Some(t) = ts { if t < start { continue; } }
                 }
@@ -1700,14 +1867,27 @@ fn fetch_partition_messages_parallel(
                     if let Some(t) = ts { if t > end { continue; } }
                 }
 
-                let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
-                let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
+                // 延迟转换：只保存字节，需要搜索时再转换
+                let key_bytes = msg.key().map(|k| k.to_vec());
+                let value_bytes = msg.payload().map(|p| p.to_vec());
 
-                raw_messages.push(crate::kafka::consumer::KafkaMessage {
+                // 如果需要搜索，立即进行过滤（避免保存不需要的消息）
+                if need_search {
+                    let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
+                    let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
+                    let term = search_lower.as_ref().unwrap();
+                    let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(term));
+                    let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(term));
+                    if !key_match && !value_match {
+                        continue; // 不匹配搜索条件，跳过
+                    }
+                }
+
+                raw_messages.push(RawMessage {
                     partition,
                     offset: msg.offset(),
-                    key,
-                    value,
+                    key_bytes,
+                    value_bytes,
                     timestamp: ts,
                 });
             }
@@ -1721,25 +1901,24 @@ fn fetch_partition_messages_parallel(
         }
     }
 
-    // 对已收集的消息进行搜索过滤
-    let messages: Vec<_> = if let Some(ref term) = search_lower {
-        raw_messages
-            .into_iter()
-            .filter(|msg| {
-                let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                km || vm
-            })
-            .collect()
-    } else {
-        raw_messages
-    };
+    tracing::info!("[Unified Partition] Poll loop took {:?}, empty_count={}, messages_collected={}",
+        poll_start.elapsed(), empty_count, raw_messages.len());
 
-    tracing::info!("[Parallel] Fetched {} messages from partition {} (polled: {}, after search filter: {})",
-        messages.len(), partition, polled_count, messages.len());
+    // 转换为最终消息格式
+    let messages: Vec<crate::kafka::consumer::KafkaMessage> = raw_messages
+        .into_iter()
+        .map(|raw| crate::kafka::consumer::KafkaMessage {
+            partition: raw.partition,
+            offset: raw.offset,
+            key: raw.key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
+            value: raw.value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
+            timestamp: raw.timestamp,
+        })
+        .collect();
+
+    tracing::info!("[Unified Partition] Fetched {} messages from partition {}", messages.len(), partition);
     messages
 }
-
 /// 时间范围信息
 #[derive(Debug, Clone)]
 struct TimeRangeInfo {
@@ -1975,700 +2154,6 @@ fn calculate_partition_offset(
     }
 }
 
-/// 本地集群 - 分层优化策略
-async fn fetch_messages_local(
-    brokers: &str,
-    topic: &str,
-    partition: Option<i32>,
-    offset: Option<i64>,
-    max_messages: usize,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
-    search: Option<String>,
-    fetch_mode: Option<&str>,
-    sort: Option<&str>,
-) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
-    use rdkafka::Message;
-    use rdkafka::TopicPartitionList;
-    use rdkafka::ClientConfig;
-    use std::time::Duration;
-    use std::collections::HashMap;
-
-    let start_time_total = std::time::Instant::now();
-    let topic = topic.to_string();
-    let brokers = brokers.to_string();
-    let search = search.clone();
-    let fetch_mode = fetch_mode.map(|s| s.to_string());
-    let sort = sort.map(|s| s.to_string());
-    let offset = offset;
-
-    tracing::info!("[fetch_messages_local] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
-                   topic, partition, max_messages, fetch_mode);
-
-    // 获取分区列表
-    let partitions: Vec<i32> = {
-        let cfg = ClientConfig::new()
-            .set("bootstrap.servers", &brokers)
-            .set("broker.address.family", "v4")
-            .create::<BaseConsumer>()?;
-        if partition.is_none() {
-            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
-                Ok(metadata) => metadata.topics().first()
-                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
-                    .unwrap_or_else(|| vec![0]),
-                Err(_) => vec![0],
-            }
-        } else {
-            vec![partition.unwrap_or(0)]
-        }
-    };
-
-    let partition_count = partitions.len();
-    let total_target = max_messages * partition_count;
-
-    tracing::info!("[Local] {} partitions, {} messages per partition, total {}. Mode: {}",
-        partition_count, max_messages, total_target,
-        if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 { "parallel" } else { "sequential" });
-
-    // 本地 Kafka 单分区或少分区时使用并行模式（无 group.id，直接分配分区）
-    // 优化：分区数 <= 5 时使用串行模式，避免创建多个 consumer 的连接开销
-    let messages = if (max_messages >= 1000 || partition_count == 1) && partition_count > 5 {
-        // === 大批量并行模式（>=1000条/分区且分区数>5）===
-        // 每个分区都请求 max_messages 条（max_messages 是 per partition 的）
-        // 限制并发数以避免对 Kafka 造成过大压力
-        let msgs_per_partition = max_messages;
-        tracing::info!("[Parallel Mode] {} partitions, {} messages per partition, total target {}",
-            partition_count, msgs_per_partition, total_target);
-        let partition_has_specific_offset = partition.is_some();
-        let partition_offset_val = if partition_has_specific_offset { offset } else { None };
-
-        use tokio::sync::Semaphore;
-        use tokio::time::{timeout, Duration as TokioDuration};
-        use std::sync::Arc;
-
-        // 最多 10 个并发
-        let semaphore = Arc::new(Semaphore::new(10));
-        let mut handles = vec![];
-
-        for &part_id in &partitions {
-            let brokers = brokers.clone();
-            let topic = topic.clone();
-            let search = search.clone();
-            let fetch_mode = fetch_mode.clone();
-            let part_offset = if partition_has_specific_offset { partition_offset_val } else { None };
-            let sem = semaphore.clone();
-
-            let handle = tokio::spawn(async move {
-                let _permit = sem.acquire().await.expect("Semaphore acquire failed");
-                // 时间戳查询可能需要更长时间，增加超时到 60 秒
-                let fetch_timeout = if start_time.is_some() || end_time.is_some() {
-                    TokioDuration::from_secs(60)
-                } else {
-                    TokioDuration::from_secs(30)
-                };
-                timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
-                    fetch_partition_messages_parallel(
-                        brokers, topic, part_id, msgs_per_partition, part_offset,
-                        start_time, end_time, search, fetch_mode,
-                    )
-                })).await
-            });
-            handles.push(handle);
-        }
-
-        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target);
-        for handle in handles {
-            match handle.await {
-                Ok(Ok(Ok(msgs))) => {
-                    tracing::info!("[Parallel] Got {} messages from task", msgs.len());
-                    all_msgs.extend(msgs);
-                }
-                Ok(Ok(Err(_))) => tracing::warn!("Partition fetch timeout"),
-                Ok(Err(e)) => tracing::warn!("Task join error: {}", e),
-                Err(e) => tracing::warn!("Spawn error: {}", e),
-            }
-        }
-        all_msgs
-    } else {
-        // === 串行模式（<1000条/分区 或 分区数<=5）===
-        // 优化：使用单个 consumer 处理所有分区，避免多个连接开销
-        // 捕获 partition 变量用于判断是否应该使用 offset
-        let partition_filter = partition;
-        tokio::task::spawn_blocking(move || {
-            let mut cfg = ClientConfig::new();
-            cfg.set("bootstrap.servers", &brokers);
-            // 使用固定 group.id（避免 Unknown group），但配合 assign 模式
-            cfg.set("group.id", "kafka-mgr-seq");
-            cfg.set("enable.auto.commit", "false");
-            cfg.set("auto.offset.reset", "earliest");
-            cfg.set("session.timeout.ms", "3000");
-            cfg.set("fetch.min.bytes", "1");
-            cfg.set("fetch.wait.max.ms", "10");
-            cfg.set("fetch.max.bytes", "52428800");
-            cfg.set("socket.nagle.disable", "true");
-            cfg.set("broker.address.family", "v4");
-            // 优化：添加连接超时配置
-            cfg.set("socket.connection.setup.timeout.ms", "3000");
-            cfg.set("reconnect.backoff.ms", "50");
-            cfg.set("reconnect.backoff.max.ms", "500");
-
-            let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
-                Ok(c) => c,
-                Err(_) => return Vec::new(),
-            };
-
-            // 只有指定了特定分区时，才传递 offset 参数
-            let effective_offset = if partition_filter.is_some() { offset } else { None };
-
-            // 优化：预获取所有分区的 watermark，用于判断是否到达分区末尾
-            let mut partition_watermarks: HashMap<i32, (i64, i64)> = HashMap::new();
-            // 优化：预标记空分区（high <= low 或 high == 0），避免空轮询
-            let mut partition_reached_end: HashMap<i32, bool> = HashMap::with_capacity(partition_count);
-            for &part_id in &partitions {
-                if let Ok((low, high)) = consumer.fetch_watermarks(&topic, part_id, Duration::from_millis(1000)) {
-                    partition_watermarks.insert(part_id, (low, high));
-                    // 优化：如果分区为空（high <= low 或 high == 0），直接标记为完成
-                    if high <= low || high == 0 {
-                        partition_reached_end.insert(part_id, true);
-                        tracing::info!("[Local] Partition {} is empty (low={}, high={}), marked as finished", part_id, low, high);
-                    }
-                }
-            }
-
-            // 优化：如果指定了 end_time，查询对应的时间范围结束 offset
-            let mut time_range_end_offsets: HashMap<i32, i64> = HashMap::new();
-            if let Some(end_t) = end_time {
-                if end_t > 0 {
-                    let mut time_tpl = TopicPartitionList::new();
-                    for &part_id in &partitions {
-                        time_tpl.add_partition_offset(&topic, part_id, rdkafka::Offset::Offset(end_t)).ok();
-                    }
-                    match consumer.offsets_for_times(time_tpl, Duration::from_secs(3)) {
-                        Ok(r) => {
-                            for elem in r.elements_for_topic(&topic) {
-                                if let Some(off) = elem.offset().to_raw() {
-                                    time_range_end_offsets.insert(elem.partition(), off.saturating_sub(1));
-                                }
-                            }
-                            tracing::info!("[Local] Queried end_time offsets for time {}: {:?}", end_t, time_range_end_offsets);
-                        }
-                        Err(e) => {
-                            tracing::warn!("[Local] Failed to query end_time offsets for time {}: {}", end_t, e);
-                        }
-                    }
-                }
-            }
-
-            // 构建 TopicPartitionList，直接在 assign 时指定 offset
-            let mut tpl = TopicPartitionList::new();
-            for &part_id in &partitions {
-                let time_range = calculate_partition_offset(&consumer, &topic, part_id, max_messages, effective_offset, start_time, end_time, fetch_mode.as_deref())
-                    .unwrap_or(TimeRangeInfo { start_offset: 0, end_offset: 0, low_watermark: 0, high_watermark: 0 });
-                let assign_offset = if time_range.start_offset < 0 {
-                    rdkafka::Offset::Beginning
-                } else {
-                    rdkafka::Offset::Offset(time_range.start_offset)
-                };
-                tpl.add_partition_offset(&topic, part_id, assign_offset).ok();
-            }
-
-            // Assign 分区（已经包含了正确的 offset）
-            if consumer.assign(&tpl).is_err() {
-                return Vec::new();
-            }
-
-            // 直接开始 poll，不需要等待 group join
-
-            let search_lower = search.as_ref().map(|s| s.to_lowercase());
-            let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() == Some("newest"));
-
-            // 第一步：收集原始消息（每个分区最多 max_messages 条）
-            let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
-            let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
-            let mut total_empty = 0;
-            // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮，同时添加 30 秒时间保底
-            let max_empty_rounds = 100 + max_messages / 100 * 10;
-            let max_poll_time = std::time::Duration::from_secs(30);
-            let poll_start = std::time::Instant::now();
-            // 优化：partition_reached_end 已在前面初始化（预标记空分区）
-            let partitions_ref = &partitions; // 用于闭包捕获
-            let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
-                partitions_ref.iter().all(|&p| {
-                    let count = counts.get(&p).copied().unwrap_or(0);
-                    let reached = reached_end.get(&p).copied().unwrap_or(false);
-                    count >= max_messages || reached
-                })
-            };
-
-            // 收集消息，每个分区最多 max_messages 条
-            // 第一次 poll 给更多时间建立连接
-            let mut first_poll = true;
-            while raw_msgs.len() < max_messages * partition_count
-                && total_empty < max_empty_rounds
-                && poll_start.elapsed() < max_poll_time
-                && !all_partitions_finished(&partition_counts, &partition_reached_end) {
-                let poll_timeout = if first_poll {
-                    first_poll = false;
-                    Duration::from_millis(500) // 第一次 poll 给足够时间建立连接
-                } else {
-                    Duration::from_millis(50)  // 后续 poll 使用短超时
-                };
-                match consumer.poll(poll_timeout) {
-                    Some(Ok(msg)) => {
-                        let part = msg.partition();
-                        let count = partition_counts.get(&part).copied().unwrap_or(0);
-                        if count >= max_messages {
-                            // 该分区已满，跳过但标记为可能已结束
-                            // 检查是否到达 watermark
-                            if let Some((_, high)) = partition_watermarks.get(&part) {
-                                if msg.offset() >= high.saturating_sub(1) {
-                                    partition_reached_end.insert(part, true);
-                                }
-                            }
-                            continue;
-                        }
-                        total_empty = 0;
-
-                        let ts = msg.timestamp().to_millis();
-                        // 时间范围过滤
-                        if let Some(start) = start_time {
-                            if let Some(t) = ts { if t < start { continue; } }
-                        }
-                        if let Some(end) = end_time {
-                            if let Some(t) = ts { if t > end { continue; } }
-                        }
-
-                        let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
-                        let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
-
-                        partition_counts.insert(part, count + 1);
-                        // 优化：检查是否到达分区边界（开头或末尾，或时间范围结束）
-                        if let Some((low, high)) = partition_watermarks.get(&part) {
-                            // 到达分区开头（消息过期或已消费到最早的消息）
-                            let reached_beginning = msg.offset() <= *low;
-                            // 到达分区结尾（已消费到最新的消息）
-                            let reached_end = msg.offset() >= high.saturating_sub(1);
-                            // 该分区消息数已满
-                            let partition_full = count + 1 >= max_messages;
-                            // 优化：到达时间范围的结束 offset
-                            let reached_time_end = time_range_end_offsets.get(&part)
-                                .map(|end_off| msg.offset() >= *end_off)
-                                .unwrap_or(false);
-
-                            if reached_beginning || reached_end || partition_full || reached_time_end {
-                                partition_reached_end.insert(part, true);
-                                let reason = if reached_beginning { "beginning" }
-                                    else if reached_end { "end" }
-                                    else if reached_time_end { "time_end" }
-                                    else { "full" };
-                                tracing::info!("[Local] Partition {} finished: offset={}, low={}, high={}, time_end={:?}, count={}, reason={}",
-                                    part, msg.offset(), low, high, time_range_end_offsets.get(&part), count + 1, reason);
-                            }
-                        }
-                        raw_msgs.push(crate::kafka::consumer::KafkaMessage {
-                            partition: part,
-                            offset: msg.offset(),
-                            key,
-                            value,
-                            timestamp: ts,
-                        });
-                    }
-                    _ => { total_empty += 1; }
-                }
-            }
-            tracing::info!("[Local] Poll loop took {:?}, total_empty={}, messages_collected={}",
-                           poll_start.elapsed(), total_empty, raw_msgs.len());
-
-            // 第二步：对已收集的消息进行搜索过滤
-            let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = if let Some(ref term) = search_lower {
-                raw_msgs
-                    .into_iter()
-                    .filter(|msg| {
-                        let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                        let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                        km || vm
-                    })
-                    .collect()
-            } else {
-                raw_msgs
-            };
-
-            all_msgs.sort_by(|a, b| {
-                match (a.timestamp, b.timestamp) {
-                    (Some(ta), Some(tb)) => if is_desc { tb.cmp(&ta) } else { ta.cmp(&tb) },
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => if is_desc { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
-                }
-            });
-
-            all_msgs
-        }).await.map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
-    };
-
-    tracing::info!("[Local] Fetched {} messages from {} partitions in {:?}",
-        messages.len(), partition_count, start_time_total.elapsed());
-
-    Ok(messages)
-}
-
-/// 远程集群优化版 - 单consumer多分区，复用连接
-async fn fetch_messages_remote(
-    brokers: &str,
-    topic: &str,
-    partition: Option<i32>,
-    offset: Option<i64>,
-    max_messages: usize,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
-    search: Option<String>,
-    fetch_mode: Option<&str>,
-    sort: Option<&str>,
-) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
-    use rdkafka::Message;
-    use rdkafka::TopicPartitionList;
-    use rdkafka::ClientConfig;
-    use std::time::Duration;
-    use std::collections::HashMap;
-
-    let start_time_total = std::time::Instant::now();
-    let topic_owned = topic.to_string();
-    let brokers_owned = brokers.to_string();
-    let search_lower = search.as_ref().map(|s| s.to_lowercase());
-    let fetch_mode_owned = fetch_mode.map(|s| s.to_string());
-    let sort_owned = sort.map(|s| s.to_string());
-    // 只有指定了特定分区时，才使用 offset
-    let offset_owned = if partition.is_some() { offset } else { None };
-
-    let messages = tokio::task::spawn_blocking(move || {
-        // 第一步：创建consumer并获取分区信息
-        let mut cfg = ClientConfig::new();
-        cfg.set("bootstrap.servers", &brokers_owned);
-        // 使用固定 group.id（避免 Unknown group 错误），但设置短 session timeout
-        cfg.set("group.id", "kafka-mgr-remote");
-        cfg.set("enable.auto.commit", "false");
-        cfg.set("auto.offset.reset", "earliest");
-        // 最小化 group 协调延迟
-        cfg.set("session.timeout.ms", "3000");
-        cfg.set("heartbeat.interval.ms", "500");
-        // 优化：小批量快速返回，减少等待
-        cfg.set("fetch.min.bytes", "1");
-        cfg.set("fetch.wait.max.ms", "10");
-        cfg.set("fetch.max.bytes", "10485760");       // 10MB
-        cfg.set("max.partition.fetch.bytes", "10485760"); // 10MB per partition
-        cfg.set("socket.nagle.disable", "true");
-        cfg.set("socket.connection.setup.timeout.ms", "5000");
-        cfg.set("reconnect.backoff.ms", "50");
-        cfg.set("partition.assignment.strategy", "");
-        // 强制使用 IPv4，避免 IPv6 连接问题
-        cfg.set("broker.address.family", "v4");
-
-        let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()
-            .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
-
-        // 获取分区列表
-        let partitions: Vec<i32> = if partition.is_none() {
-            let metadata = consumer.fetch_metadata(Some(&topic_owned), Duration::from_millis(1000))
-                .map_err(|e| AppError::Internal(format!("Failed to fetch metadata: {}", e)))?;
-            metadata.topics().first()
-                .map(|t| t.partitions().iter().map(|p| p.id()).collect())
-                .unwrap_or_else(|| vec![0])
-        } else {
-            vec![partition.unwrap_or(0)]
-        };
-
-        let partition_count = partitions.len();
-
-        // 第二步：为每个分区计算起始offset
-        let mut tpl = TopicPartitionList::new();
-
-        // 优化：首先批量获取所有分区的 watermarks（单次调用更高效）
-        // 注意：这里不能并行化，因为 consumer 不是线程安全的
-        let mut watermark_cache: std::collections::HashMap<i32, (i64, i64)> = std::collections::HashMap::new();
-
-        // 预获取所有分区的 watermarks，用于：
-        // 1. newest/oldest 模式计算起始 offset
-        // 2. 时间戳查询失败时的 fallback
-        for &part_id in &partitions {
-            match consumer.fetch_watermarks(&topic_owned, part_id, Duration::from_millis(5000)) {
-                Ok(w) => { watermark_cache.insert(part_id, w); }
-                Err(e) => {
-                    tracing::warn!("Failed to fetch watermarks for partition {}: {}", part_id, e);
-                }
-            }
-        }
-
-        // 批量获取所有分区的时间戳 offset（start_time 和 end_time）
-        let mut time_based_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
-        // 优化：同时查询 end_time 对应的 offset，用于时间范围边界检测
-        let mut time_range_end_offsets: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
-
-        // 查询 start_time 对应的 offset
-        if let Some(start_time) = start_time {
-            if start_time > 0 && !partitions.is_empty() {
-                let time_query_start = std::time::Instant::now();
-                let mut time_tpl = TopicPartitionList::new();
-                for &part_id in &partitions {
-                    time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_time)).ok();
-                }
-                match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
-                    Ok(r) => {
-                        let elapsed = time_query_start.elapsed();
-                        for elem in r.elements_for_topic(&topic_owned) {
-                            if let Some(offset) = elem.offset().to_raw() {
-                                time_based_offsets.insert(elem.partition(), offset);
-                            }
-                        }
-                        tracing::info!("[Remote] Batch queried start_time offsets for time {} on {} partitions in {:?}, found {} results",
-                            start_time, partitions.len(), elapsed, time_based_offsets.len());
-                    }
-                    Err(e) => {
-                        tracing::warn!("[Remote] Failed to batch query start_time offsets for time {}: {}", start_time, e);
-                    }
-                }
-            }
-        }
-
-        // 优化：查询 end_time 对应的 offset，用于提前结束检测
-        if let Some(end_time) = end_time {
-            if end_time > 0 && !partitions.is_empty() {
-                let time_query_start = std::time::Instant::now();
-                let mut time_tpl = TopicPartitionList::new();
-                for &part_id in &partitions {
-                    time_tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(end_time)).ok();
-                }
-                match consumer.offsets_for_times(time_tpl, Duration::from_secs(5)) {
-                    Ok(r) => {
-                        let elapsed = time_query_start.elapsed();
-                        for elem in r.elements_for_topic(&topic_owned) {
-                            if let Some(offset) = elem.offset().to_raw() {
-                                // end_time 对应的 offset 是大于等于该时间的第一条消息
-                                // 所以时间范围的有效结束 offset 是 offset - 1
-                                time_range_end_offsets.insert(elem.partition(), offset.saturating_sub(1));
-                            }
-                        }
-                        tracing::info!("[Remote] Batch queried end_time offsets for time {} on {} partitions in {:?}, found {} results",
-                            end_time, partitions.len(), elapsed, time_range_end_offsets.len());
-                    }
-                    Err(e) => {
-                        tracing::warn!("[Remote] Failed to batch query end_time offsets for time {}: {}", end_time, e);
-                    }
-                }
-            }
-        }
-
-        for &part_id in &partitions {
-            let (low, high) = watermark_cache.get(&part_id).copied().unwrap_or((0, 0));
-
-            // 获取时间范围对应的 offset
-            let time_start_offset = time_based_offsets.get(&part_id).copied();
-            let time_end_offset = time_range_end_offsets.get(&part_id).copied();
-
-            // 判断是否有有效的时间范围
-            let has_time_range = time_start_offset.is_some() || time_end_offset.is_some();
-            let time_start = time_start_offset.unwrap_or(low);
-            let time_end = time_end_offset.unwrap_or(high.saturating_sub(1).max(low));
-
-            // 计算起始 offset
-            let start_offset = if let Some(off) = offset_owned {
-                // 如果明确指定了 offset，使用指定的 offset
-                off
-            } else if has_time_range {
-                // 有时间范围：根据 fetch_mode 决定在时间范围内的起始位置
-                match fetch_mode_owned.as_deref() {
-                    Some("newest") => {
-                        // newest 模式：从时间范围的末尾往前推 max_messages 条
-                        let range_size = time_end.saturating_sub(time_start) + 1;
-                        let messages_to_fetch = (max_messages as i64).min(range_size);
-                        time_end.saturating_sub(messages_to_fetch - 1).max(time_start)
-                    }
-                    Some("oldest") | None => {
-                        // oldest 模式（默认）：从时间范围的开头开始
-                        time_start
-                    }
-                    _ => time_start,
-                }
-            } else if fetch_mode_owned.as_deref() == Some("newest") || fetch_mode_owned.is_none() {
-                // 无时间范围，newest 模式：从分区末尾往前推
-                if high > 0 {
-                    let latest = high.saturating_sub(1);
-                    latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low)
-                } else {
-                    low
-                }
-            } else if fetch_mode_owned.as_deref() == Some("oldest") {
-                // 无时间范围，oldest 模式：从分区开头开始
-                low
-            } else {
-                low
-            };
-
-            if time_start_offset.is_some() || time_end_offset.is_some() {
-                tracing::info!("[Remote] Partition {} time range: start_offset={:?}, end_offset={:?}, calculated start={}",
-                    part_id, time_start_offset, time_end_offset, start_offset);
-            }
-
-            tpl.add_partition_offset(&topic_owned, part_id, rdkafka::Offset::Offset(start_offset))
-                .map_err(|e| AppError::Internal(format!("Failed to set offset: {}", e)))?;
-        }
-
-        // 第三步：assign所有分区
-        consumer.assign(&tpl)
-            .map_err(|e| AppError::Internal(format!("Failed to assign partitions: {}", e)))?;
-
-        // 第四步：批量消费消息
-        let mut partition_counts: HashMap<i32, usize> = HashMap::with_capacity(partition_count);
-        let mut raw_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(max_messages * partition_count);
-        let mut total_empty = 0;
-        // 自适应空轮次上限：基础 100 轮 + 每 100 条消息增加 10 轮，同时添加 30 秒时间保底
-        let max_empty_rounds = 100 + max_messages / 100 * 10;
-        let max_poll_time = std::time::Duration::from_secs(30);
-        // 优化：记录每个分区是否已到达末尾
-        let mut partition_reached_end: HashMap<i32, bool> = HashMap::with_capacity(partition_count);
-        // 优化：预标记空分区（high <= low 或 high == 0），避免空轮询
-        for &part_id in &partitions {
-            if let Some(&(low, high)) = watermark_cache.get(&part_id) {
-                if high <= low || high == 0 {
-                    partition_reached_end.insert(part_id, true);
-                    tracing::info!("[Remote] Partition {} is empty (low={}, high={}), marked as finished", part_id, low, high);
-                }
-            }
-        }
-        let partitions_ref = &partitions;
-        let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashMap<i32, bool>| {
-            partitions_ref.iter().all(|&p| {
-                let count = counts.get(&p).copied().unwrap_or(0);
-                let reached = reached_end.get(&p).copied().unwrap_or(false);
-                count >= max_messages || reached
-            })
-        };
-
-        // 计算需要获取的总消息数
-        let target_total = max_messages * partition_count;
-
-        // 收集原始消息（每个分区最多 max_messages 条）
-        let poll_start = std::time::Instant::now();
-        let mut first_poll = true;
-        while raw_msgs.len() < target_total
-            && total_empty < max_empty_rounds
-            && poll_start.elapsed() < max_poll_time
-            && !all_partitions_finished(&partition_counts, &partition_reached_end) {
-            // 第一次 poll 给更多时间建立连接
-            let poll_timeout = if first_poll {
-                first_poll = false;
-                Duration::from_millis(500)
-            } else {
-                Duration::from_millis(10)  // 使用短超时快速轮询
-            };
-            match consumer.poll(poll_timeout) {
-                Some(Ok(msg)) => {
-                    let part = msg.partition();
-
-                    // 检查该分区是否已达上限
-                    let count = partition_counts.get(&part).copied().unwrap_or(0);
-                    if count >= max_messages {
-                        // 分区已满，检查是否到达 watermark
-                        if let Some((_, high)) = watermark_cache.get(&part) {
-                            if msg.offset() >= high.saturating_sub(1) {
-                                partition_reached_end.insert(part, true);
-                            }
-                        }
-                        continue;
-                    }
-
-                    // 成功获取消息，重置计数器
-                    total_empty = 0;
-
-                    let ts = msg.timestamp().to_millis();
-
-                    // 时间范围过滤
-                    if let Some(start) = start_time {
-                        if let Some(t) = ts { if t < start { continue; } }
-                    }
-                    if let Some(end) = end_time {
-                        if let Some(t) = ts { if t > end { continue; } }
-                    }
-
-                    // 解码key/value
-                    let key = msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from));
-                    let value = msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from));
-
-                    partition_counts.insert(part, count + 1);
-                    // 优化：检查是否到达分区边界（开头或末尾，或时间范围结束）
-                    if let Some((low, high)) = watermark_cache.get(&part) {
-                        // 到达分区开头（消息过期或已消费到最早的消息）
-                        let reached_beginning = msg.offset() <= *low;
-                        // 到达分区结尾（已消费到最新的消息）
-                        let reached_end = msg.offset() >= high.saturating_sub(1);
-                        // 该分区消息数已满
-                        let partition_full = count + 1 >= max_messages;
-                        // 优化：到达时间范围的结束 offset
-                        let reached_time_end = time_range_end_offsets.get(&part)
-                            .map(|end_off| msg.offset() >= *end_off)
-                            .unwrap_or(false);
-
-                        if reached_beginning || reached_end || partition_full || reached_time_end {
-                            partition_reached_end.insert(part, true);
-                            let reason = if reached_beginning { "beginning" }
-                                else if reached_end { "end" }
-                                else if reached_time_end { "time_end" }
-                                else { "full" };
-                            tracing::info!("[Remote] Partition {} finished: offset={}, low={}, high={}, time_end={:?}, count={}, reason={}",
-                                part, msg.offset(), low, high, time_range_end_offsets.get(&part), count + 1, reason);
-                        }
-                    }
-                    raw_msgs.push(crate::kafka::consumer::KafkaMessage {
-                        partition: part,
-                        offset: msg.offset(),
-                        key,
-                        value,
-                        timestamp: ts,
-                    });
-                }
-                Some(Err(_)) => {
-                    total_empty += 1;
-                }
-                None => {
-                    total_empty += 1;
-                }
-            }
-        }
-        tracing::info!("[Remote] Poll loop took {:?}, collected {} messages", poll_start.elapsed(), raw_msgs.len());
-
-        // 第二步：对已收集的消息进行搜索过滤
-        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = if let Some(ref term) = search_lower {
-            raw_msgs
-                .into_iter()
-                .filter(|msg| {
-                    let km = msg.key.as_ref().map_or(false, |k| k.to_lowercase().contains(term));
-                    let vm = msg.value.as_ref().map_or(false, |v| v.to_lowercase().contains(term));
-                    km || vm
-                })
-                .collect()
-        } else {
-            raw_msgs
-        };
-
-        // 第五步：排序
-        let is_desc = sort_owned.as_deref() == Some("desc") || (sort_owned.is_none() && fetch_mode_owned.as_deref() != Some("oldest"));
-        all_msgs.sort_by(|a, b| {
-            match (a.timestamp, b.timestamp) {
-                (Some(ta), Some(tb)) => if is_desc { tb.cmp(&ta) } else { ta.cmp(&tb) },
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => if is_desc { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
-            }
-        });
-
-        tracing::info!("[Remote] Fetched {} messages from {} partitions in {:?}",
-            all_msgs.len(), partition_count, start_time_total.elapsed());
-        Ok::<Vec<_>, AppError>(all_msgs)
-    }).await.map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
-
-    Ok(messages)
-}
 
 async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
