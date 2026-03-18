@@ -440,20 +440,29 @@ function bufferMessages(newMessages: Message[]) {
 
 // 调度缓冲刷新
 function scheduleBufferFlush() {
-  if (bufferFlushTimer) return;
+  if (bufferFlushTimer || isFlushing) return;
   bufferFlushTimer = window.setTimeout(() => {
     flushMessageBuffer();
   }, BUFFER_FLUSH_INTERVAL);
 }
 
-// 刷新缓冲到主消息列表
+// 刷新缓冲到主消息列表 - 使用安全的方式避免数据丢失
 function flushMessageBuffer() {
-  if (messageBuffer.value.length === 0) {
+  if (isFlushing || messageBuffer.value.length === 0) {
     bufferFlushTimer = null;
     return;
   }
-  const batch = messageBuffer.value.splice(0, messageBuffer.value.length);
+
+  isFlushing = true;
+  // 先复制当前缓冲区的所有消息
+  const batch = [...messageBuffer.value];
+  // 清空缓冲区
+  messageBuffer.value = [];
+
+  // 批量添加到主列表
   messages.value.push(...batch);
+
+  isFlushing = false;
   bufferFlushTimer = null;
 }
 
@@ -463,7 +472,12 @@ function clearMessageBuffer() {
     clearTimeout(bufferFlushTimer);
     bufferFlushTimer = null;
   }
-  messageBuffer.value = [];
+  // 如果有未刷新的数据，先刷新再清空
+  if (messageBuffer.value.length > 0 && !isFlushing) {
+    const batch = [...messageBuffer.value];
+    messageBuffer.value = [];
+    messages.value.push(...batch);
+  }
 }
 
 // 方法

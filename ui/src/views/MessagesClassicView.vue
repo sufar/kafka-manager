@@ -454,13 +454,6 @@ function clearMessageBuffer() {
     messages.value.push(...batch);
   }
 }
-function clearMessageBuffer() {
-  if (bufferFlushTimer) {
-    clearTimeout(bufferFlushTimer);
-    bufferFlushTimer = null;
-  }
-  messageBuffer.value = [];
-}
 
 // 虚拟滚动配置
 const ROW_HEIGHT = 16; // 每行高度（像素）- 更紧凑
