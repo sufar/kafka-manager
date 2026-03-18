@@ -236,7 +236,7 @@ async function submitCreateGroup() {
     newGroupName.value = '';
     newGroupDesc.value = '';
 
-    showSuccess(t.favorites?.groupCreated || '分组创建成功');
+    showSuccess(props.t.favorites?.groupCreated || '分组创建成功');
   } catch (error: any) {
     showError(error.message || '创建分组失败');
   } finally {

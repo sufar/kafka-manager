@@ -717,3 +717,243 @@ if time_range_end > 0 && time_range_end < start_offset {
 | 1.4 | 2026-03-16 | 添加时间范围查询优化（查询 end_time offset 用于提前结束）、更新 Q7/Q9 文档|
 | 1.5 | 2026-03-16 | 修复空分区检测（high=0 的分区也要预标记为完成），添加远程模式的空分区预标记|
 | 1.6 | 2026-03-18 | 统一本地/远程模式为 `fetch_partition_messages_unified`，分区数>1自动并行，添加分区末尾检测（msg.offset >= high_watermark - 1），修复 group.id 冲突（每个分区使用唯一 group.id），优化内存预分配、提取搜索过滤函数、避免重复获取 watermark、添加 socket 超时、自适应 poll 超时 |
+| 1.7 | 2026-03-18 | 添加 SSE 流式传输支持：并行读取+最小堆归并+流式发送到前端，修复 partition.assignment.strategy 为空字符串的问题，动态调整空轮询次数（基础10次+每1000条增加5次，上限50次） |
+
+---
+
+## 版本 1.7 SSE 流式传输与动态优化
+
+### 1. partition.assignment.strategy 修复
+
+**问题**：配置设置为空字符串 `""` 是非法的 Kafka 配置，可能导致 consumer 创建失败或行为异常。
+
+**修复**：
+```rust
+// 修复前
+.cfg.set("partition.assignment.strategy", "");
+
+// 修复后
+cfg.set("partition.assignment.strategy", "range");
+```
+
+### 2. 动态空轮询调整
+
+**问题**：固定 10 次空轮询对于大数据量（如 10000 条/分区）可能不够，导致查询提前结束。
+
+**解决方案**：
+```rust
+// 基础 10 次，每 1000 条消息增加 5 次，最多 50 次
+let base_empty_polls = 10usize;
+let additional_polls = (max_messages / 1000) * 5;
+let max_empty_polls = (base_empty_polls + additional_polls).min(50);
+
+// 示例：
+// max_messages=100  → 10 次
+// max_messages=1000 → 15 次
+// max_messages=10000→ 60 → 上限 50 次
+```
+
+### 3. SSE 流式传输架构
+
+#### 3.1 整体流程
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  分区0读取   │────→│             │     │             │
+└─────────────┘     │   最小堆    │────→│  SSE批次    │────→ 前端实时显示
+┌─────────────┐     │  归并排序   │     │  (100条/批) │
+│  分区1读取   │────→│             │     │             │
+└─────────────┘     │             │     │             │
+┌─────────────┐     │             │     │             │
+│  分区2读取   │────→│             │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘
+      ↑                    ↑                  ↑
+   channel              BinaryHeap        EventStream
+   实时发送              动态归并           实时接收
+```
+
+#### 3.2 后端实现
+
+**新增路由**：`/api/stream` - 专用于 SSE 流式请求
+
+**核心组件**：
+
+1. **流式分区读取** (`fetch_partition_messages_streaming`)：
+```rust
+async fn fetch_partition_messages_streaming(
+    brokers: String,
+    topic: String,
+    partition: i32,
+    max_messages: usize,
+    // ... 其他参数
+    tx: mpsc::Sender<KafkaMessage>,  // 通过 channel 实时发送
+) {
+    // 创建 consumer（唯一 group.id）
+    // 计算 offset 范围
+    // poll 消息并通过 tx.send() 实时发送
+}
+```
+
+2. **最小堆归并** (`HeapMessage`)：
+```rust
+#[derive(Debug)]
+struct HeapMessage {
+    timestamp: Option<i64>,
+    offset: i64,
+    message: KafkaMessage,
+}
+
+impl Ord for HeapMessage {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // 按时间戳排序，时间戳相同则按 offset 排序
+        match (self.timestamp, other.timestamp) {
+            (Some(a), Some(b)) => a.cmp(&b).then_with(|| self.offset.cmp(&other.offset)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => self.offset.cmp(&other.offset),
+        }
+    }
+}
+```
+
+3. **流式归并** (`fetch_messages_streaming_sse`)：
+```rust
+async fn fetch_messages_streaming_sse(
+    // ... 参数
+    sse_tx: mpsc::Sender<std::result::Result<Event, Infallible>>,
+) -> Result<()> {
+    // 1. 为每个分区创建 channel
+    // 2. 并行启动分区读取任务
+    // 3. 最小堆归并
+    // 4. 每满 BATCH_SIZE (100条) 发送 SSE 事件
+}
+```
+
+#### 3.3 SSE 事件类型
+
+| 事件 | 数据格式 | 说明 |
+|------|----------|------|
+| `start` | `{"partitions": 3, "total_target": 30000}` | 开始获取消息 |
+| `batch` | `{"messages": [...], "progress": 100, "total": 30000}` | 一批消息（100条） |
+| `order` | `{"sort": "desc"}` | 排序方向通知 |
+| `complete` | `{}` | 获取完成 |
+| `error` | `{"error": "..."}` | 错误信息 |
+
+#### 3.4 前端实现
+
+**API Client 方法** (`getMessagesStream`)：
+```typescript
+getMessagesStream(
+  clusterId: string,
+  topic: string,
+  params?: MessageQueryParams,
+  callbacks?: {
+    onStart?: (data: { partitions: number; total_target: number }) => void;
+    onBatch?: (messages: MessageRecord[], progress: number, total: number) => void;
+    onOrder?: (sort: string) => void;
+    onComplete?: () => void;
+    onError?: (error: string) => void;
+  }
+): AbortController
+```
+
+**使用示例**：
+```typescript
+const abortController = apiClient.getMessagesStream(
+  clusterId,
+  topic,
+  { max_messages: 10000, fetchMode: 'newest' },
+  {
+    onStart: (data) => {
+      console.log(`从 ${data.partitions} 个分区获取消息`);
+      messages.value = []; // 清空列表
+    },
+    onBatch: (newMessages, progress, total) => {
+      messages.value.push(...newMessages); // 实时追加
+      console.log(`进度: ${progress}/${total}`);
+    },
+    onComplete: () => {
+      loading.value = false;
+    },
+    onError: (error) => {
+      showError(error);
+      loading.value = false;
+    }
+  }
+);
+
+// 取消请求
+abortController.abort();
+```
+
+#### 3.5 与传统方案对比
+
+| 指标 | 传统一次性返回 | SSE 流式传输 |
+|------|----------------|--------------|
+| 首条消息时间 | 等待全部完成 | 几乎立即显示 |
+| 内存占用（服务端） | 所有消息同时加载 | 堆大小 = 分区数（3条） |
+| 内存占用（前端） | 所有消息同时渲染 | 流式追加，渐进渲染 |
+| 用户体验 | 白屏等待 | 实时看到进度和消息 |
+| 取消支持 | 部分支持 | 完全支持（AbortController）|
+| 代码复杂度 | 简单 | 中等（需要处理归并和流式） |
+
+### 4. 性能优化总结
+
+#### 4.1 大数据量场景（3分区 × 10000条）
+
+**优化前**：
+- 内存：30000 条消息同时在内存中
+- 等待时间：全部获取完成后才返回
+- 超时风险：60 秒可能不够
+
+**优化后**：
+- 内存：堆中仅 3 条消息（每分区最新一条）
+- 响应：首条消息立即显示，每批 100 条实时更新
+- 超时：每分区独立 60 秒超时，更宽松
+
+#### 4.2 关键技术点
+
+1. **并行读取**：3 个分区同时读取，通过 channel 实时回传
+2. **最小堆归并**：维护全局有序，O(log n) 插入/弹出
+3. **批量发送**：每 100 条发送一次 SSE，减少网络开销
+4. **动态空轮询**：根据数据量自动调整，避免过早退出
+5. **AbortController**：支持随时取消正在进行的查询
+
+### 5. 常见问题
+
+#### Q10: 为什么使用 SSE 而不是 WebSocket？
+
+**A**:
+- **SSE 优势**：基于 HTTP，自动重连，支持浏览器原生 EventSource，服务器单向推送更适合"查询"场景
+- **WebSocket 适用**：需要双向通信的场景（如聊天、实时协作）
+- **当前场景**：消息查询是服务器单向推送结果，SSE 更轻量
+
+#### Q11: 流式传输时前端如何保持有序？
+
+**A**:
+- 服务端通过最小堆保证全局有序（按时间戳）
+- 每批消息在批次内是有序的
+- 如果是降序（desc），服务端发送 `order` 事件，前端收到后整体反转列表
+
+#### Q12: 可以取消正在进行的流式查询吗？
+
+**A**:
+- 可以，`getMessagesStream` 返回 `AbortController`
+- 调用 `abortController.abort()` 即可取消
+- 后端会检测到 channel 关闭并停止读取
+
+#### Q13: 流式传输对 Kafka 集群压力更大吗？
+
+**A**:
+- **不会**，反而更小：
+- 查询逻辑相同，只是发送方式不同
+- 流式允许更快消费完数据，减少 consumer 持有时间
+- 取消查询时 consumer 立即关闭，不继续 poll
+
+#### Q14: 为什么批次大小设置为 100 条？
+
+**A**:
+- **平衡实时性和性能**：
+- 太小（如 10 条）：网络开销大，频繁触发前端更新
+- 太大（如 1000 条）：实时性降低，用户感知延迟
+- 100 条是一个经验值，既能保证实时性又不会过度频繁更新 UI

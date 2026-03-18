@@ -260,8 +260,13 @@
     <!-- Status Bar -->
     <div class="status-bar flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 px-2 py-1.5 text-xs border-t border-base-content/10 glass rounded-b-xl backdrop-blur-md overflow-x-auto min-w-full">
       <div class="flex items-center gap-2 flex-shrink-0">
-        <span>{{ loading ? t.messages.sending : t.common.ready }}</span>
-        <span>[{{ t.messages.messages }} = {{ messages.length }}]</span>
+        <span v-if="streamingProgress.isStreaming" class="flex items-center gap-1.5 text-info">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
+          <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
+        </span>
+        <span v-else>{{ loading ? t.messages.sending : t.common.ready }}</span>
+        <span>[{{ t.messages.messages }} = {{ messages.length.toLocaleString() }}]</span>
         <span v-if="fetchTime > 0" class="hidden sm:inline">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
         <span v-if="selectedMessage" class="hidden sm:inline">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
       </div>
@@ -342,7 +347,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -384,6 +389,7 @@ const messages = ref<Array<{ partition: number; offset: number; key?: string; va
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
+const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
 
 // 虚拟滚动配置
 const ROW_HEIGHT = 16; // 每行高度（像素）- 更紧凑
@@ -743,6 +749,7 @@ async function fetchMessages() {
       }
 
       // 使用 SSE 流式获取
+      let receivedCount = 0;
       currentAbortController = apiClient.getMessagesStream(
         selectedClusterId.value,
         selectedTopic.value,
@@ -750,25 +757,45 @@ async function fetchMessages() {
         {
           onStart: (data) => {
             if (requestId !== currentFetchRequestId) return;
+            receivedCount = 0;
+            streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
             console.log(`[SSE] Start fetching from ${data.partitions} partitions, total target: ${data.total_target}`);
           },
           onBatch: (newMessages, progress, total) => {
             if (requestId !== currentFetchRequestId) return;
-            // 追加消息
-            messages.value.push(...newMessages);
+            // 追加消息 - 使用展开运算符确保 Vue 响应式检测
+            messages.value = [...messages.value, ...newMessages];
+            receivedCount += newMessages.length;
+            streamingProgress.value.received = receivedCount;
+            streamingProgress.value.total = total;
             fetchTime.value = Math.round(performance.now() - startTime);
-            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}`);
+            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}, total: ${messages.value.length}`);
+
+            // 自动滚动到底部以显示最新接收的消息（在最终排序前）
+            nextTick(() => {
+              if (messagesListRef.value && sortOrder.value !== 'desc') {
+                // 升序模式：滚动到底部看最新
+                messagesListRef.value.scrollTop = messagesListRef.value.scrollHeight;
+              }
+            });
           },
           onOrder: (sort) => {
             if (requestId !== currentFetchRequestId) return;
-            // 如果需要降序，反转消息列表
+            // 如果需要降序，创建新数组反转（避免直接修改原数组）
             if (sort === 'desc') {
-              messages.value.reverse();
+              messages.value = [...messages.value].reverse();
+              // 降序排序后滚动到顶部
+              nextTick(() => {
+                if (messagesListRef.value) {
+                  messagesListRef.value.scrollTop = 0;
+                }
+              });
             }
           },
           onComplete: () => {
             if (requestId !== currentFetchRequestId) return;
             loading.value = false;
+            streamingProgress.value.isStreaming = false;
             currentAbortController = null;
             console.log('[SSE] Fetch completed');
           },
@@ -776,6 +803,7 @@ async function fetchMessages() {
             if (requestId !== currentFetchRequestId) return;
             showError(error);
             loading.value = false;
+            streamingProgress.value.isStreaming = false;
             currentAbortController = null;
           }
         }
@@ -808,6 +836,7 @@ function stopFetching() {
   // 增加请求序列号，使之前的请求回调失效
   currentFetchRequestId++;
   loading.value = false;
+  streamingProgress.value.isStreaming = false;
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容
