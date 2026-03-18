@@ -1668,9 +1668,15 @@ fn fetch_partition_messages_unified(
     tracing::info!("[Unified Partition] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
 
     // 创建独立的 consumer
+    // 使用唯一的group.id避免并发冲突：包含分区ID和时间戳+随机数
+    let unique_suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let unique_group_id = format!("kafka-mgr-{}-{}", partition, unique_suffix);
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &brokers);
-    cfg.set("group.id", "kafka-mgr-unified");
+    cfg.set("group.id", &unique_group_id);
     cfg.set("enable.auto.commit", "false");
     cfg.set("auto.offset.reset", "earliest");
     cfg.set("session.timeout.ms", "3000");
