@@ -625,7 +625,25 @@ cfg.set("group.id", &unique_group_id);
 
 **解决**：使用包含分区ID和时间戳的唯一 `group.id`。
 
-#### 2. 分区末尾检测
+#### 2. 显式 Seek 定位（关键修复）
+
+`assign()` 只是逻辑分配分区，不会自动定位到指定 offset，必须显式调用 `seek()`：
+
+```rust
+// 1. 创建分配列表
+let mut tpl = TopicPartitionList::new();
+tpl.add_partition_offset(&topic, partition, seek_offset)?;
+
+// 2. assign 只是注册分配
+consumer.assign(&tpl)?;
+
+// 3. 必须显式 seek 到指定位置（关键！）
+consumer.seek(&topic, partition, seek_offset, Duration::from_secs(5))?;
+```
+
+**注意**：不加 `seek()` 会导致 consumer 从任意位置开始消费，查询结果不稳定，大数据量时可能返回空或部分数据。
+
+#### 3. 分区末尾检测
 
 ```rust
 // 获取high watermark用于末尾检测

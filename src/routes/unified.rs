@@ -1788,6 +1788,14 @@ fn fetch_partition_messages_unified(
         return Vec::new();
     }
 
+    // 显式 seek 到指定 offset（assign 不会自动 seek）
+    if let Err(e) = consumer.seek(&topic, partition, seek_offset, Duration::from_secs(5)) {
+        tracing::error!("[Unified Partition] Failed to seek partition {} to offset {:?}: {}",
+            partition, seek_offset, e);
+        return Vec::new();
+    }
+    tracing::info!("[Unified Partition] Partition {} seek to offset {:?}", partition, seek_offset);
+
     // 计算结束 offset
     let end_offset = if time_range_end > 0 {
         Some(time_range_end + 1)
