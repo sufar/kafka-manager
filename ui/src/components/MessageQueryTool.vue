@@ -61,11 +61,18 @@
             :t="t"
           />
         </span>
-        <span v-if="lastQueryTime > 0" class="text-base-content/70">
+        <!-- 流式进度指示器 -->
+        <span v-if="streamingProgress.isStreaming" class="flex items-center gap-1.5 text-info">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
+          <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
+          <span v-if="messageBuffer.length > 0" class="text-base-content/50">(缓冲 {{ messageBuffer.length }})</span>
+        </span>
+        <span v-else-if="lastQueryTime > 0" class="text-base-content/70">
           {{ t.messages.elapsedTime }}: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
         </span>
         <span v-if="messages.length > 0" class="text-base-content/70">
-          {{ t.messages.totalMessages }} <span class="font-mono font-bold text-success">{{ messages.length }}</span> {{ t.messages.messages }}
+          {{ t.messages.totalMessages }} <span class="font-mono font-bold text-success">{{ messages.length.toLocaleString() }}</span> {{ t.messages.messages }}
           <button class="btn btn-ghost btn-xs ml-2" :disabled="messages.length === 0" @click="exportMessages" :title="t.messages.exportMessages">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -73,6 +80,15 @@
           </button>
         </span>
         <span v-if="error" class="text-error">{{ error }}</span>
+      </div>
+      <!-- 流式进度条 -->
+      <div v-if="streamingProgress.isStreaming && streamingProgress.total > 0" class="flex-1 mx-4 hidden md:block">
+        <div class="w-full bg-base-300 rounded-full h-1.5 overflow-hidden">
+          <div
+            class="bg-info h-full rounded-full transition-all duration-300"
+            :style="{ width: Math.min((streamingProgress.received / streamingProgress.total) * 100, 100) + '%' }"
+          ></div>
+        </div>
       </div>
     </div>
 
@@ -389,6 +405,14 @@ const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
 
+// SSE 流式状态
+const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
+const messageBuffer = ref<Message[]>([]);
+let bufferFlushTimer: number | null = null;
+const BUFFER_FLUSH_INTERVAL = 100; // 每100ms刷新一次UI
+let currentAbortController: AbortController | null = null;
+let currentFetchRequestId = 0;
+
 // 发送消息弹框状态
 const sendModalRef = ref<HTMLDialogElement | null>(null);
 const sending = ref(false);
@@ -407,6 +431,40 @@ const canQuery = computed(() => {
   return !!selectedCluster.value && !!selectedTopic.value && !loading.value;
 });
 
+// 流式渲染缓冲 - 避免Vue过度更新
+function bufferMessages(newMessages: Message[]) {
+  messageBuffer.value.push(...newMessages);
+  scheduleBufferFlush();
+}
+
+// 调度缓冲刷新
+function scheduleBufferFlush() {
+  if (bufferFlushTimer) return;
+  bufferFlushTimer = window.setTimeout(() => {
+    flushMessageBuffer();
+  }, BUFFER_FLUSH_INTERVAL);
+}
+
+// 刷新缓冲到主消息列表
+function flushMessageBuffer() {
+  if (messageBuffer.value.length === 0) {
+    bufferFlushTimer = null;
+    return;
+  }
+  const batch = messageBuffer.value.splice(0, messageBuffer.value.length);
+  messages.value.push(...batch);
+  bufferFlushTimer = null;
+}
+
+// 清空缓冲
+function clearMessageBuffer() {
+  if (bufferFlushTimer) {
+    clearTimeout(bufferFlushTimer);
+    bufferFlushTimer = null;
+  }
+  messageBuffer.value = [];
+}
+
 // 方法
 async function loadPartitions() {
   if (!selectedCluster.value || !selectedTopic.value) return;
@@ -422,8 +480,17 @@ async function loadPartitions() {
 async function queryMessages() {
   if (!canQuery.value) return;
 
+  // 取消上一次的请求
+  stopQuery();
+
+  // 增加请求序列号
+  currentFetchRequestId++;
+  const requestId = currentFetchRequestId;
+
   loading.value = true;
   error.value = '';
+  messages.value = [];
+  clearMessageBuffer();
   const startTime = performance.now();
 
   try {
@@ -442,40 +509,92 @@ async function queryMessages() {
       params.search_in = 'value';
     }
 
-    const result = await apiClient.getMessages(
+    // 使用 SSE 流式获取
+    let receivedCount = 0;
+    currentAbortController = apiClient.getMessagesStream(
       selectedCluster.value,
       selectedTopic.value,
-      params
+      params,
+      {
+        onStart: (data) => {
+          if (requestId !== currentFetchRequestId) return;
+          receivedCount = 0;
+          streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
+        },
+        onBatch: (newMessages, _progress, total) => {
+          if (requestId !== currentFetchRequestId) return;
+          // 转换消息格式并缓冲
+          const formattedMessages = newMessages.map((msg: any, index: number) => ({
+            partition: msg.partition,
+            offset: msg.offset,
+            key: msg.key,
+            value: msg.value,
+            timestamp: msg.timestamp,
+            uid: `${msg.partition}-${msg.offset}-${receivedCount + index}`,
+          }));
+          bufferMessages(formattedMessages);
+          receivedCount += newMessages.length;
+          streamingProgress.value.received = receivedCount;
+          streamingProgress.value.total = total;
+          lastQueryTime.value = Math.round(performance.now() - startTime);
+        },
+        onOrder: (sort) => {
+          if (requestId !== currentFetchRequestId) return;
+          // 先刷新缓冲
+          flushMessageBuffer();
+          // 如果需要降序，反转消息列表
+          if (sort === 'desc') {
+            messages.value = [...messages.value].reverse();
+          }
+          // 滚动到顶部
+          nextTick(() => {
+            if (scrollerRef.value) {
+              scrollerRef.value.scrollToItem(0);
+            }
+          });
+        },
+        onComplete: () => {
+          if (requestId !== currentFetchRequestId) return;
+          // 刷新剩余缓冲
+          flushMessageBuffer();
+          loading.value = false;
+          streamingProgress.value.isStreaming = false;
+          currentAbortController = null;
+          lastQueryTime.value = Math.round(performance.now() - startTime);
+        },
+        onError: (err) => {
+          if (requestId !== currentFetchRequestId) return;
+          clearMessageBuffer();
+          error.value = err;
+          loading.value = false;
+          streamingProgress.value.isStreaming = false;
+          currentAbortController = null;
+        }
+      }
     );
-
-    messages.value = result.map((msg: any, index: number) => ({
-      partition: msg.partition,
-      offset: msg.offset,
-      key: msg.key,
-      value: msg.value,
-      timestamp: msg.timestamp,
-      uid: `${msg.partition}-${msg.offset}-${index}`,
-    }));
-
-    // 强制刷新虚拟滚动组件
-    await nextTick();
-    if (scrollerRef.value) {
-      scrollerRef.value.scrollToItem(0);
-    }
-
-    lastQueryTime.value = Math.round(performance.now() - startTime);
   } catch (e: any) {
-    console.error('Query failed:', e);
-    error.value = e.message || t.value.messages.queryFailed;
-    messages.value = [];
-  } finally {
+    if (e.message === 'AbortError' || e.message?.includes('aborted')) {
+      // 用户取消，不显示错误
+    } else {
+      console.error('Query failed:', e);
+      error.value = e.message || t.value.messages.queryFailed;
+    }
     loading.value = false;
+    streamingProgress.value.isStreaming = false;
   }
 }
 
 function stopQuery() {
-  apiClient.cancelGetMessages();
+  // 取消 SSE 请求
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+  // 增加请求序列号，使之前的请求回调失效
+  currentFetchRequestId++;
   loading.value = false;
+  streamingProgress.value.isStreaming = false;
+  clearMessageBuffer();
 }
 
 function exportMessages() {
@@ -726,7 +845,7 @@ watch(() => props.topic, async (newTopic) => {
 
 onUnmounted(() => {
   if (loading.value) {
-    apiClient.cancelGetMessages();
+    stopQuery();
   }
   stopResize();
 });
