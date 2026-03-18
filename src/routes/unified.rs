@@ -23,17 +23,23 @@ use crate::AppState;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Sse},
     routing::post,
     Json, Router,
 };
+use axum::response::sse::Event;
+use tokio_stream::wrappers::ReceiverStream;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use std::cmp::Reverse;
 
 // 创建统一路由
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/", post(handle_unified_request))
+    Router::new()
+        .route("/", post(handle_unified_request))
+        .route("/stream", post(handle_stream_request))
 }
 
 // Helper functions for parameter extraction
@@ -350,6 +356,80 @@ async fn handle_unified_request(
             Ok((status, Json(response)).into_response())
         }
     }
+}
+
+/// SSE 流式请求处理器
+async fn handle_stream_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Response> {
+    // Get method from header
+    let method = headers
+        .get("X-API-Method")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| AppError::BadRequest("Missing X-API-Method header".to_string()))?;
+
+    match method {
+        "message.list" => handle_message_list_stream(state, body).await,
+        _ => Err(AppError::BadRequest(format!("Method '{}' does not support streaming", method))),
+    }
+}
+
+/// 使用 SSE 流式返回消息列表
+async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Response> {
+    use std::result::Result as StdResult;
+
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_optional_i32_param(&body, "partition");
+    let offset = get_optional_i64_param(&body, "offset");
+    let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
+    let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);
+    let start_time = get_optional_i64_param(&body, "start_time");
+    let end_time = get_optional_i64_param(&body, "end_time");
+    let search = get_optional_string_param(&body, "search");
+    let fetch_mode = get_optional_string_param(&body, "fetchMode");
+    let sort = get_optional_string_param(&body, "sort");
+
+    // 首先确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+    let max_msgs = limit.or(max_messages).unwrap_or(100);
+
+    // 创建 SSE 事件流
+    let (tx, rx) = mpsc::channel::<StdResult<Event, std::convert::Infallible>>(100);
+    let brokers = config.brokers.clone();
+
+    // 在后台任务中执行消息获取和流式发送
+    tokio::spawn(async move {
+        match fetch_messages_streaming_sse(
+            &brokers,
+            &topic,
+            partition,
+            offset,
+            max_msgs,
+            start_time,
+            end_time,
+            search,
+            fetch_mode.as_deref(),
+            sort.as_deref(),
+            tx.clone(),
+        ).await {
+            Ok(_) => {
+                // 发送完成标记
+                let _ = tx.send(Ok(Event::default().event("complete").data("{}"))).await;
+            }
+            Err(e) => {
+                // 发送错误
+                let error_json = serde_json::json!({"error": e.to_string()}).to_string();
+                let _ = tx.send(Ok(Event::default().event("error").data(error_json))).await;
+            }
+        }
+    });
+
+    // 返回 SSE 响应
+    let stream = ReceiverStream::new(rx);
+    Ok(Sse::new(stream).into_response())
 }
 
 // Dispatch function
@@ -1503,6 +1583,197 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     Ok(serde_json::json!({ "messages": records }))
 }
 
+/// SSE 流式消息获取
+/// 并行读取 + 最小堆归并 + 实时 SSE 发送
+async fn fetch_messages_streaming_sse(
+    brokers: &str,
+    topic: &str,
+    partition: Option<i32>,
+    offset: Option<i64>,
+    max_messages: usize,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<&str>,
+    sort: Option<&str>,
+    sse_tx: mpsc::Sender<std::result::Result<Event, std::convert::Infallible>>,
+) -> Result<()> {
+    use rdkafka::consumer::{Consumer, BaseConsumer};
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
+
+    let start_time_total = std::time::Instant::now();
+    let topic = topic.to_string();
+    let brokers = brokers.to_string();
+    let search = search.clone();
+    let fetch_mode = fetch_mode.map(|s| s.to_string());
+    let sort = sort.map(|s| s.to_string());
+
+    tracing::info!("[SSE Stream] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
+                   topic, partition, max_messages, fetch_mode);
+
+    // 获取分区列表
+    let partitions: Vec<i32> = {
+        let cfg = ClientConfig::new()
+            .set("bootstrap.servers", &brokers)
+            .set("broker.address.family", "v4")
+            .create::<BaseConsumer>()?;
+        if partition.is_none() {
+            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
+                Ok(metadata) => metadata.topics().first()
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_else(|| vec![0]),
+                Err(_) => vec![0],
+            }
+        } else {
+            vec![partition.unwrap_or(0)]
+        }
+    };
+
+    let partition_count = partitions.len();
+    let total_target = max_messages * partition_count;
+    let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
+
+    tracing::info!("[SSE Stream] {} partitions, {} messages per partition, total target {}",
+        partition_count, max_messages, total_target);
+
+    // 发送开始事件
+    let start_event = serde_json::json!({
+        "event": "start",
+        "partitions": partition_count,
+        "total_target": total_target
+    });
+    sse_tx.send(Ok(Event::default().event("start").data(start_event.to_string()))).await
+        .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+
+    // 为每个分区创建 channel
+    let mut rxs = Vec::new();
+    let mut handles = vec![];
+
+    for &part_id in &partitions {
+        let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(max_messages);
+        rxs.push((part_id, rx));
+
+        let brokers = brokers.clone();
+        let topic = topic.clone();
+        let search = search.clone();
+        let fetch_mode = fetch_mode.clone();
+        let part_offset = if partition.is_some() { offset } else { None };
+
+        let handle = tokio::spawn(async move {
+            fetch_partition_messages_streaming(
+                brokers, topic, part_id, max_messages, part_offset,
+                start_time, end_time, search, fetch_mode, tx,
+            ).await;
+        });
+        handles.push(handle);
+    }
+
+    // 使用最小堆进行流式归并
+    let mut heap = BinaryHeap::new();
+    let mut completed_partitions = 0;
+    let mut sent_count = 0usize;
+    const BATCH_SIZE: usize = 100; // 每批发送100条
+
+    // 从每个分区先取一条消息放入堆
+    for (part_id, rx) in &mut rxs {
+        match rx.recv().await {
+            Some(msg) => {
+                heap.push(Reverse(HeapMessage {
+                    timestamp: msg.timestamp,
+                    offset: msg.offset,
+                    message: msg,
+                }));
+            }
+            None => {
+                completed_partitions += 1;
+                tracing::info!("[SSE Stream] Partition {} completed immediately", part_id);
+            }
+        }
+    }
+
+    // 流式归并并发送
+    let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
+
+    while completed_partitions < partition_count && sent_count < total_target {
+        if let Some(Reverse(heap_msg)) = heap.pop() {
+            let part_id = heap_msg.message.partition;
+
+            // 将消息加入批次
+            let msg_json = serde_json::json!({
+                "partition": heap_msg.message.partition,
+                "offset": heap_msg.message.offset,
+                "key": heap_msg.message.key,
+                "value": heap_msg.message.value,
+                "timestamp": heap_msg.message.timestamp,
+            });
+            batch.push(msg_json);
+            sent_count += 1;
+
+            // 批次满则发送
+            if batch.len() >= BATCH_SIZE {
+                let batch_event = serde_json::json!({
+                    "event": "batch",
+                    "messages": batch,
+                    "progress": sent_count,
+                    "total": total_target
+                });
+                sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
+                    .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+                batch.clear();
+            }
+
+            // 从对应分区再取一条
+            if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
+                match rx.recv().await {
+                    Some(msg) => {
+                        heap.push(Reverse(HeapMessage {
+                            timestamp: msg.timestamp,
+                            offset: msg.offset,
+                            message: msg,
+                        }));
+                    }
+                    None => {
+                        completed_partitions += 1;
+                        tracing::info!("[SSE Stream] Partition {} completed, total sent: {}", part_id, sent_count);
+                    }
+                }
+            }
+        } else {
+            break;
+        }
+    }
+
+    // 发送剩余批次
+    if !batch.is_empty() {
+        let batch_event = serde_json::json!({
+            "event": "batch",
+            "messages": batch,
+            "progress": sent_count,
+            "total": total_target
+        });
+        sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
+            .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+    }
+
+    // 等待所有任务完成
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    // 如果是降序，需要通知前端反转（因为我们是按升序发送的）
+    if is_desc {
+        let order_event = serde_json::json!({"event": "order", "sort": "desc"});
+        sse_tx.send(Ok(Event::default().event("order").data(order_event.to_string()))).await
+            .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+    }
+
+    tracing::info!("[SSE Stream] Completed: sent {} messages from {} partitions in {:?}",
+        sent_count, partition_count, start_time_total.elapsed());
+
+    Ok(())
+}
+
 /// 使用临时 consumer 获取消息（支持过滤）- 统一优化版
 /// 分区数>1时使用并行模式，空轮询最多10次×150ms=1.5秒
 async fn fetch_messages_with_temp_consumer(
@@ -1562,68 +1833,89 @@ async fn fetch_messages_with_temp_consumer(
     let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
 
     let messages = if use_parallel {
-        // === 并行模式（分区数>1）===
+        // === 并行流式归并模式（分区数>1）===
         let msgs_per_partition = max_messages;
         let partition_has_specific_offset = partition.is_some();
         let partition_offset_val = if partition_has_specific_offset { offset } else { None };
 
-        use tokio::sync::Semaphore;
-        use tokio::time::{timeout, Duration as TokioDuration};
-        use std::sync::Arc;
-
-        // 最多10个并发
-        let semaphore = Arc::new(Semaphore::new(10));
+        // 为每个分区创建一个 channel
+        let mut rxs = Vec::new();
         let mut handles = vec![];
 
         for &part_id in &partitions {
+            let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(msgs_per_partition);
+            rxs.push((part_id, rx));
+
             let brokers = brokers.clone();
             let topic = topic.clone();
             let search = search.clone();
             let fetch_mode = fetch_mode.clone();
             let part_offset = if partition_has_specific_offset { partition_offset_val } else { None };
-            let sem = semaphore.clone();
 
             let handle = tokio::spawn(async move {
-                let _permit = sem.acquire().await.expect("Semaphore acquire failed");
-                // 统一使用60秒超时，给搜索足够的处理时间
-                let fetch_timeout = TokioDuration::from_secs(60);
-                let result = timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
-                    fetch_partition_messages_unified(
-                        brokers, topic, part_id, msgs_per_partition, part_offset,
-                        start_time, end_time, search, fetch_mode,
-                    )
-                })).await;
-                (part_id, result)
+                fetch_partition_messages_streaming(
+                    brokers, topic, part_id, msgs_per_partition, part_offset,
+                    start_time, end_time, search, fetch_mode, tx,
+                ).await;
             });
             handles.push(handle);
         }
 
-        // 预估实际消息数：有搜索条件时通常返回较少，无搜索时可能接近max_messages per partition
-        let estimated = if search.is_some() {
-            max_messages * 2  // 搜索时预估更少
-        } else {
-            total_target
-        }.min(50000);  // 最大预分配5万条，避免过大
-        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(estimated);
-        for handle in handles {
-            match handle.await {
-                Ok((part_id, task_result)) => match task_result {
-                    Ok(Ok(msgs)) => {
-                        tracing::info!("[Parallel] Got {} messages from partition {}", msgs.len(), part_id);
-                        all_msgs.extend(msgs);
-                    }
-                    Ok(Err(_)) => {
-                        tracing::warn!("[Parallel] Partition {} fetch timeout", part_id);
-                    }
-                    Err(e) => {
-                        tracing::warn!("[Parallel] Partition {} task join error: {}", part_id, e);
-                    }
-                },
-                Err(e) => {
-                    tracing::warn!("[Parallel] Spawn error: {}", e);
+        // 使用最小堆进行流式归并
+        // 从每个分区先取一条消息放入堆
+        let mut heap = BinaryHeap::new();
+        let mut completed_partitions = 0;
+
+        for (part_id, rx) in &mut rxs {
+            match rx.recv().await {
+                Some(msg) => {
+                    heap.push(Reverse(HeapMessage {
+                        timestamp: msg.timestamp,
+                        offset: msg.offset,
+                        message: msg,
+                    }));
+                }
+                None => {
+                    completed_partitions += 1;
+                    tracing::info!("[Merge] Partition {} completed immediately", part_id);
                 }
             }
         }
+
+        // 归并排序
+        let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target.min(50000));
+
+        while completed_partitions < partition_count && all_msgs.len() < total_target {
+            if let Some(Reverse(heap_msg)) = heap.pop() {
+                let part_id = heap_msg.message.partition;
+                all_msgs.push(heap_msg.message);
+
+                // 从对应分区再取一条
+                if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
+                    match rx.recv().await {
+                        Some(msg) => {
+                            heap.push(Reverse(HeapMessage {
+                                timestamp: msg.timestamp,
+                                offset: msg.offset,
+                                message: msg,
+                            }));
+                        }
+                        None => {
+                            completed_partitions += 1;
+                            tracing::info!("[Merge] Partition {} completed, total merged: {}", part_id, all_msgs.len());
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        // 等待所有任务完成
+        for handle in handles {
+            let _ = handle.await;
+        }
+
         all_msgs
     } else {
         // === 单分区串行模式 ===
@@ -1635,16 +1927,13 @@ async fn fetch_messages_with_temp_consumer(
         }).await.map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
     };
 
-    // 排序
+    // 排序（最小堆归并已经有序，但可能需要根据 is_desc 反转）
     let mut all_msgs = messages;
-    all_msgs.sort_by(|a, b| {
-        match (a.timestamp, b.timestamp) {
-            (Some(ta), Some(tb)) => if is_desc { tb.cmp(&ta) } else { ta.cmp(&tb) },
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => if is_desc { b.offset.cmp(&a.offset) } else { a.offset.cmp(&b.offset) },
-        }
-    });
+
+    // 如果是降序，需要反转
+    if is_desc {
+        all_msgs.reverse();
+    }
 
     tracing::info!("[Unified] Fetched {} messages from {} partitions in {:?}",
         all_msgs.len(), partition_count, start_time_total.elapsed());
@@ -1724,7 +2013,7 @@ fn fetch_partition_messages_unified(
     cfg.set("reconnect.backoff.max.ms", "500");
     cfg.set("socket.connection.setup.timeout.ms", "3000");
     cfg.set("metadata.max.age.ms", "5000");
-    cfg.set("partition.assignment.strategy", "");
+    cfg.set("partition.assignment.strategy", "range");
     cfg.set("broker.address.family", "v4");
 
     let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
@@ -1958,6 +2247,307 @@ fn fetch_partition_messages_unified(
     tracing::info!("[Unified Partition] Fetched {} messages from partition {}", messages.len(), partition);
     messages
 }
+
+/// 流式分区消息获取 - 通过 channel 实时发送消息
+/// 支持动态调整空轮询次数
+async fn fetch_partition_messages_streaming(
+    brokers: String,
+    topic: String,
+    partition: i32,
+    max_messages: usize,
+    offset: Option<i64>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<String>,
+    tx: mpsc::Sender<crate::kafka::consumer::KafkaMessage>,
+) {
+    use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
+    use rdkafka::Message;
+    use rdkafka::TopicPartitionList;
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
+
+    tracing::info!("[Streaming] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
+
+    // 使用唯一的group.id避免并发冲突
+    let unique_suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let unique_group_id = format!("kafka-mgr-{}-{}", partition, unique_suffix);
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", &brokers);
+    cfg.set("group.id", &unique_group_id);
+    cfg.set("enable.auto.commit", "false");
+    cfg.set("auto.offset.reset", "earliest");
+    cfg.set("session.timeout.ms", "3000");
+    cfg.set("heartbeat.interval.ms", "500");
+
+    // 优化批量fetch配置
+    if max_messages > 1000 {
+        cfg.set("fetch.min.bytes", "65536");
+        cfg.set("fetch.wait.max.ms", "100");
+        cfg.set("fetch.max.bytes", "52428800");
+        cfg.set("max.partition.fetch.bytes", "52428800");
+    } else {
+        cfg.set("fetch.min.bytes", "1");
+        cfg.set("fetch.wait.max.ms", "10");
+        cfg.set("fetch.max.bytes", "10485760");
+        cfg.set("max.partition.fetch.bytes", "10485760");
+    }
+
+    cfg.set("socket.nagle.disable", "true");
+    cfg.set("socket.receive.buffer.bytes", "262144");
+    cfg.set("socket.timeout.ms", "10000");
+    cfg.set("request.timeout.ms", "30000");
+    cfg.set("enable.partition.eof", "false");
+    cfg.set("connections.max.idle.ms", "540000");
+    cfg.set("reconnect.backoff.ms", "50");
+    cfg.set("reconnect.backoff.max.ms", "500");
+    cfg.set("socket.connection.setup.timeout.ms", "3000");
+    cfg.set("metadata.max.age.ms", "5000");
+    cfg.set("partition.assignment.strategy", "range");
+    cfg.set("broker.address.family", "v4");
+
+    let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("[Streaming] Failed to create consumer for partition {}: {}", partition, e);
+            return;
+        }
+    };
+
+    // 计算时间范围 offset 信息
+    let time_range = match calculate_partition_offset(&consumer, &topic, partition, max_messages, offset, start_time, end_time, fetch_mode.as_deref()) {
+        Ok(tr) => tr,
+        Err(e) => {
+            tracing::error!("[Streaming] Failed to calculate offset for partition {}: {}", partition, e);
+            return;
+        }
+    };
+    let start_offset = time_range.start_offset;
+    let time_range_end = time_range.end_offset;
+    let high_watermark = time_range.high_watermark;
+
+    // 提前退出检查
+    if time_range.high_watermark <= time_range.low_watermark {
+        tracing::info!("[Streaming] Partition {} has no data, skipping", partition);
+        return;
+    }
+    if start_offset >= time_range.high_watermark {
+        tracing::info!("[Streaming] Partition {} start_offset >= high_watermark, no new data", partition);
+        return;
+    }
+    if time_range_end > 0 && time_range_end < start_offset {
+        tracing::info!("[Streaming] Partition {} end_offset < start_offset, no data in range", partition);
+        return;
+    }
+
+    // 分配到指定分区
+    let mut tpl = TopicPartitionList::new();
+    let seek_offset = if start_offset < 0 {
+        rdkafka::Offset::Beginning
+    } else {
+        rdkafka::Offset::Offset(start_offset)
+    };
+    if let Err(e) = tpl.add_partition_offset(&topic, partition, seek_offset) {
+        tracing::error!("[Streaming] Failed to add partition {}: {}", partition, e);
+        return;
+    }
+    if let Err(e) = consumer.assign(&tpl) {
+        tracing::error!("[Streaming] Failed to assign partition {}: {}", partition, e);
+        return;
+    }
+    if let Err(e) = consumer.seek(&topic, partition, seek_offset, Duration::from_secs(5)) {
+        tracing::error!("[Streaming] Failed to seek partition {}: {}", partition, e);
+        return;
+    }
+
+    // 计算结束 offset
+    let end_offset = if time_range_end > 0 {
+        Some(time_range_end + 1)
+    } else if fetch_mode.as_deref() == Some("newest") {
+        if high_watermark > 0 {
+            Some(high_watermark)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 搜索准备
+    let search_lower = search.as_ref().map(|s| s.to_lowercase());
+    let need_search = search_lower.is_some();
+
+    let mut sent_count = 0usize;
+    let mut empty_count = 0usize;
+
+    // === 动态调整空轮询次数 ===
+    // 基础次数 10 次，每 1000 条消息增加 5 次，最多 50 次
+    let base_empty_polls = 10usize;
+    let additional_polls = (max_messages / 1000) * 5;
+    let max_empty_polls = (base_empty_polls + additional_polls).min(50);
+    tracing::info!("[Streaming] Partition {} dynamic max_empty_polls: {} (max_messages: {})",
+        partition, max_empty_polls, max_messages);
+
+    const FIRST_POLL_TIMEOUT_MS: u64 = 500;
+    const POLL_TIMEOUT_MS: u64 = 150;
+    const MAX_POLL_TIME_SECS: u64 = 60;
+
+    let poll_start = std::time::Instant::now();
+    let mut got_first = false;
+
+    while sent_count < max_messages
+        && empty_count < max_empty_polls
+        && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
+    {
+        let poll_timeout = if !got_first {
+            Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
+        } else {
+            Duration::from_millis(POLL_TIMEOUT_MS)
+        };
+
+        match consumer.poll(poll_timeout) {
+            Some(Ok(msg)) => {
+                if !got_first {
+                    got_first = true;
+                    tracing::info!("[Streaming] First message received for partition {} after {:?}", partition, poll_start.elapsed());
+                }
+                empty_count = 0;
+
+                let msg_offset = msg.offset();
+
+                // 检查结束 offset
+                if let Some(end) = end_offset {
+                    if msg_offset >= end {
+                        break;
+                    }
+                }
+
+                // 检查是否到达分区末尾
+                if msg_offset >= high_watermark - 1 {
+                    let ts = msg.timestamp().to_millis();
+
+                    // 时间范围过滤
+                    if let Some(start) = start_time {
+                        if let Some(t) = ts { if t < start { continue; } }
+                    }
+                    if let Some(end) = end_time {
+                        if let Some(t) = ts { if t > end { continue; } }
+                    }
+
+                    let key_bytes = msg.key().map(|k| k.to_vec());
+                    let value_bytes = msg.payload().map(|p| p.to_vec());
+
+                    // 搜索过滤
+                    if need_search {
+                        let term = search_lower.as_ref().unwrap();
+                        if !message_matches_search(&key_bytes, &value_bytes, term) {
+                            break;
+                        }
+                    }
+
+                    let kafka_msg = crate::kafka::consumer::KafkaMessage {
+                        partition,
+                        offset: msg_offset,
+                        key: key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
+                        value: value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
+                        timestamp: ts,
+                    };
+
+                    if tx.send(kafka_msg).await.is_err() {
+                        tracing::warn!("[Streaming] Channel closed for partition {}", partition);
+                        return;
+                    }
+                    sent_count += 1;
+                    break;
+                }
+
+                let ts = msg.timestamp().to_millis();
+
+                // 时间范围过滤
+                if let Some(start) = start_time {
+                    if let Some(t) = ts { if t < start { continue; } }
+                }
+                if let Some(end) = end_time {
+                    if let Some(t) = ts { if t > end { continue; } }
+                }
+
+                let key_bytes = msg.key().map(|k| k.to_vec());
+                let value_bytes = msg.payload().map(|p| p.to_vec());
+
+                // 搜索过滤
+                if need_search {
+                    let term = search_lower.as_ref().unwrap();
+                    if !message_matches_search(&key_bytes, &value_bytes, term) {
+                        continue;
+                    }
+                }
+
+                let kafka_msg = crate::kafka::consumer::KafkaMessage {
+                    partition,
+                    offset: msg_offset,
+                    key: key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
+                    value: value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
+                    timestamp: ts,
+                };
+
+                if tx.send(kafka_msg).await.is_err() {
+                    tracing::warn!("[Streaming] Channel closed for partition {}", partition);
+                    return;
+                }
+                sent_count += 1;
+            }
+            Some(Err(e)) => {
+                tracing::warn!("[Streaming] Poll error for partition {}: {}", partition, e);
+                empty_count += 1;
+            }
+            None => {
+                empty_count += 1;
+            }
+        }
+    }
+
+    tracing::info!("[Streaming] Partition {} completed: sent {} messages, empty_count={}, elapsed={:?}",
+        partition, sent_count, empty_count, poll_start.elapsed());
+}
+
+/// Kafka消息包装器，用于堆排序
+#[derive(Debug)]
+struct HeapMessage {
+    timestamp: Option<i64>,
+    offset: i64,
+    message: crate::kafka::consumer::KafkaMessage,
+}
+
+impl Ord for HeapMessage {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // 按时间戳排序，时间戳相同则按 offset 排序
+        match (self.timestamp, other.timestamp) {
+            (Some(a), Some(b)) => a.cmp(&b).then_with(|| self.offset.cmp(&other.offset)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => self.offset.cmp(&other.offset),
+        }
+    }
+}
+
+impl PartialOrd for HeapMessage {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for HeapMessage {}
+
+impl PartialEq for HeapMessage {
+    fn eq(&self, other: &Self) -> bool {
+        self.timestamp == other.timestamp && self.offset == other.offset
+    }
+}
+
 /// 时间范围信息
 #[derive(Debug, Clone)]
 struct TimeRangeInfo {

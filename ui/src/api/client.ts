@@ -389,6 +389,130 @@ class ApiClient {
     this.cancelRequest();
   }
 
+  /**
+   * 使用 SSE 流式获取消息
+   * @param clusterId 集群ID
+   * @param topic 主题名
+   * @param params 查询参数
+   * @param callbacks 回调函数
+   * @returns EventSource 实例，可用于取消请求
+   */
+  getMessagesStream(
+    clusterId: string,
+    topic: string,
+    params?: {
+      partition?: number;
+      offset?: number;
+      max_messages?: number;
+      order_by?: 'timestamp' | 'offset';
+      sort?: 'asc' | 'desc';
+      search?: string;
+      search_in?: 'key' | 'value' | 'all';
+      start_time?: number;
+      end_time?: number;
+      fetchMode?: 'oldest' | 'newest';
+    },
+    callbacks?: {
+      onStart?: (data: { partitions: number; total_target: number }) => void;
+      onBatch?: (messages: import('@/types/api').MessageRecord[], progress: number, total: number) => void;
+      onOrder?: (sort: string) => void;
+      onComplete?: () => void;
+      onError?: (error: string) => void;
+    }
+  ): AbortController {
+    const url = `${this.baseURL}/api/stream`;
+
+    const body = {
+      cluster_id: clusterId,
+      topic,
+      ...params
+    };
+
+    // 使用 fetch 获取 SSE 流（EventSource 不支持 POST）
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Method': 'message.list',
+        ...(this.apiKey ? { 'X-API-Key': this.apiKey } : {})
+      },
+      body: JSON.stringify(body),
+      signal
+    }).then(async (response) => {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        callbacks?.onError?.(errorData.error || `HTTP ${response.status}`);
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        callbacks?.onError?.('No response body');
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let currentEvent = '';
+        let currentData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            currentData = line.slice(6).trim();
+          } else if (line === '' && currentEvent) {
+            // 处理完整的事件
+            try {
+              const data = JSON.parse(currentData);
+              switch (currentEvent) {
+                case 'start':
+                  callbacks?.onStart?.(data);
+                  break;
+                case 'batch':
+                  callbacks?.onBatch?.(data.messages, data.progress, data.total);
+                  break;
+                case 'order':
+                  callbacks?.onOrder?.(data.sort);
+                  break;
+                case 'complete':
+                  callbacks?.onComplete?.();
+                  break;
+                case 'error':
+                  callbacks?.onError?.(data.error);
+                  break;
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', currentData, e);
+            }
+            currentEvent = '';
+            currentData = '';
+          }
+        }
+      }
+
+      callbacks?.onComplete?.();
+    }).catch((error) => {
+      if (error.name !== 'AbortError') {
+        callbacks?.onError?.(error.message || 'Network error');
+      }
+    });
+
+    return controller;
+  }
+
   async sendMessage(clusterId: string, topic: string, message: import('@/types/api').SendMessageRequest): Promise<import('@/types/api').SendMessageResponse> {
     return this.request('message.send', {
       cluster_id: clusterId,

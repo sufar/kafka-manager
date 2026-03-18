@@ -424,6 +424,8 @@ function onPartitionChange() {
 let fetchDebounceTimer: number | null = null;
 // 当前请求的序列号，用于处理竞态条件
 let currentFetchRequestId = 0;
+// 当前 SSE 连接
+let currentAbortController: AbortController | null = null;
 
 const showSendModal = ref(false);
 const sending = ref(false);
@@ -697,8 +699,8 @@ async function fetchMessages() {
     fetchDebounceTimer = null;
   }
 
-  // 取消上一次的请求，避免并发请求导致超时
-  apiClient.cancelGetMessages();
+  // 取消上一次的请求
+  stopFetching();
 
   // 增加请求序列号，用于处理竞态条件
   currentFetchRequestId++;
@@ -710,7 +712,9 @@ async function fetchMessages() {
 
     loading.value = true;
     selectedMessageIndex.value = -1;
+    messages.value = []; // 清空消息列表
     const startTime = performance.now();
+
     try {
       const params: {
         max_messages: number;
@@ -738,8 +742,44 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
-      messages.value = await apiClient.getMessages(selectedClusterId.value, selectedTopic.value, params);
-      fetchTime.value = Math.round(performance.now() - startTime);
+      // 使用 SSE 流式获取
+      currentAbortController = apiClient.getMessagesStream(
+        selectedClusterId.value,
+        selectedTopic.value,
+        params,
+        {
+          onStart: (data) => {
+            if (requestId !== currentFetchRequestId) return;
+            console.log(`[SSE] Start fetching from ${data.partitions} partitions, total target: ${data.total_target}`);
+          },
+          onBatch: (newMessages, progress, total) => {
+            if (requestId !== currentFetchRequestId) return;
+            // 追加消息
+            messages.value.push(...newMessages);
+            fetchTime.value = Math.round(performance.now() - startTime);
+            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}`);
+          },
+          onOrder: (sort) => {
+            if (requestId !== currentFetchRequestId) return;
+            // 如果需要降序，反转消息列表
+            if (sort === 'desc') {
+              messages.value.reverse();
+            }
+          },
+          onComplete: () => {
+            if (requestId !== currentFetchRequestId) return;
+            loading.value = false;
+            currentAbortController = null;
+            console.log('[SSE] Fetch completed');
+          },
+          onError: (error) => {
+            if (requestId !== currentFetchRequestId) return;
+            showError(error);
+            loading.value = false;
+            currentAbortController = null;
+          }
+        }
+      );
     } catch (e) {
       const error = e as { message: string };
       if (error.message === 'AbortError' || error.message.includes('aborted')) {
@@ -749,10 +789,7 @@ async function fetchMessages() {
       } else {
         showError(error.message);
       }
-    } finally {
-      if (requestId === currentFetchRequestId) {
-        loading.value = false;
-      }
+      loading.value = false;
     }
   }, 150); // 150ms 防抖
 }
@@ -763,8 +800,11 @@ function stopFetching() {
     clearTimeout(fetchDebounceTimer);
     fetchDebounceTimer = null;
   }
-  // 取消请求
-  apiClient.cancelGetMessages();
+  // 取消 SSE 请求
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
   // 增加请求序列号，使之前的请求回调失效
   currentFetchRequestId++;
   loading.value = false;
