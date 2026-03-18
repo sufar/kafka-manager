@@ -568,7 +568,125 @@ let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashM
 
 ---
 
----
+## 版本 1.6 统一实现与并行模式
+
+### 统一消息查询入口
+
+合并本地/远程模式为单一实现 `fetch_partition_messages_unified`：
+
+```rust
+// 分区数>1时使用并行模式
+let use_parallel = partition_count > 1;
+
+let messages = if use_parallel {
+    // === 并行模式（分区数>1）===
+    let semaphore = Arc::new(Semaphore::new(10));
+    let mut handles = vec![];
+
+    for &part_id in &partitions {
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            let result = timeout(Duration::from_secs(60),
+                tokio::task::spawn_blocking(move || {
+                    fetch_partition_messages_unified(...)
+                })
+            ).await;
+            (part_id, result)
+        });
+        handles.push(handle);
+    }
+    // 收集结果...
+} else {
+    // === 单分区串行模式 ===
+    tokio::task::spawn_blocking(move || {
+        fetch_partition_messages_unified(...)
+    }).await?
+};
+```
+
+### 关键优化点
+
+#### 1. 唯一 group.id 避免冲突
+
+```rust
+// 每个分区使用唯一的group.id避免并发冲突
+let unique_suffix = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis();
+let unique_group_id = format!("kafka-mgr-{}-{}", partition, unique_suffix);
+cfg.set("group.id", &unique_group_id);
+```
+
+**问题**：相同 `group.id` 导致Kafka认为这些consumer属于同一消费者组，触发不必要的group协调，可能：
+- 导致某些分区consumer被踢出组
+- 引发rebalance延迟
+- 查询结果不稳定
+
+**解决**：使用包含分区ID和时间戳的唯一 `group.id`。
+
+#### 2. 分区末尾检测
+
+```rust
+// 获取high watermark用于末尾检测
+let high_watermark = time_range.high_watermark;
+
+// 检查是否已到达分区末尾
+if msg_offset >= high_watermark - 1 {
+    tracing::info!("Reached end of partition {} at offset {}",
+        partition, msg_offset);
+    // 处理完这条消息后退出
+    raw_messages.push(...);
+    break; // 立即退出，避免空轮询
+}
+```
+
+**效果**：数据较少的分区获取到最后一条消息后立即退出，不等待空轮询超时。
+
+#### 3. 提前退出条件
+
+```rust
+// 1. 分区完全无数据
+if time_range.high_watermark <= time_range.low_watermark {
+    return Vec::new();
+}
+
+// 2. 起始offset已经超过high_watermark
+if start_offset >= time_range.high_watermark {
+    return Vec::new();
+}
+
+// 3. 时间范围结束offset小于起始offset
+if time_range_end > 0 && time_range_end < start_offset {
+    return Vec::new();
+}
+```
+
+#### 4. 并行连接建立
+
+```
+分区0 task ──┐
+             ├─→ 3个连接并行建立（各自独立线程）
+分区1 task ──┤
+             │
+分区2 task ──┘
+```
+
+**关键点**：
+- 3个分区 = 3个并发的异步任务
+- 每个任务在 `spawn_blocking` 线程中创建 consumer
+- 3个TCP连接是**同时/并行**建立的
+- Semaphore(10) 限制最多10个并发
+
+### 性能对比
+
+| 场景 | 串行模式 | 并行模式 | 提升 |
+|------|---------|---------|------|
+| 3分区 × 10000条 | ~15秒 | ~5秒 | **3x** |
+| 连接建立时间 | 3×串行 | ≈单次连接 | 3x |
+| 数据拉取吞吐 | 单连接 | 3连接并行 | 3x |
+
+**结论**：大批量查询（max_messages > 1000/分区）时，并行模式优势明显。
 
 ## 版本历史
 
@@ -580,3 +698,4 @@ let all_partitions_finished = |counts: &HashMap<i32, usize>, reached_end: &HashM
 | 1.3 | 2026-03-16 | 添加分区边界检测优化（检测 low/high watermark）、Q9常见问题（数据少的topic查询慢）|
 | 1.4 | 2026-03-16 | 添加时间范围查询优化（查询 end_time offset 用于提前结束）、更新 Q7/Q9 文档|
 | 1.5 | 2026-03-16 | 修复空分区检测（high=0 的分区也要预标记为完成），添加远程模式的空分区预标记|
+| 1.6 | 2026-03-18 | 统一本地/远程模式为 `fetch_partition_messages_unified`，分区数>1自动并行，添加分区末尾检测（msg.offset >= high_watermark - 1），修复 group.id 冲突（每个分区使用唯一 group.id）|

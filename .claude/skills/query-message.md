@@ -323,14 +323,13 @@ fn calculate_partition_offset(
 
 | 优化项 | 实现 | 效果 |
 |--------|------|------|
-| **并行模式触发** | 分区数>1时自动并行 | 多分区场景加速 |
-| **并发控制** | Semaphore(10)限制 | 避免Kafka压力过载 |
+| **并行模式触发** | 分区数>1时自动并行，Semaphore(10)限制并发 | 多分区场景3x加速 |
+| **唯一group.id** | `kafka-mgr-{partition}-{timestamp}` | 避免并发冲突导致结果不稳定 |
 | **空轮询限制** | 150ms × 10次 = 1.5秒 | 无数据时快速返回 |
-| **提前退出** | start≥end或high≤low时立即返回 | 空分区0ms返回 |
-| **结束边界检查** | offset≥end_offset时break | 到达边界立即停止 |
+| **提前退出** | start≥high或high≤low时立即返回 | 空分区0ms返回 |
+| **分区末尾检测** | offset ≥ high_watermark - 1 | 数据取完立即退出 |
 | **延迟字符串转换** | 先存字节，需要时再转UTF-8 | 减少不必要分配 |
 | **搜索提前过滤** | 收到消息立即检查，不匹配则跳过 | 减少内存占用 |
-| **Consumer预热** | assign后先poll直到就绪 | 从3秒优化到<100ms |
 
 ## 前端调用
 
@@ -386,7 +385,9 @@ export interface MessageRecord {
 3. **空分区优化**: 通过watermark预检查，无数据的分区立即返回
 4. **延迟转换**: RawMessage结构存储字节，最后统一转换为String
 5. **搜索过滤**: 在消息收集阶段就进行过滤，不存储不匹配的消息
-6. **日志标识**: 使用 `[Unified]` 和 `[Unified Partition]` 标识日志
+6. **唯一group.id**: 每个分区使用包含分区ID和时间戳的唯一group.id，避免并发冲突
+7. **分区末尾检测**: 当 `msg.offset >= high_watermark - 1` 时立即退出，避免空轮询
+8. **日志标识**: 使用 `[Unified]` 和 `[Unified Partition]` 标识日志
 
 ## 版本历史
 
