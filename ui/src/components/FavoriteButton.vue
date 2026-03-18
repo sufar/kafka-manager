@@ -29,11 +29,45 @@
         <div v-if="loading" class="flex items-center justify-center py-8">
           <span class="loading loading-spinner loading-md text-primary"></span>
         </div>
-        <div v-else-if="groups.length === 0" class="text-center py-4 text-base-content/50">
-          <p>{{ t.favorites?.noGroups || '暂无分组' }}</p>
-          <button class="btn btn-primary btn-sm mt-2" @click="createGroup">
-            {{ t.favorites?.createGroup || '创建分组' }}
-          </button>
+        <div v-else-if="groups.length === 0 || showCreateGroupForm" class="text-center py-4">
+          <div v-if="!showCreateGroupForm">
+            <p class="text-base-content/50">{{ t.favorites?.noGroups || '暂无分组' }}</p>
+            <button class="btn btn-primary btn-sm mt-2" @click="openCreateGroupForm">
+              {{ t.favorites?.createGroup || '创建分组' }}
+            </button>
+          </div>
+          <div v-else class="space-y-3">
+            <h4 class="font-medium text-sm text-left">{{ t.favorites?.createGroup || '创建分组' }}</h4>
+            <div class="space-y-2">
+              <input
+                v-model="newGroupName"
+                type="text"
+                class="input input-bordered w-full input-sm"
+                :placeholder="t.favorites?.groupNamePlaceholder || '请输入分组名称'"
+                @keyup.enter="submitCreateGroup"
+              />
+              <input
+                v-model="newGroupDesc"
+                type="text"
+                class="input input-bordered w-full input-sm"
+                :placeholder="t.favorites?.groupDescPlaceholder || '请输入分组描述（可选）'"
+                @keyup.enter="submitCreateGroup"
+              />
+            </div>
+            <div class="flex gap-2 justify-end">
+              <button class="btn btn-ghost btn-sm" @click="cancelCreateGroup">
+                {{ t.common?.cancel || '取消' }}
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="!newGroupName.trim() || creatingGroup"
+                @click="submitCreateGroup"
+              >
+                <span v-if="creatingGroup" class="loading loading-spinner loading-xs"></span>
+                {{ t.common?.save || '保存' }}
+              </button>
+            </div>
+          </div>
         </div>
         <div v-else class="space-y-2 max-h-64 overflow-y-auto">
           <div
@@ -113,6 +147,12 @@ const selectedGroupId = ref<number | null>(null);
 const remark = ref('');
 const modalRef = ref<HTMLDialogElement>();
 
+// Create group form state
+const showCreateGroupForm = ref(false);
+const newGroupName = ref('');
+const newGroupDesc = ref('');
+const creatingGroup = ref(false);
+
 // Check if topic is favorite
 async function checkFavorite() {
   try {
@@ -138,6 +178,9 @@ async function toggleFavorite() {
     // Show group selection modal
     await loadGroups();
     selectedGroupId.value = groups.value.length > 0 ? groups.value[0].id : null;
+    showCreateGroupForm.value = false;
+    newGroupName.value = '';
+    newGroupDesc.value = '';
     modalRef.value?.showModal();
   }
 }
@@ -155,10 +198,50 @@ async function loadGroups() {
   }
 }
 
-// Create group (placeholder - would need a separate modal in real implementation)
-function createGroup() {
-  alert(props.t.favorites?.createGroupHint || '请先在收藏管理中创建分组');
-  closeModal();
+// Open create group form
+function openCreateGroupForm() {
+  showCreateGroupForm.value = true;
+  newGroupName.value = '';
+  newGroupDesc.value = '';
+}
+
+// Cancel create group
+function cancelCreateGroup() {
+  showCreateGroupForm.value = false;
+  newGroupName.value = '';
+  newGroupDesc.value = '';
+}
+
+// Submit create group
+async function submitCreateGroup() {
+  if (!newGroupName.value.trim()) return;
+
+  creatingGroup.value = true;
+  try {
+    const newGroup = await apiClient.createFavoriteGroup({
+      name: newGroupName.value.trim(),
+      description: newGroupDesc.value.trim() || undefined,
+      sort_order: 0,
+    });
+
+    // Add to groups list and select it
+    groups.value.push({
+      ...newGroup,
+      item_count: 0,
+    });
+    selectedGroupId.value = newGroup.id;
+
+    // Reset form
+    showCreateGroupForm.value = false;
+    newGroupName.value = '';
+    newGroupDesc.value = '';
+
+    showSuccess(t.favorites?.groupCreated || '分组创建成功');
+  } catch (error: any) {
+    showError(error.message || '创建分组失败');
+  } finally {
+    creatingGroup.value = false;
+  }
 }
 
 // Confirm add to favorites
@@ -189,6 +272,9 @@ function closeModal() {
   modalRef.value?.close();
   selectedGroupId.value = null;
   remark.value = '';
+  showCreateGroupForm.value = false;
+  newGroupName.value = '';
+  newGroupDesc.value = '';
 }
 
 onMounted(() => {
