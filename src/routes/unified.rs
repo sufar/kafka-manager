@@ -1585,17 +1585,15 @@ async fn fetch_messages_with_temp_consumer(
 
             let handle = tokio::spawn(async move {
                 let _permit = sem.acquire().await.expect("Semaphore acquire failed");
-                let fetch_timeout = if start_time.is_some() || end_time.is_some() {
-                    TokioDuration::from_secs(60)
-                } else {
-                    TokioDuration::from_secs(30)
-                };
-                timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
+                // 统一使用60秒超时，给搜索足够的处理时间
+                let fetch_timeout = TokioDuration::from_secs(60);
+                let result = timeout(fetch_timeout, tokio::task::spawn_blocking(move || {
                     fetch_partition_messages_unified(
                         brokers, topic, part_id, msgs_per_partition, part_offset,
                         start_time, end_time, search, fetch_mode,
                     )
-                })).await
+                })).await;
+                (part_id, result)
             });
             handles.push(handle);
         }
@@ -1603,13 +1601,21 @@ async fn fetch_messages_with_temp_consumer(
         let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target);
         for handle in handles {
             match handle.await {
-                Ok(Ok(Ok(msgs))) => {
-                    tracing::info!("[Parallel] Got {} messages from task", msgs.len());
-                    all_msgs.extend(msgs);
+                Ok((part_id, task_result)) => match task_result {
+                    Ok(Ok(msgs)) => {
+                        tracing::info!("[Parallel] Got {} messages from partition {}", msgs.len(), part_id);
+                        all_msgs.extend(msgs);
+                    }
+                    Ok(Err(_)) => {
+                        tracing::warn!("[Parallel] Partition {} fetch timeout", part_id);
+                    }
+                    Err(e) => {
+                        tracing::warn!("[Parallel] Partition {} task join error: {}", part_id, e);
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("[Parallel] Spawn error: {}", e);
                 }
-                Ok(Ok(Err(_))) => tracing::warn!("Partition fetch timeout"),
-                Ok(Err(e)) => tracing::warn!("Task join error: {}", e),
-                Err(e) => tracing::warn!("Spawn error: {}", e),
             }
         }
         all_msgs
