@@ -1673,7 +1673,7 @@ async fn fetch_messages_streaming_sse(
     let mut heap = BinaryHeap::new();
     let mut completed_partitions = 0;
     let mut sent_count = 0usize;
-    const BATCH_SIZE: usize = 100; // 每批发送100条
+    const BATCH_SIZE: usize = 500; // 每批发送500条，平衡实时性和性能
 
     // 从每个分区先取一条消息放入堆
     for (part_id, rx) in &mut rxs {

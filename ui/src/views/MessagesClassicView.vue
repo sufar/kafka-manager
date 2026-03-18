@@ -264,11 +264,21 @@
           <span class="loading loading-spinner loading-xs"></span>
           <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
           <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
+          <span v-if="messageBuffer.length > 0" class="text-base-content/50">(缓冲 {{ messageBuffer.length }})</span>
         </span>
         <span v-else>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length.toLocaleString() }}]</span>
         <span v-if="fetchTime > 0" class="hidden sm:inline">[{{ t.messages.time }} = {{ fetchTime }}ms]</span>
         <span v-if="selectedMessage" class="hidden sm:inline">[{{ t.messages.selectedOffset }} = {{ selectedMessage.offset }}]</span>
+      </div>
+      <!-- 流式进度条 -->
+      <div v-if="streamingProgress.isStreaming && streamingProgress.total > 0" class="flex-1 mx-2 hidden md:block">
+        <div class="w-full bg-base-300 rounded-full h-1.5 overflow-hidden">
+          <div
+            class="bg-info h-full rounded-full transition-all duration-300"
+            :style="{ width: Math.min((streamingProgress.received / streamingProgress.total) * 100, 100) + '%' }"
+          ></div>
+        </div>
       </div>
       <div class="flex items-center gap-1.5 flex-shrink-0">
         <span class="text-[9px] text-base-content/60 flex-shrink-0 hidden sm:inline">{{ t.messages.perPartition }}</span>
@@ -390,6 +400,45 @@ const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
+
+// 流式渲染缓冲 - 避免Vue过度更新
+const messageBuffer = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
+let bufferFlushTimer: number | null = null;
+const BUFFER_FLUSH_INTERVAL = 100; // 每100ms刷新一次UI
+
+// 批量添加消息到缓冲
+function bufferMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
+  messageBuffer.value.push(...newMessages);
+  scheduleBufferFlush();
+}
+
+// 调度缓冲刷新
+function scheduleBufferFlush() {
+  if (bufferFlushTimer) return;
+  bufferFlushTimer = window.setTimeout(() => {
+    flushMessageBuffer();
+  }, BUFFER_FLUSH_INTERVAL);
+}
+
+// 刷新缓冲到主消息列表
+function flushMessageBuffer() {
+  if (messageBuffer.value.length === 0) {
+    bufferFlushTimer = null;
+    return;
+  }
+  const batch = messageBuffer.value.splice(0, messageBuffer.value.length);
+  messages.value.push(...batch);
+  bufferFlushTimer = null;
+}
+
+// 清空缓冲
+function clearMessageBuffer() {
+  if (bufferFlushTimer) {
+    clearTimeout(bufferFlushTimer);
+    bufferFlushTimer = null;
+  }
+  messageBuffer.value = [];
+}
 
 // 虚拟滚动配置
 const ROW_HEIGHT = 16; // 每行高度（像素）- 更紧凑
@@ -719,6 +768,7 @@ async function fetchMessages() {
     loading.value = true;
     selectedMessageIndex.value = -1;
     messages.value = []; // 清空消息列表
+    clearMessageBuffer(); // 清空缓冲
     const startTime = performance.now();
 
     try {
@@ -758,18 +808,19 @@ async function fetchMessages() {
           onStart: (data) => {
             if (requestId !== currentFetchRequestId) return;
             receivedCount = 0;
+            clearMessageBuffer();
             streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
             console.log(`[SSE] Start fetching from ${data.partitions} partitions, total target: ${data.total_target}`);
           },
           onBatch: (newMessages, progress, total) => {
             if (requestId !== currentFetchRequestId) return;
-            // 追加消息 - 使用展开运算符确保 Vue 响应式检测
-            messages.value = [...messages.value, ...newMessages];
+            // 缓冲消息，批量渲染
+            bufferMessages(newMessages);
             receivedCount += newMessages.length;
             streamingProgress.value.received = receivedCount;
             streamingProgress.value.total = total;
             fetchTime.value = Math.round(performance.now() - startTime);
-            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}, total: ${messages.value.length}`);
+            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}, buffered: ${messageBuffer.value.length}, total: ${messages.value.length + messageBuffer.value.length}`);
 
             // 自动滚动到底部以显示最新接收的消息（在最终排序前）
             nextTick(() => {
@@ -781,6 +832,8 @@ async function fetchMessages() {
           },
           onOrder: (sort) => {
             if (requestId !== currentFetchRequestId) return;
+            // 先刷新缓冲
+            flushMessageBuffer();
             // 如果需要降序，创建新数组反转（避免直接修改原数组）
             if (sort === 'desc') {
               messages.value = [...messages.value].reverse();
@@ -794,13 +847,16 @@ async function fetchMessages() {
           },
           onComplete: () => {
             if (requestId !== currentFetchRequestId) return;
+            // 刷新剩余缓冲
+            flushMessageBuffer();
             loading.value = false;
             streamingProgress.value.isStreaming = false;
             currentAbortController = null;
-            console.log('[SSE] Fetch completed');
+            console.log('[SSE] Fetch completed, total:', messages.value.length);
           },
           onError: (error) => {
             if (requestId !== currentFetchRequestId) return;
+            clearMessageBuffer();
             showError(error);
             loading.value = false;
             streamingProgress.value.isStreaming = false;
@@ -837,6 +893,7 @@ function stopFetching() {
   currentFetchRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
+  clearMessageBuffer();
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容
