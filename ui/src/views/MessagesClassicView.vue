@@ -358,7 +358,7 @@
 </template>
 
 <script setup lang="ts">
-import { shallowRef, ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, shallowRef } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useClusterStore } from '@/stores/cluster';
@@ -401,95 +401,27 @@ interface Message {
   offset: number;
   key?: string;
   value?: string;
-  timestamp?: number;
+  timestamp?: number | null;
   uid: string;
 }
 
 const loading = ref(false);
 const fetchTime = ref<number>(0);
-const messages = shallowRef<Message[]>([]);
+const messages = shallowRef<Message[]>([]); // 使用 shallowRef 避免深度响应式
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc');
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
-const scrollerRefDesktop = ref<any>(null); // Desktop RecycleScroller ref
-const scrollerRefMobile = ref<any>(null); // Mobile RecycleScroller ref
 
-// SSE 状态管理 - 收集完成后一次性更新
-let pendingMessages: Message[] = [];
-let pendingCount = 0; // 单独跟踪计数，避免依赖数组长度
+// SSE 状态管理
 let currentRequestId = 0;
-let isFinalized = false;
-let batchCount = 0;
-let finalizedSort: 'desc' | undefined = undefined; // 记录最终排序方向
-
-// 接收消息 - 存入临时数组
-function receiveMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
-  batchCount++;
-  const count = newMessages.length;
-  // 批量添加，避免多次响应式更新
-  const formattedMessages = newMessages.map(msg => ({
-    ...msg,
-    uid: `${msg.partition}-${msg.offset}`,
-  }));
-  pendingMessages.push(...formattedMessages);
-  pendingCount = pendingMessages.length;
-  streamingProgress.value.received = pendingCount;
-  console.log(`[SSE] Batch #${batchCount}: received ${count}, total pending: ${pendingCount}`);
-}
-
-// 完成接收 - 一次性更新 UI
-function finalizeReceive(sort?: 'desc') {
-  // 记录排序方向（onOrder 可能先调用）
-  if (sort === 'desc' || sort === 'asc') {
-    finalizedSort = sort === 'desc' ? 'desc' : undefined;
-  }
-
-  // 防止重复调用
-  if (isFinalized) {
-    console.log(`[SSE] Finalize already called, skipping`);
-    return;
-  }
-  isFinalized = true;
-
-  console.log(`[SSE] Finalize START: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
-
-  // 使用 shallowRef，直接替换数组即可，不需要创建副本
-  if (finalizedSort === 'desc' && pendingMessages.length > 0) {
-    // 降序需要在原数组上反转
-    messages.value = pendingMessages.reverse();
-  } else {
-    messages.value = pendingMessages;
-  }
-
-  console.log(`[SSE] After assign: messages.value.length=${messages.value.length}`);
-  console.log(`[SSE] Finalize done: displayed=${messages.value.length}`);
-
-  // 清空临时数组和计数
-  pendingMessages = [];
-  pendingCount = 0;
-
-  console.log(`[SSE] After clear: pending=${pendingCount}`);
-
-  // 降序模式滚动到顶部
-  if (finalizedSort === 'desc' && messages.value.length > 0) {
-    nextTick(() => {
-      scrollerRefDesktop.value?.scrollToItem?.(0);
-      scrollerRefMobile.value?.scrollToItem?.(0);
-    });
-  }
-}
+let finalizedSort: 'desc' | undefined = undefined;
 
 // 重置状态
 function resetMessageState() {
-  console.log(`[SSE] Reset: previous pending=${pendingCount}`);
-  pendingMessages = [];
-  pendingCount = 0;
-  isFinalized = false;
-  batchCount = 0;
-  finalizedSort = undefined;
   messages.value = [];
   streamingProgress.value = { received: 0, total: 0, isStreaming: false };
+  finalizedSort = undefined;
 }
 
 // 显示错误提示
@@ -728,7 +660,7 @@ function formatMessageValue(value?: string): string {
   return value;
 }
 
-function formatTimestamp(ts?: number): string {
+function formatTimestamp(ts?: number | null): string {
   if (!ts) return '-';
   const date = new Date(ts);
   // 格式: 2024/1/15 10:30:45.123 (支持毫秒)
@@ -834,24 +766,42 @@ async function fetchMessages() {
             streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
             console.log(`[SSE] Start: ${data.partitions} partitions, target: ${data.total_target}`);
           },
-          onBatch: (newMessages, _progress, _total) => {
+          onBatch: (newMessages, progress, total) => {
             if (requestId !== currentRequestId) return;
-            receiveMessages(newMessages);
+            // 更新进度
+            streamingProgress.value.received = progress;
+            streamingProgress.value.total = total;
             fetchTime.value = Math.round(performance.now() - startTime);
+            // 直接追加到消息数组，使用 shallowRef 需要直接修改数组
+            const currentMessages = messages.value;
+            for (const msg of newMessages) {
+              currentMessages.push({
+                partition: msg.partition,
+                offset: msg.offset,
+                key: msg.key || '',
+                value: msg.value || '',
+                timestamp: msg.timestamp || null,
+                uid: `${msg.partition}-${msg.offset}`,
+              });
+            }
+            // 触发响应式更新
+            messages.value = currentMessages;
           },
           onOrder: (sort) => {
-            // 只记录排序方向，不调用 finalizeReceive（等待 onComplete）
             if (requestId !== currentRequestId) return;
             finalizedSort = sort === 'desc' ? 'desc' : undefined;
-            console.log(`[SSE] Order: sort=${sort}`);
           },
           onComplete: () => {
             if (requestId !== currentRequestId) return;
-            finalizeReceive(); // 使用已记录的 finalizedSort
+            // 如果是降序，反转数组
+            if (finalizedSort === 'desc') {
+              const reversed = [...messages.value].reverse();
+              messages.value = reversed;
+            }
             loading.value = false;
             streamingProgress.value.isStreaming = false;
             currentAbortController = null;
-            console.log(`[SSE] Complete: displayed=${messages.value.length}`);
+            console.log(`[SSE] Complete: total=${messages.value.length}`);
           },
           onError: (error) => {
             if (requestId !== currentRequestId) return;
@@ -891,8 +841,6 @@ function stopFetching() {
   currentRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
-  // 刷新剩余数据
-  finalizeReceive();
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容

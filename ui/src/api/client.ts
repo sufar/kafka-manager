@@ -464,130 +464,104 @@ class ApiClient {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
 
-        let currentEvent = '';
-        let currentData = '';
+        // 使用 \n\n 分割完整的 SSE 事件
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            currentData = line.slice(6).trim();
-          } else if (line === '' && currentEvent) {
-            // 处理完整的事件
-            try {
-              const data = JSON.parse(currentData);
-              switch (currentEvent) {
-                case 'start':
-                  console.log(`[SSE Client] Start: partitions=${data.partitions}, total_target=${data.total_target}`);
-                  callbacks?.onStart?.(data);
-                  break;
-                case 'batch':
-                  batchCount++;
-                  totalMessagesReceived += data.messages?.length || 0;
-                  console.log(`[SSE Client] Batch #${batchCount}: ${data.messages?.length || 0} messages, total received: ${totalMessagesReceived}`);
-                  callbacks?.onBatch?.(data.messages, data.progress, data.total);
-                  break;
-                case 'order':
-                  console.log(`[SSE Client] Order: sort=${data.sort}`);
-                  callbacks?.onOrder?.(data.sort);
-                  break;
-                case 'complete':
-                  console.log(`[SSE Client] Complete event received`);
-                  callbacks?.onComplete?.();
-                  break;
-                case 'error':
-                  callbacks?.onError?.(data.error);
-                  break;
-              }
-            } catch (e) {
-              console.error('Failed to parse SSE data:', currentData, e);
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+
+          // 解析 event 和 data 行
+          const lines = trimmed.split('\n');
+          let event = '';
+          let data = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              event = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              data = line.slice(6).trim();
             }
-            currentEvent = '';
-            currentData = '';
           }
-        }
-      }
 
-      console.log(`[SSE Client] Stream ended. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
+          if (!event || !data) continue;
 
-      // 处理流结束后剩余的 buffer 数据
-      if (buffer.trim()) {
-        const lines = buffer.split('\n');
-        let currentEvent = '';
-        let currentData = '';
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            currentData = line.slice(6).trim();
-          } else if (line === '' && currentEvent) {
-            try {
-              const data = JSON.parse(currentData);
-              switch (currentEvent) {
-                case 'start':
-                  callbacks?.onStart?.(data);
-                  break;
-                case 'batch': {
-                  const msgCount = data.messages?.length || 0;
-                  totalMessagesReceived += msgCount;
-                  console.log(`[SSE Client] Buffer Batch: ${msgCount} messages, total received: ${totalMessagesReceived}`);
-                  callbacks?.onBatch?.(data.messages, data.progress, data.total);
-                  break;
-                }
-                case 'order':
-                  callbacks?.onOrder?.(data.sort);
-                  break;
-                case 'complete':
-                  // 不在这里调用 onComplete，会在后面统一调用
-                  break;
-                case 'error':
-                  callbacks?.onError?.(data.error);
-                  break;
-              }
-            } catch (e) {
-              console.error('Failed to parse SSE data:', currentData, e);
-            }
-            currentEvent = '';
-            currentData = '';
-          }
-        }
-
-        // 处理最后一个事件（如果不以空行结尾）
-        if (currentEvent && currentData) {
           try {
-            const data = JSON.parse(currentData);
-            switch (currentEvent) {
+            const parsed = JSON.parse(data);
+            switch (event) {
               case 'start':
-                callbacks?.onStart?.(data);
+                console.log(`[SSE Client] Start: partitions=${parsed.partitions}, total_target=${parsed.total_target}`);
+                callbacks?.onStart?.(parsed);
                 break;
-              case 'batch': {
-                const msgCount = data.messages?.length || 0;
+              case 'batch':
+                batchCount++;
+                const msgCount = parsed.messages?.length || 0;
                 totalMessagesReceived += msgCount;
-                console.log(`[SSE Client] Final Batch: ${msgCount} messages, total received: ${totalMessagesReceived}`);
-                callbacks?.onBatch?.(data.messages, data.progress, data.total);
+                console.log(`[SSE Client] Batch #${batchCount}: ${msgCount} messages, total received: ${totalMessagesReceived}, progress=${parsed.progress}/${parsed.total}`);
+                callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
                 break;
-              }
               case 'order':
-                callbacks?.onOrder?.(data.sort);
+                console.log(`[SSE Client] Order: sort=${parsed.sort}`);
+                callbacks?.onOrder?.(parsed.sort);
                 break;
               case 'complete':
-                // 不在这里调用 onComplete，会在后面统一调用
+                console.log(`[SSE Client] Complete event received`);
                 break;
               case 'error':
-                callbacks?.onError?.(data.error);
+                callbacks?.onError?.(parsed.error);
                 break;
             }
           } catch (e) {
-            console.error('Failed to parse SSE data:', currentData, e);
+            console.error('[SSE Client] Failed to parse event:', trimmed, e);
           }
         }
       }
 
-      console.log(`[SSE Client] Final total messages: ${totalMessagesReceived}`);
+      // 处理流结束后剩余的 buffer 数据
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        const lines = trimmed.split('\n');
+        let event = '';
+        let data = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            event = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            data = line.slice(6).trim();
+          }
+        }
+
+        if (event && data) {
+          try {
+            const parsed = JSON.parse(data);
+            switch (event) {
+              case 'start':
+                callbacks?.onStart?.(parsed);
+                break;
+              case 'batch': {
+                const msgCount = parsed.messages?.length || 0;
+                totalMessagesReceived += msgCount;
+                console.log(`[SSE Client] Final buffer batch: ${msgCount} messages, total: ${totalMessagesReceived}`);
+                callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
+                break;
+              }
+              case 'order':
+                callbacks?.onOrder?.(parsed.sort);
+                break;
+              case 'error':
+                callbacks?.onError?.(parsed.error);
+                break;
+            }
+          } catch (e) {
+            console.error('[SSE Client] Failed to parse final buffer:', buffer, e);
+          }
+        }
+      }
+
+      console.log(`[SSE Client] Stream complete. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
       callbacks?.onComplete?.();
     }).catch((error) => {
       if (error.name !== 'AbortError') {
