@@ -358,7 +358,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue';
+import { shallowRef, ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useClusterStore } from '@/stores/cluster';
@@ -407,7 +407,7 @@ interface Message {
 
 const loading = ref(false);
 const fetchTime = ref<number>(0);
-const messages = ref<Message[]>([]);
+const messages = shallowRef<Message[]>([]);
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const sortOrder = ref<'asc' | 'desc' | ''>('desc');
@@ -454,24 +454,16 @@ function finalizeReceive(sort?: 'desc') {
 
   console.log(`[SSE] Finalize START: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
 
-  // 如果是降序，需要反转数组（因为后端按升序发送）
-  let finalMessages: Message[];
+  // 使用 shallowRef，直接替换数组即可，不需要创建副本
   if (finalizedSort === 'desc' && pendingMessages.length > 0) {
-    finalMessages = [...pendingMessages].reverse();
+    // 降序需要在原数组上反转
+    messages.value = pendingMessages.reverse();
   } else {
-    finalMessages = [...pendingMessages];
+    messages.value = pendingMessages;
   }
 
-  console.log(`[SSE] Before assign: finalMessages.length=${finalMessages.length}`);
-
-  // 创建新数组副本，确保 Vue 响应式更新
-  messages.value = finalMessages;
-
   console.log(`[SSE] After assign: messages.value.length=${messages.value.length}`);
-
-  const finalCount = messages.value.length;
-
-  console.log(`[SSE] Finalize done: pendingMessages.length=${pendingMessages.length}, displayed=${finalCount}`);
+  console.log(`[SSE] Finalize done: displayed=${messages.value.length}`);
 
   // 清空临时数组和计数
   pendingMessages = [];
