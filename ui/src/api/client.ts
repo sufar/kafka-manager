@@ -4,7 +4,6 @@ import type {
   UpdateClusterRequest,
   TestConnectionResponse,
   TopicListResponse,
-  TopicListWithClusterResponse,
   CreateTopicRequest,
   CreateTopicResponse,
   TopicDetailResponse,
@@ -15,6 +14,7 @@ import type {
   BatchDeleteTopicsResponse,
   HealthResponse,
   ApiError,
+  ClusterGroup,
 } from '@/types/api';
 
 // 检测是否在 Tauri 环境下运行
@@ -230,6 +230,35 @@ class ApiClient {
     return this.request('cluster.test_config', config);
   }
 
+  // ==================== Cluster Groups ====================
+  async getClusterGroups(): Promise<ClusterGroup[]> {
+    return this.request('cluster_group.list', {});
+  }
+
+  async getClusterGroup(id: number): Promise<ClusterGroup> {
+    return this.request('cluster_group.get', { id });
+  }
+
+  async createClusterGroup(group: { name: string; description?: string | null; sort_order?: number }): Promise<ClusterGroup> {
+    return this.request('cluster_group.create', group);
+  }
+
+  async updateClusterGroup(id: number, group: { name?: string; description?: string | null; sort_order?: number }): Promise<ClusterGroup> {
+    return this.request('cluster_group.update', { id, ...group });
+  }
+
+  async deleteClusterGroup(id: number): Promise<void> {
+    return this.request('cluster_group.delete', { id });
+  }
+
+  async getClustersInGroup(groupId: number): Promise<Cluster[]> {
+    return this.request('cluster_group.clusters', { group_id: groupId });
+  }
+
+  async assignClusterToGroup(clusterId: number, groupId: number): Promise<void> {
+    return this.request('cluster_group.assign_cluster', { cluster_id: clusterId, group_id: groupId });
+  }
+
   // ==================== Topics ====================
   async getTopics(clusterId?: string): Promise<string[]> {
     const params: any = {};
@@ -240,13 +269,18 @@ class ApiClient {
     return data.topics;
   }
 
-  async getTopicsWithCluster(clusterId?: string): Promise<{ name: string; cluster: string }[]> {
+  async getTopicsWithCluster(clusterId?: string, offset?: number, limit?: number): Promise<{ topics: { name: string; cluster: string }[]; total: number; has_more: boolean }> {
     const params: any = {};
     if (clusterId) {
       params.cluster_id = clusterId;
     }
-    const data = await this.request<TopicListWithClusterResponse>('topic.list_with_cluster', params);
-    return data.topics;
+    if (offset !== undefined) {
+      params.offset = offset;
+    }
+    if (limit !== undefined) {
+      params.limit = limit;
+    }
+    return this.request('topic.list_with_cluster', params);
   }
 
   async getTopicDetail(clusterId: string, topicName: string): Promise<TopicDetailResponse> {

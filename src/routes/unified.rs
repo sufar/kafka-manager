@@ -3,6 +3,7 @@
 
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
 use crate::db::cluster_connection::ClusterConnectionStore;
+use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest, UpdateClusterGroupRequest};
 use crate::db::audit_log::AuditLogStore;
 use crate::db::favorite::{
     create_favorite, create_group, delete_favorite, delete_favorite_by_topic,
@@ -278,6 +279,15 @@ fn get_optional_i64_param(body: &Value, key: &str) -> Option<i64> {
     body.get(key).and_then(|v| v.as_i64())
 }
 
+/// Get an optional i64 parameter that can be null (returns Some(None) for null, None for missing)
+fn get_nullable_i64_param(body: &Value, key: &str) -> Option<Option<i64>> {
+    match body.get(key) {
+        Some(v) if v.is_null() => Some(None),
+        Some(v) => v.as_i64().map(Some),
+        None => None,
+    }
+}
+
 fn get_optional_i32_param(body: &Value, key: &str) -> Option<i32> {
     body.get(key).and_then(|v| v.as_i64()).map(|v| v as i32)
 }
@@ -448,6 +458,15 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "cluster.test_config" => handle_cluster_test_with_config(state, body).await,
         "cluster.stats" => handle_cluster_stats(state, body).await,
 
+        // Cluster Group
+        "cluster_group.list" => handle_cluster_group_list(state).await,
+        "cluster_group.get" => handle_cluster_group_get(state, body).await,
+        "cluster_group.create" => handle_cluster_group_create(state, body).await,
+        "cluster_group.update" => handle_cluster_group_update(state, body).await,
+        "cluster_group.delete" => handle_cluster_group_delete(state, body).await,
+        "cluster_group.clusters" => handle_cluster_group_clusters(state, body).await,
+        "cluster_group.assign_cluster" => handle_cluster_group_assign_cluster(state, body).await,
+
         // Topic
         "topic.list" => handle_topic_list(state, body).await,
         "topic.list_with_cluster" => handle_topic_list_with_cluster(state, body).await,
@@ -572,6 +591,7 @@ async fn handle_cluster_create(state: AppState, body: Value) -> Result<Value> {
     let brokers = get_string_param(&body, "brokers")?;
     let request_timeout_ms = get_optional_i64_param(&body, "request_timeout_ms").unwrap_or(5000);
     let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms").unwrap_or(5000);
+    let group_id = get_optional_i64_param(&body, "group_id");
 
     // Check if name exists
     if let Some(_existing) = ClusterStore::get_by_name(state.db.inner(), &name).await? {
@@ -586,6 +606,7 @@ async fn handle_cluster_create(state: AppState, body: Value) -> Result<Value> {
         brokers,
         request_timeout_ms,
         operation_timeout_ms,
+        group_id,
     };
 
     let cluster = ClusterStore::create(state.db.inner(), &req).await?;
@@ -599,6 +620,7 @@ async fn handle_cluster_create(state: AppState, body: Value) -> Result<Value> {
         "brokers": cluster.brokers,
         "request_timeout_ms": cluster.request_timeout_ms,
         "operation_timeout_ms": cluster.operation_timeout_ms,
+        "group_id": cluster.group_id,
         "created_at": cluster.created_at,
         "updated_at": cluster.updated_at,
     }))
@@ -610,6 +632,7 @@ async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
     let brokers = get_optional_string_param(&body, "brokers");
     let request_timeout_ms = get_optional_i64_param(&body, "request_timeout_ms");
     let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms");
+    let group_id = get_nullable_i64_param(&body, "group_id");
 
     let old_cluster = ClusterStore::get(state.db.inner(), id).await?;
 
@@ -630,6 +653,7 @@ async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
         brokers,
         request_timeout_ms,
         operation_timeout_ms,
+        group_id,
     };
 
     let cluster = ClusterStore::update(state.db.inner(), id, &req).await?;
@@ -643,6 +667,7 @@ async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
         "brokers": cluster.brokers,
         "request_timeout_ms": cluster.request_timeout_ms,
         "operation_timeout_ms": cluster.operation_timeout_ms,
+        "group_id": cluster.group_id,
         "created_at": cluster.created_at,
         "updated_at": cluster.updated_at,
     }))
@@ -934,6 +959,10 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
     // Check if a specific cluster_id is provided
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+    // Get pagination parameters (default: offset=0, limit=10000)
+    let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as usize;
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10000) as usize;
+
     if let Some(id) = cluster_id {
         // Fetch topics from a specific cluster
         let db_topics = TopicStore::list_by_cluster(state.db.inner(), &id).await.ok();
@@ -956,7 +985,22 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
             let _ = sync_topics_from_kafka(state_clone, &id_clone).await;
         });
 
-        return Ok(serde_json::json!({ "topics": topics }));
+        // Apply pagination
+        let total = topics.len();
+        let end = (offset + limit).min(total);
+        let paginated_topics = if offset < total {
+            topics.into_iter().skip(offset).take(limit).collect()
+        } else {
+            Vec::new()
+        };
+
+        return Ok(serde_json::json!({
+            "topics": paginated_topics,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": end < total
+        }));
     }
 
     // No cluster_id provided - fetch from all clusters
@@ -989,7 +1033,22 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
         a.cluster.cmp(&b.cluster).then(a.name.cmp(&b.name))
     });
 
-    Ok(serde_json::json!({ "topics": all_topics }))
+    // Apply pagination
+    let total = all_topics.len();
+    let end = (offset + limit).min(total);
+    let paginated_topics = if offset < total {
+        all_topics.into_iter().skip(offset).take(limit).collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(serde_json::json!({
+        "topics": paginated_topics,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": end < total
+    }))
 }
 
 /// Fetch topics from all clusters
@@ -3710,4 +3769,147 @@ async fn handle_favorite_delete_by_topic(state: AppState, body: Value) -> Result
     } else {
         Err(AppError::NotFound("Favorite not found".to_string()))
     }
+}
+
+// ==================== Cluster Group ====================
+
+async fn handle_cluster_group_list(state: AppState) -> Result<Value> {
+    let groups = ClusterGroupStore::list(state.db.inner()).await?;
+
+    let groups_json: Vec<Value> = groups
+        .into_iter()
+        .map(|g| {
+            serde_json::json!({
+                "id": g.id,
+                "name": g.name,
+                "description": g.description,
+                "sort_order": g.sort_order,
+                "created_at": g.created_at,
+                "updated_at": g.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!(groups_json))
+}
+
+async fn handle_cluster_group_get(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let group = ClusterGroupStore::get(state.db.inner(), id).await?;
+
+    Ok(serde_json::json!({
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "sort_order": group.sort_order,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
+    }))
+}
+
+async fn handle_cluster_group_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let description = get_optional_string_param(&body, "description");
+    let sort_order = get_optional_i64_param(&body, "sort_order").unwrap_or(0);
+
+    // Check if name already exists
+    if let Some(_existing) = ClusterGroupStore::get_by_name(state.db.inner(), &name).await? {
+        return Err(AppError::BadRequest(format!(
+            "Group name '{}' already exists",
+            name
+        )));
+    }
+
+    let req = CreateClusterGroupRequest {
+        name: name.clone(),
+        description,
+        sort_order,
+    };
+
+    let group = ClusterGroupStore::create(state.db.inner(), &req).await?;
+
+    Ok(serde_json::json!({
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "sort_order": group.sort_order,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
+    }))
+}
+
+async fn handle_cluster_group_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let name = get_optional_string_param(&body, "name");
+    let description = get_optional_string_param(&body, "description");
+    let sort_order = get_optional_i64_param(&body, "sort_order");
+
+    // If name changed, check new name exists
+    if let Some(ref new_name) = name {
+        if let Some(existing) = ClusterGroupStore::get_by_name(state.db.inner(), new_name).await? {
+            if existing.id != id {
+                return Err(AppError::BadRequest(format!(
+                    "Group name '{}' already exists",
+                    new_name
+                )));
+            }
+        }
+    }
+
+    let req = UpdateClusterGroupRequest {
+        name,
+        description,
+        sort_order,
+    };
+
+    let group = ClusterGroupStore::update(state.db.inner(), id, &req).await?;
+
+    Ok(serde_json::json!({
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "sort_order": group.sort_order,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
+    }))
+}
+
+async fn handle_cluster_group_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    ClusterGroupStore::delete(state.db.inner(), id).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_cluster_group_clusters(state: AppState, body: Value) -> Result<Value> {
+    let group_id = get_i64_param(&body, "group_id")?;
+
+    let clusters = ClusterGroupStore::get_clusters_in_group(state.db.inner(), group_id).await?;
+
+    let clusters_json: Vec<Value> = clusters
+        .into_iter()
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id,
+                "name": c.name,
+                "brokers": c.brokers,
+                "request_timeout_ms": c.request_timeout_ms,
+                "operation_timeout_ms": c.operation_timeout_ms,
+                "group_id": c.group_id,
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!(clusters_json))
+}
+
+async fn handle_cluster_group_assign_cluster(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_i64_param(&body, "cluster_id")?;
+    let group_id = get_i64_param(&body, "group_id")?;
+
+    ClusterGroupStore::assign_cluster_to_group(state.db.inner(), cluster_id, group_id).await?;
+
+    Ok(serde_json::json!({ "success": true }))
 }

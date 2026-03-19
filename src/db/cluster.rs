@@ -10,6 +10,7 @@ pub struct KafkaCluster {
     pub brokers: String,
     pub request_timeout_ms: i64,
     pub operation_timeout_ms: i64,
+    pub group_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -23,6 +24,7 @@ pub struct CreateClusterRequest {
     pub request_timeout_ms: i64,
     #[serde(default = "default_timeout")]
     pub operation_timeout_ms: i64,
+    pub group_id: Option<i64>,
 }
 
 /// 更新集群请求
@@ -32,6 +34,7 @@ pub struct UpdateClusterRequest {
     pub brokers: Option<String>,
     pub request_timeout_ms: Option<i64>,
     pub operation_timeout_ms: Option<i64>,
+    pub group_id: Option<Option<i64>>,
 }
 
 fn default_timeout() -> i64 {
@@ -87,8 +90,8 @@ impl ClusterStore {
 
         let cluster = sqlx::query_as::<_, KafkaCluster>(
             r#"
-            INSERT INTO kafka_clusters (name, brokers, request_timeout_ms, operation_timeout_ms, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO kafka_clusters (name, brokers, request_timeout_ms, operation_timeout_ms, group_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -96,6 +99,7 @@ impl ClusterStore {
         .bind(&req.brokers)
         .bind(req.request_timeout_ms)
         .bind(req.operation_timeout_ms)
+        .bind(&req.group_id)
         .bind(&now)
         .bind(&now)
         .fetch_one(pool)
@@ -119,11 +123,15 @@ impl ClusterStore {
         let brokers = req.brokers.as_ref().unwrap_or(&existing.brokers);
         let request_timeout_ms = req.request_timeout_ms.unwrap_or(existing.request_timeout_ms);
         let operation_timeout_ms = req.operation_timeout_ms.unwrap_or(existing.operation_timeout_ms);
+        let group_id = match &req.group_id {
+            Some(g) => *g,
+            None => existing.group_id,
+        };
 
         let cluster = sqlx::query_as::<_, KafkaCluster>(
             r#"
             UPDATE kafka_clusters
-            SET name = ?, brokers = ?, request_timeout_ms = ?, operation_timeout_ms = ?, updated_at = ?
+            SET name = ?, brokers = ?, request_timeout_ms = ?, operation_timeout_ms = ?, group_id = ?, updated_at = ?
             WHERE id = ?
             RETURNING *
             "#,
@@ -132,6 +140,7 @@ impl ClusterStore {
         .bind(brokers)
         .bind(request_timeout_ms)
         .bind(operation_timeout_ms)
+        .bind(&group_id)
         .bind(&now)
         .bind(id)
         .fetch_optional(pool)

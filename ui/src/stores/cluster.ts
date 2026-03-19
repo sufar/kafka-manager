@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Cluster } from '@/types/api';
+import type { Cluster, ClusterGroup } from '@/types/api';
 import { apiClient } from '@/api/client';
 
 export interface ClusterHealth {
@@ -12,7 +12,9 @@ export interface ClusterHealth {
 
 export const useClusterStore = defineStore('clusters', () => {
   const clusters = ref<Cluster[]>([]);
+  const groups = ref<ClusterGroup[]>([]);
   const loading = ref(false);
+  const loadingGroups = ref(false);
   const error = ref<string | null>(null);
 
   // 选中的集群列表（支持多选）
@@ -84,6 +86,7 @@ export const useClusterStore = defineStore('clusters', () => {
     brokers: string;
     request_timeout_ms?: number;
     operation_timeout_ms?: number;
+    group_id?: number;
   }) {
     const newCluster = await apiClient.createCluster(cluster);
     clusters.value.push(newCluster);
@@ -96,7 +99,7 @@ export const useClusterStore = defineStore('clusters', () => {
 
   async function updateCluster(
     id: number,
-    cluster: { name?: string; brokers?: string; request_timeout_ms?: number; operation_timeout_ms?: number }
+    cluster: { name?: string; brokers?: string; request_timeout_ms?: number; operation_timeout_ms?: number; group_id?: number }
   ) {
     const updatedCluster = await apiClient.updateCluster(id, cluster);
     const index = clusters.value.findIndex((c) => c.id === id);
@@ -233,9 +236,66 @@ export const useClusterStore = defineStore('clusters', () => {
     return stats;
   });
 
+  // 按分组组织集群
+  const clustersByGroup = computed(() => {
+    const result: Record<number, Cluster[]> = {};
+    for (const cluster of clusters.value) {
+      const groupId = cluster.group_id ?? 0;
+      if (!result[groupId]) {
+        result[groupId] = [];
+      }
+      result[groupId].push(cluster);
+    }
+    return result;
+  });
+
+  async function fetchGroups() {
+    loadingGroups.value = true;
+    error.value = null;
+    try {
+      groups.value = await apiClient.getClusterGroups();
+    } catch (e) {
+      error.value = (e as { message: string }).message;
+      console.error('[ClusterStore] Failed to fetch groups:', e);
+    } finally {
+      loadingGroups.value = false;
+    }
+  }
+
+  async function createGroup(group: { name: string; description?: string | null; sort_order?: number }) {
+    const newGroup = await apiClient.createClusterGroup(group);
+    groups.value.push(newGroup);
+    return newGroup;
+  }
+
+  async function updateGroup(id: number, group: { name?: string; description?: string | null; sort_order?: number }) {
+    const updatedGroup = await apiClient.updateClusterGroup(id, group);
+    const index = groups.value.findIndex((g) => g.id === id);
+    if (index !== -1) {
+      groups.value[index] = updatedGroup;
+    }
+    return updatedGroup;
+  }
+
+  async function deleteGroup(id: number) {
+    await apiClient.deleteClusterGroup(id);
+    groups.value = groups.value.filter((g) => g.id !== id);
+  }
+
+  async function assignClusterToGroup(clusterId: number, groupId: number) {
+    await apiClient.assignClusterToGroup(clusterId, groupId);
+    // 更新本地缓存
+    const cluster = clusters.value.find((c) => c.id === clusterId);
+    if (cluster) {
+      cluster.group_id = groupId;
+    }
+  }
+
   return {
     clusters,
+    groups,
     loading,
+    loadingGroups,
     error,
     selectedClusterIds,
     selectedClusterId,
@@ -244,7 +304,9 @@ export const useClusterStore = defineStore('clusters', () => {
     clusterHealth,
     refreshingHealth,
     totalStats,
+    clustersByGroup,
     fetchClusters,
+    fetchGroups,
     createCluster,
     updateCluster,
     deleteCluster,
@@ -255,5 +317,9 @@ export const useClusterStore = defineStore('clusters', () => {
     selectAllClusters,
     clearSelection,
     getClusterHealth,
+    createGroup,
+    updateGroup,
+    deleteGroup,
+    assignClusterToGroup,
   };
 });

@@ -84,7 +84,7 @@
       <RecycleScroller
         v-else
         class="h-full overflow-auto"
-        :items="filteredTopicsWithUid"
+        :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
         :item-size="28"
         key-field="uid"
         v-slot="{ item }"
@@ -125,8 +125,19 @@
     <!-- Status Bar -->
     <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
       <div class="flex items-center justify-between gap-2">
-        <span>{{ filteredTopics.length }} topics</span>
+        <span>{{ allTopics.length }} / {{ total }} topics</span>
         <div class="flex items-center gap-1">
+          <!-- Load More Button -->
+          <button
+            v-if="hasMore && allTopics.length < 10000"
+            class="btn btn-ghost btn-xs text-primary"
+            :disabled="loadingMore"
+            @click="loadMoreTopics"
+          >
+            <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
+            加载更多
+          </button>
+          <span v-if="allTopics.length >= 10000" class="text-warning text-[10px]">已达最大显示数</span>
           <span class="text-xs">Cluster:</span>
           <select
             v-model="selectedClusterFilter"
@@ -202,8 +213,15 @@ const internalClusterFilter = ref(''); // 内部使用，收藏跳转时临时�
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
+const loadingMore = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
 const isUnmounted = ref(false);
+
+// Pagination state
+const offset = ref(0);
+const limit = ref(10000);
+const total = ref(0);
+const hasMore = ref(false);
 
 // Debounce timer
 let searchTimer: number | null = null;
@@ -229,9 +247,22 @@ const filteredTopics = computed(() => {
   );
 });
 
-// Topics with uid for virtual scroll
+// Topics with uid for virtual scroll (use filtered for search results)
 const filteredTopicsWithUid = computed((): TopicItem[] => {
   return filteredTopics.value.map(topic => ({
+    topic,
+    uid: `${topic.cluster}-${topic.name}`
+  }));
+});
+
+// Displayed topics - for pagination display
+const displayedTopics = computed(() => {
+  return allTopics.value;
+});
+
+// Displayed topics with uid for virtual scroll
+const displayedTopicsWithUid = computed((): TopicItem[] => {
+  return displayedTopics.value.map(topic => ({
     topic,
     uid: `${topic.cluster}-${topic.name}`
   }));
@@ -249,6 +280,9 @@ const pendingHighlight = ref<{ cluster: string; topic: string } | null>(null);
 async function loadAllTopics() {
   if (isUnmounted.value) return;
   loading.value = true;
+  // Reset pagination when loading fresh topics
+  offset.value = 0;
+  allTopics.value = [];
   try {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
@@ -260,25 +294,30 @@ async function loadAllTopics() {
     if (clusterFilter) {
       const cluster = clusters.find(c => c.name === clusterFilter);
       if (cluster) {
-        const clusterTopics = await apiClient.getTopics(cluster.name);
-        if (isUnmounted.value) return; // Check after async
-        for (const topicName of clusterTopics) {
+        // Load first batch with pagination
+        const result = await apiClient.getTopicsWithCluster(cluster.name, 0, limit.value);
+        if (isUnmounted.value) return;
+        for (const topic of result.topics) {
           topics.push({
-            name: topicName,
-            cluster: cluster.name
+            name: topic.name,
+            cluster: topic.cluster
           });
         }
+        total.value = result.total;
+        hasMore.value = result.has_more;
       }
     } else {
       // No cluster selected - load all topics from all clusters with cluster info
-      const allTopicsWithCluster = await apiClient.getTopicsWithCluster();
-      if (isUnmounted.value) return; // Check after async
-      for (const topic of allTopicsWithCluster) {
+      const result = await apiClient.getTopicsWithCluster(undefined, 0, limit.value);
+      if (isUnmounted.value) return;
+      for (const topic of result.topics) {
         topics.push({
           name: topic.name,
           cluster: topic.cluster
         });
       }
+      total.value = result.total;
+      hasMore.value = result.has_more;
     }
 
     // Sort by cluster then by name
@@ -311,6 +350,55 @@ async function loadAllTopics() {
   } finally {
     if (!isUnmounted.value) {
       loading.value = false;
+    }
+  }
+}
+
+// Load more topics (pagination)
+async function loadMoreTopics() {
+  if (loadingMore.value || isUnmounted.value || !hasMore.value) return;
+
+  loadingMore.value = true;
+  try {
+    const nextOffset = offset.value + limit.value;
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+
+    if (clusterFilter) {
+      const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
+      if (isUnmounted.value) return;
+
+      // Append new topics
+      for (const topic of result.topics) {
+        allTopics.value.push({
+          name: topic.name,
+          cluster: topic.cluster
+        });
+      }
+
+      offset.value = nextOffset;
+      hasMore.value = result.has_more;
+    } else {
+      const result = await apiClient.getTopicsWithCluster(undefined, nextOffset, limit.value);
+      if (isUnmounted.value) return;
+
+      // Append new topics
+      for (const topic of result.topics) {
+        allTopics.value.push({
+          name: topic.name,
+          cluster: topic.cluster
+        });
+      }
+
+      offset.value = nextOffset;
+      hasMore.value = result.has_more;
+    }
+  } catch (e) {
+    if (!isUnmounted.value) {
+      console.error('Failed to load more topics:', e);
+    }
+  } finally {
+    if (!isUnmounted.value) {
+      loadingMore.value = false;
     }
   }
 }
@@ -391,12 +479,16 @@ function onClusterFilterChange() {
   internalClusterFilter.value = '';
   // Clear search query when changing cluster filter
   searchQuery.value = '';
+  // Reset pagination
+  offset.value = 0;
 }
 
 // Clear search
 function clearSearch() {
   searchQuery.value = '';
   internalClusterFilter.value = '';
+  // Reset pagination
+  offset.value = 0;
 }
 
 // Select topic

@@ -1,6 +1,7 @@
 pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
+pub mod cluster_group;
 pub mod favorite;
 pub mod settings;
 pub mod tag;
@@ -311,6 +312,9 @@ impl DbPool {
         // 创建收藏表
         favorite::init_tables(self.inner()).await?;
 
+        // 创建集群分组表
+        self.init_cluster_groups_table().await?;
+
         // 运行额外的索引优化迁移
         self.run_indexes_migration().await?;
 
@@ -389,6 +393,75 @@ impl DbPool {
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_resource ON resource_tags(resource_type, resource_name)")
             .execute(self.inner()).await?;
+
+        Ok(())
+    }
+
+    /// 初始化集群分组表
+    async fn init_cluster_groups_table(&self) -> Result<(), sqlx::Error> {
+        // 创建集群分组表
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS cluster_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 为 kafka_clusters 表添加 group_id 字段（如果不存在）
+        // SQLite 不支持直接添加 IF NOT EXISTS，需要检查字段是否存在
+        let column_exists: Option<i64> = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('kafka_clusters') WHERE name = 'group_id'",
+        )
+        .fetch_one(self.inner())
+        .await?;
+
+        if column_exists.unwrap_or(0) == 0 {
+            sqlx::query("ALTER TABLE kafka_clusters ADD COLUMN group_id INTEGER REFERENCES cluster_groups(id)")
+                .execute(self.inner())
+                .await?;
+        }
+
+        // 创建索引
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_cluster_groups_name ON cluster_groups(name)")
+            .execute(self.inner())
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_cluster_groups_sort_order ON cluster_groups(sort_order)")
+            .execute(self.inner())
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_kafka_clusters_group_id ON kafka_clusters(group_id)")
+            .execute(self.inner())
+            .await?;
+
+        // 创建默认分组（如果不存在）
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO cluster_groups (name, description, sort_order, created_at, updated_at)
+            VALUES ('default', '默认分组，包含所有未分组的集群', 0, datetime('now'), datetime('now'))
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 将现有集群分配到默认分组（如果 group_id 为空）
+        sqlx::query(
+            r#"
+            UPDATE kafka_clusters
+            SET group_id = (SELECT id FROM cluster_groups WHERE name = 'default')
+            WHERE group_id IS NULL
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
 
         Ok(())
     }

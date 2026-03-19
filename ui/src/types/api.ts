@@ -6,6 +6,16 @@ export interface Cluster {
   brokers: string;
   request_timeout_ms: number;
   operation_timeout_ms: number;
+  group_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClusterGroup {
+  id: number;
+  name: string;
+  description?: string | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
@@ -14,11 +24,16 @@ export interface ClusterListResponse {
   clusters: Cluster[];
 }
 
+export interface ClusterGroupListResponse {
+  groups: ClusterGroup[];
+}
+
 export interface CreateClusterRequest {
   name: string;
   brokers: string;
   request_timeout_ms?: number;
   operation_timeout_ms?: number;
+  group_id?: number;
 }
 
 export interface UpdateClusterRequest {
@@ -26,6 +41,7 @@ export interface UpdateClusterRequest {
   brokers?: string;
   request_timeout_ms?: number;
   operation_timeout_ms?: number;
+  group_id?: number;
 }
 
 export interface TestConnectionResponse {

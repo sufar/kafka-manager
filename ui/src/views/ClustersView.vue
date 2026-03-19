@@ -18,11 +18,37 @@
           </h1>
           <p class="text-base-content/60 mt-1 text-sm">{{ t.clusters.description }}</p>
         </div>
-        <button class="btn btn-primary btn-sm" @click="openCreateModal">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          {{ t.clusters.addCluster }}
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal" title="Manage groups">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+            </svg>
+          </button>
+          <button class="btn btn-primary btn-sm" @click="openCreateModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            {{ t.clusters.addCluster }}
+          </button>
+        </div>
+      </div>
+      <!-- Group Selector -->
+      <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2">
+        <button
+          class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
+          :class="{ 'btn-active': selectedGroupId === null }"
+          @click="selectGroup(null)"
+        >
+          All
+        </button>
+        <button
+          v-for="group in clusterStore.groups"
+          :key="group.id"
+          class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
+          :class="{ 'btn-active': selectedGroupId === group.id }"
+          @click="selectGroup(group.id)"
+        >
+          {{ group.name }}
         </button>
       </div>
     </div>
@@ -80,7 +106,7 @@
     <!-- Clusters Grid -->
     <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <div
-        v-for="cluster in clusters"
+        v-for="cluster in filteredClusters"
         :key="cluster.id"
         class="card glass gradient-border hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
       >
@@ -265,6 +291,17 @@
                 />
               </div>
             </div>
+            <!-- Group Selector -->
+            <div v-if="clusterStore.groups.length > 0" class="form-control">
+              <label class="label">
+                <span class="label-text font-medium">分组</span>
+              </label>
+              <select v-model="formData.group_id" class="select select-bordered w-full">
+                <option v-for="group in clusterStore.groups" :key="group.id" :value="group.id">
+                  {{ group.name }}
+                </option>
+              </select>
+            </div>
             <!-- Test Connection Button -->
             <div v-if="!editingCluster" class="flex items-center gap-2">
               <button
@@ -316,6 +353,99 @@
           <button>close</button>
         </form>
       </dialog>
+
+      <!-- Manage Groups Modal -->
+      <dialog ref="manageGroupsModalRef" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeManageGroupsModal">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <h3 class="font-bold text-xl mb-4">管理分组</h3>
+
+          <!-- Groups List -->
+          <div class="flex flex-col gap-2 mb-4">
+            <div v-for="group in clusterStore.groups" :key="group.id" class="flex items-center justify-between p-3 rounded-lg bg-base-200">
+              <div>
+                <div class="font-semibold">{{ group.name }}</div>
+                <div class="text-xs text-base-content/60">{{ group.description || '无描述' }}</div>
+              </div>
+              <div class="flex gap-1">
+                <button class="btn btn-ghost btn-xs" @click="editGroup(group)" title="编辑分组">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                  </svg>
+                </button>
+                <button class="btn btn-ghost btn-xs text-error" @click="confirmDeleteGroup(group)" title="删除分组">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div v-if="clusterStore.groups.length === 0" class="text-center text-base-content/60 py-4">
+              暂无分组，点击"添加分组"创建
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-outline" @click="closeManageGroupsModal">{{ t.common.cancel }}</button>
+            <button type="button" class="btn btn-primary" @click="openAddGroupForm">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              添加分组
+            </button>
+          </div>
+
+          <!-- Add/Edit Group Form -->
+          <div v-if="showGroupForm" class="mt-4 p-4 rounded-lg bg-base-200">
+            <h4 class="font-semibold mb-3">{{ editingGroup ? '编辑分组' : '添加分组' }}</h4>
+            <div class="form-control mb-3">
+              <label class="label">
+                <span class="label-text font-medium">分组名称</span>
+              </label>
+              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" placeholder="输入分组名称" />
+            </div>
+            <div class="form-control mb-3">
+              <label class="label">
+                <span class="label-text font-medium">描述</span>
+              </label>
+              <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" placeholder="输入分组描述（可选）"></textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" @click="cancelGroupForm">取消</button>
+              <button type="button" class="btn btn-primary btn-sm" @click="submitGroupForm" :disabled="groupSubmitting">
+                <span v-if="groupSubmitting" class="loading loading-spinner loading-xs"></span>
+                {{ editingGroup ? '保存' : '添加' }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="closeManageGroupsModal">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Delete Group Confirm Modal -->
+      <dialog ref="deleteGroupModalRef" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+          <h3 class="font-bold text-xl mb-4">确认删除分组</h3>
+          <p class="mb-2">确定要删除分组 <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span> 吗？</p>
+          <p class="text-sm text-base-content/60 mb-4">删除后，该分组下的所有集群将变为无分组状态。</p>
+          <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-ghost" @click="closeDeleteGroupModal">{{ t.common.cancel }}</button>
+            <button type="button" class="btn btn-error" @click="confirmDeleteGroupAction" :disabled="groupDeleting">
+              <span v-if="groupDeleting" class="loading loading-spinner loading-xs"></span>
+              删除
+            </button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop" @click="closeDeleteGroupModal">
+          <button>close</button>
+        </form>
+      </dialog>
     </Teleport>
   </div>
 </template>
@@ -344,6 +474,17 @@ const error = computed(() => clusterStore.error);
 // 翻译
 const t = computed(() => languageStore.t);
 
+// 选中的分组 ID
+const selectedGroupId = ref<number | null>(null);
+
+// 过滤后的集群列表
+const filteredClusters = computed(() => {
+  if (selectedGroupId.value === null) {
+    return clusters.value;
+  }
+  return clusters.value.filter(c => (c.group_id ?? null) === selectedGroupId.value);
+});
+
 const editingCluster = ref<Cluster | null>(null);
 const testing = ref(new Set<number>());
 const disconnecting = ref(new Set<string>());
@@ -358,11 +499,123 @@ const formData = reactive({
   brokers: '',
   request_timeout_ms: 30000,
   operation_timeout_ms: 30000,
+  group_id: undefined as number | undefined,
 });
 
 const modalRef = ref<HTMLDialogElement>();
 const disconnectModalRef = ref<HTMLDialogElement>();
 const clusterToDisconnect = ref<string>('');
+
+// 分组管理相关状态
+const manageGroupsModalRef = ref<HTMLDialogElement>();
+const deleteGroupModalRef = ref<HTMLDialogElement>();
+const showGroupForm = ref(false);
+const editingGroup = ref<{ id: number; name: string; description?: string | null } | null>(null);
+const groupToDelete = ref<{ id: number; name: string } | null>(null);
+const groupSubmitting = ref(false);
+const groupDeleting = ref(false);
+
+const groupFormData = reactive({
+  name: '',
+  description: '',
+});
+
+function openManageGroupsModal() {
+  showGroupForm.value = false;
+  editingGroup.value = null;
+  groupFormData.name = '';
+  groupFormData.description = '';
+  manageGroupsModalRef.value?.showModal();
+}
+
+function closeManageGroupsModal() {
+  manageGroupsModalRef.value?.close();
+  showGroupForm.value = false;
+  editingGroup.value = null;
+  groupFormData.name = '';
+  groupFormData.description = '';
+}
+
+function openAddGroupForm() {
+  editingGroup.value = null;
+  groupFormData.name = '';
+  groupFormData.description = '';
+  showGroupForm.value = true;
+}
+
+function editGroup(group: { id: number; name: string; description?: string | null }) {
+  editingGroup.value = group;
+  groupFormData.name = group.name;
+  groupFormData.description = group.description || '';
+  showGroupForm.value = true;
+}
+
+function cancelGroupForm() {
+  showGroupForm.value = false;
+  editingGroup.value = null;
+  groupFormData.name = '';
+  groupFormData.description = '';
+}
+
+async function submitGroupForm() {
+  if (!groupFormData.name.trim()) {
+    showError('分组名称不能为空');
+    return;
+  }
+
+  groupSubmitting.value = true;
+  try {
+    if (editingGroup.value) {
+      await clusterStore.updateGroup(editingGroup.value.id, {
+        name: groupFormData.name.trim(),
+        description: groupFormData.description.trim() || null,
+      });
+      showSuccess('分组已更新');
+    } else {
+      await clusterStore.createGroup({
+        name: groupFormData.name.trim(),
+        description: groupFormData.description.trim() || null,
+      });
+      showSuccess('分组已创建');
+    }
+    // 刷新分组列表
+    await clusterStore.fetchGroups();
+    // 关闭表单
+    cancelGroupForm();
+  } catch (e) {
+    showError((e as { message: string }).message);
+  } finally {
+    groupSubmitting.value = false;
+  }
+}
+
+function confirmDeleteGroup(group: { id: number; name: string }) {
+  groupToDelete.value = group;
+  deleteGroupModalRef.value?.showModal();
+}
+
+function closeDeleteGroupModal() {
+  deleteGroupModalRef.value?.close();
+  groupToDelete.value = null;
+}
+
+async function confirmDeleteGroupAction() {
+  if (!groupToDelete.value) return;
+
+  groupDeleting.value = true;
+  try {
+    await clusterStore.deleteGroup(groupToDelete.value.id);
+    showSuccess('分组已删除，该分组下的集群已移至无分组状态');
+    // 刷新分组列表和集群列表
+    await clusterStore.fetchGroups();
+    await clusterStore.fetchClusters();
+    closeDeleteGroupModal();
+  } catch (e) {
+    showError((e as { message: string }).message);
+  } finally {
+    groupDeleting.value = false;
+  }
+}
 
 function openCreateModal() {
   editingCluster.value = null;
@@ -370,6 +623,8 @@ function openCreateModal() {
   formData.brokers = '';
   formData.request_timeout_ms = 30000;
   formData.operation_timeout_ms = 30000;
+  // 默认选择第一个分组
+  formData.group_id = clusterStore.groups.length > 0 ? clusterStore.groups[0]?.id : undefined;
   modalRef.value?.showModal();
 }
 
@@ -379,6 +634,8 @@ function editCluster(cluster: Cluster) {
   formData.brokers = cluster.brokers;
   formData.request_timeout_ms = cluster.request_timeout_ms;
   formData.operation_timeout_ms = cluster.operation_timeout_ms;
+  // 如果集群没有分组，默认选择第一个分组
+  formData.group_id = cluster.group_id ?? (clusterStore.groups.length > 0 ? clusterStore.groups[0]?.id : undefined);
   modalRef.value?.showModal();
 }
 
@@ -389,6 +646,7 @@ function closeModal() {
   formData.brokers = '';
   formData.request_timeout_ms = 30000;
   formData.operation_timeout_ms = 30000;
+  formData.group_id = undefined;
   // 清除路由参数
   router.replace({ path: '/clusters', query: {} });
   // 清除测试结果
@@ -429,6 +687,7 @@ async function handleSubmit() {
         brokers: formData.brokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
+        group_id: formData.group_id,
       });
     } else {
       await clusterStore.createCluster({
@@ -436,6 +695,7 @@ async function handleSubmit() {
         brokers: formData.brokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
+        group_id: formData.group_id,
       });
     }
     showSuccess(editingCluster.value ? t.value.clusters.updated : t.value.clusters.created);
@@ -493,6 +753,10 @@ function formatDate(dateStr: string): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function selectGroup(groupId: number | null) {
+  selectedGroupId.value = groupId;
 }
 
 function getConnectionStatus(clusterName: string) {
@@ -565,6 +829,7 @@ async function refreshClusters() {
 onMounted(() => {
   // 只加载集群列表和连接状态（都是轻量级查询，不涉及 Kafka 连接）
   clusterStore.fetchClusters();
+  clusterStore.fetchGroups();
   connectionStore.fetchAllConnections();
 
   // 检查路由参数，如果 action=create 则打开创建模态框
@@ -603,3 +868,14 @@ watch(() => route.fullPath, (newPath, oldPath) => {
   }
 });
 </script>
+
+<style scoped>
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+</style>
