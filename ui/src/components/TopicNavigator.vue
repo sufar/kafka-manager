@@ -553,10 +553,7 @@ watch(
         // 来自外部导航（如收藏双击、顶部搜索）
         // 设置内部 cluster 过滤器（不改变 UI 选择器）
         internalClusterFilter.value = cluster;
-        // 填入搜索框
-        searchQuery.value = topic;
-        // 重新加载 topics（根据 internalClusterFilter）
-        loadAllTopics();
+        // 不再自动填入搜索框，避免干扰用户
       }
     } else {
       // 清除内部 cluster 过滤器

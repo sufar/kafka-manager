@@ -33,22 +33,43 @@
         </div>
       </div>
       <!-- Group Selector -->
-      <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2">
+      <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2 relative">
+        <span class="text-sm font-medium text-base-content/60 mr-2 flex-shrink-0">{{ t.clusters.group }}:</span>
         <button
-          class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
-          :class="{ 'btn-active': selectedGroupId === null }"
-          @click="selectGroup(null)"
+          class="btn btn-xs btn-ghost px-1 flex-shrink-0 hover:bg-base-200"
+          @click="scrollGroups(-200)"
+          title="Scroll left"
         >
-          All
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
         </button>
+        <div ref="groupSelectorRef" class="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-1" @wheel="handleHorizontalScroll">
+          <button
+            class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
+            :class="{ 'btn-active': selectedGroupId === null }"
+            @click="selectGroup(null)"
+          >
+            {{ t.common.all }}
+          </button>
+          <button
+            v-for="group in clusterStore.groups"
+            :key="group.id"
+            class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
+            :class="{ 'btn-active': selectedGroupId === group.id }"
+            @click="selectGroup(group.id)"
+          >
+            {{ group.name }}
+          </button>
+        </div>
         <button
-          v-for="group in clusterStore.groups"
-          :key="group.id"
-          class="btn btn-xs btn-ghost whitespace-nowrap flex-shrink-0"
-          :class="{ 'btn-active': selectedGroupId === group.id }"
-          @click="selectGroup(group.id)"
+          class="btn btn-xs btn-ghost px-1 flex-shrink-0 hover:bg-base-200"
+          @click="scrollGroups(200)"
+          title="Scroll right"
         >
-          {{ group.name }}
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
         </button>
       </div>
     </div>
@@ -207,15 +228,15 @@
           </button>
           <button
             class="btn btn-xs btn-outline flex items-center gap-1.5"
-            @click="refreshClusterTopics(cluster.name)"
+            @click="viewClusterTopics(cluster.name)"
             :disabled="refreshingTopics.has(cluster.name)"
-            title="Refresh all topics for this cluster"
+            title="View topics"
           >
             <span v-if="refreshingTopics.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
             </svg>
-            Topics
+            {{ t.clusters.viewTopicsLink }}
           </button>
           <button
             class="btn btn-xs btn-ghost"
@@ -294,10 +315,10 @@
             <!-- Group Selector -->
             <div v-if="clusterStore.groups.length > 0" class="form-control">
               <label class="label">
-                <span class="label-text font-medium">分组</span>
+                <span class="label-text font-medium">{{ t.clusters.group }}</span>
               </label>
               <select v-model="formData.group_id" class="select select-bordered w-full">
-                <option :value="undefined">无分组</option>
+                <option :value="undefined">{{ t.clusters.noGroup }}</option>
                 <option v-for="group in clusterStore.groups" :key="group.id" :value="group.id">
                   {{ group.name }}
                 </option>
@@ -477,6 +498,24 @@ const t = computed(() => languageStore.t);
 
 // 选中的分组 ID
 const selectedGroupId = ref<number | null>(null);
+
+// Group selector ref for scrolling
+const groupSelectorRef = ref<HTMLElement | null>(null);
+
+// Scroll groups horizontally
+function scrollGroups(distance: number) {
+  if (groupSelectorRef.value) {
+    groupSelectorRef.value.scrollBy({ left: distance, behavior: 'smooth' });
+  }
+}
+
+// Handle mouse wheel to scroll horizontally
+function handleHorizontalScroll(event: WheelEvent) {
+  if (groupSelectorRef.value && event.deltaY !== 0) {
+    event.preventDefault();
+    groupSelectorRef.value.scrollBy({ left: event.deltaY, behavior: 'auto' });
+  }
+}
 
 // 过滤后的集群列表
 const filteredClusters = computed(() => {
@@ -813,16 +852,9 @@ async function reconnectCluster(clusterName: string) {
   }
 }
 
-async function refreshClusterTopics(clusterName: string) {
-  refreshingTopics.value.add(clusterName);
-  try {
-    await connectionStore.reconnectCluster(clusterName);
-    showSuccess(`${t.value.clusters.topicsRefreshed}: ${clusterName}`);
-  } catch (e) {
-    showError(`Failed to refresh topics: ${(e as { message: string }).message}`);
-  } finally {
-    refreshingTopics.value.delete(clusterName);
-  }
+// View cluster topics in topics page
+function viewClusterTopics(clusterName: string) {
+  router.push({ path: '/topics', query: { cluster: clusterName } });
 }
 
 async function refreshClusters() {

@@ -82,6 +82,9 @@ export interface Translation {
     reconnected: string;
     topics: string;
     partitions: string;
+    viewTopicsLink: string;
+    group: string;
+    noGroup: string;
   };
   topics: {
     title: string;
@@ -188,6 +191,12 @@ export interface Translation {
     flatMode: string;
     treeModeDesc: string;
     flatModeDesc: string;
+    version: string;
+    versionDesc: string;
+    currentVersion: string;
+    themeDesc: string;
+    lightMode: string;
+    darkMode: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -351,6 +360,9 @@ export const translations: Record<Language, Translation> = {
       reconnected: '重连成功',
       topics: '主题',
       partitions: '分区',
+      viewTopicsLink: '查看主题',
+      group: '分组',
+      noGroup: '无分组',
     },
     topics: {
       title: '主题',
@@ -457,6 +469,12 @@ export const translations: Record<Language, Translation> = {
       flatMode: '列表模式',
       treeModeDesc: '按集群分组显示主题',
       flatModeDesc: '平铺显示所有主题',
+      version: '版本信息',
+      versionDesc: 'Kafka Manager 当前版本',
+      currentVersion: '当前版本',
+      themeDesc: '切换浅色或深色模式',
+      lightMode: '浅色模式',
+      darkMode: '深色模式',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -618,6 +636,9 @@ export const translations: Record<Language, Translation> = {
       reconnected: 'Reconnected successfully',
       topics: 'Topics',
       partitions: 'Partitions',
+      viewTopicsLink: 'View Topics',
+      group: 'Group',
+      noGroup: 'No Group',
     },
     topics: {
       title: 'Topics',
@@ -724,6 +745,12 @@ export const translations: Record<Language, Translation> = {
       flatMode: 'List Mode',
       treeModeDesc: 'Display topics grouped by cluster',
       flatModeDesc: 'Display all topics in a flat list',
+      version: 'Version',
+      versionDesc: 'Kafka Manager Current Version',
+      currentVersion: 'Current Version',
+      themeDesc: 'Toggle light or dark mode',
+      lightMode: 'Light Mode',
+      darkMode: 'Dark Mode',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',
