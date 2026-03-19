@@ -1464,74 +1464,105 @@ async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> 
 async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
 
-    // 首先尝试从内存中获取 admin 客户端
-    let clients = state.get_clients();
-    let admin = clients.get_admin(&cluster_id);
+    // 立即返回成功，后台异步同步
+    // 这样不会阻塞后续的 topic.list 请求
+    tokio::spawn(async move {
+        // 首先尝试从内存中获取 admin 客户端
+        let clients = state.get_clients();
+        let admin = clients.get_admin(&cluster_id);
 
-    // 如果不存在，尝试从数据库获取集群配置并建立连接
-    let admin = if let Some(existing_admin) = admin {
-        existing_admin
-    } else {
-        let cluster = ClusterStore::get_by_name(state.db.inner(), &cluster_id)
-            .await?
-            .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
+        // 如果不存在，尝试从数据库获取集群配置并建立连接
+        let admin = if let Some(existing_admin) = admin {
+            existing_admin
+        } else {
+            match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+                Ok(Some(cluster)) => {
+                    let config = crate::config::KafkaConfig {
+                        brokers: cluster.brokers,
+                        request_timeout_ms: cluster.request_timeout_ms as u32,
+                        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                    };
 
-        let config = crate::config::KafkaConfig {
-            brokers: cluster.brokers,
-            request_timeout_ms: cluster.request_timeout_ms as u32,
-            operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                    // 建立连接池连接
+                    let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
+
+                    // 获取新的客户端（包含刚添加的集群）
+                    let new_clients = state.get_clients();
+                    match new_clients.get_admin(&cluster_id) {
+                        Some(admin) => admin,
+                        None => {
+                            tracing::error!("Failed to get admin client for cluster '{}'", cluster_id);
+                            return;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::error!("Cluster '{}' not found in database", cluster_id);
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get cluster config: {}", e);
+                    return;
+                }
+            }
         };
 
-        // 建立连接池连接
-        let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
-
-        // 获取新的客户端（包含刚添加的集群）
-        let new_clients = state.get_clients();
-        new_clients.get_admin(&cluster_id)
-            .ok_or_else(|| AppError::NotFound(format!("Failed to get admin client for cluster '{}'", cluster_id)))?
-    };
-
-    // Get current topics from Kafka (blocking operation)
-    let current_topics = {
-        let admin = admin.clone();
-        tokio::task::spawn_blocking(move || admin.list_topics())
-            .await
-            .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??
-    };
-
-    // Sync to database
-    let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
-
-    // Save new topics to database (blocking operations in spawn_blocking)
-    for topic_name in &sync_result.added {
-        let topic_name = topic_name.clone();
-        let admin = admin.clone();
-        let cluster_id = cluster_id.clone();
-        let db = state.db.clone();
-
-        tokio::task::spawn_blocking(move || {
-            if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
-                let config = std::collections::HashMap::new();
-                let _ = TopicStore::upsert(
-                    db.inner(),
-                    &cluster_id,
-                    &topic_name,
-                    topic_info.partitions.len() as i32,
-                    1,
-                    &config,
-                );
+        // Get current topics from Kafka (blocking operation)
+        let current_topics = {
+            let admin = admin.clone();
+            match tokio::task::spawn_blocking(move || admin.list_topics()).await {
+                Ok(Ok(topics)) => topics,
+                Ok(Err(e)) => {
+                    tracing::error!("Failed to list topics: {}", e);
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!("Task join error: {}", e);
+                    return;
+                }
             }
-        }).await.ok();
-    }
+        };
 
-    // Get total count
-    let all_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+        // Sync to database
+        match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
+            Ok(sync_result) => {
+                tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
 
+                // Save new topics to database (blocking operations in spawn_blocking)
+                for topic_name in &sync_result.added {
+                    let topic_name = topic_name.clone();
+                    let admin = admin.clone();
+                    let cluster_id = cluster_id.clone();
+                    let db = state.db.clone();
+
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
+                            let config = std::collections::HashMap::new();
+                            let _ = TopicStore::upsert(
+                                db.inner(),
+                                &cluster_id,
+                                &topic_name,
+                                topic_info.partitions.len() as i32,
+                                1,
+                                &config,
+                            );
+                        }
+                    }).await;
+                }
+
+                // Update cache
+                state.cache.set_topic_list(&cluster_id, current_topics).await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to sync topics: {}", e);
+            }
+        }
+    });
+
+    // 立即返回成功
     Ok(serde_json::json!({
         "success": true,
-        "added": sync_result.added,
-        "removed": sync_result.removed,
-        "total": all_topics.len(),
+        "message": "Topic refresh started in background",
     }))
 }
 

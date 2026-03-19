@@ -892,7 +892,11 @@ async function refreshClusterTopics(clusterName: string) {
   refreshingClusters.value = new Set(refreshingClusters.value.add(clusterName));
   try {
     // 调用后端 API 刷新 topics（从 Kafka 集群同步到数据库）
-    const refreshResult = await apiClient.refreshTopics(clusterName);
+    // 后端现在异步执行，立即返回
+    await apiClient.refreshTopics(clusterName);
+
+    // 等待后台同步完成
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // 刷新后重新获取完整的 topics 列表
     const savedTopics = await apiClient.getSavedTopics(clusterName);
@@ -901,7 +905,7 @@ async function refreshClusterTopics(clusterName: string) {
       name,
       partitions: [] // 初始为空，展开时再加载
     }));
-    topicCounts[clusterName] = savedTopics?.length || refreshResult.total || 0;
+    topicCounts[clusterName] = savedTopics?.length || 0;
 
     // 重置分页限制
     topicDisplayLimits[clusterName] = VISIBLE_ITEMS;
