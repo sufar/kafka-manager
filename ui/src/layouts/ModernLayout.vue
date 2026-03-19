@@ -672,7 +672,16 @@ function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: st
 
 // 从 TopicsView 调用：展开并选中左侧树中的特定 Topic
 function handleSelectTopicInTree(topicName: string, clusterName: string) {
-  clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+  if (sidebarMode.value === 'tree') {
+    // 树形模式：展开树并选中 topic，然后跳转到 messages
+    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+  } else {
+    // 扁平模式：直接导航到 messages 页面，TopicNavigator 会根据 URL 参数过滤
+    router.push({
+      path: '/messages',
+      query: { cluster: clusterName, topic: topicName },
+    });
+  }
 }
 
 // 处理从 TopicFavorites 双击跳转的事件

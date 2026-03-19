@@ -100,10 +100,10 @@
           ></textarea>
         </div>
         <div class="modal-action">
-          <button type="button" class="btn" @click="closeModal">{{ t.common?.cancel || '取消' }}</button>
+          <button type="button" class="btn btn-ghost" @click="closeModal">{{ t.common?.cancel || '取消' }}</button>
           <button
             type="button"
-            class="btn btn-primary"
+            class="btn btn-primary btn-outline"
             :disabled="!selectedGroupId || saving"
             @click="confirmAdd"
           >
