@@ -91,7 +91,7 @@ impl ClusterStore {
         let cluster = sqlx::query_as::<_, KafkaCluster>(
             r#"
             INSERT INTO kafka_clusters (name, brokers, request_timeout_ms, operation_timeout_ms, group_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )

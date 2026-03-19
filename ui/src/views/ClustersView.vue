@@ -297,17 +297,18 @@
                 <span class="label-text font-medium">分组</span>
               </label>
               <select v-model="formData.group_id" class="select select-bordered w-full">
+                <option :value="undefined">无分组</option>
                 <option v-for="group in clusterStore.groups" :key="group.id" :value="group.id">
                   {{ group.name }}
                 </option>
               </select>
             </div>
             <!-- Test Connection Button -->
-            <div v-if="!editingCluster" class="flex items-center gap-2">
+            <div class="flex items-center gap-2">
               <button
                 type="button"
                 class="btn btn-outline btn-sm flex items-center gap-2"
-                :disabled="!formData.name || !formData.brokers || testingConnection"
+                :disabled="!formData.brokers || testingConnection"
                 @click="testConnectionConfig"
               >
                 <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
@@ -623,8 +624,7 @@ function openCreateModal() {
   formData.brokers = '';
   formData.request_timeout_ms = 30000;
   formData.operation_timeout_ms = 30000;
-  // 默认选择第一个分组
-  formData.group_id = clusterStore.groups.length > 0 ? clusterStore.groups[0]?.id : undefined;
+  formData.group_id = undefined;
   modalRef.value?.showModal();
 }
 
@@ -634,8 +634,8 @@ function editCluster(cluster: Cluster) {
   formData.brokers = cluster.brokers;
   formData.request_timeout_ms = cluster.request_timeout_ms;
   formData.operation_timeout_ms = cluster.operation_timeout_ms;
-  // 如果集群没有分组，默认选择第一个分组
-  formData.group_id = cluster.group_id ?? (clusterStore.groups.length > 0 ? clusterStore.groups[0]?.id : undefined);
+  // 保持集群当前的分组状态（null 表示无分组）
+  formData.group_id = cluster.group_id ?? undefined;
   modalRef.value?.showModal();
 }
 
@@ -689,6 +689,8 @@ async function handleSubmit() {
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
       });
+      // 更新后刷新集群列表，确保数据同步
+      await clusterStore.fetchClusters();
     } else {
       await clusterStore.createCluster({
         name: formData.name,
@@ -697,6 +699,8 @@ async function handleSubmit() {
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
       });
+      // 创建后刷新集群列表和分组列表
+      await clusterStore.fetchClusters();
     }
     showSuccess(editingCluster.value ? t.value.clusters.updated : t.value.clusters.created);
     closeModal();

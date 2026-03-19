@@ -833,6 +833,23 @@ watch(() => props.topic, async (newTopic) => {
   }
 });
 
+// 监听路由参数变化（从左侧菜单树点击分区）
+watch(() => route.query.partition, async (partition) => {
+  if (partition && typeof partition === 'string') {
+    const partitionNum = parseInt(partition, 10);
+    if (!isNaN(partitionNum)) {
+      selectedPartition.value = partitionNum;
+      // 重新查询消息
+      if (selectedCluster.value && selectedTopic.value) {
+        await queryMessages();
+      }
+    }
+  } else {
+    // 没有分区参数，重置为全部
+    selectedPartition.value = 'all';
+  }
+});
+
 onUnmounted(() => {
   if (loading.value) {
     stopQuery();

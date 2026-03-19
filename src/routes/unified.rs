@@ -562,6 +562,7 @@ async fn handle_cluster_list(state: AppState) -> Result<Value> {
                 "brokers": c.brokers,
                 "request_timeout_ms": c.request_timeout_ms,
                 "operation_timeout_ms": c.operation_timeout_ms,
+                "group_id": c.group_id,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at,
             })
@@ -581,6 +582,7 @@ async fn handle_cluster_get(state: AppState, body: Value) -> Result<Value> {
         "brokers": cluster.brokers,
         "request_timeout_ms": cluster.request_timeout_ms,
         "operation_timeout_ms": cluster.operation_timeout_ms,
+        "group_id": cluster.group_id,
         "created_at": cluster.created_at,
         "updated_at": cluster.updated_at,
     }))
@@ -867,8 +869,12 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     // Create new KafkaClients
     let new_clients = crate::kafka::KafkaClients::new(&new_clusters)?;
 
-    // Clone clients for background sync (to avoid holding reference)
+    // Clone clients for background sync before moving
     let clients_for_sync = new_clients.clone();
+
+    // Update the state with new clients
+    state.set_clients(new_clients);
+
     let db_pool = state.db.clone();
     let cluster_names: Vec<String> = clusters.iter().map(|c| c.name.clone()).collect();
 
@@ -902,9 +908,6 @@ async fn reload_clients(state: &AppState) -> Result<()> {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     });
-
-    // Atomically update Kafka clients immediately (don't wait for sync)
-    state.set_clients(new_clients.into());
 
     tracing::info!("Reloaded Kafka clients (topic sync in background)");
 
