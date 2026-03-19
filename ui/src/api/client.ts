@@ -531,9 +531,13 @@ class ApiClient {
                 case 'start':
                   callbacks?.onStart?.(data);
                   break;
-                case 'batch':
+                case 'batch': {
+                  const msgCount = data.messages?.length || 0;
+                  totalMessagesReceived += msgCount;
+                  console.log(`[SSE Client] Buffer Batch: ${msgCount} messages, total received: ${totalMessagesReceived}`);
                   callbacks?.onBatch?.(data.messages, data.progress, data.total);
                   break;
+                }
                 case 'order':
                   callbacks?.onOrder?.(data.sort);
                   break;
@@ -560,9 +564,13 @@ class ApiClient {
               case 'start':
                 callbacks?.onStart?.(data);
                 break;
-              case 'batch':
+              case 'batch': {
+                const msgCount = data.messages?.length || 0;
+                totalMessagesReceived += msgCount;
+                console.log(`[SSE Client] Final Batch: ${msgCount} messages, total received: ${totalMessagesReceived}`);
                 callbacks?.onBatch?.(data.messages, data.progress, data.total);
                 break;
+              }
               case 'order':
                 callbacks?.onOrder?.(data.sort);
                 break;
@@ -579,6 +587,7 @@ class ApiClient {
         }
       }
 
+      console.log(`[SSE Client] Final total messages: ${totalMessagesReceived}`);
       callbacks?.onComplete?.();
     }).catch((error) => {
       if (error.name !== 'AbortError') {

@@ -427,12 +427,12 @@ let finalizedSort: 'desc' | undefined = undefined; // 记录最终排序方向
 function receiveMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
   batchCount++;
   const count = newMessages.length;
-  for (const msg of newMessages) {
-    pendingMessages.push({
-      ...msg,
-      uid: `${msg.partition}-${msg.offset}`,
-    });
-  }
+  // 批量添加，避免多次响应式更新
+  const formattedMessages = newMessages.map(msg => ({
+    ...msg,
+    uid: `${msg.partition}-${msg.offset}`,
+  }));
+  pendingMessages.push(...formattedMessages);
   pendingCount = pendingMessages.length;
   streamingProgress.value.received = pendingCount;
   console.log(`[SSE] Batch #${batchCount}: received ${count}, total pending: ${pendingCount}`);
@@ -452,7 +452,7 @@ function finalizeReceive(sort?: 'desc') {
   }
   isFinalized = true;
 
-  console.log(`[SSE] Finalize: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
+  console.log(`[SSE] Finalize START: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
 
   // 如果是降序，需要反转数组（因为后端按升序发送）
   let finalMessages: Message[];
@@ -462,15 +462,22 @@ function finalizeReceive(sort?: 'desc') {
     finalMessages = [...pendingMessages];
   }
 
+  console.log(`[SSE] Before assign: finalMessages.length=${finalMessages.length}`);
+
   // 创建新数组副本，确保 Vue 响应式更新
   messages.value = finalMessages;
+
+  console.log(`[SSE] After assign: messages.value.length=${messages.value.length}`);
+
   const finalCount = messages.value.length;
+
+  console.log(`[SSE] Finalize done: pendingMessages.length=${pendingMessages.length}, displayed=${finalCount}`);
 
   // 清空临时数组和计数
   pendingMessages = [];
   pendingCount = 0;
 
-  console.log(`[SSE] Finalize done: displayed=${finalCount}`);
+  console.log(`[SSE] After clear: pending=${pendingCount}`);
 
   // 降序模式滚动到顶部
   if (finalizedSort === 'desc' && messages.value.length > 0) {
