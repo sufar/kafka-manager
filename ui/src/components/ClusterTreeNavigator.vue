@@ -12,11 +12,6 @@
           <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Clusters</span>
         </div>
         <div class="flex gap-0.5">
-          <button class="btn btn-ghost btn-xs" @click="expandAll" title="Expand all">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
           <button class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
@@ -820,11 +815,6 @@ function goToFavorites() {
   emit('navigate', {
     path: '/favorites'
   });
-}
-
-function expandAll() {
-  expandedClusters.value = new Set(clusters.value.map(c => c.name));
-  expandedTopicsFolders.value = new Set(clusters.value.map(c => c.name));
 }
 
 function collapseAll() {

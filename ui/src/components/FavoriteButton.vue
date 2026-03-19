@@ -103,7 +103,7 @@
           <button type="button" class="btn btn-ghost" @click="closeModal">{{ t.common?.cancel || '取消' }}</button>
           <button
             type="button"
-            class="btn btn-primary btn-outline"
+            class="btn btn-square btn-sm text-primary border border-primary/50 hover:bg-primary hover:text-white"
             :disabled="!selectedGroupId || saving"
             @click="confirmAdd"
           >
