@@ -419,20 +419,22 @@ function resetMessageState() {
   finalizedSort = undefined;
 }
 
-// 批量更新 UI，每 100ms 更新一次减少渲染频率
+// 批量更新 UI，每 200ms 固定更新一次（throttle 模式）
+// 虚拟滚动只会渲染可见区域，所以更新频率可以更高
 let updateTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleUpdate() {
-  // 清除之前的定时器，重新设置
-  if (updateTimer) {
-    clearTimeout(updateTimer);
-  }
+  if (updateTimer) return;
+
   updateTimer = setTimeout(() => {
     updateTimer = null;
-    if (pendingMessages.length > 0) {
-      messages.value = pendingMessages.slice();
+    const count = pendingMessages.length;
+    if (count > 0) {
+      // 合并到 messages，而不是覆盖
+      messages.value = [...messages.value, ...pendingMessages];
       pendingMessages = [];
+      console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
     }
-  }, 100);
+  }, 200);
 }
 
 // 发送消息弹框状态
@@ -538,7 +540,8 @@ async function queryMessages() {
             updateTimer = null;
           }
           if (pendingMessages.length > 0) {
-            messages.value = pendingMessages.slice();
+            // 合并剩余消息，不是覆盖
+            messages.value = [...messages.value, ...pendingMessages];
             pendingMessages = [];
           }
           // 如果是降序，反转数组
