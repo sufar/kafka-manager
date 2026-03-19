@@ -94,7 +94,7 @@
     </div>
 
     <!-- Messages List (Top Panel) -->
-    <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative" @scroll="handleScroll">
+    <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative">
       <!-- 空状态提示 -->
       <div v-if="sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none">
         <div class="text-center">
@@ -105,87 +105,89 @@
         </div>
       </div>
 
-      <!-- Desktop: Table View -->
-      <div v-else class="hidden md:block w-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-visible">
-        <table class="table table-sm w-full min-w-[600px]">
-          <thead v-if="sortedMessages.length > 0" class="sticky top-0 z-10 bg-base-100/95 backdrop-blur-md rounded-t-xl shadow-sm">
-            <tr>
-              <th class="text-left w-16 bg-gradient-to-r from-primary/10 to-transparent text-xs py-1 px-1">{{ t.messages.offset }}</th>
-              <th class="text-left w-16 bg-gradient-to-r from-secondary/10 to-transparent text-xs py-1 px-1">{{ t.messages.partition }}</th>
-              <th class="text-left w-36 bg-gradient-to-r from-accent/10 to-transparent cursor-pointer hover:bg-accent/5 text-xs py-1 px-1 whitespace-nowrap" @click="toggleTimestampSort">
-                <div class="flex items-center gap-0.5">
-                  <span>{{ t.messages.timestampLabel }}</span>
-                  <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                  </svg>
-                  <svg v-else-if="sortOrder === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                  </svg>
-                </div>
-              </th>
-              <th class="text-left w-24 bg-gradient-to-r from-info/10 to-transparent text-xs py-0 px-1">{{ t.messages.key }}</th>
-              <th class="text-left min-w-[200px] bg-gradient-to-r from-success/10 to-transparent text-xs py-0 px-1">{{ t.messages.value }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- 虚拟滚动：顶部占位 -->
-            <tr v-if="virtualStartIndex > 0" :style="{ height: virtualStartIndex * ROW_HEIGHT + 'px' }">
-              <td colspan="5" style="padding: 0; border: 0;"></td>
-            </tr>
-            <!-- 可见区域的行 -->
-            <tr
-              v-for="(msg, idx) in visibleMessages"
-              :key="`${msg.partition}-${msg.offset}`"
-              :data-index="virtualStartIndex + idx"
-              class="cursor-pointer transition-all duration-150 hover:bg-primary/5 border-b border-base-content/5 last:border-0"
-              :class="{ 'bg-primary/10': selectedMessageIndex === virtualStartIndex + idx }"
-              @click="selectMessage(virtualStartIndex + idx)"
-              :style="{ height: ROW_HEIGHT + 'px' }"
-            >
-              <td class="font-mono text-xs px-1 py-0 leading-4">{{ msg.offset }}</td>
-              <td class="py-0 px-1">
-                <span class="badge badge-ghost badge-xs scale-90">{{ msg.partition }}</span>
-              </td>
-              <td class="text-xs text-base-content/60 px-1 py-0 leading-4 whitespace-nowrap">{{ formatTimestamp(msg.timestamp) }}</td>
-              <td class="font-mono text-xs px-1 py-0 leading-4 truncate max-w-[100px]">{{ msg.key || '-' }}</td>
-              <td class="font-mono text-xs px-1 py-0 leading-4 truncate">{{ formatMessagePreview(msg.value) }}</td>
-            </tr>
-            <!-- 虚拟滚动：底部占位 -->
-            <tr v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" :style="{ height: (sortedMessages.length - virtualStartIndex - visibleMessages.length) * ROW_HEIGHT + 'px' }">
-              <td colspan="5" style="padding: 0; border: 0;"></td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- Desktop: Virtual Scroller Table View -->
+      <div v-else class="hidden md:flex md:flex-col h-full bg-base-100/50 rounded-t-xl rounded-b-xl overflow-hidden">
+        <!-- Table Header -->
+        <div class="flex bg-base-200/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full min-w-[600px] border-b border-base-300">
+          <div class="w-16 flex-shrink-0">{{ t.messages.offset }}</div>
+          <div class="w-16 flex-shrink-0">{{ t.messages.partition }}</div>
+          <div class="w-36 flex-shrink-0 cursor-pointer hover:bg-base-300/50" @click="toggleTimestampSort">
+            <div class="flex items-center gap-0.5">
+              <span>{{ t.messages.timestampLabel }}</span>
+              <svg v-if="sortOrder === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+              </svg>
+              <svg v-else-if="sortOrder === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </div>
+          </div>
+          <div class="w-24 flex-shrink-0">{{ t.messages.key }}</div>
+          <div class="flex-1 min-w-[200px]">{{ t.messages.value }}</div>
+        </div>
+        <!-- RecycleScroller -->
+        <RecycleScroller
+          v-if="sortedMessages.length > 0"
+          ref="scrollerRefDesktop"
+          class="flex-1 overflow-auto w-full"
+          :items="sortedMessages"
+          :item-size="16"
+          key-field="uid"
+          :buffer="200"
+          v-slot="{ item, index }"
+        >
+          <div
+            class="flex items-center px-2 border-b border-base-content/5 cursor-pointer transition-all duration-150 hover:bg-primary/5"
+            :class="{ 'bg-primary/10': selectedMessageIndex === index }"
+            style="height: 16px;"
+            @click="selectMessage(index)"
+          >
+            <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ (item as Message).offset }}</div>
+            <div class="w-16 flex-shrink-0">
+              <span class="badge badge-ghost badge-xs scale-90">{{ (item as Message).partition }}</span>
+            </div>
+            <div class="w-36 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTimestamp((item as Message).timestamp) }}</div>
+            <div class="w-24 flex-shrink-0 text-[10px] font-mono truncate">{{ (item as Message).key || '-' }}</div>
+            <div class="flex-1 min-w-[200px] text-[10px] font-mono truncate">{{ formatMessagePreview((item as Message).value) }}</div>
+          </div>
+        </RecycleScroller>
+        <div v-if="sortedMessages.length === 0 && !loading" class="flex-1 flex items-center justify-center text-base-content/60">
+          <span>{{ t.messages.noMessages }}</span>
+        </div>
       </div>
 
-      <!-- Mobile: Card View -->
-      <div v-if="sortedMessages.length > 0" class="md:hidden space-y-1 p-1">
-        <div
-          v-for="(msg, idx) in visibleMessages"
-          :key="`${msg.partition}-${msg.offset}`"
-          :data-index="virtualStartIndex + idx"
-          class="card bg-base-100 border border-base-200 p-2 shadow-sm cursor-pointer transition-all"
-          :class="{ 'bg-primary/10 border-primary/30': selectedMessageIndex === virtualStartIndex + idx }"
-          @click="selectMessage(virtualStartIndex + idx)"
+      <!-- Mobile: Card View with RecycleScroller -->
+      <div v-if="sortedMessages.length > 0" class="md:hidden flex flex-col h-full">
+        <RecycleScroller
+          ref="scrollerRefMobile"
+          class="flex-1 overflow-auto p-1"
+          :items="sortedMessages"
+          :item-size="62"
+          key-field="uid"
+          :buffer="100"
+          v-slot="{ item, index }"
         >
-          <div class="flex items-center justify-between mb-1">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-ghost badge-xs">P{{ msg.partition }}</span>
-              <span class="text-xs font-mono text-base-content/70">#{{ msg.offset }}</span>
+          <div
+            class="card bg-base-100 border border-base-200 p-2 shadow-sm cursor-pointer transition-all"
+            :class="{ 'bg-primary/10 border-primary/30': selectedMessageIndex === index }"
+            style="height: 60px;"
+            @click="selectMessage(index)"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-ghost badge-xs">P{{ (item as Message).partition }}</span>
+                <span class="text-xs font-mono text-base-content/70">#{{ (item as Message).offset }}</span>
+              </div>
+              <span class="text-xs text-base-content/50">{{ formatTimestamp((item as Message).timestamp) }}</span>
             </div>
-            <span class="text-xs text-base-content/50">{{ formatTimestamp(msg.timestamp) }}</span>
+            <div v-if="(item as Message).key" class="text-xs font-mono text-secondary mb-1 truncate">
+              Key: {{ (item as Message).key }}
+            </div>
+            <div class="text-xs font-mono text-base-content/80 truncate">
+              {{ formatMessagePreview((item as Message).value) }}
+            </div>
           </div>
-          <div v-if="msg.key" class="text-xs font-mono text-secondary mb-1 truncate">
-            Key: {{ msg.key }}
-          </div>
-          <div class="text-xs font-mono text-base-content/80 truncate">
-            {{ formatMessagePreview(msg.value) }}
-          </div>
-        </div>
-        <!-- 加载更多提示 -->
-        <div v-if="virtualStartIndex + visibleMessages.length < sortedMessages.length" class="text-center py-2">
-          <span class="loading loading-spinner loading-xs"></span>
-        </div>
+        </RecycleScroller>
       </div>
     </div>
 
@@ -264,7 +266,6 @@
           <span class="loading loading-spinner loading-xs"></span>
           <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
           <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
-          <span v-if="messageBuffer.length > 0" class="text-base-content/50">(缓冲 {{ messageBuffer.length }})</span>
         </span>
         <span v-else>{{ loading ? t.messages.sending : t.common.ready }}</span>
         <span>[{{ t.messages.messages }} = {{ messages.length.toLocaleString() }}]</span>
@@ -359,6 +360,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
+import { RecycleScroller } from 'vue-virtual-scroller';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -393,77 +395,103 @@ const topics = ref<string[]>([]);
 const selectedTopic = ref<string>('');
 const topicPartitions = ref<number[]>([]);
 
+// 消息类型定义
+interface Message {
+  partition: number;
+  offset: number;
+  key?: string;
+  value?: string;
+  timestamp?: number;
+  uid: string;
+}
+
 const loading = ref(false);
-const fetchTime = ref<number>(0); // 获取消息耗时（毫秒）
-const messages = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
+const fetchTime = ref<number>(0);
+const messages = ref<Message[]>([]);
 const selectedMessageIndex = ref<number>(-1);
 const messageViewFormat = ref<'json' | 'raw' | 'hex'>('json');
-const sortOrder = ref<'asc' | 'desc' | ''>('desc'); // 默认按时间戳降序
+const sortOrder = ref<'asc' | 'desc' | ''>('desc');
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
+const scrollerRefDesktop = ref<any>(null); // Desktop RecycleScroller ref
+const scrollerRefMobile = ref<any>(null); // Mobile RecycleScroller ref
 
-// 流式渲染缓冲 - 避免Vue过度更新
-const messageBuffer = ref<Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>>([]);
-let bufferFlushTimer: number | null = null;
-let isFlushing = false;
-const BUFFER_FLUSH_INTERVAL = 50; // 每50ms刷新一次UI
+// SSE 状态管理 - 收集完成后一次性更新
+let pendingMessages: Message[] = [];
+let pendingCount = 0; // 单独跟踪计数，避免依赖数组长度
+let currentRequestId = 0;
+let isFinalized = false;
+let batchCount = 0;
+let finalizedSort: 'desc' | undefined = undefined; // 记录最终排序方向
 
-// 批量添加消息到缓冲
-function bufferMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
-  messageBuffer.value.push(...newMessages);
-  scheduleBufferFlush();
+// 接收消息 - 存入临时数组
+function receiveMessages(newMessages: Array<{ partition: number; offset: number; key?: string; value?: string; timestamp?: number }>) {
+  batchCount++;
+  const count = newMessages.length;
+  for (const msg of newMessages) {
+    pendingMessages.push({
+      ...msg,
+      uid: `${msg.partition}-${msg.offset}`,
+    });
+  }
+  pendingCount = pendingMessages.length;
+  streamingProgress.value.received = pendingCount;
+  console.log(`[SSE] Batch #${batchCount}: received ${count}, total pending: ${pendingCount}`);
 }
 
-// 调度缓冲刷新
-function scheduleBufferFlush() {
-  if (bufferFlushTimer || isFlushing) return;
-  bufferFlushTimer = window.setTimeout(() => {
-    flushMessageBuffer();
-  }, BUFFER_FLUSH_INTERVAL);
-}
+// 完成接收 - 一次性更新 UI
+function finalizeReceive(sort?: 'desc') {
+  // 记录排序方向（onOrder 可能先调用）
+  if (sort === 'desc' || sort === 'asc') {
+    finalizedSort = sort === 'desc' ? 'desc' : undefined;
+  }
 
-// 刷新缓冲到主消息列表 - 使用安全的方式避免数据丢失
-function flushMessageBuffer() {
-  if (isFlushing || messageBuffer.value.length === 0) {
-    bufferFlushTimer = null;
+  // 防止重复调用
+  if (isFinalized) {
+    console.log(`[SSE] Finalize already called, skipping`);
     return;
   }
+  isFinalized = true;
 
-  isFlushing = true;
-  // 先复制当前缓冲区的所有消息
-  const batch = [...messageBuffer.value];
-  // 清空缓冲区（只移除已复制的数量）
-  messageBuffer.value = [];
+  console.log(`[SSE] Finalize: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
 
-  // 批量添加到主列表
-  messages.value.push(...batch);
-
-  isFlushing = false;
-  bufferFlushTimer = null;
-}
-
-// 清空缓冲
-function clearMessageBuffer() {
-  if (bufferFlushTimer) {
-    clearTimeout(bufferFlushTimer);
-    bufferFlushTimer = null;
+  // 如果是降序，需要反转数组（因为后端按升序发送）
+  let finalMessages: Message[];
+  if (finalizedSort === 'desc' && pendingMessages.length > 0) {
+    finalMessages = [...pendingMessages].reverse();
+  } else {
+    finalMessages = [...pendingMessages];
   }
-  // 如果有未刷新的数据，等待刷新完成后再清空
-  if (messageBuffer.value.length > 0) {
-    // 如果正在刷新，等待一帧让刷新完成
-    if (isFlushing) {
-      setTimeout(() => clearMessageBuffer(), 10);
-      return;
-    }
-    // 否则直接刷新到主列表
-    const batch = [...messageBuffer.value];
-    messageBuffer.value = [];
-    messages.value.push(...batch);
+
+  // 创建新数组副本，确保 Vue 响应式更新
+  messages.value = finalMessages;
+  const finalCount = messages.value.length;
+
+  // 清空临时数组和计数
+  pendingMessages = [];
+  pendingCount = 0;
+
+  console.log(`[SSE] Finalize done: displayed=${finalCount}`);
+
+  // 降序模式滚动到顶部
+  if (finalizedSort === 'desc' && messages.value.length > 0) {
+    nextTick(() => {
+      scrollerRefDesktop.value?.scrollToItem?.(0);
+      scrollerRefMobile.value?.scrollToItem?.(0);
+    });
   }
 }
 
-// 虚拟滚动配置
-const ROW_HEIGHT = 16; // 每行高度（像素）- 更紧凑
-const virtualStartIndex = ref(0);
+// 重置状态
+function resetMessageState() {
+  console.log(`[SSE] Reset: previous pending=${pendingCount}`);
+  pendingMessages = [];
+  pendingCount = 0;
+  isFinalized = false;
+  batchCount = 0;
+  finalizedSort = undefined;
+  messages.value = [];
+  streamingProgress.value = { received: 0, total: 0, isStreaming: false };
+}
 
 // 显示错误提示
 function showError(message: string) {
@@ -498,8 +526,6 @@ function onPartitionChange() {
 
 // 防抖定时器
 let fetchDebounceTimer: number | null = null;
-// 当前请求的序列号，用于处理竞态条件
-let currentFetchRequestId = 0;
 // 当前 SSE 连接
 let currentAbortController: AbortController | null = null;
 
@@ -592,28 +618,6 @@ function toggleTimestampSort() {
 const sortedMessages = computed(() => {
   return messages.value;
 });
-
-// 虚拟滚动：可见区域的消息
-const visibleMessages = computed(() => {
-  const start = virtualStartIndex.value;
-  // 根据容器高度动态计算可见行数
-  const containerHeight = messagesListRef.value?.clientHeight || 600;
-  const buffer = 5; // 额外渲染的行数
-  const visibleRows = Math.ceil(containerHeight / ROW_HEIGHT) + buffer;
-  const end = Math.min(start + visibleRows, sortedMessages.value.length);
-  return sortedMessages.value.slice(start, end);
-});
-
-// 处理滚动事件
-function handleScroll(event: Event) {
-  const target = event.target as HTMLElement;
-  if (!target || !sortedMessages.value.length) return;
-
-  const scrollTop = target.scrollTop;
-  const newVirtualStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
-  const maxIndex = Math.max(0, sortedMessages.value.length - Math.ceil((messagesListRef.value?.clientHeight || 600) / ROW_HEIGHT));
-  virtualStartIndex.value = Math.min(Math.max(0, newVirtualStartIndex), maxIndex);
-}
 
 function selectMessage(index: number) {
   selectedMessageIndex.value = index;
@@ -779,8 +783,8 @@ async function fetchMessages() {
   stopFetching();
 
   // 增加请求序列号，用于处理竞态条件
-  currentFetchRequestId++;
-  const requestId = currentFetchRequestId;
+  currentRequestId++;
+  const requestId = currentRequestId;
 
   // 使用防抖，减少延迟（150ms）
   fetchDebounceTimer = window.setTimeout(async () => {
@@ -788,8 +792,6 @@ async function fetchMessages() {
 
     loading.value = true;
     selectedMessageIndex.value = -1;
-    messages.value = []; // 清空消息列表
-    clearMessageBuffer(); // 清空缓冲
     const startTime = performance.now();
 
     try {
@@ -819,75 +821,41 @@ async function fetchMessages() {
         params.partition = filters.partition as number;
       }
 
+      // 重置状态
+      resetMessageState();
+
       // 使用 SSE 流式获取
-      let receivedCount = 0;
       currentAbortController = apiClient.getMessagesStream(
         selectedClusterId.value,
         selectedTopic.value,
         params,
         {
           onStart: (data) => {
-            if (requestId !== currentFetchRequestId) return;
-            receivedCount = 0;
-            clearMessageBuffer();
+            if (requestId !== currentRequestId) return;
             streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
-            console.log(`[SSE] Start fetching from ${data.partitions} partitions, total target: ${data.total_target}`);
+            console.log(`[SSE] Start: ${data.partitions} partitions, target: ${data.total_target}`);
           },
-          onBatch: (newMessages, progress, total) => {
-            if (requestId !== currentFetchRequestId) return;
-            // 缓冲消息，批量渲染
-            bufferMessages(newMessages);
-            receivedCount += newMessages.length;
-            streamingProgress.value.received = receivedCount;
-            streamingProgress.value.total = total;
+          onBatch: (newMessages, _progress, _total) => {
+            if (requestId !== currentRequestId) return;
+            receiveMessages(newMessages);
             fetchTime.value = Math.round(performance.now() - startTime);
-            console.log(`[SSE] Received batch: ${newMessages.length}, progress: ${progress}/${total}, buffered: ${messageBuffer.value.length}, total: ${messages.value.length + messageBuffer.value.length}`);
-
-            // 自动滚动到底部以显示最新接收的消息（在最终排序前）
-            nextTick(() => {
-              if (messagesListRef.value && sortOrder.value !== 'desc') {
-                // 升序模式：滚动到底部看最新
-                messagesListRef.value.scrollTop = messagesListRef.value.scrollHeight;
-              }
-            });
           },
           onOrder: (sort) => {
-            if (requestId !== currentFetchRequestId) return;
-            // 先刷新缓冲
-            flushMessageBuffer();
-            // 如果需要降序，创建新数组反转（避免直接修改原数组）
-            if (sort === 'desc') {
-              messages.value = [...messages.value].reverse();
-              // 降序排序后滚动到顶部
-              nextTick(() => {
-                if (messagesListRef.value) {
-                  messagesListRef.value.scrollTop = 0;
-                }
-              });
-            }
+            // 只记录排序方向，不调用 finalizeReceive（等待 onComplete）
+            if (requestId !== currentRequestId) return;
+            finalizedSort = sort === 'desc' ? 'desc' : undefined;
+            console.log(`[SSE] Order: sort=${sort}`);
           },
           onComplete: () => {
-            if (requestId !== currentFetchRequestId) return;
-            // 刷新剩余缓冲 - 如果正在刷新则等待完成
-            if (isFlushing) {
-              setTimeout(() => {
-                flushMessageBuffer();
-                loading.value = false;
-                streamingProgress.value.isStreaming = false;
-                currentAbortController = null;
-                console.log('[SSE] Fetch completed, total:', messages.value.length);
-              }, 20);
-            } else {
-              flushMessageBuffer();
-              loading.value = false;
-              streamingProgress.value.isStreaming = false;
-              currentAbortController = null;
-              console.log('[SSE] Fetch completed, total:', messages.value.length);
-            }
+            if (requestId !== currentRequestId) return;
+            finalizeReceive(); // 使用已记录的 finalizedSort
+            loading.value = false;
+            streamingProgress.value.isStreaming = false;
+            currentAbortController = null;
+            console.log(`[SSE] Complete: displayed=${messages.value.length}`);
           },
           onError: (error) => {
-            if (requestId !== currentFetchRequestId) return;
-            clearMessageBuffer();
+            if (requestId !== currentRequestId) return;
             showError(error);
             loading.value = false;
             streamingProgress.value.isStreaming = false;
@@ -898,7 +866,7 @@ async function fetchMessages() {
     } catch (e) {
       const error = e as { message: string };
       if (error.message === 'AbortError' || error.message.includes('aborted')) {
-        if (requestId !== currentFetchRequestId) {
+        if (requestId !== currentRequestId) {
           return;
         }
       } else {
@@ -921,10 +889,11 @@ function stopFetching() {
     currentAbortController = null;
   }
   // 增加请求序列号，使之前的请求回调失效
-  currentFetchRequestId++;
+  currentRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
-  clearMessageBuffer();
+  // 刷新剩余数据
+  finalizeReceive();
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容

@@ -456,6 +456,8 @@ class ApiClient {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let batchCount = 0;
+      let totalMessagesReceived = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -479,15 +481,21 @@ class ApiClient {
               const data = JSON.parse(currentData);
               switch (currentEvent) {
                 case 'start':
+                  console.log(`[SSE Client] Start: partitions=${data.partitions}, total_target=${data.total_target}`);
                   callbacks?.onStart?.(data);
                   break;
                 case 'batch':
+                  batchCount++;
+                  totalMessagesReceived += data.messages?.length || 0;
+                  console.log(`[SSE Client] Batch #${batchCount}: ${data.messages?.length || 0} messages, total received: ${totalMessagesReceived}`);
                   callbacks?.onBatch?.(data.messages, data.progress, data.total);
                   break;
                 case 'order':
+                  console.log(`[SSE Client] Order: sort=${data.sort}`);
                   callbacks?.onOrder?.(data.sort);
                   break;
                 case 'complete':
+                  console.log(`[SSE Client] Complete event received`);
                   callbacks?.onComplete?.();
                   break;
                 case 'error':
@@ -499,6 +507,74 @@ class ApiClient {
             }
             currentEvent = '';
             currentData = '';
+          }
+        }
+      }
+
+      console.log(`[SSE Client] Stream ended. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
+
+      // 处理流结束后剩余的 buffer 数据
+      if (buffer.trim()) {
+        const lines = buffer.split('\n');
+        let currentEvent = '';
+        let currentData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            currentData = line.slice(6).trim();
+          } else if (line === '' && currentEvent) {
+            try {
+              const data = JSON.parse(currentData);
+              switch (currentEvent) {
+                case 'start':
+                  callbacks?.onStart?.(data);
+                  break;
+                case 'batch':
+                  callbacks?.onBatch?.(data.messages, data.progress, data.total);
+                  break;
+                case 'order':
+                  callbacks?.onOrder?.(data.sort);
+                  break;
+                case 'complete':
+                  // 不在这里调用 onComplete，会在后面统一调用
+                  break;
+                case 'error':
+                  callbacks?.onError?.(data.error);
+                  break;
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', currentData, e);
+            }
+            currentEvent = '';
+            currentData = '';
+          }
+        }
+
+        // 处理最后一个事件（如果不以空行结尾）
+        if (currentEvent && currentData) {
+          try {
+            const data = JSON.parse(currentData);
+            switch (currentEvent) {
+              case 'start':
+                callbacks?.onStart?.(data);
+                break;
+              case 'batch':
+                callbacks?.onBatch?.(data.messages, data.progress, data.total);
+                break;
+              case 'order':
+                callbacks?.onOrder?.(data.sort);
+                break;
+              case 'complete':
+                // 不在这里调用 onComplete，会在后面统一调用
+                break;
+              case 'error':
+                callbacks?.onError?.(data.error);
+                break;
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE data:', currentData, e);
           }
         }
       }

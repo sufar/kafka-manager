@@ -1694,22 +1694,9 @@ async fn fetch_messages_streaming_sse(
 
     // 流式归并并发送
     let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
-    let mut stop_receiving = false; // 标记是否停止从channel接收新消息
 
-    while completed_partitions < partition_count {
-        // 如果达到目标且堆已空，则退出
-        if stop_receiving && heap.is_empty() {
-            break;
-        }
-
-        // 检查是否达到目标数量
-        if !stop_receiving && sent_count >= total_target {
-            stop_receiving = true;
-            tracing::info!("[SSE Stream] Target reached: {}, stopping receive from channels", total_target);
-            // 继续清空堆中已有的消息，不再从 channel 接收新消息
-            continue;
-        }
-
+    while completed_partitions < partition_count || !heap.is_empty() {
+        // 处理堆中的消息
         if let Some(Reverse(heap_msg)) = heap.pop() {
             let part_id = heap_msg.message.partition;
 
@@ -1737,12 +1724,7 @@ async fn fetch_messages_streaming_sse(
                 batch.clear();
             }
 
-            // 如果已达到目标，不再从 channel 接收新消息
-            if stop_receiving {
-                continue;
-            }
-
-            // 从对应分区再取一条
+            // 从对应分区获取下一条
             if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
                 match rx.recv().await {
                     Some(msg) => {
@@ -1759,7 +1741,9 @@ async fn fetch_messages_streaming_sse(
                 }
             }
         } else {
-            break;
+            // 堆为空但还在接收中，等待消息
+            // 给一点时间让消息到达
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -1901,32 +1885,42 @@ async fn fetch_messages_with_temp_consumer(
             }
         }
 
-        // 归并排序
+        // 归并排序 - 继续直到所有分区完成且堆为空
         let mut all_msgs: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(total_target.min(50000));
 
-        while completed_partitions < partition_count && all_msgs.len() < total_target {
+        loop {
+            // 优先从堆中取出消息，直到达到目标或堆空
             if let Some(Reverse(heap_msg)) = heap.pop() {
                 let part_id = heap_msg.message.partition;
                 all_msgs.push(heap_msg.message);
 
-                // 从对应分区再取一条
-                if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
-                    match rx.recv().await {
-                        Some(msg) => {
-                            heap.push(Reverse(HeapMessage {
-                                timestamp: msg.timestamp,
-                                offset: msg.offset,
-                                message: msg,
-                            }));
-                        }
-                        None => {
-                            completed_partitions += 1;
-                            tracing::info!("[Merge] Partition {} completed, total merged: {}", part_id, all_msgs.len());
+                // 如果达到目标，停止从 channel 接收，只继续清空堆
+                let stop_receiving = all_msgs.len() >= total_target;
+
+                // 只有在未停止接收时，才从对应分区获取下一条
+                if !stop_receiving {
+                    if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
+                        match rx.recv().await {
+                            Some(msg) => {
+                                heap.push(Reverse(HeapMessage {
+                                    timestamp: msg.timestamp,
+                                    offset: msg.offset,
+                                    message: msg,
+                                }));
+                            }
+                            None => {
+                                completed_partitions += 1;
+                                tracing::info!("[Merge] Partition {} completed, total merged: {}", part_id, all_msgs.len());
+                            }
                         }
                     }
                 }
-            } else {
+            } else if completed_partitions >= partition_count {
+                // 堆为空且所有分区已完成
                 break;
+            } else {
+                // 堆为空但分区未完成，等待消息
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
 

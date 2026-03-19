@@ -66,7 +66,6 @@
           <span class="loading loading-spinner loading-xs"></span>
           <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
           <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
-          <span v-if="messageBuffer.length > 0" class="text-base-content/50">(缓冲 {{ messageBuffer.length }})</span>
         </span>
         <span v-else-if="lastQueryTime > 0" class="text-base-content/70">
           {{ t.messages.elapsedTime }}: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
@@ -405,14 +404,81 @@ const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
 
-// SSE 流式状态
+// SSE 流式状态 - 收集完成后一次性更新
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
-const messageBuffer = ref<Message[]>([]);
-let bufferFlushTimer: number | null = null;
-let isFlushing = false;
-const BUFFER_FLUSH_INTERVAL = 50; // 每50ms刷新一次UI
 let currentAbortController: AbortController | null = null;
-let currentFetchRequestId = 0;
+let currentRequestId = 0;
+let pendingMessages: Message[] = [];
+let pendingCount = 0; // 单独跟踪计数，避免依赖数组长度
+let isFinalized = false;
+let batchCount = 0;
+let finalizedSort: 'desc' | undefined = undefined; // 记录最终排序方向
+
+// 接收消息 - 存入临时数组
+function receiveMessages(newMessages: Message[]) {
+  batchCount++;
+  const count = newMessages.length;
+  for (const msg of newMessages) {
+    pendingMessages.push(msg);
+  }
+  pendingCount = pendingMessages.length;
+  streamingProgress.value.received = pendingCount;
+  console.log(`[SSE] Batch #${batchCount}: received ${count}, total pending: ${pendingCount}`);
+}
+
+// 完成接收 - 一次性更新 UI
+function finalizeReceive(sort?: 'desc') {
+  // 记录排序方向（onOrder 可能先调用）
+  if (sort === 'desc' || sort === 'asc') {
+    finalizedSort = sort === 'desc' ? 'desc' : undefined;
+  }
+
+  // 防止重复调用
+  if (isFinalized) {
+    console.log(`[SSE] Finalize already called, skipping`);
+    return;
+  }
+  isFinalized = true;
+
+  console.log(`[SSE] Finalize: batches=${batchCount}, pending=${pendingCount}, sort=${finalizedSort}`);
+
+  // 如果是降序，需要反转数组（因为后端按升序发送）
+  let finalMessages: Message[];
+  if (finalizedSort === 'desc' && pendingMessages.length > 0) {
+    finalMessages = [...pendingMessages].reverse();
+  } else {
+    finalMessages = [...pendingMessages];
+  }
+
+  // 创建新数组副本，确保 Vue 响应式更新
+  messages.value = finalMessages;
+  const finalCount = messages.value.length;
+
+  // 清空临时数组和计数
+  pendingMessages = [];
+  pendingCount = 0;
+
+  console.log(`[SSE] Finalize done: displayed=${finalCount}`);
+
+  // 降序模式滚动到顶部
+  if (finalizedSort === 'desc' && messages.value.length > 0) {
+    nextTick(() => {
+      scrollerRef.value?.scrollToItem?.(0);
+    });
+  }
+}
+
+// 重置状态
+function resetMessageState() {
+  console.log(`[SSE] Reset: previous pending=${pendingCount}`);
+  pendingMessages = [];
+  pendingCount = 0;
+  isFinalized = false;
+  batchCount = 0;
+  finalizedSort = undefined;
+  messages.value = [];
+  streamingProgress.value = { received: 0, total: 0, isStreaming: false };
+}
 
 // 发送消息弹框状态
 const sendModalRef = ref<HTMLDialogElement | null>(null);
@@ -431,60 +497,6 @@ const showHeaders = ref(false);
 const canQuery = computed(() => {
   return !!selectedCluster.value && !!selectedTopic.value && !loading.value;
 });
-
-// 流式渲染缓冲 - 避免Vue过度更新
-function bufferMessages(newMessages: Message[]) {
-  messageBuffer.value.push(...newMessages);
-  scheduleBufferFlush();
-}
-
-// 调度缓冲刷新
-function scheduleBufferFlush() {
-  if (bufferFlushTimer || isFlushing) return;
-  bufferFlushTimer = window.setTimeout(() => {
-    flushMessageBuffer();
-  }, BUFFER_FLUSH_INTERVAL);
-}
-
-// 刷新缓冲到主消息列表 - 使用安全的方式避免数据丢失
-function flushMessageBuffer() {
-  if (isFlushing || messageBuffer.value.length === 0) {
-    bufferFlushTimer = null;
-    return;
-  }
-
-  isFlushing = true;
-  // 先复制当前缓冲区的所有消息
-  const batch = [...messageBuffer.value];
-  // 清空缓冲区
-  messageBuffer.value = [];
-
-  // 批量添加到主列表
-  messages.value.push(...batch);
-
-  isFlushing = false;
-  bufferFlushTimer = null;
-}
-
-// 清空缓冲
-function clearMessageBuffer() {
-  if (bufferFlushTimer) {
-    clearTimeout(bufferFlushTimer);
-    bufferFlushTimer = null;
-  }
-  // 如果有未刷新的数据，等待刷新完成后再清空
-  if (messageBuffer.value.length > 0) {
-    // 如果正在刷新，等待一帧让刷新完成
-    if (isFlushing) {
-      setTimeout(() => clearMessageBuffer(), 10);
-      return;
-    }
-    // 否则直接刷新到主列表
-    const batch = [...messageBuffer.value];
-    messageBuffer.value = [];
-    messages.value.push(...batch);
-  }
-}
 
 // 方法
 async function loadPartitions() {
@@ -505,13 +517,12 @@ async function queryMessages() {
   stopQuery();
 
   // 增加请求序列号
-  currentFetchRequestId++;
-  const requestId = currentFetchRequestId;
+  currentRequestId++;
+  const requestId = currentRequestId;
 
   loading.value = true;
   error.value = '';
-  messages.value = [];
-  clearMessageBuffer();
+  resetMessageState();
   const startTime = performance.now();
 
   try {
@@ -531,71 +542,48 @@ async function queryMessages() {
     }
 
     // 使用 SSE 流式获取
-    let receivedCount = 0;
     currentAbortController = apiClient.getMessagesStream(
       selectedCluster.value,
       selectedTopic.value,
       params,
       {
         onStart: (data) => {
-          if (requestId !== currentFetchRequestId) return;
-          receivedCount = 0;
+          if (requestId !== currentRequestId) return;
           streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
         },
         onBatch: (newMessages, _progress, total) => {
-          if (requestId !== currentFetchRequestId) return;
-          // 转换消息格式并缓冲
-          const formattedMessages = newMessages.map((msg: any, index: number) => ({
+          if (requestId !== currentRequestId) return;
+          // 转换消息格式并接收
+          const formattedMessages = newMessages.map((msg: any) => ({
             partition: msg.partition,
             offset: msg.offset,
             key: msg.key,
             value: msg.value,
             timestamp: msg.timestamp,
-            uid: `${msg.partition}-${msg.offset}-${receivedCount + index}`,
+            uid: `${msg.partition}-${msg.offset}`,
           }));
-          bufferMessages(formattedMessages);
-          receivedCount += newMessages.length;
-          streamingProgress.value.received = receivedCount;
+          receiveMessages(formattedMessages);
           streamingProgress.value.total = total;
           lastQueryTime.value = Math.round(performance.now() - startTime);
         },
         onOrder: (sort) => {
-          if (requestId !== currentFetchRequestId) return;
-          // 先刷新缓冲
-          flushMessageBuffer();
-          // 如果需要降序，反转消息列表
-          if (sort === 'desc') {
-            messages.value = [...messages.value].reverse();
-          }
-          // 滚动到顶部
-          nextTick(() => {
-            if (scrollerRef.value) {
-              scrollerRef.value.scrollToItem(0);
-            }
-          });
+          // 只记录排序方向，不调用 finalizeReceive（等待 onComplete）
+          if (requestId !== currentRequestId) return;
+          finalizedSort = sort === 'desc' ? 'desc' : undefined;
+          console.log(`[SSE] Order: sort=${sort}`);
         },
         onComplete: () => {
-          if (requestId !== currentFetchRequestId) return;
-          // 刷新剩余缓冲 - 如果正在刷新则等待完成
-          if (isFlushing) {
-            setTimeout(() => {
-              flushMessageBuffer();
-              loading.value = false;
-              streamingProgress.value.isStreaming = false;
-              currentAbortController = null;
-              lastQueryTime.value = Math.round(performance.now() - startTime);
-            }, 20);
-          } else {
-            flushMessageBuffer();
-            loading.value = false;
-            streamingProgress.value.isStreaming = false;
-            currentAbortController = null;
-            lastQueryTime.value = Math.round(performance.now() - startTime);
-          }
+          if (requestId !== currentRequestId) return;
+          finalizeReceive(); // 使用已记录的 finalizedSort
+          loading.value = false;
+          streamingProgress.value.isStreaming = false;
+          currentAbortController = null;
+          lastQueryTime.value = Math.round(performance.now() - startTime);
+          console.log(`[SSE] Complete: displayed=${messages.value.length}`);
         },
         onError: (err) => {
-          if (requestId !== currentFetchRequestId) return;
-          clearMessageBuffer();
+          if (requestId !== currentRequestId) return;
+          finalizeReceive();
           error.value = err;
           loading.value = false;
           streamingProgress.value.isStreaming = false;
@@ -622,10 +610,10 @@ function stopQuery() {
     currentAbortController = null;
   }
   // 增加请求序列号，使之前的请求回调失效
-  currentFetchRequestId++;
+  currentRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
-  clearMessageBuffer();
+  finalizeReceive();
 }
 
 function exportMessages() {
