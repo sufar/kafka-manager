@@ -408,12 +408,31 @@ const streamingProgress = ref<{ received: number; total: number; isStreaming: bo
 let currentAbortController: AbortController | null = null;
 let currentRequestId = 0;
 let finalizedSort: 'desc' | undefined = undefined;
+// 非响应式消息缓存，减少响应式更新频率
+let pendingMessages: Message[] = [];
 
 // 重置状态
 function resetMessageState() {
   messages.value = [];
+  pendingMessages = [];
   streamingProgress.value = { received: 0, total: 0, isStreaming: false };
   finalizedSort = undefined;
+}
+
+// 批量更新 UI，每 100ms 更新一次减少渲染频率
+let updateTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleUpdate() {
+  // 清除之前的定时器，重新设置
+  if (updateTimer) {
+    clearTimeout(updateTimer);
+  }
+  updateTimer = setTimeout(() => {
+    updateTimer = null;
+    if (pendingMessages.length > 0) {
+      messages.value = pendingMessages.slice();
+      pendingMessages = [];
+    }
+  }, 100);
 }
 
 // 发送消息弹框状态
@@ -493,10 +512,9 @@ async function queryMessages() {
           streamingProgress.value.received = progress;
           streamingProgress.value.total = total;
           lastQueryTime.value = Math.round(performance.now() - startTime);
-          // 直接追加到消息数组，使用 shallowRef 需要直接修改数组
-          const currentMessages = messages.value;
+          // 追加到非响应式缓存数组
           for (const msg of newMessages) {
-            currentMessages.push({
+            pendingMessages.push({
               partition: msg.partition,
               offset: msg.offset,
               key: msg.key || '',
@@ -505,8 +523,8 @@ async function queryMessages() {
               uid: `${msg.partition}-${msg.offset}`,
             });
           }
-          // 触发响应式更新
-          messages.value = currentMessages;
+          // 批量调度 UI 更新
+          scheduleUpdate();
         },
         onOrder: (sort) => {
           if (requestId !== currentRequestId) return;
@@ -514,10 +532,18 @@ async function queryMessages() {
         },
         onComplete: () => {
           if (requestId !== currentRequestId) return;
+          // 处理剩余未渲染的消息
+          if (updateTimer) {
+            clearTimeout(updateTimer);
+            updateTimer = null;
+          }
+          if (pendingMessages.length > 0) {
+            messages.value = pendingMessages.slice();
+            pendingMessages = [];
+          }
           // 如果是降序，反转数组
           if (finalizedSort === 'desc') {
-            const reversed = [...messages.value].reverse();
-            messages.value = reversed;
+            messages.value = [...messages.value].reverse();
           }
           loading.value = false;
           streamingProgress.value.isStreaming = false;
