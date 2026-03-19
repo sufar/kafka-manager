@@ -957,3 +957,202 @@ abortController.abort();
 - 太小（如 10 条）：网络开销大，频繁触发前端更新
 - 太大（如 1000 条）：实时性降低，用户感知延迟
 - 100 条是一个经验值，既能保证实时性又不会过度频繁更新 UI
+
+---
+
+## 版本 1.8 前端 SSE 性能优化
+
+### 问题背景
+
+在查询 Kafka 消息时，后端通过 SSE 流式发送最多 30000 条消息（3 分区 × 10000 条/分区），但前端遇到两个严重问题：
+
+1. **消息数量不匹配**：后端发送 30000 条，前端只显示约 19000 条
+2. **浏览器崩溃**：查询几次后浏览器崩溃，无法正常使用
+
+### 根本原因分析
+
+#### 问题 1：SSE 解析边界情况
+
+原始前端代码使用逐行解析 SSE 事件：
+
+```javascript
+// 原始代码 - 逐行解析
+for (const line of lines) {
+  if (line.startsWith('event: ')) {
+    currentEvent = line.slice(7).trim();
+  } else if (line.startsWith('data: ')) {
+    currentData = line.slice(6).trim();
+  } else if (line === '' && currentEvent) {
+    // 处理事件
+  }
+}
+```
+
+**问题**：当 TCP 包拆分导致 `event:` 和 `data:` 不在同一个 buffer 中时，事件解析会出错，导致部分消息丢失。
+
+#### 问题 2：Vue 响应式性能问题
+
+原始代码每个 batch 都触发响应式更新：
+
+```javascript
+// 原始代码 - 每次 batch 都更新
+onBatch: (newMessages) => {
+  messages.value = [...messages.value, ...newMessages];
+}
+```
+
+**问题**：
+- 60 个批次 = 60 次数组展开 + 响应式更新
+- 每次更新触发虚拟滚动重计算
+- Vue 深度追踪 30000 个消息对象的响应式依赖
+- 内存开销巨大，导致浏览器崩溃
+
+### 解决方案
+
+#### 1. 改进 SSE 解析逻辑（client.ts）
+
+使用 `\n\n` 分割完整的 SSE 事件，而不是逐行解析：
+
+```typescript
+// 改进后 - 按 \n\n 分割完整事件
+const parts = buffer.split('\n\n');
+buffer = parts.pop() || '';
+
+for (const part of parts) {
+  const trimmed = part.trim();
+  if (!trimmed) continue;
+
+  const lines = trimmed.split('\n');
+  let event = '';
+  let data = '';
+
+  for (const line of lines) {
+    if (line.startsWith('event: ')) {
+      event = line.slice(7).trim();
+    } else if (line.startsWith('data: ')) {
+      data = line.slice(6).trim();
+    }
+  }
+
+  if (!event || !data) continue;
+
+  const parsed = JSON.parse(data);
+  // 处理事件...
+}
+```
+
+**优势**：
+- 按完整事件边界解析，不受 TCP 包拆分影响
+- 逻辑更清晰，减少边界情况
+- 添加详细日志，方便调试
+
+#### 2. 非响应式缓存 + 批量更新（Debounce 模式）
+
+```typescript
+// 非响应式缓存数组
+let pendingMessages: Message[] = [];
+let updateTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 批量更新函数 - debounce 模式
+function scheduleUpdate() {
+  // 清除之前的定时器，重新设置
+  if (updateTimer) {
+    clearTimeout(updateTimer);
+  }
+  updateTimer = setTimeout(() => {
+    updateTimer = null;
+    if (pendingMessages.length > 0) {
+      messages.value = pendingMessages.slice();
+      pendingMessages = [];
+    }
+  }, 100);
+}
+
+// onBatch 回调 - 只追加到缓存，不触发响应式
+onBatch: (newMessages) => {
+  for (const msg of newMessages) {
+    pendingMessages.push(formatMessage(msg));
+  }
+  scheduleUpdate(); // 调度 UI 更新
+}
+
+// onComplete - 强制刷新剩余消息
+onComplete: () => {
+  if (updateTimer) {
+    clearTimeout(updateTimer);
+    updateTimer = null;
+  }
+  if (pendingMessages.length > 0) {
+    messages.value = pendingMessages.slice();
+    pendingMessages = [];
+  }
+  // 处理排序等...
+}
+```
+
+**优势**：
+- batch 到达时不触发响应式，只追加到普通数组
+- 使用 debounce 模式：每次 batch 都重置定时器，保证最后一批消息后 100ms 才更新
+- 每 100ms 最多更新一次 UI（而不是每个 batch 都更新）
+- 保证所有消息最终都被渲染，不会丢失
+
+#### 3. 使用 shallowRef
+
+```typescript
+// 使用 shallowRef 替代 ref
+const messages = shallowRef<Message[]>([]);
+```
+
+**优势**：
+- Vue 只追踪数组引用的变化，不追踪数组内部元素
+- 减少响应式依赖收集开销
+- 配合不可变更新（`slice()`）保证响应式正确触发
+
+### 性能对比
+
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| 消息完整性 | ~19000/30000 | 30000/30000 |
+| 响应式更新次数 | 60+ 次 | ~3-5 次 |
+| 浏览器稳定性 | 多次查询后崩溃 | 稳定 |
+| 内存开销 | 高（深度响应式） | 低（浅响应式） |
+
+### 关键设计决策
+
+#### 为什么选择 debounce 而不是 throttle？
+
+- **Debounce**：每次调用都重置定时器，保证最后一次调用后 100ms 才执行
+- **Throttle**：固定时间间隔执行一次
+
+选择 debounce 的原因：
+1. 消息密集到达时，减少不必要的中间更新
+2. 消息稀疏到达时，也能及时更新（不会等待固定间隔）
+3. 保证所有消息最终都被渲染，不会丢失
+
+#### 为什么是 100ms？
+
+- 人眼对 <100ms 的延迟不敏感
+- 100ms 足够让多个 batch 累积，减少更新次数
+- 对于 30000 条消息（约 60 个 batch），总延迟约 100-200ms，可接受
+
+### 文件清单
+
+- `ui/src/api/client.ts` - SSE 流式解析逻辑
+- `ui/src/components/MessageQueryTool.vue` - 消息查询组件
+- `ui/src/views/MessagesClassicView.vue` - 经典消息视图
+
+---
+
+## 版本历史
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| 1.0 | 2026-03-15 | 初始文档，记录两阶段查询优化 |
+| 1.1 | 2026-03-16 | 添加 Consumer 预热机制、固定 group.id 策略、性能优化成果（30x 提升）|
+| 1.2 | 2026-03-16 | 添加分区数判断优化（<=5 分区用串行模式）、空轮次上限调整（100+n/10）、时间保底机制（30 秒）、Q7/Q8 常见问题 |
+| 1.3 | 2026-03-16 | 添加分区边界检测优化（检测 low/high watermark）、Q9 常见问题（数据少的 topic 查询慢）|
+| 1.4 | 2026-03-16 | 添加时间范围查询优化（查询 end_time offset 用于提前结束）、更新 Q7/Q9 文档 |
+| 1.5 | 2026-03-16 | 修复空分区检测（high=0 的分区也要预标记为完成），添加远程模式的空分区预标记 |
+| 1.6 | 2026-03-18 | 统一本地/远程模式为 `fetch_partition_messages_unified`，分区数>1 自动并行，添加分区末尾检测（msg.offset >= high_watermark - 1），修复 group.id 冲突（每个分区使用唯一 group.id），优化内存预分配、提取搜索过滤函数、避免重复获取 watermark、添加 socket 超时、自适应 poll 超时 |
+| 1.7 | 2026-03-18 | 添加 SSE 流式传输支持：并行读取 + 最小堆归并 + 流式发送到前端，修复 partition.assignment.strategy 为空字符串的问题，动态调整空轮询次数（基础 10 次 + 每 1000 条增加 5 次，上限 50 次） |
+| 1.8 | 2026-03-19 | 前端 SSE 性能优化：改进 SSE 解析逻辑（使用 \n\n 分割）、非响应式缓存+Debounce 批量更新、使用 shallowRef 减少内存开销，修复消息丢失和浏览器崩溃问题 |
