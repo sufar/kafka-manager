@@ -12,9 +12,9 @@
 
 | 行为 | 是否改变 |
 |------|---------|
-| 搜索框自动填充 | ✅ 是（如果 topic 不在当前列表中） |
+| 搜索框自动填充 | ❌ 否（保持用户当前选择） |
 | 右下角 Cluster 选择器 | ❌ 否（保持用户当前选择） |
-| Topic 列表过滤 | ✅ 是（根据搜索框内容） |
+| Topic 列表过滤 | ✅ 是（根据右下角 cluster 选择器） |
 | 高亮选中 Topic | ✅ 是 |
 | 右侧消息界面 | ✅ 是（跳转到对应 cluster + topic） |
 
@@ -64,47 +64,14 @@ watch(
   (newQuery) => {
     const cluster = newQuery.cluster as string;
     const topic = newQuery.topic as string;
-    const search = newQuery.search as string;
 
-    // 如果有 search 参数，设置搜索框
-    if (search) {
-      searchQuery.value = search;
-    }
-
-    // 如果有 cluster 和 topic，处理高亮和搜索框
+    // 如果有 cluster 和 topic，处理高亮
     if (cluster && topic) {
       pendingHighlight.value = { cluster, topic };
-
-      // 检查是否已经在该 topic（内部点击）
-      const isAlreadyOnThisTopic = selectedTopic.value?.cluster === cluster
-        && selectedTopic.value?.name === topic;
-
-      if (!isAlreadyOnThisTopic) {
-        // 检查 topic 是否在当前过滤后的列表中可见
-        const checkAndFillSearch = () => {
-          const topicVisible = allTopics.value.some(
-            t => t.cluster === cluster && t.name === topic
-          );
-
-          // 如果 topic 不在当前列表中，且搜索框为空，填入搜索框以便找到它
-          if (!topicVisible && !searchQuery.value) {
-            searchQuery.value = topic;
-          }
-        };
-
-        // 如果数据已加载，立即检查
-        if (!loading.value && allTopics.value.length > 0) {
-          checkAndFillSearch();
-        } else {
-          // 等待加载完成
-          const unwatch = watch(loading, (isLoading) => {
-            if (!isLoading) {
-              checkAndFillSearch();
-              unwatch();
-            }
-          });
-        }
-      }
+      // 外部导航不改变 cluster 下拉框，只设置 pendingHighlight 用于高亮选中的 topic
+    } else {
+      // 清除 pending highlight
+      pendingHighlight.value = null;
     }
   },
   { immediate: true }
@@ -116,16 +83,19 @@ watch(
 #### 为什么不改变 Cluster 选择器？
 - Cluster 选择器是用户手动控制的状态
 - 自动改变会打断用户的操作流程
-- 搜索框过滤可以跨集群工作（因为搜索会匹配 topic 名称和 cluster 名称）
+- 外部导航（顶部搜索、收藏双击）只影响右侧消息页面，不影响左侧 TopicNavigator 的 cluster 选择
 
-#### 为什么只在 topic 不可见时填充搜索框？
-- 如果 topic 已经在当前列表中，不需要额外过滤
-- 避免不必要的搜索框内容变化
-- 提供更好的用户体验
+#### 外部导航的处理逻辑
+- 顶部搜索点击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
+- 收藏双击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
+- Topic 详情双击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
 
-#### 内部点击 vs 外部导航
-- 内部点击（点击列表中的 topic）：不改变搜索框，直接高亮
-- 外部导航（收藏双击、顶部搜索）：检查是否需要填充搜索框
+#### 用户操作流程
+1. 用户在右下角选择 cluster（例如 "cluster-a"）
+2. 用户搜索并点击一个 topic（可能属于 "cluster-b"）
+3. 右侧消息页面显示 "cluster-b" 的 topic 消息
+4. 左侧 TopicNavigator 的 cluster 选择器仍然显示 "cluster-a"
+5. 用户可以继续浏览 "cluster-a" 的其他 topics，不受影响
 
 ## 树形模式 vs 扁平模式
 
@@ -138,14 +108,17 @@ watch(
 - 使用 `TopicNavigator.vue`
 - 通过 URL query 参数驱动状态
 - 组件通过 `watch(route.query)` 响应变化
+- Cluster 选择器完全由用户手动控制
 
 ## 注意事项
 
-1. **避免使用内部状态覆盖 UI 状态**：不要使用 `internalClusterFilter` 等内部状态来覆盖用户选择的 cluster，应该通过搜索框过滤来实现
+1. **Cluster 选择器只能手动切换**：不要使用任何内部状态来覆盖用户选择的 cluster
 
-2. **时序处理**：topics 数据可能尚未加载完成，需要使用 watch 或等待机制
+2. **刷新按钮行为**：只根据右下角选中的集群刷新，选"all clusters"时刷新所有集群
 
-3. **防止循环**：确保内部点击 topic 不会触发外部导航逻辑（通过 `isAlreadyOnThisTopic` 检查）
+3. **搜索框行为**：根据右下角选中的 cluster 过滤 topics，选"all clusters"时搜索全部集群
+
+4. **外部导航**：只设置 `pendingHighlight` 用于高亮 topic，不改变 cluster 选择器
 
 ## 相关文件
 

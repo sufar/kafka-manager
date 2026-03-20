@@ -179,7 +179,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
@@ -209,13 +209,54 @@ const t = computed(() => languageStore.t);
 // State
 const searchQuery = ref('');
 const selectedClusterFilter = ref(''); // 空表示所有集群（UI 选择器，用户手动选择）
-const internalClusterFilter = ref(''); // 内部使用，收藏跳转时临时设置，不改变 UI
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
 const loadingMore = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
 const isUnmounted = ref(false);
+
+// Load selected cluster from settings
+let hasLoadedSelectedCluster = false;
+async function loadSelectedCluster() {
+  if (hasLoadedSelectedCluster) return; // 只加载一次
+  try {
+    const settings = await apiClient.getSettings(['ui.selected_cluster']);
+    const setting = settings.find((s: { key: string; value: string }) => s.key === 'ui.selected_cluster');
+    if (setting && setting.value) {
+      // 只有当集群列表可用且包含选中的集群时，才设置
+      if (clusterStore.clusters.some(c => c.name === setting.value)) {
+        selectedClusterFilter.value = setting.value;
+        hasLoadedSelectedCluster = true;
+        return;
+      }
+    }
+    // 没有保存的设置或设置无效，标记为已加载
+    hasLoadedSelectedCluster = true;
+  } catch (e) {
+    console.error('Failed to load selected cluster:', e);
+    hasLoadedSelectedCluster = true;
+  }
+}
+
+// Watch for cluster list changes to ensure selectedClusterFilter is valid and load saved cluster
+watch(() => clusterStore.clusters, (newClusters) => {
+  if (!hasLoadedSelectedCluster && newClusters.length > 0) {
+    // 集群列表已加载，尝试恢复选中的集群
+    loadSelectedCluster();
+  }
+  // If selected cluster is no longer in the list, reset to all clusters
+  if (selectedClusterFilter.value && !newClusters.some(c => c.name === selectedClusterFilter.value)) {
+    selectedClusterFilter.value = '';
+  }
+}, { deep: true });
+
+onMounted(() => {
+  // 如果集群列表已经加载，立即恢复选中的集群
+  if (clusterStore.clusters.length > 0) {
+    loadSelectedCluster();
+  }
+});
 
 // Pagination state
 const offset = ref(0);
@@ -290,8 +331,7 @@ async function loadAllTopics() {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    // 优先使用内部过滤器（收藏跳转等场景），否则使用 UI 选择器
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    const clusterFilter = selectedClusterFilter.value;
 
     // If a specific cluster is selected, only load topics from that cluster
     if (clusterFilter) {
@@ -364,7 +404,7 @@ async function loadMoreTopics() {
   loadingMore.value = true;
   try {
     const nextOffset = offset.value + limit.value;
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    const clusterFilter = selectedClusterFilter.value;
 
     if (clusterFilter) {
       const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
@@ -414,8 +454,7 @@ async function refreshTopics() {
   try {
     const clusters = clusterStore.clusters;
 
-    // 优先使用内部 cluster 过滤器，否则使用 UI 选择器
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    const clusterFilter = selectedClusterFilter.value;
 
     // If a specific cluster is selected, only refresh that cluster
     if (clusterFilter) {
@@ -478,18 +517,26 @@ function onSearchInput() {
 
 // Cluster filter change handler
 function onClusterFilterChange() {
-  // 清除内部 cluster 过滤器，让用户手动选择生效
-  internalClusterFilter.value = '';
   // Clear search query when changing cluster filter
   searchQuery.value = '';
   // Reset pagination
   offset.value = 0;
+  // Save selected cluster to settings
+  saveSelectedCluster();
+}
+
+// Save selected cluster to settings
+async function saveSelectedCluster() {
+  try {
+    await apiClient.updateSetting('ui.selected_cluster', selectedClusterFilter.value);
+  } catch (e) {
+    console.error('Failed to save selected cluster:', e);
+  }
 }
 
 // Clear search
 function clearSearch() {
   searchQuery.value = '';
-  internalClusterFilter.value = '';
   // Reset pagination
   offset.value = 0;
 }
@@ -557,33 +604,26 @@ watch(
   (newQuery) => {
     const cluster = newQuery.cluster as string;
     const topic = newQuery.topic as string;
-    const search = newQuery.search as string;
 
-    // 如果有 search 参数，设置搜索框
-    if (search) {
-      searchQuery.value = search;
-    }
-
-    // 如果有 cluster 和 topic，处理高亮和搜索框
+    // 如果有 cluster 和 topic，处理高亮
     if (cluster && topic) {
       pendingHighlight.value = { cluster, topic };
-
-      // 检查是否已经在该 topic（内部点击）
-      const isAlreadyOnThisTopic = selectedTopic.value?.cluster === cluster && selectedTopic.value?.name === topic;
-
-      if (!isAlreadyOnThisTopic) {
-        // 来自外部导航（如收藏双击、顶部搜索）
-        // 设置内部 cluster 过滤器（不改变 UI 选择器）
-        internalClusterFilter.value = cluster;
-        // 不再自动填入搜索框，避免干扰用户
-      }
+      // 外部导航不改变 cluster 下拉框，只设置 pendingHighlight 用于高亮选中的 topic
     } else {
-      // 清除内部 cluster 过滤器
-      internalClusterFilter.value = '';
+      // 清除 pending highlight
+      pendingHighlight.value = null;
     }
   },
   { immediate: true }
 );
+
+// Watch for cluster list changes to ensure selectedClusterFilter is valid
+watch(() => clusterStore.clusters, (newClusters) => {
+  // If selected cluster is no longer in the list, reset to all clusters
+  if (selectedClusterFilter.value && !newClusters.some(c => c.name === selectedClusterFilter.value)) {
+    selectedClusterFilter.value = '';
+  }
+}, { deep: true });
 </script>
 
 <style scoped>
