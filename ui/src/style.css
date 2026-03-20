@@ -533,7 +533,7 @@ aside .hover\:bg-base-200:hover {
    ============================================ */
 
 .input, .textarea, .select {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.95);
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -543,7 +543,7 @@ aside .hover\:bg-base-200:hover {
 :root[data-theme="dark"] .input,
 :root[data-theme="dark"] .textarea,
 :root[data-theme="dark"] .select {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(26, 26, 46, 0.95);
 }
 
 .input:focus, .textarea:focus, .select:focus {
