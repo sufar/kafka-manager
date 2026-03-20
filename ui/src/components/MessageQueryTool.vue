@@ -602,9 +602,16 @@ function exportMessages() {
 
 // 发送消息弹框控制
 function openSendModal() {
-  // 如果没有选中分区，默认选第一个
-  if (partitions.value.length > 0 && messageForm.value.partition === 0) {
-    messageForm.value.partition = partitions.value[0] ?? 0;
+  // 如果有选中的消息，自动填充 partition、key、value
+  if (selectedMessage.value) {
+    messageForm.value.partition = selectedMessage.value.partition ?? 0;
+    messageForm.value.key = selectedMessage.value.key || '';
+    messageForm.value.value = selectedMessage.value.value || '';
+  } else {
+    // 如果没有选中分区，默认选第一个
+    if (partitions.value.length > 0 && messageForm.value.partition === 0) {
+      messageForm.value.partition = partitions.value[0] ?? 0;
+    }
   }
   sendModalRef.value?.showModal();
 }
@@ -855,6 +862,10 @@ onUnmounted(() => {
     stopQuery();
   }
   stopResize();
+  // 关闭发送消息弹窗，防止内存泄漏
+  if (sendModalRef.value) {
+    sendModalRef.value.close();
+  }
 });
 
 // 加载设置（从数据库）

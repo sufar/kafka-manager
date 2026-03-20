@@ -953,9 +953,18 @@ async function openSendModal() {
   } else if (topicPartitions.value.length > 0) {
     partition = Number(topicPartitions.value[0]) || 0;
   }
-  messageForm.partition = partition;
-  messageForm.key = '';
-  messageForm.value = '';
+
+  // 如果有选中的消息，自动填充 partition、key、value
+  if (selectedMessage.value) {
+    messageForm.partition = selectedMessage.value.partition;
+    messageForm.key = selectedMessage.value.key || '';
+    messageForm.value = selectedMessage.value.value || '';
+  } else {
+    messageForm.partition = partition;
+    messageForm.key = '';
+    messageForm.value = '';
+  }
+
   sendSuccess.value = false;
   lastOffset.value = null;
   sentCount.value = 0;
@@ -1245,6 +1254,10 @@ onBeforeUnmount(() => {
   }
   // 取消请求
   apiClient.cancelGetMessages();
+  // 关闭发送消息弹窗，防止内存泄漏
+  if (sendModalRef.value) {
+    sendModalRef.value.close();
+  }
 });
 </script>
 
