@@ -2,21 +2,29 @@
 
 ## 功能概述
 
-本文档描述 Kafka Manager 中两种 Topic 导航方式的实现：
-1. **顶部导航栏搜索** - 用户通过顶部搜索框搜索并点击 topic
-2. **收藏双击跳转** - 用户在收藏页面双击收藏的 topic
+本文档描述 Kafka Manager 中 TopicNavigator 组件的实现规范，包括 Cluster 选择器行为、Topic 搜索、外部导航处理以及状态持久化。
 
 ## 行为一致性规范
 
+### Cluster 选择器行为
+
+| 行为 | 是否改变 | 说明 |
+|------|---------|------|
+| 右下角 Cluster 选择器 | ❌ 否 | 只能手动点击切换，其他行为都不能改变 |
+| 搜索框自动填充 | ❌ 否 | 保持用户当前选择 |
+| Topic 列表过滤 | ✅ 是 | 根据右下角 cluster 选择器过滤 |
+| 高亮选中 Topic | ✅ 是 | 外部导航时高亮对应 topic |
+| 右侧消息界面 | ✅ 是 | 跳转到对应 cluster + topic |
+
+### 外部导航场景
+
 两种导航方式在扁平模式（flat mode）下的 TopicNavigator 组件中应该表现一致：
 
-| 行为 | 是否改变 |
-|------|---------|
-| 搜索框自动填充 | ❌ 否（保持用户当前选择） |
-| 右下角 Cluster 选择器 | ❌ 否（保持用户当前选择） |
-| Topic 列表过滤 | ✅ 是（根据右下角 cluster 选择器） |
-| 高亮选中 Topic | ✅ 是 |
-| 右侧消息界面 | ✅ 是（跳转到对应 cluster + topic） |
+| 导航来源 | 行为 |
+|---------|------|
+| 顶部导航栏搜索点击 | 跳转到 messages 页面，右下角 cluster 保持不变 |
+| 收藏页面双击 topic | 跳转到 messages 页面，右下角 cluster 保持不变 |
+| Topic 详情页面双击 topic | 跳转到 messages 页面，右下角 cluster 保持不变 |
 
 ## 核心实现
 
@@ -55,7 +63,84 @@ function handleNavigateFromFavorites(clusterId: string, topicName: string) {
 }
 ```
 
-### 2. TopicNavigator.vue - 路由监听处理
+### 2. TopicNavigator.vue - Cluster 选择器持久化
+
+#### 状态定义
+```typescript
+const selectedClusterFilter = ref(''); // 空表示所有集群（UI 选择器，用户手动选择）
+let hasLoadedSelectedCluster = false; // 标记是否已加载选中的集群
+```
+
+#### 加载选中的集群（从 SQLite 数据库）
+```typescript
+async function loadSelectedCluster() {
+  if (hasLoadedSelectedCluster) return; // 只加载一次
+  try {
+    const settings = await apiClient.getSettings(['ui.selected_cluster']);
+    const setting = settings.find((s: { key: string; value: string }) => s.key === 'ui.selected_cluster');
+    if (setting && setting.value) {
+      // 只有当集群列表可用且包含选中的集群时，才设置
+      if (clusterStore.clusters.some(c => c.name === setting.value)) {
+        selectedClusterFilter.value = setting.value;
+        hasLoadedSelectedCluster = true;
+        return;
+      }
+    }
+    // 没有保存的设置或设置无效，标记为已加载
+    hasLoadedSelectedCluster = true;
+  } catch (e) {
+    console.error('Failed to load selected cluster:', e);
+    hasLoadedSelectedCluster = true;
+  }
+}
+```
+
+#### 保存选中的集群（到 SQLite 数据库）
+```typescript
+async function saveSelectedCluster() {
+  try {
+    await apiClient.updateSetting('ui.selected_cluster', selectedClusterFilter.value);
+  } catch (e) {
+    console.error('Failed to save selected cluster:', e);
+  }
+}
+```
+
+#### Cluster 过滤器变化处理
+```typescript
+function onClusterFilterChange() {
+  // Clear search query when changing cluster filter
+  searchQuery.value = '';
+  // Reset pagination
+  offset.value = 0;
+  // Save selected cluster to settings
+  saveSelectedCluster();
+}
+```
+
+#### 监听集群列表变化
+```typescript
+// Watch for cluster list changes to ensure selectedClusterFilter is valid
+watch(() => clusterStore.clusters, (newClusters) => {
+  if (!hasLoadedSelectedCluster && newClusters.length > 0) {
+    // 集群列表已加载，尝试恢复选中的集群
+    loadSelectedCluster();
+  }
+  // If selected cluster is no longer in the list, reset to all clusters
+  if (selectedClusterFilter.value && !newClusters.some(c => c.name === selectedClusterFilter.value)) {
+    selectedClusterFilter.value = '';
+  }
+}, { deep: true });
+
+onMounted(() => {
+  // 如果集群列表已经加载，立即恢复选中的集群
+  if (clusterStore.clusters.length > 0) {
+    loadSelectedCluster();
+  }
+});
+```
+
+### 3. TopicNavigator.vue - 路由监听处理
 
 ```typescript
 // Watch for route changes to handle cluster and topic query params
@@ -78,24 +163,129 @@ watch(
 );
 ```
 
-### 3. 关键设计决策
+### 4. TopicNavigator.vue - 刷新和加载
 
-#### 为什么不改变 Cluster 选择器？
+#### 刷新 Topics（只刷新选中的集群）
+```typescript
+async function refreshTopics() {
+  if (refreshing.value || isUnmounted.value) return;
+
+  refreshing.value = true;
+  try {
+    const clusters = clusterStore.clusters;
+    const clusterFilter = selectedClusterFilter.value;
+
+    // If a specific cluster is selected, only refresh that cluster
+    if (clusterFilter) {
+      await apiClient.refreshTopics(clusterFilter);
+    } else {
+      // No cluster selected - refresh all clusters one by one
+      for (const cluster of clusters) {
+        try {
+          await apiClient.refreshTopics(cluster.name);
+        } catch (e) {
+          // Silent failure - wait 5 seconds then continue to next cluster
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+      // Cleanup orphan topics
+      await apiClient.cleanupOrphanTopics();
+    }
+
+    // Reload topics after refresh
+    if (!isUnmounted.value) {
+      await loadAllTopics();
+    }
+  } catch (e) {
+    console.error('Failed to refresh topics:', e);
+  } finally {
+    refreshing.value = false;
+  }
+}
+```
+
+#### 加载 Topics（根据选中的 cluster 过滤）
+```typescript
+async function loadAllTopics() {
+  if (isUnmounted.value) return;
+  loading.value = true;
+  offset.value = 0;
+  allTopics.value = [];
+  try {
+    const clusters = clusterStore.clusters;
+    const topics: TopicInfo[] = [];
+    const clusterFilter = selectedClusterFilter.value;
+
+    // If a specific cluster is selected, only load topics from that cluster
+    if (clusterFilter) {
+      const cluster = clusters.find(c => c.name === clusterFilter);
+      if (cluster) {
+        const result = await apiClient.getTopicsWithCluster(cluster.name, 0, limit.value);
+        for (const topic of result.topics) {
+          topics.push({ name: topic.name, cluster: topic.cluster });
+        }
+        total.value = result.total;
+        hasMore.value = result.has_more;
+      }
+    } else {
+      // No cluster selected - load all topics from all clusters
+      const result = await apiClient.getTopicsWithCluster(undefined, 0, limit.value);
+      for (const topic of result.topics) {
+        topics.push({ name: topic.name, cluster: topic.cluster });
+      }
+      total.value = result.total;
+      hasMore.value = result.has_more;
+    }
+
+    // Sort by cluster then by name
+    topics.sort((a, b) => {
+      if (a.cluster !== b.cluster) return a.cluster.localeCompare(b.cluster);
+      return a.name.localeCompare(b.name);
+    });
+
+    if (!isUnmounted.value) {
+      allTopics.value = topics;
+
+      // Handle pending highlight
+      if (pendingHighlight.value) {
+        const { cluster, topic } = pendingHighlight.value;
+        const targetTopic = allTopics.value.find(
+          t => t.cluster === cluster && t.name === topic
+        );
+        if (targetTopic) {
+          selectedTopic.value = targetTopic;
+        }
+        pendingHighlight.value = null;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load topics:', e);
+  } finally {
+    loading.value = false;
+  }
+}
+```
+
+## 关键设计决策
+
+### 为什么不改变 Cluster 选择器？
 - Cluster 选择器是用户手动控制的状态
 - 自动改变会打断用户的操作流程
 - 外部导航（顶部搜索、收藏双击）只影响右侧消息页面，不影响左侧 TopicNavigator 的 cluster 选择
 
-#### 外部导航的处理逻辑
-- 顶部搜索点击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
-- 收藏双击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
-- Topic 详情双击 topic → 跳转到 messages 页面，右下角 cluster 保持不变
-
-#### 用户操作流程
+### 用户操作流程
 1. 用户在右下角选择 cluster（例如 "cluster-a"）
 2. 用户搜索并点击一个 topic（可能属于 "cluster-b"）
 3. 右侧消息页面显示 "cluster-b" 的 topic 消息
 4. 左侧 TopicNavigator 的 cluster 选择器仍然显示 "cluster-a"
 5. 用户可以继续浏览 "cluster-a" 的其他 topics，不受影响
+6. 用户选择的 cluster 会被保存到数据库，下次访问时自动恢复
+
+### Cluster 持久化机制
+- 使用 SQLite 数据库存储 `ui.selected_cluster` 设置
+- 用户每次切换 cluster 时自动保存
+- 组件挂载时从数据库恢复上次的选择
+- 如果保存的 cluster 不再存在，自动重置为 "all clusters"
 
 ## 树形模式 vs 扁平模式
 
@@ -106,6 +296,7 @@ watch(
 
 ### 扁平模式（Flat Mode）
 - 使用 `TopicNavigator.vue`
+- Cluster 选择器持久化到数据库
 - 通过 URL query 参数驱动状态
 - 组件通过 `watch(route.query)` 响应变化
 - Cluster 选择器完全由用户手动控制
@@ -120,9 +311,15 @@ watch(
 
 4. **外部导航**：只设置 `pendingHighlight` 用于高亮 topic，不改变 cluster 选择器
 
+5. **状态持久化**：用户选择的 cluster 会被保存到 `ui.selected_cluster` 设置，下次访问时自动恢复
+
+6. **集群失效处理**：如果保存的 cluster 不再存在（被删除），自动重置为 "all clusters"
+
+7. **加载时序**：先加载集群列表，再恢复选中的 cluster，确保 cluster 存在于列表中
+
 ## 相关文件
 
 - `/src/layouts/ModernLayout.vue` - 导航处理和模式判断
-- `/src/components/TopicNavigator.vue` - 扁平模式 topic 列表
+- `/src/components/TopicNavigator.vue` - 扁平模式 topic 列表（包含 Cluster 持久化逻辑）
 - `/src/components/ClusterTreeNavigator.vue` - 树形模式 topic 树
 - `/src/components/TopicFavorites.vue` - 收藏列表和双击事件
