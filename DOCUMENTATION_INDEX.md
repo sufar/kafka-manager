@@ -7,6 +7,7 @@
 | [README.md](./README.md) | 项目概述、快速开始 |
 | [API.md](./API.md) | 统一 API 接口文档 (POST /api + X-API-Method) |
 | [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) | 技术实现总结 |
+| [SSE_STREAMING_FEATURE.md](./SSE_STREAMING_FEATURE.md) | SSE 流式消息功能文档 |
 
 ## 其他文档
 
