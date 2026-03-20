@@ -24,7 +24,7 @@
 
         <form @submit.prevent="handleSubmit(false)" class="space-y-3">
           <!-- Partition and Key Row -->
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-2 md:grid-cols-2 gap-3">
             <!-- Partition Dropdown -->
             <div class="form-control">
               <label class="label py-1">
@@ -35,7 +35,7 @@
                   {{ t.messages.partition }}
                 </span>
               </label>
-              <select v-model.number="form.partition" class="select select-bordered select-sm w-20" required :disabled="partitions.length === 0">
+              <select v-model.number="form.partition" class="select select-bordered select-sm w-full md:w-20" required :disabled="partitions.length === 0">
                 <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
               </select>
             </div>
@@ -49,7 +49,6 @@
                   </svg>
                   {{ t.messages.key }}
                 </span>
-                <span class="label-text-alt text-base-content/50 text-xs">{{ t.messages.optional }}</span>
               </label>
               <input v-model="form.key" type="text" class="input input-bordered input-sm w-full" :placeholder="t.messages.keyOptional" />
             </div>
@@ -66,26 +65,26 @@
               </span>
               <span class="label-text-alt text-error text-xs">{{ t.messages.required }}</span>
             </label>
-            <div class="relative">
-              <JsonEditor
-                ref="jsonEditorRef"
-                v-model="form.value"
-                height="h-64"
-                :placeholder="`{&#10;  &quot;id&quot;: 1,&#10;  &quot;data&quot;: &quot;example&quot;&#10;}`"
-                :required="true"
-              />
-              <button
-                type="button"
-                class="btn btn-xs btn-ghost gap-1 hover:bg-primary/10 hover:text-primary h-6 absolute top-2 right-2 z-10"
-                @click="() => jsonEditorRef?.format()"
-                :title="t.messages.formatJson"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                </svg>
-                {{ t.messages.formatJson }}
-              </button>
-            </div>
+            <JsonEditor
+              ref="jsonEditorRef"
+              v-model="form.value"
+              height="h-64"
+              :placeholder="`{&#10;  &quot;id&quot;: 1,&#10;  &quot;data&quot;: &quot;example&quot;&#10;}`"
+              :required="true"
+            >
+              <template #format-button>
+                <button
+                  type="button"
+                  class="btn btn-ghost hover:bg-primary/10 hover:text-primary h-8 w-8 p-0"
+                  @click="() => jsonEditorRef?.format()"
+                  :title="t.messages.formatJson"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                  </svg>
+                </button>
+              </template>
+            </JsonEditor>
           </div>
 
           <!-- Headers Section -->

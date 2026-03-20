@@ -553,17 +553,60 @@ function stopQuery() {
   streamingProgress.value.isStreaming = false;
 }
 
+// 检测是否在 Tauri 环境下运行
+function isTauri(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const win = window as any;
+  return !!(
+    win.__TAURI__ ||
+    win.__TAURI_INTERNALS__ ||
+    win.__TAURI_IPC__ ||
+    win._TAURI_VERSION_ ||
+    win.navigator?.userAgent?.includes('Tauri')
+  );
+}
+
 function exportMessages() {
   if (messages.value.length === 0) return;
 
   const data = JSON.stringify(messages.value, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${selectedTopic.value}_messages_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const filename = `${selectedTopic.value}_messages_${Date.now()}.json`;
+
+  if (isTauri()) {
+    // Tauri 环境下使用原生文件保存对话框
+    const win = window as any;
+    const { save } = win.__TAURI__.plugin.dialog;
+    const { writeFile } = win.__TAURI__.plugin.fs;
+
+    save({
+      defaultPath: filename,
+      filters: [{
+        name: 'JSON Files',
+        extensions: ['json']
+      }]
+    }).then(async (filePath: string) => {
+      if (filePath) {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(data);
+        await writeFile(filePath, bytes);
+        showSuccess(t.value.messages.exportSuccess || '消息已导出');
+      }
+    }).catch((err: Error) => {
+      console.error('Failed to save file:', err);
+      showError(t.value.messages.exportFailed || '导出失败');
+    });
+  } else {
+    // 浏览器环境下使用传统下载方式
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
 // 发送消息弹框控制

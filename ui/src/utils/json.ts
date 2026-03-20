@@ -5,25 +5,43 @@
  */
 
 export function highlightJson(json: string): string {
-  return json
+  if (!json) return '';
+
+  // 先转义 HTML 特殊字符
+  let escaped = json
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
-      let cls = 'text-primary';
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'text-secondary font-semibold';
+    .replace(/>/g, '&gt;');
+
+  // 使用单个正则表达式处理所有情况
+  escaped = escaped.replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+\.?\d*)|\b(true|false|null)\b/g,
+    (match, string, colon, number, bool) => {
+      if (string) {
+        if (colon) {
+          // 键名
+          return `<span class="text-secondary font-semibold">${string}</span>${colon}`;
         } else {
-          cls = 'text-accent';
+          // 字符串值
+          return `<span class="text-accent">${string}</span>`;
         }
-      } else if (/true|false/.test(match)) {
-        cls = 'text-info font-bold';
-      } else if (/null/.test(match)) {
-        cls = 'text-warning font-bold';
       }
-      return `<span class="${cls}">${match}</span>`;
-    });
+      if (number) {
+        return `<span class="text-base-content">${number}</span>`;
+      }
+      if (bool) {
+        if (bool === 'true' || bool === 'false') {
+          return `<span class="text-info font-bold">${bool}</span>`;
+        }
+        if (bool === 'null') {
+          return `<span class="text-warning font-bold">${bool}</span>`;
+        }
+      }
+      return match;
+    }
+  );
+
+  return escaped;
 }
 
 /**

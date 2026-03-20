@@ -183,6 +183,8 @@ export interface Translation {
     hide: string;
     show: string;
     valid: string;
+    exportSuccess: string;
+    exportFailed: string;
   };
   settings: {
     title: string;
@@ -474,6 +476,8 @@ export const translations: Record<Language, Translation> = {
       hide: '收起',
       show: '展开',
       valid: '有效',
+      exportSuccess: '消息已导出',
+      exportFailed: '导出失败',
     },
     settings: {
       title: '设置',
@@ -763,6 +767,8 @@ export const translations: Record<Language, Translation> = {
       hide: 'Hide',
       show: 'Show',
       valid: 'Valid',
+      exportSuccess: 'Messages exported',
+      exportFailed: 'Export failed',
     },
     settings: {
       title: 'Settings',
