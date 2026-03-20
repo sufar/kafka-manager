@@ -137,7 +137,6 @@
             <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
             加载更多
           </button>
-          <span v-if="allTopics.length >= 10000" class="text-warning text-[10px]">已达最大显示数</span>
           <span class="text-xs">Cluster:</span>
           <select
             v-model="selectedClusterFilter"
@@ -287,24 +286,11 @@ async function loadAllTopics() {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    // 集群过滤器优先级：
-    // 1. internalClusterFilter - 内部使用（收藏跳转等），空字符串表示无
-    // 2. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群）
-    // 3. clusterStore.selectedClusterId - 主界面右下角集群选择器（仅当本地 UI 未明确选择时）
-    let clusterFilter: string | undefined;
-
-    // 检查 internalClusterFilter（非空字符串时有效）
-    if (internalClusterFilter.value) {
-      clusterFilter = internalClusterFilter.value;
-    }
-    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
-    else if (selectedClusterFilter.value !== '') {
-      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
-    }
-    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
-    else {
-      clusterFilter = undefined;
-    }
+    // 集群过滤器：使用右下角主界面的集群选择器
+    // selectedClusterFilter 为空字符串时表示所有集群，否则使用右下角的选择
+    const clusterFilter = selectedClusterFilter.value === ''
+      ? undefined
+      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
 
     // If a specific cluster is selected, only load topics from that cluster
     if (clusterFilter) {
@@ -377,24 +363,11 @@ async function loadMoreTopics() {
   loadingMore.value = true;
   try {
     const nextOffset = offset.value + limit.value;
-    // 集群过滤器优先级：
-    // 1. internalClusterFilter - 内部使用（收藏跳转等），空字符串表示无
-    // 2. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群）
-    // 3. clusterStore.selectedClusterId - 主界面右下角集群选择器（仅当本地 UI 未明确选择时）
-    let clusterFilter: string | undefined;
-
-    // 检查 internalClusterFilter（非空字符串时有效）
-    if (internalClusterFilter.value) {
-      clusterFilter = internalClusterFilter.value;
-    }
-    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
-    else if (selectedClusterFilter.value !== '') {
-      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
-    }
-    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
-    else {
-      clusterFilter = undefined;
-    }
+    // 集群过滤器：使用右下角主界面的集群选择器
+    // selectedClusterFilter 为空字符串时表示所有集群，否则使用右下角的选择
+    const clusterFilter = selectedClusterFilter.value === ''
+      ? undefined
+      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
 
     if (clusterFilter) {
       const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
@@ -444,20 +417,11 @@ async function refreshTopics() {
   try {
     const clusters = clusterStore.clusters;
 
-    // 刷新按钮的集群过滤器：
-    // 1. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群，非空表示选择了特定集群）
-    // 2. clusterStore.selectedClusterId - 主界面右下角集群选择器
-    // 注意：不使用 internalClusterFilter，因为那只是临时用于显示过滤，不影响刷新
-    let clusterFilter: string | undefined;
-
-    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
-    if (selectedClusterFilter.value !== '') {
-      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
-    }
-    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
-    else {
-      clusterFilter = undefined;
-    }
+    // 刷新按钮的集群过滤器：使用右下角主界面的集群选择器
+    // selectedClusterFilter 为空字符串时表示所有集群
+    const clusterFilter = selectedClusterFilter.value === ''
+      ? undefined
+      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
 
     // If a specific cluster is selected, only refresh that cluster
     if (clusterFilter) {
