@@ -47,6 +47,10 @@
             <span class="text-sm font-medium">作者</span>
             <span class="text-sm font-medium">朱占全</span>
           </div>
+          <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
+            <span class="text-sm font-medium">帮助</span>
+            <span class="text-sm">有问题请跨声联系</span>
+          </div>
         </div>
       </div>
 
