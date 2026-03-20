@@ -95,8 +95,16 @@
 
     <!-- Messages List (Top Panel) -->
     <div ref="messagesListRef" class="messages-list flex-1 overflow-y-auto min-h-0 relative">
+      <!-- 加载中状态 -->
+      <div v-if="loading && messages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none z-10">
+        <div class="text-center">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <p class="text-sm mt-2">{{ t.messages.loading }}</p>
+        </div>
+      </div>
+
       <!-- 空状态提示 -->
-      <div v-if="sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none">
+      <div v-if="!loading && sortedMessages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none">
         <div class="text-center">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto mb-2 opacity-50">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.224-.026.336-.026h15.84c.112 0 .224.009.336.026m0-.026c.298.046.59.116.872.21l1.912.637a1.125 1.125 0 010 2.136l-1.912.637c-.282.094-.574.164-.872.21m-16.8.026c-.298.046.59.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m12.078-6.053a3 3 0 00-2.974-2.723c-.624-.033-1.252.025-1.865.17-.64.151-1.247.382-1.808.683m6.647 1.873c.242.53.412 1.096.503 1.686m-12.078.026c.298-.046.59-.116-.872.21l1.912-.637a1.125 1.125 0 010-2.136l-1.912-.637c-.282-.094-.574-.164-.872-.21m16.8-.026c-.298-.046.59-.116-.872.21l-1.912-.637a1.125 1.125 0 010-2.136l1.912-.637c.282.094.574.164.872-.21" />
@@ -381,7 +389,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, shallowRef } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, inject, shallowRef, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useClusterStore } from '@/stores/cluster';
@@ -468,6 +476,11 @@ function scheduleUpdate() {
       messages.value = [...messages.value, ...pendingMessages];
       pendingMessages = [];
       console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
+      // 强制刷新虚拟滚动
+      nextTick(() => {
+        scrollerRefDesktop.value?.refresh();
+        scrollerRefMobile.value?.refresh();
+      });
     }
   }, 200);
 }
@@ -529,6 +542,9 @@ const keyPreRef = ref<HTMLElement>();
 const valuePreRef = ref<HTMLElement>();
 const detailHeight = ref<number>(300);
 const isResizing = ref(false);
+// 虚拟滚动 ref
+const scrollerRefDesktop = ref<any>(null);
+const scrollerRefMobile = ref<any>(null);
 
 // 在消息详情面板中处理 Ctrl+A，只选中 Key 或 Value 内容
 function handleSelectStart(e: Event) {
@@ -598,7 +614,8 @@ function toggleTimestampSort() {
 
 // 排序后的消息列表（后端已排序，前端直接显示）
 const sortedMessages = computed(() => {
-  return messages.value;
+  // 返回新数组引用，确保虚拟滚动能检测到变化
+  return [...messages.value];
 });
 
 function selectMessage(index: number) {

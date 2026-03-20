@@ -92,7 +92,15 @@
     </div>
 
     <!-- 消息列表 -->
-    <div class="flex-1 overflow-hidden bg-base-100">
+    <div class="flex-1 overflow-hidden bg-base-100 relative">
+      <!-- 加载中状态 -->
+      <div v-if="loading && messages.length === 0" class="absolute inset-0 flex items-center justify-center text-base-content/60 pointer-events-none z-10">
+        <div class="text-center">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <p class="text-sm mt-2">{{ t.messages.loading }}</p>
+        </div>
+      </div>
+
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
@@ -355,7 +363,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
@@ -389,6 +397,9 @@ const messages = shallowRef<Message[]>([]);
 const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const panelHeight = ref(280); // 默认高度增加到 280px
+// 虚拟滚动 ref
+const scrollerRef = ref<any>(null);
+const scrollerRefMobile = ref<any>(null);
 
 // 查询参数
 const selectedCluster = ref('');
@@ -433,6 +444,11 @@ function scheduleUpdate() {
       messages.value = [...messages.value, ...pendingMessages];
       pendingMessages = [];
       console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
+      // 强制刷新虚拟滚动
+      nextTick(() => {
+        scrollerRef.value?.refresh();
+        scrollerRefMobile.value?.refresh();
+      });
     }
   }, 200);
 }
