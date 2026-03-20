@@ -42,6 +42,16 @@
             </svg>
             <span class="hidden md:inline ml-1">{{ t.common.refresh }}</span>
           </button>
+          <button
+            class="btn btn-xs btn-primary"
+            @click="openCreateTopicDialog"
+            :disabled="!clusterParam && selectedClusterIds.length !== 1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span class="hidden md:inline ml-1">{{ t.common.create }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -323,6 +333,119 @@
         </div>
       </div>
     </template>
+
+    <!-- Create Topic Dialog -->
+    <dialog ref="createTopicDialogRef" class="modal modal-bottom sm:modal-middle">
+      <form method="dialog" class="modal-box" @submit.prevent="handleCreateTopic">
+        <h3 class="font-bold text-lg mb-4">{{ t.topics.createTopic }}</h3>
+
+        <!-- Topic Name -->
+        <div class="mb-4">
+          <label class="label text-sm font-medium">{{ t.topics.topicName }}</label>
+          <input
+            v-model="newTopic.name"
+            type="text"
+            :placeholder="t.topics.topicNamePlaceholder"
+            class="input input-bordered w-full"
+            required
+            pattern="^[a-zA-Z0-9._-]+$"
+            :title="t.topics.topicNameValidation"
+          />
+        </div>
+
+        <!-- Partitions -->
+        <div class="mb-4">
+          <label class="label text-sm font-medium">{{ t.topics.numPartitions }}</label>
+          <input
+            v-model.number="newTopic.numPartitions"
+            type="number"
+            min="1"
+            max="100"
+            class="input input-bordered w-full"
+            required
+          />
+          <p class="text-xs text-base-content/60 mt-1">{{ t.topics.numPartitionsHelp }}</p>
+        </div>
+
+        <!-- Replication Factor -->
+        <div class="mb-4">
+          <label class="label text-sm font-medium">{{ t.topics.replicationFactor }}</label>
+          <input
+            v-model.number="newTopic.replicationFactor"
+            type="number"
+            min="1"
+            max="10"
+            class="input input-bordered w-full"
+            required
+          />
+          <p class="text-xs text-base-content/60 mt-1">{{ t.topics.replicationFactorHelp }}</p>
+        </div>
+
+        <!-- Advanced Options -->
+        <div class="mb-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="showAdvanced"
+              class="checkbox checkbox-sm"
+            />
+            <span class="text-sm">{{ t.topics.advancedOptions }}</span>
+          </label>
+        </div>
+
+        <!-- Advanced Config -->
+        <div v-if="showAdvanced" class="mb-4 space-y-3">
+          <div>
+            <label class="label text-sm font-medium">cleanup.policy</label>
+            <select v-model="newTopic.config.cleanup_policy" class="select select-bordered w-full">
+              <option value="delete">delete</option>
+              <option value="compact">compact</option>
+              <option value="delete,compact">delete,compact</option>
+            </select>
+          </div>
+          <div>
+            <label class="label text-sm font-medium">retention.ms</label>
+            <input
+              v-model="newTopic.config.retention_ms"
+              type="text"
+              placeholder="604800000 (7 days)"
+              class="input input-bordered w-full"
+            />
+          </div>
+          <div>
+            <label class="label text-sm font-medium">retention.bytes</label>
+            <input
+              v-model="newTopic.config.retention_bytes"
+              type="text"
+              placeholder="-1 (unlimited)"
+              class="input input-bordered w-full"
+            />
+          </div>
+          <div>
+            <label class="label text-sm font-medium">segment.bytes</label>
+            <input
+              v-model="newTopic.config.segment_bytes"
+              type="text"
+              placeholder="1073741824 (1GB)"
+              class="input input-bordered w-full"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-6">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeCreateTopicDialog">
+            {{ t.common.cancel }}
+          </button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="creatingTopic">
+            <span v-if="creatingTopic" class="loading loading-spinner loading-sm"></span>
+            {{ t.common.create }}
+          </button>
+        </div>
+      </form>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="closeCreateTopicDialog">{{ t.common.close }}</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -375,6 +498,22 @@ const allTopicsList = ref<TopicItem[]>([]);
 const clusterTopics = ref<TopicItem[]>([]);
 
 const currentCluster = ref<string>('');
+
+// Create Topic Dialog
+const createTopicDialogRef = ref<HTMLDialogElement>();
+const creatingTopic = ref(false);
+const showAdvanced = ref(false);
+const newTopic = reactive({
+  name: '',
+  numPartitions: 3,
+  replicationFactor: 1,
+  config: {
+    cleanup_policy: 'delete',
+    retention_ms: '',
+    retention_bytes: '',
+    segment_bytes: '',
+  } as Record<string, string>,
+});
 
 // 虚拟滚动相关
 const ROW_HEIGHT = 52; // 每行高度（像素）
@@ -716,6 +855,72 @@ async function refreshAllTopics() {
     showError(`Refresh failed: ${(e as { message: string }).message}`);
   } finally {
     refreshing.value = false;
+  }
+}
+
+// Create Topic Dialog methods
+function openCreateTopicDialog() {
+  // Reset form
+  newTopic.name = '';
+  newTopic.numPartitions = 3;
+  newTopic.replicationFactor = 1;
+  newTopic.config = {
+    cleanup_policy: 'delete',
+    retention_ms: '',
+    retention_bytes: '',
+    segment_bytes: '',
+  };
+  showAdvanced.value = false;
+  createTopicDialogRef.value?.showModal();
+}
+
+function closeCreateTopicDialog() {
+  createTopicDialogRef.value?.close();
+}
+
+async function handleCreateTopic() {
+  if (!clusterParam.value && selectedClusterIds.value.length !== 1) {
+    showError('Please select a cluster first');
+    return;
+  }
+
+  const clusterId = clusterParam.value || selectedClusterIds.value[0];
+  if (!clusterId) {
+    showError('Cluster ID is required');
+    return;
+  }
+
+  creatingTopic.value = true;
+  try {
+    // Build config object, filtering out empty values
+    const config: Record<string, string> = {};
+    if (newTopic.config.cleanup_policy) {
+      config.cleanup_policy = newTopic.config.cleanup_policy;
+    }
+    if (newTopic.config.retention_ms) {
+      config.retention_ms = newTopic.config.retention_ms;
+    }
+    if (newTopic.config.retention_bytes) {
+      config.retention_bytes = newTopic.config.retention_bytes;
+    }
+    if (newTopic.config.segment_bytes) {
+      config.segment_bytes = newTopic.config.segment_bytes;
+    }
+
+    await apiClient.createTopic(clusterId, {
+      name: newTopic.name,
+      num_partitions: newTopic.numPartitions,
+      replication_factor: newTopic.replicationFactor,
+      config: Object.keys(config).length > 0 ? config : undefined,
+    });
+
+    showSuccess(`Topic "${newTopic.name}" created successfully`);
+    closeCreateTopicDialog();
+    await fetchTopics();
+  } catch (e) {
+    showError(`Failed to create topic: ${(e as { message: string }).message}`);
+  } finally {
+    creatingTopic.value = false;
   }
 }
 

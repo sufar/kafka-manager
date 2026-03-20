@@ -34,4 +34,11 @@ router.onError((error, to) => {
 
 app.use(pinia);
 app.use(router);
+
+// 阻止浏览器默认的右键菜单
+document.addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  return false;
+});
+
 app.mount('#app');

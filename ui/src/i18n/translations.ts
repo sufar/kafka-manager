@@ -91,8 +91,14 @@ export interface Translation {
     description: string;
     createTopic: string;
     topicName: string;
+    topicNamePlaceholder: string;
+    topicNameValidation: string;
     partitionCount: string;
+    numPartitions: string;
+    numPartitionsHelp: string;
     replicationFactor: string;
+    replicationFactorHelp: string;
+    advancedOptions: string;
     cleanupPolicy: string;
     retentionMs: string;
     retentionBytes: string;
@@ -369,8 +375,14 @@ export const translations: Record<Language, Translation> = {
       description: '管理 Kafka 主题',
       createTopic: '创建主题',
       topicName: '主题名称',
+      topicNamePlaceholder: '请输入主题名称',
+      topicNameValidation: '只能包含字母、数字、点号、下划线和短横线',
       partitionCount: '分区数',
+      numPartitions: '分区数量',
+      numPartitionsHelp: '分区数量范围：1-100',
       replicationFactor: '副本因子',
+      replicationFactorHelp: '副本因子范围：1-10',
+      advancedOptions: '高级选项',
       cleanupPolicy: '清理策略',
       retentionMs: '保留时间 (ms)',
       retentionBytes: '保留大小 (bytes)',
@@ -645,8 +657,14 @@ export const translations: Record<Language, Translation> = {
       description: 'Manage Kafka topics',
       createTopic: 'Create Topic',
       topicName: 'Topic Name',
+      topicNamePlaceholder: 'Enter topic name',
+      topicNameValidation: 'Only letters, numbers, dots, underscores, and hyphens are allowed',
       partitionCount: 'Partition Count',
+      numPartitions: 'Number of Partitions',
+      numPartitionsHelp: 'Partition count range: 1-100',
       replicationFactor: 'Replication Factor',
+      replicationFactorHelp: 'Replication factor range: 1-10',
+      advancedOptions: 'Advanced Options',
       cleanupPolicy: 'Cleanup Policy',
       retentionMs: 'Retention (ms)',
       retentionBytes: 'Retention (bytes)',
