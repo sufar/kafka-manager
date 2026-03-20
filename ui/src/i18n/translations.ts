@@ -178,6 +178,8 @@ export interface Translation {
     partitionLabel2: string;
     queryFailed: string;
     fetchFailed: string;
+    loading: string;
+    clearSort: string;
   };
   settings: {
     title: string;
@@ -464,6 +466,8 @@ export const translations: Record<Language, Translation> = {
       partitionLabel2: '分区',
       queryFailed: '查询失败',
       fetchFailed: '获取失败',
+      loading: '加载中...',
+      clearSort: '清除排序',
     },
     settings: {
       title: '设置',
@@ -748,6 +752,8 @@ export const translations: Record<Language, Translation> = {
       partitionLabel2: 'Partition',
       queryFailed: 'Query failed',
       fetchFailed: 'Fetch failed',
+      loading: 'Loading...',
+      clearSort: 'Clear sort',
     },
     settings: {
       title: 'Settings',

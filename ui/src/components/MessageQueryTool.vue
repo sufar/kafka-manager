@@ -77,6 +77,14 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
           </button>
+          <span v-if="timestampSort" class="ml-2 badge badge-sm badge-info">
+            {{ timestampSort === 'asc' ? '↑' : '↓' }} {{ t.messages.timestampLabel }}
+          </span>
+          <button v-if="timestampSort" class="btn btn-ghost btn-xs ml-1" @click="timestampSort = null" :title="t.messages.clearSort">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </span>
         <span v-if="error" class="text-error">{{ error }}</span>
       </div>
@@ -107,17 +115,28 @@
         <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
           <div class="w-12 flex-shrink-0">{{ t.messages.partitionLabel2 }}</div>
           <div class="w-16 flex-shrink-0">{{ t.messages.offsetLabel }}</div>
-          <div class="w-28 flex-shrink-0">{{ t.messages.timestampLabel }}</div>
+          <div class="w-28 flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors" @click="toggleTimestampSort">
+            {{ t.messages.timestampLabel }}
+            <svg v-if="timestampSort === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+            </svg>
+            <svg v-else-if="timestampSort === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 opacity-30">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+            </svg>
+          </div>
           <div class="w-20 flex-shrink-0">{{ t.messages.key }}</div>
           <div class="flex-1">{{ t.messages.value }}</div>
           <div class="w-10 flex-shrink-0 text-center">{{ t.messages.actions }}</div>
         </div>
         <!-- Virtual Scroll List -->
         <RecycleScroller
-          v-if="messages.length > 0"
+          v-if="sortedMessages.length > 0"
           ref="scrollerRef"
           class="flex-1 overflow-auto w-full"
-          :items="messages"
+          :items="sortedMessages"
           :item-size="24"
           key-field="uid"
           :buffer="200"
@@ -145,7 +164,7 @@
             </div>
           </div>
         </RecycleScroller>
-        <div v-if="messages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50">
+        <div v-if="sortedMessages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
           </svg>
@@ -156,10 +175,10 @@
       <!-- Mobile Card View with Virtual Scroll -->
       <div class="md:hidden flex flex-col h-full">
         <RecycleScroller
-          v-if="messages.length > 0"
+          v-if="sortedMessages.length > 0"
           ref="scrollerRefMobile"
           class="flex-1 overflow-auto p-2 pb-20"
-          :items="messages"
+          :items="sortedMessages"
           :item-size="70"
           key-field="uid"
           :buffer="100"
@@ -186,7 +205,7 @@
             </div>
           </div>
         </RecycleScroller>
-        <div v-else-if="messages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50 p-2">
+        <div v-if="sortedMessages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50 p-2">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694-4.125-8.25-4.125s-8.25-1.847-8.25-4.125" />
           </svg>
@@ -401,6 +420,32 @@ const panelHeight = ref(280); // 默认高度增加到 280px
 const scrollerRef = ref<any>(null);
 const scrollerRefMobile = ref<any>(null);
 
+// 按时间戳排序状态：'asc' | 'desc' | null（null 表示按查询顺序）
+const timestampSort = ref<'asc' | 'desc' | null>(null);
+
+// 计算属性：根据 timestamp 排序后的消息列表
+const sortedMessages = computed(() => {
+  if (!timestampSort.value) {
+    return messages.value;
+  }
+  return [...messages.value].sort((a, b) => {
+    const tsA = a.timestamp ?? 0;
+    const tsB = b.timestamp ?? 0;
+    return timestampSort.value === 'asc' ? tsA - tsB : tsB - tsA;
+  });
+});
+
+// 切换时间戳排序
+function toggleTimestampSort() {
+  if (timestampSort.value === null) {
+    timestampSort.value = 'desc'; // 默认降序（最新的在前）
+  } else if (timestampSort.value === 'desc') {
+    timestampSort.value = 'asc';
+  } else {
+    timestampSort.value = null; // 回到原始顺序
+  }
+}
+
 // 查询参数
 const selectedCluster = ref('');
 const selectedTopic = ref('');
@@ -495,6 +540,7 @@ async function queryMessages() {
 
   loading.value = true;
   error.value = '';
+  timestampSort.value = null; // 重置排序状态
   resetMessageState();
   const startTime = performance.now();
 
