@@ -275,109 +275,17 @@
     </div>
 
     <!-- Send Message Modal -->
-    <Teleport to="body">
-      <dialog ref="sendModalRef" class="modal" @click.self="closeSendModal">
-        <div class="modal-box w-full max-w-lg mx-2 md:mx-auto">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeSendModal">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h3 class="font-bold text-lg flex items-center gap-2 mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-info">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
-            </svg>
-            {{ t.messages.sendMessage }} <span class="font-mono text-sm truncate max-w-[150px] md:max-w-xs">{{ selectedTopic }}</span>
-          </h3>
-          <form @submit.prevent="() => handleSendMessage(false)" class="flex flex-col gap-3">
-            <!-- Partition Dropdown -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.partition }}</span>
-              </label>
-              <select v-model.number="messageForm.partition" class="select select-bordered w-full sm:w-32" required :disabled="partitions.length === 0">
-                <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
-              </select>
-            </div>
-            <!-- Key Input -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.key }}</span>
-                <span class="label-text-alt">{{ t.messages.keyOptional }}</span>
-              </label>
-              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" :placeholder="t.messages.keyOptional" />
-            </div>
-            <!-- Value Textarea -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.value }}</span>
-                <span class="label-text-alt">{{ t.messages.valueRequired }}</span>
-              </label>
-              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-24 sm:h-32 font-mono text-sm w-full" required placeholder='{"id": 1, "data": "example"}'></textarea>
-            </div>
-            <!-- Headers Toggle -->
-            <div>
-              <button type="button" class="btn btn-ghost btn-sm" @click="showHeaders = !showHeaders">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                </svg>
-                Headers
-                <span v-if="messageForm.headers.length > 0" class="badge badge-primary badge-xs">{{ messageForm.headers.length }}</span>
-              </button>
-            </div>
-            <!-- Headers Input -->
-            <div v-if="showHeaders" class="border border-base-300 rounded-lg p-3 space-y-2">
-              <div v-for="(header, index) in messageForm.headers" :key="index" class="flex gap-2">
-                <input
-                  v-model="header.key"
-                  type="text"
-                  class="input input-bordered input-sm flex-1"
-                  placeholder="Header key"
-                />
-                <input
-                  v-model="header.value"
-                  type="text"
-                  class="input input-bordered input-sm flex-1"
-                  placeholder="Header value"
-                />
-                <button type="button" class="btn btn-ghost btn-sm" @click="messageForm.headers.splice(index, 1)">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm w-full" @click="messageForm.headers.push({ key: '', value: '' })">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Add Header
-              </button>
-            </div>
-            <!-- Success Alert -->
-            <div v-if="sendSuccess" class="alert alert-success py-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-              </svg>
-              <span class="text-sm">{{ t.messages.messageSent }}! {{ t.messages.offset }}: {{ lastOffset }}</span>
-            </div>
-            <!-- Actions -->
-            <div class="modal-action flex-wrap">
-              <button type="button" class="btn" @click="closeSendModal">{{ t.messages.cancel }}</button>
-              <button type="button" class="btn btn-primary" @click="handleSendMessage(true)" :disabled="sending">
-                {{ t.messages.continue }}
-              </button>
-              <button type="submit" class="btn btn-primary" :disabled="sending">
-                <svg v-if="sending" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {{ sending ? t.messages.sending : t.messages.send }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </dialog>
-    </Teleport>
+    <SendMessageModal
+      ref="sendModalRef"
+      v-model="showSendModal"
+      :topic-name="selectedTopic || ''"
+      :cluster-name="clusterName || ''"
+      :partitions="partitions"
+      :initial-partition="messageFormPartition"
+      :initial-key="messageFormKey"
+      :initial-value="messageFormValue"
+      @submit="handleSubmit"
+    />
   </div>
 </template>
 
@@ -389,9 +297,10 @@ import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
 import FavoriteButton from '@/components/FavoriteButton.vue';
+import SendMessageModal from '@/components/SendMessageModal.vue';
 
 const route = useRoute();
-const { showSuccess } = useToast();
+const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 
@@ -448,6 +357,7 @@ function toggleTimestampSort() {
 
 // 查询参数
 const selectedCluster = ref('');
+const clusterName = computed(() => selectedCluster.value);
 const selectedTopic = ref('');
 const selectedPartition = ref<string | number>('all');
 const fetchMode = ref<'newest' | 'oldest'>('newest');
@@ -499,17 +409,11 @@ function scheduleUpdate() {
 }
 
 // 发送消息弹框状态
-const sendModalRef = ref<HTMLDialogElement | null>(null);
-const sending = ref(false);
-const sendSuccess = ref(false);
-const lastOffset = ref<number | null>(null);
-const messageForm = ref({
-  partition: 0,
-  key: '',
-  value: '',
-  headers: [] as Array<{ key: string; value: string }>,
-});
-const showHeaders = ref(false);
+const sendModalRef = ref<InstanceType<typeof SendMessageModal> | null>(null);
+const showSendModal = ref(false);
+const messageFormPartition = ref(0);
+const messageFormKey = ref('');
+const messageFormValue = ref('');
 
 // 计算属性
 const canQuery = computed(() => {
@@ -666,66 +570,41 @@ function exportMessages() {
 function openSendModal() {
   // 如果有选中的消息，自动填充 partition、key、value
   if (selectedMessage.value) {
-    messageForm.value.partition = selectedMessage.value.partition ?? 0;
-    messageForm.value.key = selectedMessage.value.key || '';
-    messageForm.value.value = selectedMessage.value.value || '';
+    messageFormPartition.value = selectedMessage.value.partition ?? 0;
+    messageFormKey.value = selectedMessage.value.key || '';
+    messageFormValue.value = selectedMessage.value.value || '';
   } else {
     // 如果没有选中分区，默认选第一个
-    if (partitions.value.length > 0 && messageForm.value.partition === 0) {
-      messageForm.value.partition = partitions.value[0] ?? 0;
+    if (partitions.value.length > 0 && messageFormPartition.value === 0) {
+      messageFormPartition.value = partitions.value[0] ?? 0;
     }
   }
-  sendModalRef.value?.showModal();
+  showSendModal.value = true;
 }
 
-function closeSendModal() {
-  sendModalRef.value?.close();
-  sendSuccess.value = false;
-  lastOffset.value = null;
-}
-
-async function handleSendMessage(keepOpen: boolean) {
+// 处理发送消息提交
+async function handleSubmit(data: { partition: number; key: string | undefined; value: string; headers: { key: string; value: string }[] }, keepOpen: boolean) {
   if (!selectedCluster.value || !selectedTopic.value) return;
-  if (!messageForm.value.value.trim()) return;
-
-  sending.value = true;
-  sendSuccess.value = false;
 
   try {
-    // 转换 headers 数组为对象
-    const headers: Record<string, string> = {};
-    for (const h of messageForm.value.headers) {
-      if (h.key.trim()) {
-        headers[h.key.trim()] = h.value;
-      }
-    }
-
     const result = await apiClient.sendMessage(selectedCluster.value, selectedTopic.value, {
-      partition: messageForm.value.partition,
-      key: messageForm.value.key || undefined,
-      value: messageForm.value.value,
-      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      partition: data.partition,
+      key: data.key,
+      value: data.value,
     });
 
-    lastOffset.value = result.offset;
-    sendSuccess.value = true;
-    showSuccess(t.value.messages.messageSent);
+    // 设置 offset 到弹窗
+    sendModalRef.value?.setLastOffset(result.offset);
 
+    showSuccess(`${t.value.messages.messageSent}! Offset: ${result.offset}`);
+
+    // 只在不需要保持打开时关闭弹框
     if (!keepOpen) {
-      // 清空表单并关闭弹框
-      setTimeout(() => {
-        messageForm.value.key = '';
-        messageForm.value.value = '';
-        messageForm.value.headers = [];
-        showHeaders.value = false;
-        closeSendModal();
-      }, 500);
+      showSendModal.value = false;
     }
-    // keepOpen 为 true 时不清空任何内容，方便重复发送相同消息
   } catch (e) {
     console.error('Failed to send message:', e);
-  } finally {
-    sending.value = false;
+    showError(t.value.toast.operationFailed || 'Failed to send message');
   }
 }
 
@@ -924,10 +803,6 @@ onUnmounted(() => {
     stopQuery();
   }
   stopResize();
-  // 关闭发送消息弹窗，防止内存泄漏
-  if (sendModalRef.value) {
-    sendModalRef.value.close();
-  }
 });
 
 // 加载设置（从数据库）

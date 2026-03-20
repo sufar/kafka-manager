@@ -297,94 +297,17 @@
     </div>
 
     <!-- Send Message Modal -->
-    <Teleport to="body">
-      <dialog ref="sendModalRef" class="modal" @click.self="closeSendModal">
-        <div class="modal-box w-full max-w-lg mx-2 md:mx-auto">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeSendModal">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h3 class="font-bold text-lg flex items-center gap-2 mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-info">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
-            </svg>
-            {{ t.messages.sendMessage }} <span class="font-mono text-sm truncate max-w-[150px] md:max-w-xs">{{ selectedTopic }}</span>
-          </h3>
-          <form @submit.prevent="() => handleSendMessage(false)" class="flex flex-col gap-3">
-            <!-- Partition Dropdown -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.partition }}</span>
-              </label>
-              <select v-model.number="messageForm.partition" class="select select-bordered w-full sm:w-32" required :disabled="topicPartitions.length === 0">
-                <option v-for="p in topicPartitions" :key="p" :value="p">{{ p }}</option>
-              </select>
-            </div>
-            <!-- Key Input -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.key }}</span>
-                <span class="label-text-alt">{{ t.messages.optional }}</span>
-              </label>
-              <input v-model="messageForm.key" type="text" class="input input-bordered w-full" :placeholder="t.messages.optional" />
-            </div>
-            <!-- Value Textarea -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">{{ t.messages.value }}</span>
-                <span class="label-text-alt">{{ t.messages.required }}</span>
-              </label>
-              <div class="relative">
-                <textarea
-                  v-model="messageForm.value"
-                  ref="valueInputRef"
-                  class="textarea textarea-bordered h-24 sm:h-48 font-mono text-sm w-full"
-                  required
-                  :placeholder="`{&quot;id&quot;: 1, &quot;data&quot;: &quot;example&quot;}`"
-                ></textarea>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost absolute top-2 right-2"
-                  @click="formatJsonValue"
-                  title="Format JSON"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
-                  </svg>
-                  Format
-                </button>
-              </div>
-              <!-- JSON Preview/Highlight -->
-              <div v-if="messageForm.value && isJsonValid" class="mt-2 bg-base-200/50 backdrop-blur-sm p-2 rounded-lg border border-base-content/5 overflow-auto max-h-48">
-                <pre class="text-xs font-mono cursor-text select-text json-highlight" tabindex="0" v-html="highlightJson(formatJsonValue())"></pre>
-              </div>
-            </div>
-            <!-- Success Alert -->
-            <div v-if="sendSuccess" class="alert alert-success py-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-              </svg>
-              <span class="text-sm">{{ t.messages.messageSent }}! Offset: {{ lastOffset }}</span>
-            </div>
-            <!-- Actions -->
-            <div class="modal-action flex-wrap">
-              <button type="button" class="btn" @click="closeSendModal">{{ t.common.cancel }}</button>
-              <button type="button" class="btn btn-primary" @click="handleSendMessage(true)" :disabled="sending">
-                {{ t.messages.sendAndNew }}
-              </button>
-              <button type="submit" class="btn btn-primary" :disabled="sending">
-                <svg v-if="sending" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {{ sending ? t.messages.sending : t.messages.send }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </dialog>
-    </Teleport>
+    <SendMessageModal
+      ref="sendModalRef"
+      v-model="showSendModal"
+      :topic-name="selectedTopic || ''"
+      :cluster-name="selectedClusterName || ''"
+      :partitions="topicPartitions"
+      :initial-partition="messageFormPartition"
+      :initial-key="messageFormKey"
+      :initial-value="messageFormValue"
+      @submit="handleSubmit"
+    />
   </div>
 </template>
 
@@ -396,6 +319,7 @@ import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import FavoriteButton from '@/components/FavoriteButton.vue';
+import SendMessageModal from '@/components/SendMessageModal.vue';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
@@ -422,6 +346,7 @@ const partitionParam = computed(() => {
   return p ? parseInt(p, 10) : undefined;
 });
 const selectedClusterId = computed(() => clusterParam.value || clusterStore.selectedClusterId);
+const selectedClusterName = computed(() => clusterStore.selectedCluster?.name);
 const topics = ref<string[]>([]);
 const selectedTopic = ref<string>('');
 const topicPartitions = ref<number[]>([]);
@@ -522,22 +447,9 @@ let fetchDebounceTimer: number | null = null;
 let currentAbortController: AbortController | null = null;
 
 const showSendModal = ref(false);
-const sending = ref(false);
-const sendSuccess = ref(false);
-const lastOffset = ref<number | null>(null);
-const sentCount = ref(0); // 连续发送次数
-const messageForm = reactive({
-  partition: 0,
-  key: '',
-  value: '',
-});
-const valueInputRef = ref<HTMLTextAreaElement>(); // Used for JSON formatting button
-void valueInputRef; // Prevent unused warning
-const isJsonValid = ref(false);
 
 // Resizer
 const messagesListRef = ref<HTMLElement>();
-const sendModalRef = ref<HTMLDialogElement>();
 const keyPreRef = ref<HTMLElement>();
 const valuePreRef = ref<HTMLElement>();
 const detailHeight = ref<number>(300);
@@ -973,86 +885,49 @@ async function openSendModal() {
 
   // 如果有选中的消息，自动填充 partition、key、value
   if (selectedMessage.value) {
-    messageForm.partition = selectedMessage.value.partition;
-    messageForm.key = selectedMessage.value.key || '';
-    messageForm.value = selectedMessage.value.value || '';
+    messageFormPartition.value = selectedMessage.value.partition;
+    messageFormKey.value = selectedMessage.value.key || '';
+    messageFormValue.value = selectedMessage.value.value || '';
   } else {
-    messageForm.partition = partition;
-    messageForm.key = '';
-    messageForm.value = '';
+    messageFormPartition.value = partition;
+    messageFormKey.value = '';
+    messageFormValue.value = '';
   }
 
-  sendSuccess.value = false;
-  lastOffset.value = null;
-  sentCount.value = 0;
   showSendModal.value = true;
-  // 使用 DaisyUI 的 showModal() 方法
-  sendModalRef.value?.showModal();
 }
 
-function closeSendModal() {
-  showSendModal.value = false;
-  sendSuccess.value = false;
-  sendModalRef.value?.close();
-}
+// 用于传递给 SendMessageModal 的表单数据
+const sendModalRef = ref<InstanceType<typeof SendMessageModal> | null>(null);
+const messageFormPartition = ref(0);
+const messageFormKey = ref('');
+const messageFormValue = ref('');
 
-// Format JSON value and update validity status
-function formatJsonValue(): string {
-  if (!messageForm.value) {
-    isJsonValid.value = false;
-    return '';
-  }
-  try {
-    const parsed = JSON.parse(messageForm.value);
-    messageForm.value = JSON.stringify(parsed, null, 2);
-    isJsonValid.value = true;
-    return messageForm.value;
-  } catch {
-    isJsonValid.value = false;
-    return messageForm.value;
-  }
-}
-
-// Check if value is valid JSON (for preview)
-watch(() => messageForm.value, (newVal) => {
-  if (!newVal) {
-    isJsonValid.value = false;
-    return;
-  }
-  try {
-    JSON.parse(newVal);
-    isJsonValid.value = true;
-  } catch {
-    isJsonValid.value = false;
-  }
-}, { immediate: true });
-
-async function handleSendMessage(keepOpen: boolean = false) {
+// 处理发送消息提交
+async function handleSubmit(data: { partition: number; key: string | undefined; value: string; headers: { key: string; value: string }[] }, keepOpen: boolean) {
   if (!selectedClusterId.value || !selectedTopic.value) return;
 
-  sending.value = true;
-  sendSuccess.value = false;
   try {
     const result = await apiClient.sendMessage(selectedClusterId.value, selectedTopic.value, {
-      partition: messageForm.partition,
-      key: messageForm.key || undefined,
-      value: messageForm.value,
+      partition: data.partition,
+      key: data.key,
+      value: data.value,
     });
-    lastOffset.value = result.offset;
-    sentCount.value += 1;
 
-    if (keepOpen) {
-      // 不清空输入框，保留当前值方便继续发送相同内容
-      sendSuccess.value = true;
-    } else {
-      // 关闭弹框，刷新消息列表
-      closeSendModal();
-      fetchMessages();
+    // 刷新消息列表
+    fetchMessages();
+
+    // 设置 offset 到弹窗
+    sendModalRef.value?.setLastOffset(result.offset);
+
+    // 只在不需要保持打开时关闭弹框
+    if (!keepOpen) {
+      showSendModal.value = false;
     }
+
+    showSuccess(`${t.value.messages.messageSent}! ${t.value.messages.offset}: ${result.offset}`);
   } catch (e) {
     showError((e as { message: string }).message);
-  } finally {
-    sending.value = false;
   }
 }
 
@@ -1199,7 +1074,7 @@ watch(partitionParam, (newPartition) => {
     filters.partition = newPartition;
     // 如果是从右键菜单发送消息，预填充 partition 字段
     if (actionParam.value === 'send') {
-      messageForm.partition = newPartition;
+      messageFormPartition.value = newPartition;
     }
     if (selectedTopic.value) {
       fetchMessages();
@@ -1207,10 +1082,10 @@ watch(partitionParam, (newPartition) => {
   }
 }, { immediate: true });
 
-// 监听 topicPartitions 变化，更新 messageForm.partition 默认值
+// 监听 topicPartitions 变化，更新 messageFormPartition 默认值
 watch(topicPartitions, (newPartitions) => {
-  if (newPartitions.length > 0 && messageForm.partition === 0) {
-    messageForm.partition = Number(newPartitions[0]);
+  if (newPartitions.length > 0 && messageFormPartition.value === 0) {
+    messageFormPartition.value = Number(newPartitions[0]);
   }
 });
 
@@ -1271,10 +1146,6 @@ onBeforeUnmount(() => {
   }
   // 取消请求
   apiClient.cancelGetMessages();
-  // 关闭发送消息弹窗，防止内存泄漏
-  if (sendModalRef.value) {
-    sendModalRef.value.close();
-  }
 });
 </script>
 

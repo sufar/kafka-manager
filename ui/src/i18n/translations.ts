@@ -180,6 +180,9 @@ export interface Translation {
     fetchFailed: string;
     loading: string;
     clearSort: string;
+    hide: string;
+    show: string;
+    valid: string;
   };
   settings: {
     title: string;
@@ -468,6 +471,9 @@ export const translations: Record<Language, Translation> = {
       fetchFailed: '获取失败',
       loading: '加载中...',
       clearSort: '清除排序',
+      hide: '收起',
+      show: '展开',
+      valid: '有效',
     },
     settings: {
       title: '设置',
@@ -754,6 +760,9 @@ export const translations: Record<Language, Translation> = {
       fetchFailed: 'Fetch failed',
       loading: 'Loading...',
       clearSort: 'Clear sort',
+      hide: 'Hide',
+      show: 'Show',
+      valid: 'Valid',
     },
     settings: {
       title: 'Settings',
