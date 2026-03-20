@@ -890,31 +890,69 @@ async function handleCreateTopic() {
     return;
   }
 
+  // Validate topic name - Kafka topic names cannot contain spaces or special characters
+  const trimmedName = newTopic.name.trim();
+  if (!trimmedName) {
+    showError('Topic name is required');
+    return;
+  }
+
+  // Kafka topic naming rules: only letters, numbers, dots, underscores, and hyphens
+  const topicNameRegex = /^[a-zA-Z0-9._-]+$/;
+  if (!topicNameRegex.test(trimmedName)) {
+    showError('Topic name can only contain letters, numbers, dots, underscores, and hyphens');
+    return;
+  }
+
   creatingTopic.value = true;
   try {
-    // Build config object, filtering out empty values
+    // Build config object with correct Kafka config key names (using dots, not underscores)
+    // Only include config if advanced options are enabled
     const config: Record<string, string> = {};
-    if (newTopic.config.cleanup_policy) {
-      config.cleanup_policy = newTopic.config.cleanup_policy;
-    }
-    if (newTopic.config.retention_ms) {
-      config.retention_ms = newTopic.config.retention_ms;
-    }
-    if (newTopic.config.retention_bytes) {
-      config.retention_bytes = newTopic.config.retention_bytes;
-    }
-    if (newTopic.config.segment_bytes) {
-      config.segment_bytes = newTopic.config.segment_bytes;
+    if (showAdvanced.value) {
+      if (newTopic.config.cleanup_policy && newTopic.config.cleanup_policy.trim()) {
+        config['cleanup.policy'] = newTopic.config.cleanup_policy.trim();
+      }
+      if (newTopic.config.retention_ms && newTopic.config.retention_ms.trim()) {
+        // Validate it's a number
+        const retentionMs = parseInt(newTopic.config.retention_ms.trim(), 10);
+        if (isNaN(retentionMs) || retentionMs < 0) {
+          showError('retention.ms must be a positive number');
+          creatingTopic.value = false;
+          return;
+        }
+        config['retention.ms'] = retentionMs.toString();
+      }
+      if (newTopic.config.retention_bytes && newTopic.config.retention_bytes.trim()) {
+        // Validate it's a number
+        const retentionBytes = parseInt(newTopic.config.retention_bytes.trim(), 10);
+        if (isNaN(retentionBytes)) {
+          showError('retention.bytes must be a number (use -1 for unlimited)');
+          creatingTopic.value = false;
+          return;
+        }
+        config['retention.bytes'] = retentionBytes.toString();
+      }
+      if (newTopic.config.segment_bytes && newTopic.config.segment_bytes.trim()) {
+        // Validate it's a number
+        const segmentBytes = parseInt(newTopic.config.segment_bytes.trim(), 10);
+        if (isNaN(segmentBytes) || segmentBytes < 0) {
+          showError('segment.bytes must be a positive number');
+          creatingTopic.value = false;
+          return;
+        }
+        config['segment.bytes'] = segmentBytes.toString();
+      }
     }
 
     await apiClient.createTopic(clusterId, {
-      name: newTopic.name,
+      name: trimmedName,
       num_partitions: newTopic.numPartitions,
       replication_factor: newTopic.replicationFactor,
       config: Object.keys(config).length > 0 ? config : undefined,
     });
 
-    showSuccess(`Topic "${newTopic.name}" created successfully`);
+    showSuccess(`Topic "${trimmedName}" created successfully`);
     closeCreateTopicDialog();
     await fetchTopics();
   } catch (e) {

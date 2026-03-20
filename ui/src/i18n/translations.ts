@@ -32,6 +32,7 @@ export interface Translation {
     ready: string;
     optional: string;
     confirm: string;
+    close: string;
   };
   dashboard: {
     title: string;
@@ -133,6 +134,7 @@ export interface Translation {
     allPartitions: string;
     fetch: string;
     filter: string;
+    formatJson: string;
     fetchMode: string;
     oldest: string;
     newest: string;
@@ -316,6 +318,7 @@ export const translations: Record<Language, Translation> = {
       ready: '就绪',
       optional: '可选',
       confirm: '确认',
+      close: '关闭',
     },
     dashboard: {
       title: '仪表盘',
@@ -417,6 +420,7 @@ export const translations: Record<Language, Translation> = {
       allPartitions: '全部分区',
       fetch: '获取',
       filter: '过滤',
+      formatJson: '格式化 JSON',
       fetchMode: '获取模式',
       oldest: '最早',
       newest: '最新',
@@ -598,6 +602,7 @@ export const translations: Record<Language, Translation> = {
       ready: 'Ready',
       optional: 'Optional',
       confirm: 'Confirm',
+      close: 'Close',
     },
     dashboard: {
       title: 'Dashboard',
@@ -699,6 +704,7 @@ export const translations: Record<Language, Translation> = {
       allPartitions: 'All Partitions',
       fetch: 'Fetch',
       filter: 'Filter',
+      formatJson: 'Format JSON',
       fetchMode: 'Fetch Mode',
       oldest: 'Oldest',
       newest: 'Newest',

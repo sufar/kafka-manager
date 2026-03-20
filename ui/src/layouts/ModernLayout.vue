@@ -420,7 +420,9 @@ async function loadSidebarModeSetting() {
 }
 
 // Set sidebar mode and save to backend
-async function setSidebarMode(mode: 'tree' | 'flat') {
+// Note: Currently not used directly, but kept for future functionality
+// allowedUnused
+async function _setSidebarMode(mode: 'tree' | 'flat') {
   sidebarMode.value = mode;
   try {
     await apiClient.updateSetting('ui.sidebar_mode', mode);
@@ -428,6 +430,8 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
     console.error('Failed to save sidebar mode setting:', e);
   }
 }
+
+void _setSidebarMode; // Prevent unused warning
 
 const { isDark, toggleTheme } = themeStore;
 const toggleLanguage = languageStore.toggleLanguage;

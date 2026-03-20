@@ -327,7 +327,30 @@
                 <span class="label-text font-medium">{{ t.messages.value }}</span>
                 <span class="label-text-alt">{{ t.messages.required }}</span>
               </label>
-              <textarea v-model="messageForm.value" class="textarea textarea-bordered h-24 sm:h-32 font-mono text-sm w-full" required :placeholder="`{&quot;id&quot;: 1, &quot;data&quot;: &quot;example&quot;}`"></textarea>
+              <div class="relative">
+                <textarea
+                  v-model="messageForm.value"
+                  ref="valueInputRef"
+                  class="textarea textarea-bordered h-24 sm:h-48 font-mono text-sm w-full"
+                  required
+                  :placeholder="`{&quot;id&quot;: 1, &quot;data&quot;: &quot;example&quot;}`"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost absolute top-2 right-2"
+                  @click="formatJsonValue"
+                  title="Format JSON"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+                  </svg>
+                  Format
+                </button>
+              </div>
+              <!-- JSON Preview/Highlight -->
+              <div v-if="messageForm.value && isJsonValid" class="mt-2 bg-base-200/50 backdrop-blur-sm p-2 rounded-lg border border-base-content/5 overflow-auto max-h-48">
+                <pre class="text-xs font-mono cursor-text select-text json-highlight" tabindex="0" v-html="highlightJson(formatJsonValue())"></pre>
+              </div>
             </div>
             <!-- Success Alert -->
             <div v-if="sendSuccess" class="alert alert-success py-2">
@@ -495,6 +518,9 @@ const messageForm = reactive({
   key: '',
   value: '',
 });
+const valueInputRef = ref<HTMLTextAreaElement>(); // Used for JSON formatting button
+void valueInputRef; // Prevent unused warning
+const isJsonValid = ref(false);
 
 // Resizer
 const messagesListRef = ref<HTMLElement>();
@@ -943,6 +969,37 @@ function closeSendModal() {
   sendSuccess.value = false;
   sendModalRef.value?.close();
 }
+
+// Format JSON value and update validity status
+function formatJsonValue(): string {
+  if (!messageForm.value) {
+    isJsonValid.value = false;
+    return '';
+  }
+  try {
+    const parsed = JSON.parse(messageForm.value);
+    messageForm.value = JSON.stringify(parsed, null, 2);
+    isJsonValid.value = true;
+    return messageForm.value;
+  } catch {
+    isJsonValid.value = false;
+    return messageForm.value;
+  }
+}
+
+// Check if value is valid JSON (for preview)
+watch(() => messageForm.value, (newVal) => {
+  if (!newVal) {
+    isJsonValid.value = false;
+    return;
+  }
+  try {
+    JSON.parse(newVal);
+    isJsonValid.value = true;
+  } catch {
+    isJsonValid.value = false;
+  }
+}, { immediate: true });
 
 async function handleSendMessage(keepOpen: boolean = false) {
   if (!selectedClusterId.value || !selectedTopic.value) return;
