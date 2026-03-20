@@ -88,6 +88,7 @@
         :item-size="28"
         key-field="uid"
         v-slot="{ item }"
+        @scroll="handleScroll"
       >
         <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
@@ -222,6 +223,9 @@ const limit = ref(10000);
 const total = ref(0);
 const hasMore = ref(false);
 
+// Scroll state
+let scrollLock = false; // Prevent multiple simultaneous loads
+
 // Debounce timer
 let searchTimer: number | null = null;
 
@@ -286,11 +290,8 @@ async function loadAllTopics() {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    // 集群过滤器：使用右下角主界面的集群选择器
-    // selectedClusterFilter 为空字符串时表示所有集群，否则使用右下角的选择
-    const clusterFilter = selectedClusterFilter.value === ''
-      ? undefined
-      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
+    // 优先使用内部过滤器（收藏跳转等场景），否则使用 UI 选择器
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
 
     // If a specific cluster is selected, only load topics from that cluster
     if (clusterFilter) {
@@ -363,11 +364,7 @@ async function loadMoreTopics() {
   loadingMore.value = true;
   try {
     const nextOffset = offset.value + limit.value;
-    // 集群过滤器：使用右下角主界面的集群选择器
-    // selectedClusterFilter 为空字符串时表示所有集群，否则使用右下角的选择
-    const clusterFilter = selectedClusterFilter.value === ''
-      ? undefined
-      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
 
     if (clusterFilter) {
       const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
@@ -417,11 +414,8 @@ async function refreshTopics() {
   try {
     const clusters = clusterStore.clusters;
 
-    // 刷新按钮的集群过滤器：使用右下角主界面的集群选择器
-    // selectedClusterFilter 为空字符串时表示所有集群
-    const clusterFilter = selectedClusterFilter.value === ''
-      ? undefined
-      : (selectedClusterFilter.value || clusterStore.selectedClusterId || undefined);
+    // 优先使用内部 cluster 过滤器，否则使用 UI 选择器
+    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
 
     // If a specific cluster is selected, only refresh that cluster
     if (clusterFilter) {
@@ -503,17 +497,12 @@ function clearSearch() {
 // Select topic
 function selectTopic(topic: TopicInfo) {
   selectedTopic.value = topic;
-  const query: Record<string, string> = {
-    cluster: topic.cluster,
-    topic: topic.name
-  };
-  // 如果有搜索词，自动带上，跳转后自动搜索
-  if (searchQuery.value) {
-    query.search = searchQuery.value;
-  }
   emit('navigate', {
     path: '/messages',
-    query
+    query: {
+      cluster: topic.cluster,
+      topic: topic.name
+    }
   });
 }
 
@@ -539,11 +528,26 @@ function goToFavorites() {
   });
 }
 
-// 监听多个数据源变化：
-// 1. clusterStore.selectedClusterId - 主界面右下角集群选择器
-// 2. selectedClusterFilter - 本地 UI 集群选择器
-// 3. clusterStore.clusters.length - 集群列表变化
-watch([() => clusterStore.clusters.length, () => clusterStore.selectedClusterId, selectedClusterFilter], () => {
+// Handle scroll to load more automatically
+function handleScroll(event: Event) {
+  if (scrollLock || !hasMore.value || loadingMore.value || isUnmounted.value) return;
+
+  const target = event.target as HTMLElement;
+  const { scrollTop, scrollHeight, clientHeight } = target;
+
+  // Load more when scrolled to 80% of the list
+  const scrollThreshold = scrollHeight * 0.8;
+  if (scrollTop + clientHeight >= scrollThreshold && allTopics.value.length < 10000) {
+    scrollLock = true;
+    loadMoreTopics().then(() => {
+      scrollLock = false;
+    }).catch(() => {
+      scrollLock = false;
+    });
+  }
+}
+
+watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
   loadAllTopics();
 }, { immediate: true });
 
@@ -562,19 +566,19 @@ watch(
 
     // 如果有 cluster 和 topic，处理高亮和搜索框
     if (cluster && topic) {
-      // 检查是否已经在该 cluster（内部点击）
-      const isAlreadyOnThisCluster = internalClusterFilter.value === cluster;
+      pendingHighlight.value = { cluster, topic };
 
-      if (!isAlreadyOnThisCluster) {
+      // 检查是否已经在该 topic（内部点击）
+      const isAlreadyOnThisTopic = selectedTopic.value?.cluster === cluster && selectedTopic.value?.name === topic;
+
+      if (!isAlreadyOnThisTopic) {
         // 来自外部导航（如收藏双击、顶部搜索）
         // 设置内部 cluster 过滤器（不改变 UI 选择器）
         internalClusterFilter.value = cluster;
+        // 不再自动填入搜索框，避免干扰用户
       }
-
-      // 设置高亮
-      pendingHighlight.value = { cluster, topic };
     } else {
-      // 清除内部 cluster 过滤器（使用空字符串表示无）
+      // 清除内部 cluster 过滤器
       internalClusterFilter.value = '';
     }
   },
