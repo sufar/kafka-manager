@@ -41,6 +41,8 @@ export function highlightJson(json: string): string {
     }
   );
 
+  console.log('[highlightJson] input:', json);
+  console.log('[highlightJson] output:', escaped);
   return escaped;
 }
 

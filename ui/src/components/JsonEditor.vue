@@ -161,23 +161,38 @@ defineExpose({
   z-index: 10;
 }
 
-/* 语法高亮颜色 - 使用 DaisyUI 语义化颜色 */
+/* 语法高亮颜色 - 柔和现代风格 */
 :deep(.text-secondary) {
-  color: oklch(var(--s)) !important;
+  color: #7c3aed !important;
   font-weight: 600;
 }
+[data-theme="dark"] :deep(.text-secondary) {
+  color: #a78bfa !important;
+}
 :deep(.text-accent) {
-  color: oklch(var(--a)) !important;
+  color: #059669 !important;
+}
+[data-theme="dark"] :deep(.text-accent) {
+  color: #34d399 !important;
 }
 :deep(.text-info) {
-  color: oklch(var(--in)) !important;
+  color: #0284c7 !important;
   font-weight: 700;
+}
+[data-theme="dark"] :deep(.text-info) {
+  color: #38bdf8 !important;
 }
 :deep(.text-warning) {
-  color: oklch(var(--wa)) !important;
+  color: #9ca3af !important;
   font-weight: 700;
 }
+[data-theme="dark"] :deep(.text-warning) {
+  color: #6b7280 !important;
+}
 :deep(.text-base-content) {
-  color: oklch(var(--bc)) !important;
+  color: #475569 !important;
+}
+[data-theme="dark"] :deep(.text-base-content) {
+  color: #94a3b8 !important;
 }
 </style>
