@@ -287,8 +287,24 @@ async function loadAllTopics() {
     const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    // 优先使用内部过滤器（收藏跳转等场景），否则使用 UI 选择器
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    // 集群过滤器优先级：
+    // 1. internalClusterFilter - 内部使用（收藏跳转等），空字符串表示无
+    // 2. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群）
+    // 3. clusterStore.selectedClusterId - 主界面右下角集群选择器（仅当本地 UI 未明确选择时）
+    let clusterFilter: string | undefined;
+
+    // 检查 internalClusterFilter（非空字符串时有效）
+    if (internalClusterFilter.value) {
+      clusterFilter = internalClusterFilter.value;
+    }
+    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
+    else if (selectedClusterFilter.value !== '') {
+      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
+    }
+    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
+    else {
+      clusterFilter = undefined;
+    }
 
     // If a specific cluster is selected, only load topics from that cluster
     if (clusterFilter) {
@@ -361,7 +377,24 @@ async function loadMoreTopics() {
   loadingMore.value = true;
   try {
     const nextOffset = offset.value + limit.value;
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    // 集群过滤器优先级：
+    // 1. internalClusterFilter - 内部使用（收藏跳转等），空字符串表示无
+    // 2. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群）
+    // 3. clusterStore.selectedClusterId - 主界面右下角集群选择器（仅当本地 UI 未明确选择时）
+    let clusterFilter: string | undefined;
+
+    // 检查 internalClusterFilter（非空字符串时有效）
+    if (internalClusterFilter.value) {
+      clusterFilter = internalClusterFilter.value;
+    }
+    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
+    else if (selectedClusterFilter.value !== '') {
+      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
+    }
+    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
+    else {
+      clusterFilter = undefined;
+    }
 
     if (clusterFilter) {
       const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
@@ -411,8 +444,20 @@ async function refreshTopics() {
   try {
     const clusters = clusterStore.clusters;
 
-    // 优先使用内部 cluster 过滤器，否则使用 UI 选择器
-    const clusterFilter = internalClusterFilter.value || selectedClusterFilter.value;
+    // 刷新按钮的集群过滤器：
+    // 1. selectedClusterFilter - 本地 UI 选择器（空字符串表示所有集群，非空表示选择了特定集群）
+    // 2. clusterStore.selectedClusterId - 主界面右下角集群选择器
+    // 注意：不使用 internalClusterFilter，因为那只是临时用于显示过滤，不影响刷新
+    let clusterFilter: string | undefined;
+
+    // 检查 selectedClusterFilter（空字符串表示所有集群，非空表示选择了特定集群）
+    if (selectedClusterFilter.value !== '') {
+      clusterFilter = selectedClusterFilter.value || clusterStore.selectedClusterId || undefined;
+    }
+    // selectedClusterFilter 为空字符串，表示用户明确选择"所有集群"
+    else {
+      clusterFilter = undefined;
+    }
 
     // If a specific cluster is selected, only refresh that cluster
     if (clusterFilter) {
@@ -494,12 +539,17 @@ function clearSearch() {
 // Select topic
 function selectTopic(topic: TopicInfo) {
   selectedTopic.value = topic;
+  const query: Record<string, string> = {
+    cluster: topic.cluster,
+    topic: topic.name
+  };
+  // 如果有搜索词，自动带上，跳转后自动搜索
+  if (searchQuery.value) {
+    query.search = searchQuery.value;
+  }
   emit('navigate', {
     path: '/messages',
-    query: {
-      cluster: topic.cluster,
-      topic: topic.name
-    }
+    query
   });
 }
 
@@ -525,7 +575,11 @@ function goToFavorites() {
   });
 }
 
-watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
+// 监听多个数据源变化：
+// 1. clusterStore.selectedClusterId - 主界面右下角集群选择器
+// 2. selectedClusterFilter - 本地 UI 集群选择器
+// 3. clusterStore.clusters.length - 集群列表变化
+watch([() => clusterStore.clusters.length, () => clusterStore.selectedClusterId, selectedClusterFilter], () => {
   loadAllTopics();
 }, { immediate: true });
 
@@ -544,19 +598,19 @@ watch(
 
     // 如果有 cluster 和 topic，处理高亮和搜索框
     if (cluster && topic) {
-      pendingHighlight.value = { cluster, topic };
+      // 检查是否已经在该 cluster（内部点击）
+      const isAlreadyOnThisCluster = internalClusterFilter.value === cluster;
 
-      // 检查是否已经在该 topic（内部点击）
-      const isAlreadyOnThisTopic = selectedTopic.value?.cluster === cluster && selectedTopic.value?.name === topic;
-
-      if (!isAlreadyOnThisTopic) {
+      if (!isAlreadyOnThisCluster) {
         // 来自外部导航（如收藏双击、顶部搜索）
         // 设置内部 cluster 过滤器（不改变 UI 选择器）
         internalClusterFilter.value = cluster;
-        // 不再自动填入搜索框，避免干扰用户
       }
+
+      // 设置高亮
+      pendingHighlight.value = { cluster, topic };
     } else {
-      // 清除内部 cluster 过滤器
+      // 清除内部 cluster 过滤器（使用空字符串表示无）
       internalClusterFilter.value = '';
     }
   },

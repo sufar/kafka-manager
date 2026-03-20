@@ -528,10 +528,11 @@ function handleSearchKeydown(e: KeyboardEvent) {
 
 async function selectSearchResult(result: { cluster: string; topic: string }) {
   showSearchDropdown.value = false;
+  const searchTerm = searchQuery.value; // 保存搜索词
   searchQuery.value = '';
 
   // 统一跳转到 messages 页面，不管是 tree 还是 flat 模式
-  router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
+  router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic, search: searchTerm } });
 
   if (sidebarMode.value === 'tree') {
     // Tree mode: expand tree and highlight topic
