@@ -1462,100 +1462,18 @@ async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> 
 }
 
 async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
+    // cluster_id 是可选参数，未指定时刷新所有集群
+    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
     // 立即返回成功，后台异步同步
     // 这样不会阻塞后续的 topic.list 请求
     tokio::spawn(async move {
-        // 首先尝试从内存中获取 admin 客户端
-        let clients = state.get_clients();
-        let admin = clients.get_admin(&cluster_id);
-
-        // 如果不存在，尝试从数据库获取集群配置并建立连接
-        let admin = if let Some(existing_admin) = admin {
-            existing_admin
+        if let Some(cluster_id) = cluster_id {
+            // 刷新指定集群
+            refresh_single_cluster(state, cluster_id).await;
         } else {
-            match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
-                Ok(Some(cluster)) => {
-                    let config = crate::config::KafkaConfig {
-                        brokers: cluster.brokers,
-                        request_timeout_ms: cluster.request_timeout_ms as u32,
-                        operation_timeout_ms: cluster.operation_timeout_ms as u32,
-                    };
-
-                    // 建立连接池连接
-                    let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
-
-                    // 获取新的客户端（包含刚添加的集群）
-                    let new_clients = state.get_clients();
-                    match new_clients.get_admin(&cluster_id) {
-                        Some(admin) => admin,
-                        None => {
-                            tracing::error!("Failed to get admin client for cluster '{}'", cluster_id);
-                            return;
-                        }
-                    }
-                }
-                Ok(None) => {
-                    tracing::error!("Cluster '{}' not found in database", cluster_id);
-                    return;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to get cluster config: {}", e);
-                    return;
-                }
-            }
-        };
-
-        // Get current topics from Kafka (blocking operation)
-        let current_topics = {
-            let admin = admin.clone();
-            match tokio::task::spawn_blocking(move || admin.list_topics()).await {
-                Ok(Ok(topics)) => topics,
-                Ok(Err(e)) => {
-                    tracing::error!("Failed to list topics: {}", e);
-                    return;
-                }
-                Err(e) => {
-                    tracing::error!("Task join error: {}", e);
-                    return;
-                }
-            }
-        };
-
-        // Sync to database
-        match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
-            Ok(sync_result) => {
-                tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
-
-                // Save new topics to database (blocking operations in spawn_blocking)
-                for topic_name in &sync_result.added {
-                    let topic_name = topic_name.clone();
-                    let admin = admin.clone();
-                    let cluster_id = cluster_id.clone();
-                    let db = state.db.clone();
-
-                    let _ = tokio::task::spawn_blocking(move || {
-                        if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
-                            let config = std::collections::HashMap::new();
-                            let _ = TopicStore::upsert(
-                                db.inner(),
-                                &cluster_id,
-                                &topic_name,
-                                topic_info.partitions.len() as i32,
-                                1,
-                                &config,
-                            );
-                        }
-                    }).await;
-                }
-
-                // Update cache
-                state.cache.set_topic_list(&cluster_id, current_topics).await;
-            }
-            Err(e) => {
-                tracing::error!("Failed to sync topics: {}", e);
-            }
+            // 刷新所有集群
+            refresh_all_clusters(state).await;
         }
     });
 
@@ -1564,6 +1482,136 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
         "success": true,
         "message": "Topic refresh started in background",
     }))
+}
+
+/// 刷新单个集群的 Topic 列表
+async fn refresh_single_cluster(state: AppState, cluster_id: String) {
+    use crate::db::cluster::ClusterStore;
+    use crate::db::topic::TopicStore;
+
+    // 首先尝试从内存中获取 admin 客户端
+    let clients = state.get_clients();
+    let admin = clients.get_admin(&cluster_id);
+
+    // 如果不存在，尝试从数据库获取集群配置并建立连接
+    let admin = if let Some(existing_admin) = admin {
+        existing_admin
+    } else {
+        match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+            Ok(Some(cluster)) => {
+                let config = crate::config::KafkaConfig {
+                    brokers: cluster.brokers,
+                    request_timeout_ms: cluster.request_timeout_ms as u32,
+                    operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                };
+
+                // 建立连接池连接
+                let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
+
+                // 获取新的客户端（包含刚添加的集群）
+                let new_clients = state.get_clients();
+                match new_clients.get_admin(&cluster_id) {
+                    Some(admin) => admin,
+                    None => {
+                        tracing::error!("Failed to get admin client for cluster '{}'", cluster_id);
+                        return;
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::error!("Cluster '{}' not found in database", cluster_id);
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Failed to get cluster config: {}", e);
+                return;
+            }
+        }
+    };
+
+    // Get current topics from Kafka (blocking operation)
+    let current_topics = {
+        let admin = admin.clone();
+        match tokio::task::spawn_blocking(move || admin.list_topics()).await {
+            Ok(Ok(topics)) => topics,
+            Ok(Err(e)) => {
+                tracing::error!("Failed to list topics: {}", e);
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Task join error: {}", e);
+                return;
+            }
+        }
+    };
+
+    // Sync to database
+    match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
+        Ok(sync_result) => {
+            tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
+
+            // Save new topics to database (blocking operations in spawn_blocking)
+            for topic_name in &sync_result.added {
+                let topic_name = topic_name.clone();
+                let admin = admin.clone();
+                let cluster_id = cluster_id.clone();
+                let db = state.db.clone();
+
+                let _ = tokio::task::spawn_blocking(move || {
+                    if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
+                        let config = std::collections::HashMap::new();
+                        let _ = TopicStore::upsert(
+                            db.inner(),
+                            &cluster_id,
+                            &topic_name,
+                            topic_info.partitions.len() as i32,
+                            1,
+                            &config,
+                        );
+                    }
+                }).await;
+            }
+
+            // Update cache
+            state.cache.set_topic_list(&cluster_id, current_topics).await;
+        }
+        Err(e) => {
+            tracing::error!("Failed to sync topics: {}", e);
+        }
+    }
+}
+
+/// 刷新所有集群的 Topic 列表
+async fn refresh_all_clusters(state: AppState) {
+    use crate::db::cluster::ClusterStore;
+
+    // 获取所有集群
+    let clusters = match ClusterStore::list(state.db.inner()).await {
+        Ok(clusters) => clusters,
+        Err(e) => {
+            tracing::error!("Failed to list clusters: {}", e);
+            return;
+        }
+    };
+
+    tracing::info!("Refreshing all {} clusters", clusters.len());
+
+    // 并行刷新所有集群
+    let mut tasks = Vec::new();
+    for cluster in clusters {
+        let state = state.clone();
+        let cluster_id = cluster.name;
+        tasks.push(tokio::spawn(async move {
+            refresh_single_cluster(state, cluster_id).await;
+        }));
+    }
+
+    // 等待所有任务完成
+    for task in tasks {
+        let _ = task.await;
+    }
+
+    tracing::info!("Completed refreshing all clusters");
 }
 
 async fn handle_topic_search(state: AppState, body: Value) -> Result<Value> {

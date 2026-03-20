@@ -317,8 +317,18 @@ class ApiClient {
     return this.request('topic.partitions.add', { cluster_id: clusterId, topic: topicName, new_partitions: newPartitions });
   }
 
-  async refreshTopics(clusterId: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
-    return this.request('topic.refresh', { cluster_id: clusterId });
+  async refreshTopics(clusterId?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
+    // 如果不传 clusterId，则刷新所有集群
+    const params: Record<string, any> = {};
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    return this.request('topic.refresh', params);
+  }
+
+  async refreshAllClusters(): Promise<{ success: boolean; message: string }> {
+    // 刷新所有集群的 Topic 列表
+    return this.request('topic.refresh', {});
   }
 
   async cleanupOrphanTopics(): Promise<{ success: boolean; removed: [string, string][]; count: number }> {
