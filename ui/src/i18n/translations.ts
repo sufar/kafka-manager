@@ -102,6 +102,22 @@ export interface Translation {
     groupDescription: string;
     groupDescPlaceholder: string;
     confirmDeleteGroup: string;
+    test: string;
+    reconnect: string;
+    disconnect: string;
+    disconnectedSuccess: string;
+    reconnectSuccess: string;
+    groupUpdated: string;
+    groupCreated: string;
+    groupDeleted: string;
+    clusterDeleted: string;
+    scrollLeft: string;
+    scrollRight: string;
+    editClusterTitle: string;
+    createClusterTitle: string;
+    brokersHelp: string;
+    createdDate: string;
+    unknown: string;
   };
   topics: {
     title: string;
@@ -280,6 +296,10 @@ export interface Translation {
     selectGroupsAndClusters: string;
     selected: string;
     selectCluster: string;
+    groups: string;
+    clusters: string;
+    deselectAll: string;
+    selectClusters: string;
   };
   favorites: {
     title: string;
@@ -417,6 +437,22 @@ export const translations: Record<Language, Translation> = {
       groupDescription: '分组描述',
       groupDescPlaceholder: '请输入分组描述（可选）',
       confirmDeleteGroup: '删除后，该分组下的所有集群将变为无分组状态。',
+      test: '测试',
+      reconnect: '重连',
+      disconnect: '断开连接',
+      disconnectedSuccess: '集群已断开连接',
+      reconnectSuccess: '重连成功',
+      groupUpdated: '分组已更新',
+      groupCreated: '分组已创建',
+      groupDeleted: '分组已删除',
+      clusterDeleted: '集群已删除',
+      scrollLeft: '向左滚动',
+      scrollRight: '向右滚动',
+      editClusterTitle: '编辑集群',
+      createClusterTitle: '创建集群',
+      brokersHelp: '逗号分隔的 broker 地址列表',
+      createdDate: '创建时间',
+      unknown: '未知',
     },
     topics: {
       title: '主题',
@@ -595,6 +631,10 @@ export const translations: Record<Language, Translation> = {
       selectGroupsAndClusters: '选择分组/集群',
       selected: '已选择',
       selectCluster: '选择集群',
+      groups: '分组',
+      clusters: '集群',
+      deselectAll: '取消全选',
+      selectClusters: '选择集群',
     },
     favorites: {
       title: 'Topic 收藏',
@@ -730,6 +770,22 @@ export const translations: Record<Language, Translation> = {
       groupDescription: 'Group Description',
       groupDescPlaceholder: 'Enter description (optional)',
       confirmDeleteGroup: 'After deletion, all clusters in this group will become ungrouped.',
+      test: 'Test',
+      reconnect: 'Reconnect',
+      disconnect: 'Disconnect',
+      disconnectedSuccess: 'Cluster disconnected',
+      reconnectSuccess: 'Reconnected successfully',
+      groupUpdated: 'Group updated',
+      groupCreated: 'Group created',
+      groupDeleted: 'Group deleted',
+      clusterDeleted: 'Cluster deleted',
+      scrollLeft: 'Scroll left',
+      scrollRight: 'Scroll right',
+      editClusterTitle: 'Edit Cluster',
+      createClusterTitle: 'Create Cluster',
+      brokersHelp: 'Comma-separated list of broker addresses',
+      createdDate: 'Created',
+      unknown: 'unknown',
     },
     topics: {
       title: 'Topics',
@@ -908,6 +964,10 @@ export const translations: Record<Language, Translation> = {
       selectGroupsAndClusters: 'Select Groups/Clusters',
       selected: 'Selected',
       selectCluster: 'Select cluster',
+      groups: 'Groups',
+      clusters: 'Clusters',
+      deselectAll: 'Deselect All',
+      selectClusters: 'Select Clusters',
     },
     favorites: {
       title: 'Topic Favorites',

@@ -94,46 +94,53 @@
 
     <!-- Single cluster view (from URL param) -->
     <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl">
-      <div ref="singleClusterContainerRef" class="overflow-x-auto overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 250px);">
-        <!-- Search Bar -->
-        <div class="p-3 sticky top-0 bg-base-100 z-10">
-          <div class="relative">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
-              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <input
-              v-model="searchQuery"
-              type="text"
-              :placeholder="t.common.search"
-              class="input input-bordered w-full max-w-md pl-10"
-            />
-          </div>
+      <!-- Search Bar - 固定在容器外部 -->
+      <div class="p-3 bg-base-100">
+        <div class="relative w-full">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t.common.search"
+            class="input input-bordered w-full pl-10"
+          />
         </div>
-        <table class="table">
+      </div>
+      <!-- 表格容器 - 只有表格内容滚动 -->
+      <!-- 表头 - 固定 -->
+      <div class="bg-base-100 border-b border-base-200">
+        <table class="table w-full">
           <thead>
             <tr>
-              <th>
+              <th class="p-2">
                 <div class="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                   </svg>
-                  {{ t.topics.topicName }}
+                  <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
                 </div>
               </th>
-              <th>{{ t.common.actions }}</th>
+              <th class="p-2 text-right">{{ t.common.actions }}</th>
             </tr>
           </thead>
+        </table>
+      </div>
+      <!-- 表格内容 - 滚动 -->
+      <div ref="singleClusterContainerRef" class="overflow-x-hidden overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 350px);">
+        <table class="table w-full">
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
             <tr v-if="singleClusterVirtualStartIndex > 0" :style="{ height: singleClusterVirtualStartIndex * ROW_HEIGHT + 'px' }">
               <td colspan="2" style="padding: 0; border: 0;"></td>
             </tr>
             <!-- 可见区域的行 -->
-            <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer" :style="{ height: ROW_HEIGHT + 'px' }">
+            <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px`, minHeight: `${ROW_HEIGHT}px` }">
               <td>
-                <div class="flex items-center gap-3">
-                  <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <div class="flex items-center gap-2">
+                  <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
                     </svg>
                   </div>
@@ -143,13 +150,13 @@
                     :t="t"
                     @update="refreshFavorites"
                   />
-                  <span class="font-medium">{{ topic.name }}</span>
+                  <span class="font-medium text-sm">{{ topic.name }}</span>
                 </div>
               </td>
               <td>
-                <div class="flex gap-1">
+                <div class="flex gap-0.5">
                   <button class="btn btn-ghost btn-xs text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                     </svg>
                     {{ t.common.delete }}
@@ -209,26 +216,38 @@
           <p class="text-base-content/60 text-center p-8">{{ t.common.noData }}</p>
         </div>
         <div v-else class="card glass gradient-border">
-          <div
-            class="overflow-auto"
-            :ref="(el: Element | ComponentPublicInstance | null) => setClusterContainerRef(el as HTMLElement | null, clusterName)"
-            @scroll="(e: Event) => handleClusterScroll(e, clusterName)"
-            style="max-height: calc(100vh - 300px);"
-          >
-            <table class="table">
-              <thead class="sticky top-0 bg-base-100 z-10">
+          <!-- 表头 - 固定在容器外部 -->
+          <div class="bg-base-100 border-b border-base-200">
+            <table class="table w-full">
+              <thead>
                 <tr>
-                  <th>{{ t.topics.topicName }}</th>
-                  <th>{{ t.common.actions }}</th>
+                  <th class="p-2">
+                    <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
+                  </th>
+                  <th class="p-2 text-right">{{ t.common.actions }}</th>
                 </tr>
               </thead>
+            </table>
+          </div>
+          <!-- 表格内容 - 滚动 -->
+          <div
+            class="overflow-x-hidden overflow-y-auto"
+            :ref="(el: Element | ComponentPublicInstance | null) => setClusterContainerRef(el as HTMLElement | null, clusterName)"
+            @scroll="(e: Event) => handleClusterScroll(e, clusterName)"
+            style="max-height: calc(100vh - 350px);"
+          >
+            <table class="table w-full">
               <tbody>
                 <template v-if="(visibleClusterTopicsMap[clusterName] || []).length > 0">
+                  <!-- 虚拟滚动：顶部占位 -->
+                  <tr v-if="getClusterVirtualStartIndex(clusterName) > 0" :style="{ height: getClusterVirtualStartIndex(clusterName) * ROW_HEIGHT + 'px' }">
+                    <td colspan="2" style="padding: 0; border: 0;"></td>
+                  </tr>
                   <tr v-for="topic in visibleClusterTopicsMap[clusterName]" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
                     <td>
-                      <div class="flex items-center gap-3">
-                        <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <div class="flex items-center gap-2">
+                        <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
                           </svg>
                         </div>
@@ -238,22 +257,24 @@
                           :t="t"
                           @update="refreshFavorites"
                         />
-                        <span class="font-medium">{{ topic.name }}</span>
+                        <span class="font-medium text-sm">{{ topic.name }}</span>
                       </div>
                     </td>
                     <td>
-                      <div class="flex gap-1">
+                      <div class="flex gap-0.5">
                         <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">{{ t.common.delete }}</button>
                       </div>
                     </td>
                   </tr>
                 </template>
                 <template v-else>
-                  <tr style="height: 1px;"><td colspan="3"></td></tr>
+                  <!-- 虚拟滚动：底部占位 -->
+                  <tr v-if="getClusterBottomPadding(clusterName) > 0" :style="{ height: getClusterBottomPadding(clusterName) + 'px' }">
+                    <td colspan="2" style="padding: 0; border: 0;"></td>
+                  </tr>
                 </template>
               </tbody>
             </table>
-            <div :style="{ height: `${clusterBottomPaddingMap[clusterName] || 0}px` }"></div>
           </div>
         </div>
       </div>
@@ -286,16 +307,31 @@
       </div>
 
       <div v-else class="card bg-base-200">
-        <div ref="containerRef" class="overflow-auto" @scroll="handleScroll" style="max-height: calc(100vh - 250px);">
-          <table class="table">
-            <thead class="sticky top-0 bg-base-200 z-10">
+        <!-- 表头 - 固定在容器外部 -->
+        <div class="bg-base-200 border-b border-base-300">
+          <table class="table w-full">
+            <thead>
               <tr>
-                <th>{{ t.dashboard.clusters }}</th>
-                <th>{{ t.topics.topicName }}</th>
-                <th>{{ t.common.actions }}</th>
+                <th class="p-2">
+                  <span class="text-sm font-semibold">{{ t.dashboard.clusters }}</span>
+                </th>
+                <th class="p-2">
+                  <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
+                </th>
+                <th class="p-2 text-right">{{ t.common.actions }}</th>
               </tr>
             </thead>
+          </table>
+        </div>
+        <!-- 表格内容 - 滚动 -->
+        <div ref="containerRef" class="overflow-x-hidden overflow-y-auto" @scroll="handleScroll" style="max-height: calc(100vh - 310px);">
+          <table class="table w-full">
             <tbody>
+              <!-- 虚拟滚动：顶部占位 -->
+              <tr v-if="allTopicsVirtualStartIndex > 0" :style="{ height: allTopicsVirtualStartIndex * ROW_HEIGHT + 'px' }">
+                <td colspan="3" style="padding: 0; border: 0;"></td>
+              </tr>
+              <!-- 可见区域的行 -->
               <tr v-for="item in visibleTopics" :key="`${item.cluster}-${item.name}`" @dblclick="selectTopicInTree(item.cluster, item)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
                 <td>
                   <div class="flex items-center gap-2">
@@ -305,31 +341,27 @@
                         getClusterHealth(item.cluster)?.healthy ? 'bg-success animate-pulse' : 'bg-error'
                       ]"
                     ></div>
-                    <span class="font-medium">{{ item.cluster }}</span>
+                    <span class="font-medium text-sm">{{ item.cluster }}</span>
                   </div>
                 </td>
                 <td>
-                  <div class="flex items-center gap-3">
-                    <div class="grid h-6 w-6 place-items-center rounded bg-base-300 text-base-content/70">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <div class="flex items-center gap-2">
+                    <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
                       </svg>
                     </div>
-                    <span class="font-medium">{{ item.name }}</span>
+                    <span class="font-medium text-sm">{{ item.name }}</span>
                   </div>
                 </td>
                 <td>
-                  <div class="flex gap-1">
+                  <div class="flex gap-0.5">
                     <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(item.cluster, item.name)">{{ t.common.delete }}</button>
                   </div>
                 </td>
               </tr>
-              <!-- 占位行，保持滚动位置 -->
-              <tr v-if="visibleTopics.length === 0" style="height: 1px;"></tr>
             </tbody>
           </table>
-          <!-- 底部占位，用于虚拟滚动 -->
-          <div :style="{ height: `${bottomPadding}px` }"></div>
         </div>
       </div>
     </template>
@@ -516,7 +548,7 @@ const newTopic = reactive({
 });
 
 // 虚拟滚动相关
-const ROW_HEIGHT = 52; // 每行高度（像素）
+const ROW_HEIGHT = 40; // 每行高度（像素）
 const VISIBLE_OFFSET = 5; // 额外渲染的行数（减少以优化性能）
 const containerRef = ref<HTMLElement | null>(null); // used in template
 void containerRef; // prevent ts-unused warning
@@ -557,29 +589,25 @@ function setClusterContainerRef(el: HTMLElement | null, clusterName: string) {
 }
 
 // 计算可见的行（all-topics 模式）
+const allTopicsVirtualStartIndex = computed(() => {
+  const allTopics = filteredAllTopicsList.value;
+  if (!allTopics.length) return 0;
+  return Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
+});
+
 const visibleTopics = computed(() => {
   const allTopics = filteredAllTopicsList.value;
   if (!allTopics.length) return [];
 
-  const startIndex = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
-  const visibleCount = Math.ceil(containerHeight.value / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+  const startIndex = allTopicsVirtualStartIndex.value;
+  const containerH = containerHeight.value || 600;
+  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
   const endIndex = Math.min(allTopics.length, startIndex + visibleCount);
 
   return allTopics.slice(startIndex, endIndex);
 });
 
-// 计算底部占位高度（all-topics 模式）
-const bottomPadding = computed(() => {
-  const allTopics = filteredAllTopicsList.value;
-  if (!allTopics.length) return 0;
-
-  const visibleCount = visibleTopics.value.length;
-  if (visibleCount === 0) return 0;
-
-  const startIndex = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
-  const hiddenBottom = Math.max(0, allTopics.length - startIndex - visibleCount);
-  return hiddenBottom * ROW_HEIGHT;
-});
+// 计算底部占位高度（all-topics 模式） - 已移除，改用顶部占位行
 
 // Single cluster 模式虚拟滚动
 const singleClusterVirtualStartIndex = computed(() => {
@@ -591,7 +619,8 @@ const singleClusterVisibleTopics = computed(() => {
   if (!allTopics.length) return [];
 
   const startIndex = singleClusterVirtualStartIndex.value;
-  const containerH = singleClusterContainerHeight.value || 600;
+  // 使用容器实际高度或默认值（确保有可见行）
+  const containerH = singleClusterContainerHeight.value > 0 ? singleClusterContainerHeight.value : 400;
   const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
   const endIndex = Math.min(allTopics.length, startIndex + visibleCount);
 
@@ -626,29 +655,27 @@ const visibleClusterTopicsMap = computed(() => {
   return result;
 });
 
-// 集群底部占位高度（computed 缓存，按集群名称）
-const clusterBottomPaddingMap = computed(() => {
-  const result: Record<string, number> = {};
-  for (const [clusterName, clusterTopics] of Object.entries(filteredTopicsByCluster.value)) {
-    if (!clusterTopics.length) {
-      result[clusterName] = 0;
-      continue;
-    }
-    const scrollY = clusterScrollTops.value[clusterName] || 0;
-    const containerH = clusterContainerHeights.value[clusterName] || 600;
-    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
-    const visibleTopics = clusterTopics.slice(startIndex, endIndex);
-    if (visibleTopics.length === 0) {
-      result[clusterName] = 0;
-    } else {
-      const hiddenBottom = Math.max(0, clusterTopics.length - startIndex - visibleTopics.length);
-      result[clusterName] = hiddenBottom * ROW_HEIGHT;
-    }
-  }
-  return result;
-});
+// 获取集群虚拟滚动起始索引（用于模板）
+function getClusterVirtualStartIndex(clusterName: string): number {
+  const topics = filteredTopicsByCluster.value[clusterName];
+  if (!topics?.length) return 0;
+  const scrollY = clusterScrollTops.value[clusterName] || 0;
+  return Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+}
+
+// 获取集群底部占位高度（用于模板）
+function getClusterBottomPadding(clusterName: string): number {
+  const topics = filteredTopicsByCluster.value[clusterName];
+  if (!topics?.length) return 0;
+  const scrollY = clusterScrollTops.value[clusterName] || 0;
+  const containerH = clusterContainerHeights.value[clusterName] || 600;
+  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
+  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
+  const endIndex = Math.min(topics.length, startIndex + visibleCount);
+  const visibleTopics = topics.slice(startIndex, endIndex);
+  if (visibleTopics.length === 0) return 0;
+  return Math.max(0, topics.length - startIndex - visibleTopics.length) * ROW_HEIGHT;
+}
 
 function getClusterHealth(clusterId: string) {
   return clusterStore.getClusterHealth(clusterId);
@@ -705,9 +732,9 @@ const filteredAllTopicsList = computed(() => {
 });
 
 const filteredClusterTopics = computed(() => {
-  if (!searchQuery.value) return clusterTopics.value;
+  if (!searchQueryDebounced.value) return clusterTopics.value;
 
-  const query = searchQuery.value.toLowerCase();
+  const query = searchQueryDebounced.value.toLowerCase();
   return clusterTopics.value.filter(topic =>
     topic.name.toLowerCase().includes(query)
   );
@@ -973,5 +1000,28 @@ onMounted(() => {
   if (searchParam.value) {
     searchQuery.value = searchParam.value;
   }
+  // 初始化容器高度
+  if (singleClusterContainerRef.value) {
+    singleClusterContainerHeight.value = singleClusterContainerRef.value.clientHeight || 400;
+  }
 });
 </script>
+
+<style scoped>
+/* 紧凑表格样式 */
+.table :deep(tbody tr) {
+  height: 40px;
+}
+
+.table :deep(td) {
+  padding: 0.25rem 0.5rem;
+  vertical-align: middle;
+}
+
+.table :deep(th) {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+</style>

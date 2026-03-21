@@ -19,7 +19,7 @@
           <p class="text-base-content/60 mt-1 text-sm">{{ t.clusters.description }}</p>
         </div>
         <div class="flex items-center gap-2">
-          <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal" title="Manage groups">
+          <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal" :title="t.navigator.groups">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
             </svg>
@@ -38,7 +38,7 @@
         <button
           class="btn btn-xs btn-ghost px-1 flex-shrink-0 hover:bg-base-200"
           @click="scrollGroups(-200)"
-          title="Scroll left"
+          :title="t.clusters.scrollLeft"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
@@ -65,7 +65,7 @@
         <button
           class="btn btn-xs btn-ghost px-1 flex-shrink-0 hover:bg-base-200"
           @click="scrollGroups(200)"
-          title="Scroll right"
+          :title="t.clusters.scrollRight"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
@@ -140,14 +140,14 @@
             </div>
             <div>
               <h3 class="font-semibold text-sm">{{ cluster.name }}</h3>
-              <p class="text-[10px] text-base-content/60">Created {{ formatDate(cluster.created_at) }}</p>
+              <p class="text-[10px] text-base-content/60">{{ t.clusters.createdDate }} {{ formatDate(cluster.created_at) }}</p>
             </div>
           </div>
           <div class="flex items-center gap-1">
             <button
               class="btn btn-xs btn-ghost h-auto p-1 min-h-0"
               @click="editCluster(cluster)"
-              title="Edit cluster"
+              :title="t.clusters.editCluster"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -156,7 +156,7 @@
             <button
               class="btn btn-xs btn-ghost h-auto p-1 min-h-0 text-error hover:bg-error/10"
               @click="confirmDelete(cluster)"
-              title="Delete cluster"
+              :title="t.common.delete"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
@@ -177,18 +177,18 @@
                   'bg-error': getConnectionStatus(cluster.name)?.status === 'error',
                 }"
               ></div>
-              {{ getConnectionStatus(cluster.name)?.status || 'unknown' }}
+              {{ getConnectionStatus(cluster.name)?.status || t.clusters.unknown }}
             </div>
           </div>
         </div>
 
         <div class="card-body p-3">
           <div class="mb-2">
-            <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Brokers</div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">{{ t.clusters.brokersLabel }}</div>
             <div class="text-xs font-mono truncate">{{ cluster.brokers }}</div>
           </div>
           <div class="mb-2">
-            <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Timeouts</div>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">{{ t.clusters.timeoutsLabel }}</div>
             <div class="text-xs">
               <div>Request: <span class="font-mono">{{ cluster.request_timeout_ms }}ms</span></div>
               <div>Operation: <span class="font-mono">{{ cluster.operation_timeout_ms }}ms</span></div>
@@ -213,7 +213,7 @@
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
             </svg>
-            Test
+            {{ t.clusters.test }}
           </button>
           <button
             class="btn btn-xs btn-outline flex items-center gap-1.5"
@@ -224,13 +224,13 @@
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
-            Reconnect
+            {{ t.clusters.reconnect }}
           </button>
           <button
             class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="viewClusterTopics(cluster.name)"
             :disabled="refreshingTopics.has(cluster.name)"
-            title="View topics"
+            :title="t.clusters.viewTopics"
           >
             <span v-if="refreshingTopics.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
@@ -243,7 +243,7 @@
             @click="disconnectCluster(cluster.name)"
             :disabled="disconnecting.has(cluster.name)"
           >
-            Disconnect
+            {{ t.clusters.disconnect }}
           </button>
         </div>
       </div>
@@ -285,7 +285,7 @@
                 required
               />
               <label class="label">
-                <span class="label-text-alt text-base-content/60">Comma-separated list of broker addresses</span>
+                <span class="label-text-alt text-base-content/60">{{ t.clusters.brokersHelp }}</span>
               </label>
             </div>
             <div class="flex flex-wrap gap-4">
@@ -418,7 +418,7 @@
             </div>
             <div v-if="clusterStore.groups.length === 0" class="modal-empty-state">
               <p class="text-base-content/60 text-sm">
-                {{ t.clusters.noGroup }}，{{ t.clusters.addGroup || '点击"添加分组"创建' }}
+                {{ t.clusters.noGroup }}
               </p>
             </div>
           </div>
@@ -429,24 +429,24 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              {{ t.clusters.addGroup || '添加分组' }}
+              {{ t.clusters.addGroup }}
             </button>
           </div>
 
           <!-- Add/Edit Group Form -->
           <div v-if="showGroupForm" class="modal-form">
-            <h4 class="font-semibold mb-3">{{ editingGroup ? t.clusters.editGroup : (t.clusters.addGroup || '添加分组') }}</h4>
+            <h4 class="font-semibold mb-3">{{ editingGroup ? t.clusters.editGroup : t.clusters.addGroup }}</h4>
             <div class="form-control mb-3">
               <label class="label">
                 <span class="label-text font-medium">{{ t.clusters.groupName }}</span>
               </label>
-              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" :placeholder="t.clusters.groupNamePlaceholder || 'Enter group name'" />
+              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" :placeholder="t.clusters.groupNamePlaceholder" />
             </div>
             <div class="form-control mb-3">
               <label class="label">
                 <span class="label-text font-medium">{{ t.clusters.groupDescription }}</span>
               </label>
-              <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" :placeholder="t.clusters.groupDescPlaceholder || 'Enter description (optional)'"></textarea>
+              <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" :placeholder="t.clusters.groupDescPlaceholder"></textarea>
             </div>
             <div class="modal-actions">
               <button type="button" class="btn btn-ghost btn-sm" @click="cancelGroupForm">{{ t.common.cancel }}</button>
@@ -477,7 +477,7 @@
             </div>
           </div>
           <p class="mb-2 text-base-content/80">{{ t.common.confirmDelete }} <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span>？</p>
-          <p class="text-sm text-base-content/60 mb-4">{{ t.clusters.confirmDeleteGroup || '删除后，该分组下的所有集群将变为无分组状态。' }}</p>
+          <p class="text-sm text-base-content/60 mb-4">{{ t.clusters.confirmDeleteGroup }}</p>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" @click="closeDeleteGroupModal">{{ t.common.cancel }}</button>
             <button type="button" class="btn btn-error" @click="confirmDeleteGroupAction" :disabled="groupDeleting">
@@ -621,7 +621,7 @@ function cancelGroupForm() {
 
 async function submitGroupForm() {
   if (!groupFormData.name.trim()) {
-    showError('分组名称不能为空');
+    showError(t.value.clusters.groupNamePlaceholder);
     return;
   }
 
@@ -632,13 +632,13 @@ async function submitGroupForm() {
         name: groupFormData.name.trim(),
         description: groupFormData.description.trim() || null,
       });
-      showSuccess('分组已更新');
+      showSuccess(t.value.clusters.groupUpdated);
     } else {
       await clusterStore.createGroup({
         name: groupFormData.name.trim(),
         description: groupFormData.description.trim() || null,
       });
-      showSuccess('分组已创建');
+      showSuccess(t.value.clusters.groupCreated);
     }
     // 刷新分组列表
     await clusterStore.fetchGroups();
@@ -667,7 +667,7 @@ async function confirmDeleteGroupAction() {
   groupDeleting.value = true;
   try {
     await clusterStore.deleteGroup(groupToDelete.value.id);
-    showSuccess('分组已删除，该分组下的集群已移至无分组状态');
+    showSuccess(t.value.clusters.groupDeleted);
     // 刷新分组列表和集群列表
     await clusterStore.fetchGroups();
     await clusterStore.fetchClusters();
@@ -807,7 +807,7 @@ async function testConnection(id: number) {
 }
 
 function confirmDelete(cluster: Cluster) {
-  if (confirm(`Are you sure you want to delete cluster "${cluster.name}"?`)) {
+  if (confirm(`${t.value.clusters.confirmDelete} "${cluster.name}"?`)) {
     clusterStore.deleteCluster(cluster.id);
   }
 }
@@ -845,10 +845,10 @@ function confirmDisconnect() {
   connectionStore.disconnectCluster(clusterName)
     .then(() => {
       connectionStore.fetchAllConnections();
-      showSuccess('Cluster disconnected successfully');
+      showSuccess(t.value.clusters.disconnectedSuccess);
     })
     .catch((e) => {
-      showError(`Disconnect failed: ${e.message}`);
+      showError(`${t.value.clusters.disconnect}: ${e.message}`);
     })
     .finally(() => {
       disconnecting.value.delete(clusterName);
@@ -865,10 +865,10 @@ async function reconnectCluster(clusterName: string) {
     const status = connectionStore.getConnectionStatus(clusterName);
     const statusText = status?.status === 'connected' ? t.value.clusters.connected :
                        status?.status === 'error' ? t.value.clusters.connectionError :
-                       status?.status || 'unknown';
-    showSuccess(`${t.value.clusters.reconnected}: ${statusText}`);
+                       status?.status || t.value.clusters.unknown;
+    showSuccess(`${t.value.clusters.reconnectSuccess}: ${statusText}`);
   } catch (e) {
-    showError(`Reconnect failed: ${(e as { message: string }).message}`);
+    showError(`${t.value.clusters.reconnectFailed}: ${(e as { message: string }).message}`);
   } finally {
     reconnecting.value.delete(clusterName);
   }

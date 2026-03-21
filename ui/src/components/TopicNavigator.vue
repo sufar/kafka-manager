@@ -162,7 +162,7 @@
                 <!-- Left: Groups List -->
                 <div class="w-full sm:w-1/2 border-b sm:border-b-0 sm:border-r border-base-200 overflow-y-auto">
                   <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0">
-                    <span class="text-[10px] font-medium text-base-content/60 uppercase">Groups</span>
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
                   </div>
                   <!-- All Clusters Option -->
                   <label
@@ -203,13 +203,13 @@
                 <!-- Right: Clusters List -->
                 <div class="w-full sm:w-1/2 overflow-y-auto">
                   <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0 flex items-center justify-between">
-                    <span class="text-[10px] font-medium text-base-content/60 uppercase">Clusters</span>
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
                     <button
                       v-if="hasSelectedClustersInCurrentView"
                       class="text-[10px] text-primary hover:underline"
                       @click="deselectAllInCurrentView"
                     >
-                      Deselect All
+                      {{ t.navigator.deselectAll }}
                     </button>
                   </div>
                   <!-- Clusters for selected group or all clusters -->
@@ -275,7 +275,7 @@
               >
                 <div class="flex flex-col h-[60vh] sm:h-[400px]">
                   <div class="p-3 border-b border-base-200 flex items-center justify-between">
-                    <span class="text-sm font-semibold">Select Clusters</span>
+                    <span class="text-sm font-semibold">{{ t.navigator.selectClusters }}</span>
                     <button class="btn btn-ghost btn-sm btn-circle" @click="toggleClusterSelector">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -286,7 +286,7 @@
                     <!-- Left: Groups List -->
                     <div class="w-1/2 border-r border-base-200 overflow-y-auto">
                       <div class="p-2 border-b border-base-200 bg-base-100/50">
-                        <span class="text-[10px] font-medium text-base-content/60 uppercase">Groups</span>
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
                       </div>
                       <!-- All Clusters Option -->
                       <label
@@ -327,7 +327,7 @@
                     <!-- Right: Clusters List -->
                     <div class="w-1/2 overflow-y-auto">
                       <div class="p-2 border-b border-base-200 bg-base-100/50">
-                        <span class="text-[10px] font-medium text-base-content/60 uppercase">Clusters</span>
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
                       </div>
                       <template v-if="hoveredGroupId === null || hoveredGroupId === 0">
                         <label
