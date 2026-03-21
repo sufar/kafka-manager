@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* JSON Syntax Highlighting - Soft modern style with golden numbers */
+@import "./styles/json-highlight.css";
+
 /* ============================================
    KAFKA MANAGER - PREMIUM VISUAL ENHANCEMENTS
    ============================================ */

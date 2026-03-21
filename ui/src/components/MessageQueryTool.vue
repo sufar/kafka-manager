@@ -179,15 +179,14 @@
           ref="scrollerRefMobile"
           class="flex-1 overflow-auto p-2 pb-20"
           :items="sortedMessages"
-          :item-size="70"
+          :item-size="76"
           key-field="uid"
           :buffer="100"
           v-slot="{ item }"
         >
           <div
-            class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-2 cursor-pointer"
+            class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-0 cursor-pointer"
             :class="{ 'bg-primary/20 border-primary/50': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
-            style="height: 62px;"
             @click="selectedMessage = (item as any)"
           >
             <div class="flex items-center justify-between mb-1">
@@ -195,12 +194,14 @@
                 <span class="badge badge-ghost badge-xs">P{{ getMsgPartition(item) }}</span>
                 <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
               </div>
-              <span class="text-xs text-base-content/50">{{ formatTime(getMsgTimestamp(item)) }}</span>
+              <span class="text-[10px] text-base-content/50 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</span>
             </div>
-            <div v-if="getMsgKey(item)" class="text-xs font-mono text-secondary mb-1 truncate">
-              Key: {{ getMsgKey(item) }}
+            <div class="h-4 mb-1 overflow-hidden">
+              <div v-if="getMsgKey(item)" class="text-[10px] font-mono text-secondary truncate">
+                <span class="opacity-60">Key:</span> {{ getMsgKey(item) }}
+              </div>
             </div>
-            <div class="text-xs font-mono truncate text-base-content/80">
+            <div class="text-[10px] font-mono truncate text-base-content/80">
               {{ truncate(getMsgValue(item), 100) }}
             </div>
           </div>
@@ -953,96 +954,8 @@ pre {
   left: 0;
   will-change: transform;
 }
-
-/* JSON 语法高亮样式 - 使用 :deep 穿透 scoped 限制 */
-/* 柔和现代风格 - 与 JsonEditor.vue 保持一致 */
-:deep(.json-highlight .text-secondary) {
-  color: #7c3aed !important;
-  font-weight: 600;
-}
-
-:deep(.json-highlight .text-accent) {
-  color: #059669 !important;
-}
-
-:deep(.json-highlight .text-base-content) {
-  color: #475569 !important;
-}
-
-:deep(.json-highlight .text-info) {
-  color: #0284c7 !important;
-  font-weight: 700;
-}
-
-:deep(.json-highlight .text-warning) {
-  color: #9ca3af !important;
-  font-weight: 700;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-secondary) {
-  color: #a78bfa !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-accent) {
-  color: #34d399 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-base-content) {
-  color: #94a3b8 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-info) {
-  color: #38bdf8 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-warning) {
-  color: #6b7280 !important;
-}
 </style>
 
 <style>
-/* JSON 语法高亮样式 - 全局样式，用于 v-html 内容 */
-/* 柔和现代风格 - 与 JsonEditor.vue 保持一致 */
-:deep(.json-highlight .text-secondary) {
-  color: #7c3aed !important;
-  font-weight: 600;
-}
-
-:deep(.json-highlight .text-accent) {
-  color: #059669 !important;
-}
-
-:deep(.json-highlight .text-base-content) {
-  color: #475569 !important;
-}
-
-:deep(.json-highlight .text-info) {
-  color: #0284c7 !important;
-  font-weight: 700;
-}
-
-:deep(.json-highlight .text-warning) {
-  color: #9ca3af !important;
-  font-weight: 700;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-secondary) {
-  color: #a78bfa !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-accent) {
-  color: #34d399 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-base-content) {
-  color: #94a3b8 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-info) {
-  color: #38bdf8 !important;
-}
-
-:deep([data-theme="dark"] .json-highlight .text-warning) {
-  color: #6b7280 !important;
-}
+/* JSON 语法高亮样式已移至全局样式文件 */
 </style>

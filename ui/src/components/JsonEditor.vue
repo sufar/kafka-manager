@@ -117,11 +117,12 @@ defineExpose({
   font-size: 0.875rem;
   line-height: 1.5rem;
   padding: 0.625rem;
-  padding-top: 2.5rem;
-  padding-right: 3rem;
+  padding-top: 2rem;
+  padding-right: 2.5rem;
   white-space: pre-wrap;
   word-break: break-all;
   overflow: auto;
+  border: none;
 }
 
 .highlight-layer {
@@ -129,6 +130,19 @@ defineExpose({
   pointer-events: none;
   color: oklch(var(--bc));
   background: transparent !important;
+  display: block;
+}
+
+/* 重置 pre 默认样式 */
+pre.highlight-layer {
+  margin: 0;
+  display: block;
+}
+
+/* 确保 span 不影响行高 */
+.highlight-layer span {
+  line-height: inherit;
+  display: inline;
 }
 
 .input-layer {
@@ -138,7 +152,7 @@ defineExpose({
   outline: none !important;
   resize: none;
   color: transparent !important;
-  caret-color: oklch(var(--bc));
+  caret-color: #1e293b !important;
   -webkit-text-fill-color: transparent !important;
   text-fill-color: transparent;
 }
@@ -154,45 +168,16 @@ defineExpose({
   box-shadow: 0 0 0 2px oklch(var(--p) / 0.2);
 }
 
-.format-button {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
+/* 深色模式光标颜色 */
+[data-theme="dark"] .input-layer {
+  caret-color: #f1f5f9 !important;
 }
 
-/* 语法高亮颜色 - 柔和现代风格 */
-:deep(.text-secondary) {
-  color: #7c3aed !important;
-  font-weight: 600;
-}
-[data-theme="dark"] :deep(.text-secondary) {
-  color: #a78bfa !important;
-}
-:deep(.text-accent) {
-  color: #059669 !important;
-}
-[data-theme="dark"] :deep(.text-accent) {
-  color: #34d399 !important;
-}
-:deep(.text-info) {
-  color: #0284c7 !important;
-  font-weight: 700;
-}
-[data-theme="dark"] :deep(.text-info) {
-  color: #38bdf8 !important;
-}
-:deep(.text-warning) {
-  color: #9ca3af !important;
-  font-weight: 700;
-}
-[data-theme="dark"] :deep(.text-warning) {
-  color: #6b7280 !important;
-}
-:deep(.text-base-content) {
-  color: #475569 !important;
-}
-[data-theme="dark"] :deep(.text-base-content) {
-  color: #94a3b8 !important;
+.format-button {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  z-index: 10;
+  pointer-events: auto;
 }
 </style>

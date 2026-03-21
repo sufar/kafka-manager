@@ -1,0 +1,50 @@
+/* JSON 语法高亮样式 - 全局共享样式 */
+/* 柔和现代风格 - 金色数字 */
+/* 只针对 pre 标签内的 span 元素，不影响 textarea */
+
+/* 浅色模式 */
+pre span.text-secondary,
+.json-highlight span.text-secondary {
+  color: #7c3aed !important;
+  font-weight: 600;
+}
+pre span.text-accent,
+.json-highlight span.text-accent {
+  color: #059669 !important;
+}
+pre span.text-base-content,
+.json-highlight span.text-base-content {
+  color: #d97706 !important;
+}
+pre span.text-info,
+.json-highlight span.text-info {
+  color: #0284c7 !important;
+  font-weight: 700;
+}
+pre span.text-warning,
+.json-highlight span.text-warning {
+  color: #9ca3af !important;
+  font-weight: 700;
+}
+
+/* 深色模式 */
+[data-theme="dark"] pre span.text-secondary,
+[data-theme="dark"] .json-highlight span.text-secondary {
+  color: #a78bfa !important;
+}
+[data-theme="dark"] pre span.text-accent,
+[data-theme="dark"] .json-highlight span.text-accent {
+  color: #34d399 !important;
+}
+[data-theme="dark"] pre span.text-base-content,
+[data-theme="dark"] .json-highlight span.text-base-content {
+  color: #fbbf24 !important;
+}
+[data-theme="dark"] pre span.text-info,
+[data-theme="dark"] .json-highlight span.text-info {
+  color: #38bdf8 !important;
+}
+[data-theme="dark"] pre span.text-warning,
+[data-theme="dark"] .json-highlight span.text-warning {
+  color: #6b7280 !important;
+}
