@@ -700,7 +700,7 @@ function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): stri
   return value;
 }
 
-// JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML
+// JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML（与 JsonEditor.vue 保持一致）
 function highlightJson(json: string): string {
   if (!json) return '';
 
@@ -710,32 +710,36 @@ function highlightJson(json: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // 高亮字符串（包括键和字符串值）
+  // 使用单个正则表达式处理所有情况
   html = html.replace(
-    /("(?:\\.|[^"\\])*")/g,
-    '<span class="json-string">$1</span>'
+    /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+\.?\d*)|\b(true|false|null)\b/g,
+    (match, string, colon, number, bool) => {
+      if (string) {
+        if (colon) {
+          // 键名 - text-secondary
+          return `<span class="text-secondary font-semibold">${string}</span>${colon}`;
+        } else {
+          // 字符串值 - text-accent
+          return `<span class="text-accent">${string}</span>`;
+        }
+      }
+      if (number) {
+        // 数字 - text-base-content
+        return `<span class="text-base-content">${number}</span>`;
+      }
+      if (bool) {
+        if (bool === 'true' || bool === 'false') {
+          // 布尔值 - text-info
+          return `<span class="text-info font-bold">${bool}</span>`;
+        }
+        if (bool === 'null') {
+          // null - text-warning
+          return `<span class="text-warning font-bold">${bool}</span>`;
+        }
+      }
+      return match;
+    }
   );
-
-  // 高亮数字
-  html = html.replace(
-    /:\s*(-?\d+\.?\d*)/g,
-    ': <span class="json-number">$1</span>'
-  );
-
-  // 高亮布尔值和 null
-  html = html.replace(
-    /:\s*(true|false|null)/g,
-    ': <span class="json-boolean">$1</span>'
-  );
-
-  // 高亮键名（在 : 前面的字符串）
-  html = html.replace(
-    /(<span class="json-string">)([^<]+)(<\/span>)(\s*:)/g,
-    '<span class="json-key">$2</span>$4'
-  );
-
-  // 高亮标点符号
-  html = html.replace(/([{}[\],])/g, '<span class="json-punctuation">$1</span>');
 
   return html;
 }
@@ -951,86 +955,94 @@ pre {
 }
 
 /* JSON 语法高亮样式 - 使用 :deep 穿透 scoped 限制 */
-:deep(.json-highlight .json-key) {
-  color: #9cdcfe;
+/* 柔和现代风格 - 与 JsonEditor.vue 保持一致 */
+:deep(.json-highlight .text-secondary) {
+  color: #7c3aed !important;
+  font-weight: 600;
 }
 
-:deep(.json-highlight .json-string) {
-  color: #ce9178;
+:deep(.json-highlight .text-accent) {
+  color: #059669 !important;
 }
 
-:deep(.json-highlight .json-number) {
-  color: #b5cea8;
+:deep(.json-highlight .text-base-content) {
+  color: #475569 !important;
 }
 
-:deep(.json-highlight .json-boolean) {
-  color: #569cd6;
+:deep(.json-highlight .text-info) {
+  color: #0284c7 !important;
+  font-weight: 700;
 }
 
-:deep(.json-highlight .json-punctuation) {
-  color: #d4d4d4;
+:deep(.json-highlight .text-warning) {
+  color: #9ca3af !important;
+  font-weight: 700;
 }
 
-:deep([data-theme="light"] .json-highlight .json-key) {
-  color: #2c7a7b;
+:deep([data-theme="dark"] .json-highlight .text-secondary) {
+  color: #a78bfa !important;
 }
 
-:deep([data-theme="light"] .json-highlight .json-string) {
-  color: #b07d58;
+:deep([data-theme="dark"] .json-highlight .text-accent) {
+  color: #34d399 !important;
 }
 
-:deep([data-theme="light"] .json-highlight .json-number) {
-  color: #2f855a;
+:deep([data-theme="dark"] .json-highlight .text-base-content) {
+  color: #94a3b8 !important;
 }
 
-:deep([data-theme="light"] .json-highlight .json-boolean) {
-  color: #2b6cb0;
+:deep([data-theme="dark"] .json-highlight .text-info) {
+  color: #38bdf8 !important;
 }
 
-:deep([data-theme="light"] .json-highlight .json-punctuation) {
-  color: #718096;
+:deep([data-theme="dark"] .json-highlight .text-warning) {
+  color: #6b7280 !important;
 }
 </style>
 
 <style>
 /* JSON 语法高亮样式 - 全局样式，用于 v-html 内容 */
-.json-highlight .json-key {
-  color: #9cdcfe;
+/* 柔和现代风格 - 与 JsonEditor.vue 保持一致 */
+:deep(.json-highlight .text-secondary) {
+  color: #7c3aed !important;
+  font-weight: 600;
 }
 
-.json-highlight .json-string {
-  color: #ce9178;
+:deep(.json-highlight .text-accent) {
+  color: #059669 !important;
 }
 
-.json-highlight .json-number {
-  color: #b5cea8;
+:deep(.json-highlight .text-base-content) {
+  color: #475569 !important;
 }
 
-.json-highlight .json-boolean {
-  color: #569cd6;
+:deep(.json-highlight .text-info) {
+  color: #0284c7 !important;
+  font-weight: 700;
 }
 
-.json-highlight .json-punctuation {
-  color: #d4d4d4;
+:deep(.json-highlight .text-warning) {
+  color: #9ca3af !important;
+  font-weight: 700;
 }
 
-[data-theme="light"] .json-highlight .json-key {
-  color: #2c7a7b;
+:deep([data-theme="dark"] .json-highlight .text-secondary) {
+  color: #a78bfa !important;
 }
 
-[data-theme="light"] .json-highlight .json-string {
-  color: #b07d58;
+:deep([data-theme="dark"] .json-highlight .text-accent) {
+  color: #34d399 !important;
 }
 
-[data-theme="light"] .json-highlight .json-number {
-  color: #2f855a;
+:deep([data-theme="dark"] .json-highlight .text-base-content) {
+  color: #94a3b8 !important;
 }
 
-[data-theme="light"] .json-highlight .json-boolean {
-  color: #2b6cb0;
+:deep([data-theme="dark"] .json-highlight .text-info) {
+  color: #38bdf8 !important;
 }
 
-[data-theme="light"] .json-highlight .json-punctuation {
-  color: #718096;
+:deep([data-theme="dark"] .json-highlight .text-warning) {
+  color: #6b7280 !important;
 }
 </style>
