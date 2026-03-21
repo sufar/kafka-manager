@@ -324,6 +324,8 @@ export interface Translation {
     empty: string;
     emptyHint: string;
     noItems: string;
+    noSearchResults: string;
+    searchPlaceholder: string;
     editFavorite: string;
     favoriteDescription: string;
     favoriteDescPlaceholder: string;
@@ -661,6 +663,8 @@ export const translations: Record<Language, Translation> = {
       empty: '暂无收藏分组',
       emptyHint: '点击右上角创建分组',
       noItems: '该分组暂无收藏',
+      noSearchResults: '无匹配的收藏',
+      searchPlaceholder: '搜索 Topic 名、备注...',
       editFavorite: '编辑收藏',
       favoriteDescription: '描述',
       favoriteDescPlaceholder: '请输入描述（可选）',
@@ -996,6 +1000,8 @@ export const translations: Record<Language, Translation> = {
       empty: 'No favorite groups yet',
       emptyHint: 'Click the button above to create a group',
       noItems: 'No items in this group',
+      noSearchResults: 'No matching favorites',
+      searchPlaceholder: 'Search topic name, remark...',
       editFavorite: 'Edit Favorite',
       favoriteDescription: 'Description',
       favoriteDescPlaceholder: 'Enter description (optional)',
