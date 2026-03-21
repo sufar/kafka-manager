@@ -139,16 +139,247 @@
             加载更多
           </button>
           <span class="text-xs">Cluster:</span>
-          <select
-            v-model="selectedClusterFilter"
-            class="select select-bordered select-xs"
-            @change="onClusterFilterChange"
-          >
-            <option value="">{{ t.navigator.allClusters }}</option>
-            <option v-for="cluster in clusterStore.clusters" :key="cluster.name" :value="cluster.name">
-              {{ cluster.name }}
-            </option>
-          </select>
+          <!-- Advanced Cluster Selector -->
+          <div class="relative">
+            <button
+              ref="clusterSelectorButtonRef"
+              class="btn btn-ghost btn-xs gap-1"
+              @click="toggleClusterSelector"
+              :title="getClusterSelectorSummary()"
+            >
+              <span class="truncate max-w-[120px]">{{ getClusterSelectorSummary() }}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3" :class="{ 'rotate-180': showClusterSelector }">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+              </svg>
+            </button>
+            <!-- Cluster Selector Dropdown - Desktop -->
+            <div
+              v-show="showClusterSelector && !isMobile"
+              ref="clusterSelectorRef"
+              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
+            >
+              <div class="flex flex-col sm:flex-row h-[300px]">
+                <!-- Left: Groups List -->
+                <div class="w-full sm:w-1/2 border-b sm:border-b-0 sm:border-r border-base-200 overflow-y-auto">
+                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0">
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">Groups</span>
+                  </div>
+                  <!-- All Clusters Option -->
+                  <label
+                    class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    :class="{ 'bg-primary/10': !hasCustomSelection }"
+                  >
+                    <input
+                      type="radio"
+                      name="clusterMode"
+                      class="radio radio-xs radio-primary flex-shrink-0"
+                      :checked="!hasCustomSelection"
+                      @change="setSelectionMode('all')"
+                    />
+                    <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
+                  </label>
+                  <!-- Groups -->
+                  <div
+                    v-for="group in clusterStore.groups"
+                    :key="group.id"
+                    class="border-b border-base-100"
+                  >
+                    <label
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
+                      :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
+                      @mouseenter="hoveredGroupId = group.id"
+                      @mouseleave="hoveredGroupId = null"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs checkbox-primary flex-shrink-0"
+                        :checked="isGroupFullySelected(group.id)"
+                        @change.stop="toggleGroupFull(group.id)"
+                      />
+                      <span class="text-xs font-medium flex-1 truncate">{{ group.name }}</span>
+                    </label>
+                  </div>
+                </div>
+                <!-- Right: Clusters List -->
+                <div class="w-full sm:w-1/2 overflow-y-auto">
+                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0 flex items-center justify-between">
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">Clusters</span>
+                    <button
+                      v-if="hasSelectedClustersInCurrentView"
+                      class="text-[10px] text-primary hover:underline"
+                      @click="deselectAllInCurrentView"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                  <!-- Clusters for selected group or all clusters -->
+                  <template v-if="hoveredGroupId === null || hoveredGroupId === 0">
+                    <!-- Show all clusters when no group hovered -->
+                    <label
+                      v-for="cluster in clusterStore.clusters"
+                      :key="cluster.name"
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs flex-shrink-0"
+                        :checked="selectedClusters.has(cluster.name)"
+                        @change.stop="toggleCluster(cluster.name, cluster.group_id)"
+                      />
+                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                    </label>
+                  </template>
+                  <template v-else>
+                    <!-- Show clusters for hovered group -->
+                    <label
+                      v-for="cluster in getClustersByGroup(hoveredGroupId)"
+                      :key="cluster.name"
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs flex-shrink-0"
+                        :checked="selectedClusters.has(cluster.name)"
+                        @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
+                      />
+                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <!-- Action Buttons -->
+              <div class="p-2 border-t border-base-200 flex gap-2">
+                <button
+                  class="btn btn-ghost btn-xs flex-1"
+                  @click="clearAllSelections"
+                >
+                  {{ t.common.clear }}
+                </button>
+                <button
+                  class="btn btn-primary btn-xs flex-1"
+                  @click="applyClusterSelection"
+                >
+                  {{ t.common.apply }}
+                </button>
+              </div>
+            </div>
+            <!-- Cluster Selector Modal - Mobile -->
+            <div
+              v-show="showClusterSelector && isMobile"
+              class="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/50"
+              @click="toggleClusterSelector"
+            >
+              <div
+                class="w-full max-w-md max-h-[80vh] bg-base-100 rounded-t-xl sm:rounded-xl overflow-hidden"
+                @click.stop
+              >
+                <div class="flex flex-col h-[60vh] sm:h-[400px]">
+                  <div class="p-3 border-b border-base-200 flex items-center justify-between">
+                    <span class="text-sm font-semibold">Select Clusters</span>
+                    <button class="btn btn-ghost btn-sm btn-circle" @click="toggleClusterSelector">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-1 overflow-hidden">
+                    <!-- Left: Groups List -->
+                    <div class="w-1/2 border-r border-base-200 overflow-y-auto">
+                      <div class="p-2 border-b border-base-200 bg-base-100/50">
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">Groups</span>
+                      </div>
+                      <!-- All Clusters Option -->
+                      <label
+                        class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        :class="{ 'bg-primary/10': !hasCustomSelection }"
+                      >
+                        <input
+                          type="radio"
+                          name="clusterModeMobile"
+                          class="radio radio-sm radio-primary flex-shrink-0"
+                          :checked="!hasCustomSelection"
+                          @change="setSelectionMode('all')"
+                        />
+                        <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
+                      </label>
+                      <!-- Groups -->
+                      <div
+                        v-for="group in clusterStore.groups"
+                        :key="group.id"
+                        class="border-b border-base-100"
+                      >
+                        <label
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
+                          :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
+                          @touchstart="hoveredGroupId = group.id"
+                          @touchend="hoveredGroupId = null"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm checkbox-primary flex-shrink-0"
+                            :checked="isGroupFullySelected(group.id)"
+                            @change.stop="toggleGroupFull(group.id)"
+                          />
+                          <span class="text-xs font-medium flex-1 truncate">{{ group.name }}</span>
+                        </label>
+                      </div>
+                    </div>
+                    <!-- Right: Clusters List -->
+                    <div class="w-1/2 overflow-y-auto">
+                      <div class="p-2 border-b border-base-200 bg-base-100/50">
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">Clusters</span>
+                      </div>
+                      <template v-if="hoveredGroupId === null || hoveredGroupId === 0">
+                        <label
+                          v-for="cluster in clusterStore.clusters"
+                          :key="cluster.name"
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm flex-shrink-0"
+                            :checked="selectedClusters.has(cluster.name)"
+                            @change.stop="toggleCluster(cluster.name, cluster.group_id)"
+                          />
+                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                        </label>
+                      </template>
+                      <template v-else>
+                        <label
+                          v-for="cluster in getClustersByGroup(hoveredGroupId)"
+                          :key="cluster.name"
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm flex-shrink-0"
+                            :checked="selectedClusters.has(cluster.name)"
+                            @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
+                          />
+                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                        </label>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Action Buttons -->
+                  <div class="p-3 border-t border-base-200 flex gap-2">
+                    <button
+                      class="btn btn-ghost btn-sm flex-1"
+                      @click="clearAllSelections"
+                    >
+                      {{ t.common.clear }}
+                    </button>
+                    <button
+                      class="btn btn-primary btn-sm flex-1"
+                      @click="applyClusterSelection"
+                    >
+                      {{ t.common.apply }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           <!-- Refresh Button -->
           <button
             class="btn btn-ghost btn-xs"
@@ -208,7 +439,6 @@ const t = computed(() => languageStore.t);
 
 // State
 const searchQuery = ref('');
-const selectedClusterFilter = ref(''); // 空表示所有集群（UI 选择器，用户手动选择）
 const allTopics = ref<TopicInfo[]>([]);
 const loading = ref(false);
 const refreshing = ref(false);
@@ -216,47 +446,234 @@ const loadingMore = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
 const isUnmounted = ref(false);
 
-// Load selected cluster from settings
-let hasLoadedSelectedCluster = false;
-async function loadSelectedCluster() {
-  if (hasLoadedSelectedCluster) return; // 只加载一次
+// Advanced cluster selection state
+const showClusterSelector = ref(false);
+const clusterSelectorButtonRef = ref<HTMLElement | null>(null);
+const clusterSelectorRef = ref<HTMLElement | null>(null);
+const hoveredGroupId = ref<number | null>(null); // For highlighting clusters in right panel
+
+// Mobile detection
+const isMobile = ref(window.innerWidth < 640);
+function updateMobileState() {
+  isMobile.value = window.innerWidth < 640;
+}
+
+// Selected clusters (empty = all clusters mode)
+const selectedClusters = ref<Set<string>>(new Set());
+const selectedGroups = ref<Set<number>>(new Set()); // Groups that are fully selected
+
+// Load saved cluster selection from settings
+let hasLoadedClusterSelection = false;
+async function loadSavedClusterSelection() {
+  if (hasLoadedClusterSelection) return;
   try {
-    const settings = await apiClient.getSettings(['ui.selected_cluster']);
-    const setting = settings.find((s: { key: string; value: string }) => s.key === 'ui.selected_cluster');
+    const settings = await apiClient.getSettings(['ui.selected_clusters']);
+    const setting = settings.find((s: { key: string; value: string }) => s.key === 'ui.selected_clusters');
     if (setting && setting.value) {
-      // 只有当集群列表可用且包含选中的集群时，才设置
-      if (clusterStore.clusters.some(c => c.name === setting.value)) {
-        selectedClusterFilter.value = setting.value;
-        hasLoadedSelectedCluster = true;
+      try {
+        const saved = JSON.parse(setting.value);
+        if (saved.clusters && Array.isArray(saved.clusters)) {
+          selectedClusters.value = new Set(saved.clusters);
+        }
+        if (saved.groups && Array.isArray(saved.groups)) {
+          selectedGroups.value = new Set(saved.groups);
+        }
+        hasLoadedClusterSelection = true;
         return;
+      } catch (e) {
+        console.warn('Failed to parse saved cluster selection:', e);
       }
     }
-    // 没有保存的设置或设置无效，标记为已加载
-    hasLoadedSelectedCluster = true;
+    hasLoadedClusterSelection = true;
   } catch (e) {
-    console.error('Failed to load selected cluster:', e);
-    hasLoadedSelectedCluster = true;
+    console.error('Failed to load cluster selection:', e);
+    hasLoadedClusterSelection = true;
   }
 }
 
-// Watch for cluster list changes to ensure selectedClusterFilter is valid and load saved cluster
+// Watch for cluster list changes and restore selection
 watch(() => clusterStore.clusters, (newClusters) => {
-  if (!hasLoadedSelectedCluster && newClusters.length > 0) {
-    // 集群列表已加载，尝试恢复选中的集群
-    loadSelectedCluster();
+  if (!hasLoadedClusterSelection && newClusters.length > 0) {
+    loadSavedClusterSelection();
   }
-  // If selected cluster is no longer in the list, reset to all clusters
-  if (selectedClusterFilter.value && !newClusters.some(c => c.name === selectedClusterFilter.value)) {
-    selectedClusterFilter.value = '';
-  }
+  // Validate selections
+  const validClusterNames = newClusters.map(c => c.name);
+  selectedClusters.value = new Set([...selectedClusters.value].filter(name => validClusterNames.includes(name)));
+
+  // Update selectedGroups based on current cluster selection
+  updateSelectedGroups();
 }, { deep: true });
 
 onMounted(() => {
-  // 如果集群列表已经加载，立即恢复选中的集群
   if (clusterStore.clusters.length > 0) {
-    loadSelectedCluster();
+    loadSavedClusterSelection();
   }
+  // Load groups if not already loaded
+  if (clusterStore.groups.length === 0) {
+    clusterStore.fetchGroups();
+  }
+  document.addEventListener('click', handleOutsideClick);
+  window.addEventListener('resize', updateMobileState);
+  updateMobileState();
 });
+
+onUnmounted(() => {
+  isUnmounted.value = true;
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+  }
+  apiClient.cancelRequest();
+  document.removeEventListener('click', handleOutsideClick);
+  window.removeEventListener('resize', updateMobileState);
+});
+
+function handleOutsideClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (showClusterSelector.value &&
+      !clusterSelectorRef.value?.contains(target) &&
+      !clusterSelectorButtonRef.value?.contains(target)) {
+    showClusterSelector.value = false;
+  }
+}
+
+function toggleClusterSelector() {
+  showClusterSelector.value = !showClusterSelector.value;
+  hoveredGroupId.value = null;
+}
+
+// Set selection mode to 'all' (clear all selections)
+function setSelectionMode(mode: 'all') {
+  if (mode === 'all') {
+    selectedClusters.value.clear();
+    selectedGroups.value.clear();
+    hoveredGroupId.value = null;
+  }
+}
+
+// Check if group is fully selected (all clusters in group are selected)
+function isGroupFullySelected(groupId: number): boolean {
+  const groupClusters = getClustersByGroup(groupId);
+  if (groupClusters.length === 0) return false;
+  return groupClusters.every(c => selectedClusters.value.has(c.name));
+}
+
+// Toggle all clusters in a group
+function toggleGroupFull(groupId: number) {
+  if (isGroupFullySelected(groupId)) {
+    // Deselect all clusters in this group
+    const groupClusters = getClustersByGroup(groupId);
+    groupClusters.forEach(c => selectedClusters.value.delete(c.name));
+    selectedGroups.value.delete(groupId);
+  } else {
+    // Select all clusters in this group
+    const groupClusters = getClustersByGroup(groupId);
+    groupClusters.forEach(c => selectedClusters.value.add(c.name));
+    selectedGroups.value.add(groupId);
+  }
+}
+
+// Toggle single cluster
+function toggleCluster(clusterName: string, groupId: number | null | undefined) {
+  if (selectedClusters.value.has(clusterName)) {
+    selectedClusters.value.delete(clusterName);
+    // If cluster is removed from a group, remove group from selectedGroups
+    if (groupId) {
+      selectedGroups.value.delete(groupId);
+    }
+  } else {
+    selectedClusters.value.add(clusterName);
+  }
+  // Update group selection status
+  updateSelectedGroups();
+}
+
+// Update selectedGroups based on current cluster selection
+function updateSelectedGroups() {
+  selectedGroups.value.clear();
+  for (const group of clusterStore.groups) {
+    if (isGroupFullySelected(group.id)) {
+      selectedGroups.value.add(group.id);
+    }
+  }
+}
+
+function getClustersByGroup(groupId: number) {
+  return clusterStore.clusters.filter(c => (c.group_id ?? 0) === groupId);
+}
+
+function getGroupId(groupId: number | null | undefined): number {
+  return groupId ?? 0;
+}
+
+// Check if there's any custom selection
+const hasCustomSelection = computed(() => selectedClusters.value.size > 0);
+
+// Check if there are selected clusters in current view
+const hasSelectedClustersInCurrentView = computed(() => {
+  if (hoveredGroupId.value === null) {
+    return selectedClusters.value.size > 0;
+  }
+  const groupClusters = getClustersByGroup(hoveredGroupId.value);
+  return groupClusters.some(c => selectedClusters.value.has(c.name));
+});
+
+// Deselect all in current view
+function deselectAllInCurrentView() {
+  if (hoveredGroupId.value === null) {
+    selectedClusters.value.clear();
+  } else {
+    const groupClusters = getClustersByGroup(hoveredGroupId.value);
+    groupClusters.forEach(c => selectedClusters.value.delete(c.name));
+    selectedGroups.value.delete(hoveredGroupId.value);
+  }
+  updateSelectedGroups();
+}
+
+function getAllSelectedClusterNames(): string[] {
+  // Empty selection = all clusters
+  if (selectedClusters.value.size === 0) {
+    return clusterStore.clusters.map(c => c.name);
+  }
+  return [...selectedClusters.value];
+}
+
+function getClusterSelectorSummary(): string {
+  if (selectedClusters.value.size === 0) {
+    return t.value.navigator.allClusters;
+  }
+  const count = selectedClusters.value.size;
+  if (count === 1) {
+    const first = [...selectedClusters.value][0];
+    return first || '';
+  }
+  return `${count} clusters`;
+}
+
+function clearAllSelections() {
+  selectedClusters.value.clear();
+  selectedGroups.value.clear();
+  applyClusterSelection();
+}
+
+async function applyClusterSelection() {
+  showClusterSelector.value = false;
+  searchQuery.value = '';
+  offset.value = 0;
+  await saveClusterSelection();
+  await loadAllTopics();
+}
+
+async function saveClusterSelection() {
+  try {
+    const selection = {
+      clusters: [...selectedClusters.value],
+      groups: [...selectedGroups.value],
+    };
+    await apiClient.updateSetting('ui.selected_clusters', JSON.stringify(selection));
+  } catch (e) {
+    console.error('Failed to save cluster selection:', e);
+  }
+}
 
 // Pagination state
 const offset = ref(0);
@@ -320,7 +737,7 @@ function getClusterHealth(clusterName: string) {
 // Track pending highlight for after topics load
 const pendingHighlight = ref<{ cluster: string; topic: string } | null>(null);
 
-// Load all topics from all clusters or selected cluster
+// Load all topics from all clusters or selected clusters
 async function loadAllTopics() {
   if (isUnmounted.value) return;
   loading.value = true;
@@ -328,40 +745,22 @@ async function loadAllTopics() {
   offset.value = 0;
   allTopics.value = [];
   try {
-    const clusters = clusterStore.clusters;
     const topics: TopicInfo[] = [];
 
-    const clusterFilter = selectedClusterFilter.value;
+    // Get selected cluster names
+    const selectedClustersList = getAllSelectedClusterNames();
 
-    // If a specific cluster is selected, only load topics from that cluster
-    if (clusterFilter) {
-      const cluster = clusters.find(c => c.name === clusterFilter);
-      if (cluster) {
-        // Load first batch with pagination
-        const result = await apiClient.getTopicsWithCluster(cluster.name, 0, limit.value);
-        if (isUnmounted.value) return;
-        for (const topic of result.topics) {
-          topics.push({
-            name: topic.name,
-            cluster: topic.cluster
-          });
-        }
-        total.value = result.total;
-        hasMore.value = result.has_more;
-      }
-    } else {
-      // No cluster selected - load all topics from all clusters with cluster info
-      const result = await apiClient.getTopicsWithCluster(undefined, 0, limit.value);
-      if (isUnmounted.value) return;
-      for (const topic of result.topics) {
-        topics.push({
-          name: topic.name,
-          cluster: topic.cluster
-        });
-      }
-      total.value = result.total;
-      hasMore.value = result.has_more;
+    // Use multi-cluster API
+    const result = await apiClient.getTopicsWithClusters(selectedClustersList, 0, limit.value);
+    if (isUnmounted.value) return;
+    for (const topic of result.topics) {
+      topics.push({
+        name: topic.name,
+        cluster: topic.cluster
+      });
     }
+    total.value = result.total;
+    hasMore.value = result.has_more;
 
     // Sort by cluster then by name
     topics.sort((a, b) => {
@@ -404,37 +803,21 @@ async function loadMoreTopics() {
   loadingMore.value = true;
   try {
     const nextOffset = offset.value + limit.value;
-    const clusterFilter = selectedClusterFilter.value;
+    const selectedClustersList = getAllSelectedClusterNames();
 
-    if (clusterFilter) {
-      const result = await apiClient.getTopicsWithCluster(clusterFilter, nextOffset, limit.value);
-      if (isUnmounted.value) return;
+    const result = await apiClient.getTopicsWithClusters(selectedClustersList, nextOffset, limit.value);
+    if (isUnmounted.value) return;
 
-      // Append new topics
-      for (const topic of result.topics) {
-        allTopics.value.push({
-          name: topic.name,
-          cluster: topic.cluster
-        });
-      }
-
-      offset.value = nextOffset;
-      hasMore.value = result.has_more;
-    } else {
-      const result = await apiClient.getTopicsWithCluster(undefined, nextOffset, limit.value);
-      if (isUnmounted.value) return;
-
-      // Append new topics
-      for (const topic of result.topics) {
-        allTopics.value.push({
-          name: topic.name,
-          cluster: topic.cluster
-        });
-      }
-
-      offset.value = nextOffset;
-      hasMore.value = result.has_more;
+    // Append new topics
+    for (const topic of result.topics) {
+      allTopics.value.push({
+        name: topic.name,
+        cluster: topic.cluster
+      });
     }
+
+    offset.value = nextOffset;
+    hasMore.value = result.has_more;
   } catch (e) {
     if (!isUnmounted.value) {
       console.error('Failed to load more topics:', e);
@@ -452,41 +835,32 @@ async function refreshTopics() {
 
   refreshing.value = true;
   try {
-    const clusters = clusterStore.clusters;
+    const selectedClustersList = getAllSelectedClusterNames();
 
-    const clusterFilter = selectedClusterFilter.value;
-
-    // If a specific cluster is selected, only refresh that cluster
-    if (clusterFilter) {
-      await apiClient.refreshTopics(clusterFilter);
+    // Refresh only selected clusters
+    for (const clusterName of selectedClustersList) {
       if (isUnmounted.value) return;
-    } else {
-      // No cluster selected - refresh all clusters one by one
-      // If a cluster is unreachable, wait 5 seconds silently and continue to next cluster
-      for (const cluster of clusters) {
-        if (isUnmounted.value) return;
-        try {
-          await apiClient.refreshTopics(cluster.name);
-        } catch (e) {
-          if (isUnmounted.value) return;
-          // Silent failure - wait 5 seconds then continue to next cluster
-          console.warn(`Failed to refresh topics for cluster ${cluster.name}, waiting 5s before continuing...`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          if (isUnmounted.value) return;
-        }
-      }
-
-      // 清理孤儿 Topic（所属集群已被删除的 Topic）
       try {
-        const result = await apiClient.cleanupOrphanTopics();
-        if (isUnmounted.value) return;
-        if (result.count > 0) {
-          console.log(`Cleaned up ${result.count} orphan topics:`, result.removed);
-        }
+        await apiClient.refreshTopics(clusterName);
       } catch (e) {
-        if (!isUnmounted.value) {
-          console.warn('Failed to cleanup orphan topics:', e);
-        }
+        if (isUnmounted.value) return;
+        // Silent failure - wait 5 seconds then continue to next cluster
+        console.warn(`Failed to refresh topics for cluster ${clusterName}, waiting 5s before continuing...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        if (isUnmounted.value) return;
+      }
+    }
+
+    // Cleanup orphan topics
+    try {
+      const result = await apiClient.cleanupOrphanTopics();
+      if (isUnmounted.value) return;
+      if (result.count > 0) {
+        console.log(`Cleaned up ${result.count} orphan topics:`, result.removed);
+      }
+    } catch (e) {
+      if (!isUnmounted.value) {
+        console.warn('Failed to cleanup orphan topics:', e);
       }
     }
 
@@ -513,25 +887,6 @@ function onSearchInput() {
   searchTimer = window.setTimeout(() => {
     // Search is reactive via computed property
   }, 300);
-}
-
-// Cluster filter change handler
-function onClusterFilterChange() {
-  // Clear search query when changing cluster filter
-  searchQuery.value = '';
-  // Reset pagination
-  offset.value = 0;
-  // Save selected cluster to settings
-  saveSelectedCluster();
-}
-
-// Save selected cluster to settings
-async function saveSelectedCluster() {
-  try {
-    await apiClient.updateSetting('ui.selected_cluster', selectedClusterFilter.value);
-  } catch (e) {
-    console.error('Failed to save selected cluster:', e);
-  }
 }
 
 // Clear search
@@ -594,7 +949,7 @@ function handleScroll(event: Event) {
   }
 }
 
-watch([() => clusterStore.clusters.length, selectedClusterFilter], () => {
+watch([() => clusterStore.clusters.length, selectedClusters], () => {
   loadAllTopics();
 }, { immediate: true });
 
@@ -616,14 +971,6 @@ watch(
   },
   { immediate: true }
 );
-
-// Watch for cluster list changes to ensure selectedClusterFilter is valid
-watch(() => clusterStore.clusters, (newClusters) => {
-  // If selected cluster is no longer in the list, reset to all clusters
-  if (selectedClusterFilter.value && !newClusters.some(c => c.name === selectedClusterFilter.value)) {
-    selectedClusterFilter.value = '';
-  }
-}, { deep: true });
 </script>
 
 <style scoped>

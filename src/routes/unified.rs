@@ -959,61 +959,51 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
         cluster: String,
     }
 
-    // Check if a specific cluster_id is provided
+    // Check if cluster_ids array is provided (for multi-cluster selection)
+    let cluster_ids: Option<Vec<String>> = body.get("cluster_ids").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+    });
+
+    // Check if a specific cluster_id is provided (single cluster, for backward compatibility)
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     // Get pagination parameters (default: offset=0, limit=10000)
     let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as usize;
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10000) as usize;
 
-    if let Some(id) = cluster_id {
-        // Fetch topics from a specific cluster
-        let db_topics = TopicStore::list_by_cluster(state.db.inner(), &id).await.ok();
-
-        let mut topics: Vec<TopicWithCluster> = Vec::new();
-
-        if let Some(topics_list) = db_topics {
-            for topic in topics_list {
-                topics.push(TopicWithCluster {
-                    name: topic.topic_name,
-                    cluster: id.clone(),
-                });
-            }
-        }
-
-        // Background sync
-        let state_clone = state.clone();
-        let id_clone = id.clone();
-        tokio::spawn(async move {
-            let _ = sync_topics_from_kafka(state_clone, &id_clone).await;
-        });
-
-        // Apply pagination
-        let total = topics.len();
-        let end = (offset + limit).min(total);
-        let paginated_topics = if offset < total {
-            topics.into_iter().skip(offset).take(limit).collect()
+    // Determine which clusters to fetch topics from
+    let clusters_to_fetch: Vec<(i64, String)> = if let Some(ids) = cluster_ids {
+        // Multi-cluster selection: fetch topics from specified cluster IDs
+        if ids.is_empty() {
+            // Empty array means "all clusters"
+            ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+                .into_iter().map(|c| (c.id, c.name)).collect()
         } else {
-            Vec::new()
-        };
-
-        return Ok(serde_json::json!({
-            "topics": paginated_topics,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "has_more": end < total
-        }));
-    }
-
-    // No cluster_id provided - fetch from all clusters
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+            // Fetch only specified clusters
+            let mut result = Vec::new();
+            for id in ids {
+                if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), &id).await {
+                    result.push((cluster.id, cluster.name));
+                }
+            }
+            result
+        }
+    } else if let Some(id) = cluster_id {
+        // Single cluster selection (backward compatibility)
+        if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), &id).await {
+            vec![(cluster.id, cluster.name)]
+        } else {
+            vec![]
+        }
+    } else {
+        // No cluster selection - fetch from all clusters
+        ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+            .into_iter().map(|c| (c.id, c.name)).collect()
+    };
 
     let mut all_topics: Vec<TopicWithCluster> = Vec::new();
 
-    for cluster in clusters {
-        let cluster_name = &cluster.name;
-
+    for (_cluster_id, cluster_name) in &clusters_to_fetch {
         if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
             for topic in topics {
                 all_topics.push(TopicWithCluster {

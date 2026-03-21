@@ -34,6 +34,8 @@ export interface Translation {
     confirm: string;
     close: string;
     confirmDelete: string;
+    apply: string;
+    clear: string;
   };
   dashboard: {
     title: string;
@@ -274,6 +276,10 @@ export interface Translation {
   };
   navigator: {
     allClusters: string;
+    byGroup: string;
+    selectGroupsAndClusters: string;
+    selected: string;
+    selectCluster: string;
   };
   favorites: {
     title: string;
@@ -343,6 +349,8 @@ export const translations: Record<Language, Translation> = {
       confirm: '确认',
       close: '关闭',
       confirmDelete: '确定要删除',
+      apply: '应用',
+      clear: '清除',
     },
     dashboard: {
       title: '仪表盘',
@@ -583,6 +591,10 @@ export const translations: Record<Language, Translation> = {
     },
     navigator: {
       allClusters: '所有集群',
+      byGroup: '按分组',
+      selectGroupsAndClusters: '选择分组/集群',
+      selected: '已选择',
+      selectCluster: '选择集群',
     },
     favorites: {
       title: 'Topic 收藏',
@@ -650,6 +662,8 @@ export const translations: Record<Language, Translation> = {
       confirm: 'Confirm',
       close: 'Close',
       confirmDelete: 'Are you sure you want to delete',
+      apply: 'Apply',
+      clear: 'Clear',
     },
     dashboard: {
       title: 'Dashboard',
@@ -890,6 +904,10 @@ export const translations: Record<Language, Translation> = {
     },
     navigator: {
       allClusters: 'All Clusters',
+      byGroup: 'By Group',
+      selectGroupsAndClusters: 'Select Groups/Clusters',
+      selected: 'Selected',
+      selectCluster: 'Select cluster',
     },
     favorites: {
       title: 'Topic Favorites',
