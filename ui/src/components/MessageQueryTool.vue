@@ -259,7 +259,14 @@
     </div>
 
     <!-- Detail Panel (Sticky at bottom with resize handle) -->
-    <div v-if="selectedMessage" class="detail-panel border-t border-base-300 bg-base-200/30 flex flex-col" :style="{ height: panelHeight + 'px' }">
+    <div
+      v-if="selectedMessage"
+      class="detail-panel border-t border-base-300 bg-base-200/30 flex flex-col"
+      :style="{ height: panelHeight + 'px' }"
+      tabindex="-1"
+      @keydown.ctrl.a.prevent="handleSelectAll"
+      @keydown.meta.a.prevent="handleSelectAll"
+    >
       <!-- Resize Handle -->
       <div class="resize-handle h-1 cursor-row-resize bg-base-300 hover:bg-primary/50 transition-colors flex items-center justify-center" @mousedown="startResize">
         <div class="w-8 h-0.5 bg-base-content/20 rounded-full"></div>
@@ -286,7 +293,7 @@
                 </svg>
               </button>
             </div>
-            <div class="bg-base-100 p-1 rounded text-[10px] font-mono border border-base-content/5 truncate">{{ selectedMessage.key }}</div>
+            <div ref="keyPreRef" class="bg-base-100 p-1 rounded text-[10px] font-mono border border-base-content/5 truncate">{{ selectedMessage.key }}</div>
           </div>
           <div class="flex flex-col flex-1">
             <div class="flex items-center justify-between mb-0.5">
@@ -306,11 +313,13 @@
             </div>
             <pre
               v-if="valueViewFormat === 'json'"
+              ref="valuePreRef"
               class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1 json-highlight"
               v-html="highlightJson(formatValue(selectedMessage.value, valueViewFormat))"
             ></pre>
             <pre
               v-else
+              ref="valuePreRef"
               class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1"
             >{{ formatValue(selectedMessage.value, valueViewFormat) }}</pre>
           </div>
@@ -372,6 +381,9 @@ const panelHeight = ref(280); // 默认高度增加到 280px
 // 虚拟滚动 ref
 const scrollerRef = ref<any>(null);
 const scrollerRefMobile = ref<any>(null);
+// 详情面板 ref
+const keyPreRef = ref<HTMLElement | null>(null);
+const valuePreRef = ref<HTMLElement | null>(null);
 
 // 按时间戳排序状态：'asc' | 'desc' | null（null 表示按查询顺序）
 const timestampSort = ref<'asc' | 'desc' | null>(null);
@@ -739,6 +751,44 @@ function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
 function clearTimeFilters() {
   filters.startTime = '';
   filters.endTime = '';
+}
+
+// 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容
+function handleSelectAll() {
+  if (!selectedMessage.value) return;
+
+  // 根据当前焦点位置决定选中 Key 还是 Value
+  let preElement: HTMLElement | null | undefined = null;
+
+  // 检查当前焦点是否在 Key 或 Value 区域
+  const activeElement = document.activeElement;
+  const isKeyFocused = keyPreRef.value && (activeElement === keyPreRef.value || keyPreRef.value.contains(activeElement));
+  const isValueFocused = valuePreRef.value && (activeElement === valuePreRef.value || valuePreRef.value.contains(activeElement));
+
+  // 如果 Key 区域有焦点且有 Key 内容，选中 Key
+  if (isKeyFocused && selectedMessage.value.key) {
+    preElement = keyPreRef.value;
+  }
+  // 如果 Value 区域有焦点，选中 Value
+  else if (isValueFocused) {
+    preElement = valuePreRef.value;
+  }
+  // 没有焦点时，默认选中 Value 内容
+  else if (valuePreRef.value) {
+    preElement = valuePreRef.value;
+  }
+  // 降级方案：如果没有 Value 但有 Key，选中 Key
+  else if (keyPreRef.value && selectedMessage.value.key) {
+    preElement = keyPreRef.value;
+  }
+
+  if (preElement) {
+    const range = document.createRange();
+    range.selectNodeContents(preElement);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
 }
 
 // 格式化值为不同格式
