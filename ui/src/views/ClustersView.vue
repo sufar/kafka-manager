@@ -378,17 +378,27 @@
 
       <!-- Manage Groups Modal -->
       <dialog ref="manageGroupsModalRef" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box">
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeManageGroupsModal">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h3 class="font-bold text-xl mb-4">{{ t.clusters.manageGroups }}</h3>
+        <div class="modal-box p-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44z" />
+                </svg>
+              </div>
+              <h3 class="font-bold text-base">{{ t.clusters.manageGroups }}</h3>
+            </div>
+            <button class="btn btn-sm btn-circle btn-ghost" @click="closeManageGroupsModal">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
 
           <!-- Groups List -->
-          <div class="flex flex-col gap-2 mb-4">
-            <div v-for="group in clusterStore.groups" :key="group.id" class="flex items-center justify-between p-3 rounded-lg bg-base-200">
+          <div class="modal-option-list mb-4">
+            <div v-for="group in clusterStore.groups" :key="group.id" class="modal-option justify-between">
               <div>
                 <div class="font-semibold">{{ group.name }}</div>
                 <div class="text-xs text-base-content/60">{{ group.description || t.clusters.noDescription }}</div>
@@ -406,12 +416,14 @@
                 </button>
               </div>
             </div>
-            <div v-if="clusterStore.groups.length === 0" class="text-center text-base-content/60 py-4">
-              {{ t.clusters.noGroup }}，{{ t.clusters.addGroup || '点击"添加分组"创建' }}
+            <div v-if="clusterStore.groups.length === 0" class="modal-empty-state">
+              <p class="text-base-content/60 text-sm">
+                {{ t.clusters.noGroup }}，{{ t.clusters.addGroup || '点击"添加分组"创建' }}
+              </p>
             </div>
           </div>
 
-          <div class="flex justify-end gap-2">
+          <div class="modal-actions">
             <button type="button" class="btn btn-outline" @click="closeManageGroupsModal">{{ t.common.cancel }}</button>
             <button type="button" class="btn btn-primary" @click="openAddGroupForm">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -422,7 +434,7 @@
           </div>
 
           <!-- Add/Edit Group Form -->
-          <div v-if="showGroupForm" class="mt-4 p-4 rounded-lg bg-base-200">
+          <div v-if="showGroupForm" class="modal-form">
             <h4 class="font-semibold mb-3">{{ editingGroup ? t.clusters.editGroup : (t.clusters.addGroup || '添加分组') }}</h4>
             <div class="form-control mb-3">
               <label class="label">
@@ -436,7 +448,7 @@
               </label>
               <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" :placeholder="t.clusters.groupDescPlaceholder || 'Enter description (optional)'"></textarea>
             </div>
-            <div class="flex justify-end gap-2">
+            <div class="modal-actions">
               <button type="button" class="btn btn-ghost btn-sm" @click="cancelGroupForm">{{ t.common.cancel }}</button>
               <button type="button" class="btn btn-primary btn-sm" @click="submitGroupForm" :disabled="groupSubmitting">
                 <span v-if="groupSubmitting" class="loading loading-spinner loading-xs"></span>
@@ -452,11 +464,21 @@
 
       <!-- Delete Group Confirm Modal -->
       <dialog ref="deleteGroupModalRef" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box">
-          <h3 class="font-bold text-xl mb-4">{{ t.common.confirmDelete }}</h3>
-          <p class="mb-2">{{ t.common.confirmDelete }} <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span>？</p>
+        <div class="modal-box p-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-error/20 to-error/10 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-error">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <h3 class="font-bold text-base">{{ t.common.confirmDelete }}</h3>
+            </div>
+          </div>
+          <p class="mb-2 text-base-content/80">{{ t.common.confirmDelete }} <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span>？</p>
           <p class="text-sm text-base-content/60 mb-4">{{ t.clusters.confirmDeleteGroup || '删除后，该分组下的所有集群将变为无分组状态。' }}</p>
-          <div class="flex justify-end gap-2">
+          <div class="modal-actions">
             <button type="button" class="btn btn-ghost" @click="closeDeleteGroupModal">{{ t.common.cancel }}</button>
             <button type="button" class="btn btn-error" @click="confirmDeleteGroupAction" :disabled="groupDeleting">
               <span v-if="groupDeleting" class="loading loading-spinner loading-xs"></span>
