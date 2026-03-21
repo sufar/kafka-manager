@@ -184,7 +184,7 @@
                     :key="group.id"
                     class="border-b border-base-100"
                   >
-                    <label
+                    <div
                       class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
                       :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
                       @mouseenter="hoveredGroupId = group.id"
@@ -192,12 +192,17 @@
                     >
                       <input
                         type="checkbox"
-                        class="checkbox checkbox-xs checkbox-primary flex-shrink-0"
+                        class="checkbox checkbox-xs checkbox-primary flex-shrink-0 cursor-pointer"
                         :checked="isGroupFullySelected(group.id)"
-                        @change.stop="toggleGroupFull(group.id)"
+                        @click.stop="toggleGroupFull(group.id)"
                       />
-                      <span class="text-xs font-medium flex-1 truncate">{{ group.name }}</span>
-                    </label>
+                      <span
+                        class="text-xs font-medium flex-1 truncate cursor-pointer"
+                        @click.stop="showGroupClusters(group.id)"
+                      >
+                        {{ group.name }}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <!-- Right: Clusters List -->
@@ -308,20 +313,23 @@
                         :key="group.id"
                         class="border-b border-base-100"
                       >
-                        <label
+                        <div
                           class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
                           :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
-                          @touchstart="hoveredGroupId = group.id"
-                          @touchend="hoveredGroupId = null"
                         >
                           <input
                             type="checkbox"
-                            class="checkbox checkbox-sm checkbox-primary flex-shrink-0"
+                            class="checkbox checkbox-sm checkbox-primary flex-shrink-0 cursor-pointer"
                             :checked="isGroupFullySelected(group.id)"
-                            @change.stop="toggleGroupFull(group.id)"
+                            @click.stop="toggleGroupFull(group.id)"
                           />
-                          <span class="text-xs font-medium flex-1 truncate">{{ group.name }}</span>
-                        </label>
+                          <span
+                            class="text-xs font-medium flex-1 truncate cursor-pointer"
+                            @click="showGroupClusters(group.id)"
+                          >
+                            {{ group.name }}
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <!-- Right: Clusters List -->
@@ -570,6 +578,11 @@ function toggleGroupFull(groupId: number) {
     groupClusters.forEach(c => selectedClusters.value.add(c.name));
     selectedGroups.value.add(groupId);
   }
+}
+
+// Show clusters for a specific group (when clicking group name)
+function showGroupClusters(groupId: number) {
+  hoveredGroupId.value = groupId;
 }
 
 // Toggle single cluster
