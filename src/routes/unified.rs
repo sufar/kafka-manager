@@ -1167,7 +1167,9 @@ async fn handle_topic_create(state: AppState, body: Value) -> Result<Value> {
 
 async fn handle_topic_delete(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
-    let name = get_string_param(&body, "name")?;
+    // 支持 topic 或 name 参数（前端使用 topic）
+    let name = get_string_param(&body, "topic")
+        .or_else(|_| get_string_param(&body, "name"))?;
 
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 

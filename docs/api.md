@@ -4,6 +4,8 @@
 
 Kafka Manager uses a **unified POST API** design. All API requests are made to `POST /api` with the operation specified via the `X-API-Method` HTTP header. Request parameters are passed in the JSON body.
 
+For Chinese version, see [api-cn.md](./api-cn.md).
+
 ## Request Format
 
 ```http
@@ -67,6 +69,22 @@ X-API-Method: {method_name}
 | `cluster.update` | Update cluster | `id: number, name?: string, brokers?: string, request_timeout_ms?: number, operation_timeout_ms?: number` |
 | `cluster.delete` | Delete cluster | `id: number` |
 | `cluster.test` | Test cluster connection | `id: number` |
+| `cluster.test_config` | Test cluster config (without saving) | `brokers: string, request_timeout_ms?: number, operation_timeout_ms?: number` |
+| `cluster.stats` | Get cluster stats | `cluster_id: string` |
+
+---
+
+### Cluster Group Management
+
+| Method | Description | Parameters |
+|--------|-------------|------------|
+| `cluster_group.list` | Get cluster group list | None |
+| `cluster_group.get` | Get cluster group details | `id: number` |
+| `cluster_group.create` | Create cluster group | `name: string, description?: string` |
+| `cluster_group.update` | Update cluster group | `id: number, name?: string, description?: string` |
+| `cluster_group.delete` | Delete cluster group | `id: number` |
+| `cluster_group.clusters` | Get clusters in group | `group_id: number` |
+| `cluster_group.assign_cluster` | Assign cluster to group | `group_id: number, cluster_id: string` |
 
 ---
 
@@ -75,6 +93,7 @@ X-API-Method: {method_name}
 | Method | Description | Parameters |
 |--------|-------------|------------|
 | `topic.list` | Get topic list | `cluster_id: string` |
+| `topic.list_with_cluster` | Get topic list with cluster info | `cluster_id: string` |
 | `topic.get` | Get topic details | `cluster_id: string, name: string` |
 | `topic.create` | Create topic | `cluster_id: string, name: string, num_partitions?: number, replication_factor?: number, config?: object` |
 | `topic.delete` | Delete topic | `cluster_id: string, name: string` |
@@ -84,29 +103,20 @@ X-API-Method: {method_name}
 | `topic.offsets` | Get topic offsets | `cluster_id: string, name: string` |
 | `topic.config_get` | Get topic config | `cluster_id: string, name: string` |
 | `topic.config_alter` | Alter topic config | `cluster_id: string, name: string, config: object` |
-| `topic.partitions.add` | Add partitions | `cluster_id: string, name: string, new_partitions: number` |
+| `topic.partitions_add` | Add partitions | `cluster_id: string, name: string, new_partitions: number` |
+| `topic.partition.watermarks` | Get partition watermarks | `cluster_id: string, topic: string, partition: number` |
 | `topic.throughput` | Get topic throughput | `cluster_id: string, name: string` |
 | `topic.refresh` | Refresh topic list | `cluster_id: string` |
 | `topic.saved` | Get saved topics | `cluster_id: string` |
 | `topic.search` | Search topics across clusters | `search?: string` |
 | `topic.count` | Get topic count | `cluster_id: string` |
+| `topic.cleanup_orphans` | Cleanup orphan topic metadata | `cluster_id: string` |
 
 ---
 
 ### Consumer Group Management
 
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `consumer_group.list` | Get consumer group list | `cluster_id: string` |
-| `consumer_group.get` | Get consumer group details | `cluster_id: string, name: string` |
-| `consumer_group.delete` | Delete consumer group | `cluster_id: string, name: string` |
-| `consumer_group.offsets` | Get consumer group offsets | `cluster_id: string, name: string, topic?: string` |
-| `consumer_group.offsets_reset` | Reset consumer group offsets | `cluster_id: string, name: string, topic: string, offset: { type: string, value?: number }, partition?: number` |
-| `consumer_group.throughput` | Get consumer group throughput | `cluster_id: string, name: string, topic: string` |
-| `consumer_group.batch_delete` | Batch delete consumer groups | `cluster_id: string, group_names: string[], continue_on_error?: boolean` |
-| `consumer_group.consumer_offsets` | Get all consumer group offsets | `cluster_id: string` |
-| `consumer_lag.get` | Get topic consumer lag | `cluster_id: string, topic: string` |
-| `consumer_lag.history` | Get consumer lag history | `cluster_id: string, topic: string, start_time?: number, end_time?: number` |
+> **Note**: Consumer group operations are not currently implemented in this version. The `consumer_group_count` field is available in `cluster.stats` response but provides only a count (always 0).
 
 ---
 
@@ -116,6 +126,7 @@ X-API-Method: {method_name}
 |--------|-------------|------------|
 | `message.list` | Get message list | `cluster_id: string, topic: string, partition?: number, offset?: number, max_messages?: number, order_by?: string, sort?: string, limit?: number, search?: string, search_in?: string, format?: string, decode?: string` |
 | `message.send` | Send message | `cluster_id: string, topic: string, value: string, key?: string, partition?: number, headers?: object` |
+| `message.export` | Export messages | `cluster_id: string, topic: string, partition?: number, offset?: number, limit?: number, format?: string` |
 
 > **Note**: Message export uses a separate endpoint: `GET /api/clusters/:cluster_id/topics/:topic/messages/export`
 
@@ -135,69 +146,6 @@ X-API-Method: {method_name}
 | `connection.stats` | Get connection stats | `cluster_id: string` |
 | `connection.batch_disconnect` | Batch disconnect | `cluster_names: string[]` |
 | `connection.batch_reconnect` | Batch reconnect | `cluster_names: string[]` |
-
----
-
-### Cluster Monitoring
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `monitor.stats` | Get cluster stats | `cluster_id: string` |
-| `monitor.info` | Get cluster info | `cluster_id: string` |
-| `monitor.metrics` | Get cluster metrics | `cluster_id: string` |
-| `monitor.brokers` | Get broker list | `cluster_id: string` |
-| `monitor.broker_get` | Get broker details | `cluster_id: string, broker_id: number` |
-
----
-
-### User Management
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `user.list` | Get user list | None |
-| `user.get` | Get user details | `id: number` |
-| `user.create` | Create user | `username: string, password: string, email?: string, role_id?: number` |
-| `user.update` | Update user | `id: number, email?: string, role_id?: number, is_active?: boolean` |
-| `user.password_update` | Update password | `id: number, old_password: string, new_password: string` |
-
----
-
-### Role Management
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `role.list` | Get role list | None |
-| `role.get` | Get role details | `id: number` |
-| `role.create` | Create role | `name: string, description?: string, permissions: string[]` |
-| `role.update` | Update role | `id: number, name?: string, description?: string, permissions?: string[]` |
-
----
-
-### Notification Management
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `notification.list` | Get notification config list | None |
-| `notification.get` | Get notification config details | `id: number` |
-| `notification.create` | Create notification config | `name: string, config_type: string, webhook_url?: string, email_recipients?: string[], dingtalk_webhook?: string, slack_webhook?: string, wechat_webhook?: string, enabled?: boolean` |
-| `notification.delete` | Delete notification config | `id: number` |
-| `notification.enable` | Enable notification | `id: number` |
-| `notification.disable` | Disable notification | `id: number` |
-| `alert_history.list` | Get alert history | `cluster_id?: string, severity?: string, notified?: boolean, limit?: number, offset?: number` |
-
----
-
-### Schema Registry
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `schema.subjects` | Get subject list | `cluster_id: string, schema_registry_url: string` |
-| `schema.versions` | Get subject versions | `cluster_id: string, subject: string, schema_registry_url: string` |
-| `schema.get` | Get schema details | `cluster_id: string, subject: string, version?: string, schema_registry_url: string` |
-| `schema.register` | Register schema | `cluster_id: string, subject: string, schema: object, schema_type?: string` |
-| `schema.delete` | Delete schema | `cluster_id: string, subject: string, schema_registry_url: string` |
-| `schema.version_delete` | Delete schema version | `cluster_id: string, subject: string, version: string, schema_registry_url: string` |
-| `schema.compatibility_level` | Get compatibility level | `cluster_id: string, schema_registry_url: string` |
 
 ---
 
@@ -224,18 +172,22 @@ X-API-Method: {method_name}
 
 ---
 
-### Resource Tags
+### Favorite Management
 
 | Method | Description | Parameters |
 |--------|-------------|------------|
-| `tag.list` | Get tag list | `cluster_id: string, resource_type: string, resource_name: string` |
-| `tag.create` | Create tag | `cluster_id: string, resource_type: string, resource_name: string, key: string, value: string` |
-| `tag.delete` | Delete tag | `cluster_id: string, resource_type: string, resource_name: string, key: string` |
-| `tag.topics` | Get topic tags | `cluster_id: string, resource_type?: string, resource_name?: string` |
-| `tag.keys` | Get tag keys | `cluster_id: string, resource_type?: string` |
-| `tag.values` | Get tag values | `cluster_id: string, key: string, resource_type?: string` |
-| `tag.filter` | Filter by tag | `cluster_id: string, resource_type: string, tag_key: string, tag_value?: string` |
-| `tag.batch_update` | Batch update tags | `cluster_id: string, resource_type: string, resource_name: string, tags: object` |
+| `favorite.group.list` | Get favorite group list | None |
+| `favorite.group.create` | Create favorite group | `name: string, description?: string, sort_order?: number` |
+| `favorite.group.get` | Get favorite group details | `id: number` |
+| `favorite.group.update` | Update favorite group | `id: number, name?: string, description?: string, sort_order?: number` |
+| `favorite.group.delete` | Delete favorite group | `id: number` |
+| `favorite.list` | Get favorite list | `cluster_id?: string, group_id?: number` |
+| `favorite.create` | Create favorite | `cluster_id: string, topic_name: string, group_id?: number, remark?: string, sort_order?: number` |
+| `favorite.get` | Get favorite details | `id: number` |
+| `favorite.update` | Update favorite | `id: number, group_id?: number, remark?: string, sort_order?: number` |
+| `favorite.delete` | Delete favorite | `id: number` |
+| `favorite.check` | Check if topic is favorited | `cluster_id: string, topic_name: string` |
+| `favorite.delete_by_topic` | Delete favorite by topic | `cluster_id: string, topic_name: string` |
 
 ---
 
@@ -244,16 +196,6 @@ X-API-Method: {method_name}
 | Method | Description | Parameters |
 |--------|-------------|------------|
 | `audit_log.list` | Get audit log list | `limit?: number, offset?: number, action?: string, cluster_id?: string, status?: number` |
-
----
-
-### Authentication
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `auth.api_keys` | Get API key list | None |
-| `auth.api_key_create` | Create API key | `name?: string, expires_in_days?: number` |
-| `auth.api_key_revoke` | Revoke API key | `id: number` |
 
 ---
 

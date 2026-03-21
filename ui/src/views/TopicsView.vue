@@ -128,7 +128,7 @@
         </table>
       </div>
       <!-- 表格内容 - 滚动 -->
-      <div ref="singleClusterContainerRef" class="overflow-x-hidden overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 350px);">
+      <div ref="singleClusterContainerRef" class="overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 350px);">
         <table class="table w-full">
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
@@ -231,7 +231,7 @@
           </div>
           <!-- 表格内容 - 滚动 -->
           <div
-            class="overflow-x-hidden overflow-y-auto"
+            class="overflow-y-auto"
             :ref="(el: Element | ComponentPublicInstance | null) => setClusterContainerRef(el as HTMLElement | null, clusterName)"
             @scroll="(e: Event) => handleClusterScroll(e, clusterName)"
             style="max-height: calc(100vh - 350px);"
@@ -324,7 +324,7 @@
           </table>
         </div>
         <!-- 表格内容 - 滚动 -->
-        <div ref="containerRef" class="overflow-x-hidden overflow-y-auto" @scroll="handleScroll" style="max-height: calc(100vh - 310px);">
+        <div ref="containerRef" class="overflow-y-auto" @scroll="handleScroll" style="max-height: calc(100vh - 310px);">
           <table class="table w-full">
             <tbody>
               <!-- 虚拟滚动：顶部占位 -->
@@ -566,18 +566,21 @@ const singleClusterContainerHeight = ref(0);
 
 function handleScroll(event: Event) {
   const target = event.target as HTMLElement;
+  if (!target) return;
   scrollTop.value = target.scrollTop;
   containerHeight.value = target.clientHeight;
 }
 
 function handleSingleClusterScroll(event: Event) {
   const target = event.target as HTMLElement;
+  if (!target) return;
   singleClusterScrollTop.value = target.scrollTop;
   singleClusterContainerHeight.value = target.clientHeight;
 }
 
 function handleClusterScroll(event: Event, clusterName: string) {
   const target = event.target as HTMLElement;
+  if (!target) return;
   clusterScrollTops.value[clusterName] = target.scrollTop;
   clusterContainerHeights.value[clusterName] = target.clientHeight;
 }

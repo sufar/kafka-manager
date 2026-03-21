@@ -25,13 +25,14 @@ impl KafkaAdmin {
         Ok(Self { client, timeout })
     }
 
-    /// 列出所有 Topic
+    /// 列出所有 Topic（排除内部 topic，如 __consumer_offsets）
     pub fn list_topics(&self) -> Result<Vec<String>> {
         let metadata = self.client.inner().fetch_metadata(None, self.timeout)?;
         Ok(metadata
             .topics()
             .iter()
             .map(|t| t.name().to_string())
+            .filter(|name| !name.starts_with("__"))
             .collect())
     }
 
