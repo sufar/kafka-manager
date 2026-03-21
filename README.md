@@ -1,74 +1,75 @@
 # Kafka Manager
 
-[![Rust](https://img.shields.io/badge/rust-v0.1.0-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
 [![Tauri](https://img.shields.io/badge/tauri-2.x-blue.svg)](https://tauri.app/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-一个功能强大的 Kafka 集群管理工具，提供 Web API 和跨平台桌面应用。支持多集群管理、Topic 运维、消息浏览、Consumer Group 监控等功能。
+A powerful Kafka cluster management tool with Web API and cross-platform desktop application. Manage multiple Kafka clusters, browse topics, monitor consumer groups, and explore messages with ease.
 
-## 功能特性
+![Kafka Manager Dashboard](https://via.placeholder.com/800x400?text=Kafka+Manager+Dashboard)
 
-### 核心功能
+## Features
 
-| 模块 | 功能描述 |
-|------|------|
-| **多集群管理** | 支持管理多个 Kafka 集群，实时连接状态监控，一键断开/重连 |
-| **Topic 管理** | 创建/删除/查看 Topic，分区管理，配置修改，批量操作，自动同步元数据 |
-| **消息管理** | 浏览消息、搜索过滤、按分区/时间查询、导出 (JSON/CSV/TXT)、发送消息 |
-| **Consumer Group** | 查看消费进度、Lag 监控、Offset 重置、消费速率统计 |
-| **集群监控** | Broker 信息、分区分布、未完全复制分区监控、吞吐量统计 |
-| **Schema Registry** | Confluent Schema Registry 集成，Schema CRUD，兼容性检查 |
-| **RBAC 权限** | 用户管理、角色管理、API Key 认证、细粒度权限控制 |
-| **告警通知** | Consumer Lag 告警、速率告警，支持 Webhook/钉钉/企业微信/Slack/邮件 |
-| **审计日志** | 自动记录所有 API 操作，支持查询和清理 |
-| **资源标签** | 为 Topic 和 Consumer Group 添加自定义标签，便于分类管理 |
-| **Topic 模板** | 预定义配置模板，一键创建标准化 Topic |
+### Core Capabilities
 
-### UI 特性
+| Module | Description |
+|--------|-------------|
+| **Multi-Cluster Management** | Manage multiple Kafka clusters with real-time connection status and health monitoring |
+| **Topic Management** | Create, delete, configure topics with partition management and bulk operations |
+| **Message Browser** | Browse, search, filter messages with time-range queries and export (JSON/CSV/TXT) |
+| **Consumer Group Monitoring** | Track consumer lag, reset offsets, monitor consumption rates |
+| **Cluster Monitoring** | Broker info, partition distribution, under-replicated partitions, throughput stats |
+| **Schema Registry** | Confluent Schema Registry integration with CRUD operations |
+| **RBAC & Authentication** | User management, role-based access control, API Key authentication |
+| **Alerting & Notifications** | Consumer lag alerts, rate alerts via Webhook/DingTalk/Slack/WeChat/Email |
+| **Audit Logging** | Automatic API request auditing with query and cleanup support |
+| **Resource Tagging** | Custom tags for topics and consumer groups |
+| **Topic Templates** | Predefined templates for standardized topic creation |
 
-- **现代化界面** - 使用 Vue 3 + Tailwind CSS 4 + DaisyUI 5 构建
-- **多集群视图** - 侧边栏集群列表，支持复选多选
-- **实时状态** - 集群连接健康状态实时显示
-- **响应式设计** - 适配不同屏幕尺寸
-- **跨平台桌面应用** - 基于 Tauri 2，支持 Windows/macOS/Linux
+### UI Highlights
 
-## 快速开始
+- Modern, responsive interface built with Vue 3 + Tailwind CSS 4 + DaisyUI 5
+- Real-time cluster connection status
+- Multi-cluster sidebar with checkbox selection
+- Cross-platform desktop app powered by Tauri 2
 
-### 方法一：运行 Web 后端
+## Quick Start
+
+### Option 1: Run Web Backend
 
 ```bash
-# 克隆项目
+# Clone repository
 git clone <repo-url>
 cd kafka-manager
 
-# 运行后端
+# Run backend server
 cargo run
 ```
 
-后端服务将在 `http://localhost:9732` 启动。
+Backend will start at `http://localhost:9732`
 
-### 方法二：运行桌面应用
+### Option 2: Run Desktop Application
 
 ```bash
-# 安装前端依赖
+# Install frontend dependencies
 cd ui
 npm install
 
-# 开发模式运行
+# Run in development mode
 npm run tauri dev
 
-# 或构建发布版本
+# Or build production release
 npm run tauri build
 ```
 
-### 首次运行
+### First Run
 
-首次运行时自动创建 SQLite 数据库 `kafka_manager.db`。
+On first run, SQLite database `kafka_manager.db` is automatically created.
 
-## 配置
+## Configuration
 
-创建 `config.toml` 配置文件：
+Create `config.toml` for server configuration:
 
 ```toml
 [server]
@@ -84,73 +85,59 @@ min_idle = 2
 connection_timeout_sec = 30
 ```
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `API_KEYS` | API Key 列表（逗号分隔） | - |
-| `AUTH_ENABLED` | 是否启用认证 | `false` |
-| `HEALTH_CHECK_INTERVAL_SECS` | 健康检查间隔 | `30` |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `API_KEYS` | Comma-separated API Keys | - |
+| `AUTH_ENABLED` | Enable authentication | `false` |
+| `HEALTH_CHECK_INTERVAL_SECS` | Health check interval | `30` |
 
-## 项目结构
+## Architecture
 
 ```
 kafka-manager/
-├── src/                      # Rust 后端源码
-│   ├── main.rs              # 应用入口
-│   ├── config.rs            # 配置管理
-│   ├── error.rs             # 错误处理
-│   ├── lib.rs               # API 路由注册
-│   ├── cache/               # 缓存模块
-│   ├── db/                  # 数据库层
-│   │   ├── cluster.rs       # 集群管理
-│   │   ├── topic.rs         # Topic 管理
-│   │   ├── user.rs          # 用户和角色
-│   │   ├── audit_log.rs     # 审计日志
-│   │   └── ...
-│   ├── kafka/               # Kafka 客户端封装
-│   │   ├── admin.rs         # Admin 客户端
-│   │   ├── consumer.rs      # Consumer 封装
-│   │   ├── producer.rs      # Producer 封装
-│   │   └── throughput.rs    # 吞吐量统计
-│   ├── middleware/          # 中间件
-│   │   ├── auth.rs          # 认证中间件
-│   │   ├── audit.rs         # 审计中间件
-│   │   └── performance.rs   # 性能监控
-│   ├── pool/                # 连接池管理
-│   ├── routes/              # API 路由处理器
-│   └── task/                # 后台任务
-├── ui/                       # Vue 前端源码
+├── src/                      # Rust backend source
+│   ├── main.rs              # Application entry point
+│   ├── config.rs            # Configuration management
+│   ├── error.rs             # Error handling
+│   ├── cache/               # Caching layer (Moka)
+│   ├── db/                  # Database layer (SQLx + SQLite)
+│   ├── kafka/               # Kafka client wrappers (rdkafka)
+│   ├── middleware/          # Auth, audit, rate limiting
+│   ├── pool/                # Connection pooling (deadpool)
+│   ├── routes/              # API route handlers
+│   └── task/                # Background tasks
+├── ui/                       # Vue 3 frontend
 │   ├── src/
-│   │   ├── api/             # API 客户端
-│   │   ├── views/           # 页面组件
-│   │   ├── components/      # 可复用组件
-│   │   ├── layouts/         # 布局组件
-│   │   └── stores/          # Pinia 状态管理
-│   └── src-tauri/           # Tauri 配置
-├── config.toml              # 配置文件
-├── kafka_manager.db         # SQLite 数据库
-└── docs/                    # 文档目录
+│   │   ├── api/             # API client (SSE support)
+│   │   ├── views/           # Page components
+│   │   ├── components/      # Reusable components
+│   │   └── stores/          # Pinia state management
+│   └── src-tauri/           # Tauri configuration
+├── config.toml              # Server configuration
+├── kafka_manager.db         # SQLite database
+└── docs/                    # Documentation
 ```
 
-## API 端点
+## API Endpoints
 
-### 统一 API 风格
+### Unified API Style
 
-本项目采用**统一的 POST API**设计，所有请求都通过 `POST /api` 发送：
+This project uses a **unified POST API** design:
 
-- **请求 URL**: `POST http://localhost:9732/api`
+- **URL**: `POST /api`
 - **Method Header**: `X-API-Method: <method_name>`
-- **请求 Body**: JSON 格式参数
+- **Body**: JSON parameters
 
-**示例**:
+**Example**:
 ```bash
-# 获取集群列表
+# List clusters
 curl -X POST http://localhost:9732/api \
   -H "X-API-Method: cluster.list" \
   -H "Content-Type: application/json"
 
-# 创建 Topic
+# Create topic
 curl -X POST http://localhost:9732/api \
   -H "X-API-Method: topic.create" \
   -H "Content-Type: application/json" \
@@ -161,7 +148,7 @@ curl -X POST http://localhost:9732/api \
     "replication_factor": 1
   }'
 
-# 获取消息列表
+# Get messages with streaming
 curl -X POST http://localhost:9732/api \
   -H "X-API-Method: message.list" \
   -H "Content-Type: application/json" \
@@ -173,139 +160,110 @@ curl -X POST http://localhost:9732/api \
   }'
 ```
 
-### API Method 列表
+### API Method Reference
 
-#### 集群管理
-| Method | 描述 | 参数 |
-|--------|------|------|
-| `cluster.list` | 获取集群列表 | 无 |
-| `cluster.get` | 获取集群详情 | `cluster_id` |
-| `cluster.create` | 创建集群 | `name`, `brokers`, `request_timeout_ms`, `operation_timeout_ms` |
-| `cluster.update` | 更新集群 | `cluster_id`, `name?`, `brokers?`, `request_timeout_ms?`, `operation_timeout_ms?` |
-| `cluster.delete` | 删除集群 | `cluster_id` |
-| `cluster.test` | 测试集群连接 | `cluster_id` |
+For complete API documentation, see [docs/api.md](./docs/api.md)
 
-#### Topic 管理
-| Method | 描述 | 参数 |
-|--------|------|------|
-| `topic.list` | 获取 Topic 列表 | `cluster_id` |
-| `topic.get` | 获取 Topic 详情 | `cluster_id`, `name` |
-| `topic.create` | 创建 Topic | `cluster_id`, `name`, `num_partitions`, `replication_factor`, `config?` |
-| `topic.delete` | 删除 Topic | `cluster_id`, `name` |
-| `topic.batch_create` | 批量创建 Topic | `cluster_id`, `topics[]`, `continue_on_error` |
-| `topic.batch_delete` | 批量删除 Topic | `cluster_id`, `topics[]`, `continue_on_error` |
-| `topic.offsets` | 获取 Topic Offset 信息 | `cluster_id`, `name` |
-| `topic.config_get` | 获取 Topic 配置 | `cluster_id`, `name` |
-| `topic.config_alter` | 修改 Topic 配置 | `cluster_id`, `name`, `config` |
-| `topic.partitions_add` | 增加分区数 | `cluster_id`, `name`, `new_partitions` |
-| `topic.throughput` | 获取 Topic 吞吐量 | `cluster_id`, `name` |
-| `topic.refresh` | 刷新 Topic 列表 | `cluster_id` |
-| `topic.saved` | 获取已保存的 Topic | `cluster_id` |
-| `topic.search` | 搜索 Topic | `cluster_id`, `search` |
-| `topic.count` | 获取 Topic 数量 | `cluster_id` |
+| Category | Methods |
+|----------|---------|
+| **Cluster** | `cluster.list`, `cluster.get`, `cluster.create`, `cluster.update`, `cluster.delete`, `cluster.test` |
+| **Connection** | `connection.list`, `connection.get`, `connection.disconnect`, `connection.reconnect`, `connection.health_check` |
+| **Topic** | `topic.list`, `topic.get`, `topic.create`, `topic.delete`, `topic.batch_create`, `topic.batch_delete`, `topic.refresh` |
+| **Consumer Group** | `consumer_group.list`, `consumer_group.get`, `consumer_group.delete`, `consumer_group.offsets_reset` |
+| **Message** | `message.list`, `message.send`, `message.export` |
+| **Monitoring** | `monitor.stats`, `monitor.info`, `monitor.metrics`, `monitor.brokers` |
+| **User & Role** | `user.list`, `user.create`, `user.update`, `role.list`, `role.create` |
+| **Schema** | `schema.subjects`, `schema.versions`, `schema.get`, `schema.register` |
+| **Alert** | `notification.list`, `notification.create`, `alert_history.list` |
 
-#### Consumer Group 管理
-| Method | 描述 | 参数 |
-|--------|------|------|
-| `consumer_group.list` | 获取 Consumer Group 列表 | `cluster_id` |
-| `consumer_group.get` | 获取 Consumer Group 详情 | `cluster_id`, `name` |
-| `consumer_group.delete` | 删除 Consumer Group | `cluster_id`, `name` |
-| `consumer_group.offsets` | 获取 Consumer Group Offset | `cluster_id`, `name` |
-| `consumer_group.offsets_reset` | 重置 Consumer Group Offset | `cluster_id`, `name`, `topic`, `partition?`, `offset` |
-| `consumer_group.throughput` | 获取 Consumer Group 吞吐量 | `cluster_id`, `name`, `topic` |
-| `consumer_group.batch_delete` | 批量删除 Consumer Group | `cluster_id`, `group_names[]`, `continue_on_error` |
-| `consumer_group.consumer_offsets` | 获取消费进度详情 | `cluster_id`, `group_name`, `topic?` |
-| `consumer_lag.get` | 获取 Topic 消费积压 | `cluster_id`, `topic` |
-| `consumer_lag.history` | 获取消费积压历史 | `cluster_id`, `topic`, `start_time?`, `end_time?` |
+## Tech Stack
 
-#### 消息管理
-| Method | 描述 | 参数 |
-|--------|------|------|
-| `message.list` | 获取消息列表 | `cluster_id`, `topic`, `partition?`, `offset?`, `max_messages` |
-| `message.send` | 发送消息 | `cluster_id`, `topic`, `key?`, `value`, `partition?` |
-| `message.export` | 导出消息 | `cluster_id`, `topic`, `format`, `partition?`, `start_time?`, `end_time?` |
+### Backend
 
-## 开发
+| Technology | Purpose |
+|------------|---------|
+| [Axum](https://github.com/tokio-rs/axum) | Web framework |
+| [Tokio](https://tokio.rs/) | Async runtime |
+| [SQLx](https://github.com/launchbadge/sqlx) | Async database (SQLite) |
+| [rdkafka](https://github.com/fede1024/rust-rdkafka) | Kafka client |
+| [deadpool](https://github.com/bikeshedder/deadpool) | Connection pooling |
+| [Moka](https://github.com/moka-rs/moka) | Caching |
+| [bcrypt](https://crates.io/crates/bcrypt) | Password hashing |
+| [tower-http](https://github.com/tower-rs/tower-http) | Middleware |
 
-### 编译
+### Frontend
+
+| Technology | Purpose |
+|------------|---------|
+| [Vue 3](https://vuejs.org/) + TypeScript | Frontend framework |
+| [Tailwind CSS 4](https://tailwindcss.com/) | CSS framework |
+| [DaisyUI 5](https://daisyui.com/) | Component library |
+| [Pinia](https://pinia.vuejs.org/) | State management |
+| [Tauri 2](https://tauri.app/) | Desktop application |
+
+## Database Tables
+
+| Table | Description |
+|-------|-------------|
+| `kafka_clusters` | Cluster configuration |
+| `cluster_connection_history` | Connection history |
+| `topic_metadata` | Topic metadata cache |
+| `users`, `roles` | User accounts and roles |
+| `api_keys` | API Key storage |
+| `audit_logs` | API audit logs |
+| `notification_configs` | Notification channels |
+| `alert_rules`, `alert_history` | Alert rules and history |
+| `consumer_lag_history` | Consumer lag tracking |
+| `resource_tags` | Resource tags |
+| `topic_templates` | Topic templates |
+| `user_settings` | User preferences |
+
+## Security
+
+- **API Key Authentication**: Validate via `X-API-Key` header
+- **RBAC**: Role-based access control with `resource:action` permissions
+- **Password Hashing**: bcrypt for secure password storage
+- **Audit Logging**: All API requests automatically logged
+
+## Performance
+
+- **Connection Pooling**: Producer/Consumer pools avoid connection overhead
+- **Query Caching**: Moka cache for hot data
+- **Async I/O**: Fully async architecture for high concurrency
+- **Bulk Operations**: Batch create/delete for topics and consumer groups
+- **SSE Streaming**: Real-time message streaming for large datasets
+
+## Development
+
+### Build
 
 ```bash
 cargo build --release
 ```
 
-### 测试
+### Test
 
 ```bash
 cargo test
 ```
 
-### 检查代码
+### Lint & Format
 
 ```bash
 cargo clippy
 cargo fmt
 ```
 
-## 技术栈
+## Documentation
 
-### 后端
-- **Web 框架**: [Axum](https://github.com/tokio-rs/axum) - Tokio 团队的轻量级 Web 框架
-- **异步运行时**: [Tokio](https://tokio.rs/)
-- **数据库**: [SQLx](https://github.com/launchbadge/sqlx) - 异步 SQL 库，使用 SQLite
-- **Kafka 客户端**: [rdkafka](https://github.com/fede1024/rust-rdkafka)
-- **连接池**: [deadpool](https://github.com/bikeshedder/deadpool)
-- **缓存**: [moka](https://github.com/moka-rs/moka)
-- **认证**: [bcrypt](https://crates.io/crates/bcrypt) 密码哈希
+- [API Reference](./docs/api.md) - Complete API documentation
+- [Architecture](./docs/architecture.md) - Technical architecture and design
+- [Message Query Design](./docs/message-query-design.md) - Message query internals
 
-### 前端
-- **框架**: [Vue 3](https://vuejs.org/) + TypeScript
-- **UI 库**: [DaisyUI 5](https://daisyui.com/) + [Tailwind CSS 4](https://tailwindcss.com/)
-- **状态管理**: [Pinia](https://pinia.vuejs.org/)
-- **桌面应用**: [Tauri 2](https://tauri.app/)
-
-## 数据库表
-
-| 表名 | 描述 |
-|------|------|
-| `kafka_clusters` | Kafka 集群配置 |
-| `cluster_connection_history` | 集群连接历史 |
-| `topic_metadata` | Topic 元数据缓存 |
-| `users` | 用户账户 |
-| `roles` | 角色定义 |
-| `api_keys` | API Key 存储 |
-| `audit_logs` | API 审计日志 |
-| `notification_configs` | 通知渠道配置 |
-| `alert_rules` | 告警规则 |
-| `consumer_lag_history` | Consumer Lag 历史记录 |
-| `resource_tags` | 资源标签 |
-| `topic_templates` | Topic 配置模板 |
-| `user_settings` | 用户个性化设置 |
-
-## 安全
-
-- **API Key 认证**: 支持多 API Key，请求头 `X-API-Key` 验证
-- **RBAC 权限**: 基于角色的访问控制，权限格式 `resource:action`
-- **密码加密**: 使用 bcrypt 进行密码哈希
-- **审计日志**: 所有 API 操作自动记录
-
-## 性能优化
-
-- **连接池**: Kafka Producer/Consumer 连接池，避免频繁创建连接
-- **查询缓存**: 使用 moka 缓存热点数据
-- **异步 IO**: 全异步架构，高并发支持
-- **批量操作**: 支持批量创建/删除 Topic 和 Consumer Group
-
-## 相关文档
-
-- [API 使用示例](./docs/API_EXAMPLES.md) - 完整 API 使用文档
-- [UI 开发指南](./ui/README.md) - 前端开发文档
-- [Tauri 应用](./TAURI_README.md) - 桌面应用开发文档
-- [Topic 刷新功能](./TOPIC_REFRESH_FEATURE.md) - Topic 同步机制说明
-
-## 许可证
+## License
 
 MIT License
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
