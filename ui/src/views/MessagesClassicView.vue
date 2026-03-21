@@ -170,15 +170,14 @@
           ref="scrollerRefMobile"
           class="flex-1 overflow-auto p-1"
           :items="sortedMessages"
-          :item-size="62"
+          :item-size="72"
           key-field="uid"
           :buffer="100"
           v-slot="{ item, index }"
         >
           <div
-            class="card bg-base-100 border border-base-200 p-2 shadow-sm cursor-pointer transition-all"
+            class="card bg-base-100 border border-base-200 p-2 shadow-sm cursor-pointer transition-all mb-0"
             :class="{ 'bg-primary/10 border-primary/30': selectedMessageIndex === index }"
-            style="height: 60px;"
             @click="selectMessage(index)"
           >
             <div class="flex items-center justify-between mb-1">
@@ -186,12 +185,14 @@
                 <span class="badge badge-ghost badge-xs">P{{ (item as Message).partition }}</span>
                 <span class="text-xs font-mono text-base-content/70">#{{ (item as Message).offset }}</span>
               </div>
-              <span class="text-xs text-base-content/50">{{ formatTimestamp((item as Message).timestamp) }}</span>
+              <span class="text-[10px] text-base-content/50 whitespace-nowrap">{{ formatTimestamp((item as Message).timestamp) }}</span>
             </div>
-            <div v-if="(item as Message).key" class="text-xs font-mono text-secondary mb-1 truncate">
-              Key: {{ (item as Message).key }}
+            <div class="h-4 mb-1 overflow-hidden">
+              <div v-if="(item as Message).key" class="text-[10px] font-mono text-secondary truncate">
+                Key: {{ (item as Message).key }}
+              </div>
             </div>
-            <div class="text-xs font-mono text-base-content/80 truncate">
+            <div class="text-[10px] font-mono text-base-content/80 truncate">
               {{ formatMessagePreview((item as Message).value) }}
             </div>
           </div>

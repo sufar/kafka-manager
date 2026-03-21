@@ -17,6 +17,19 @@
       <!-- 数量 -->
       <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" :title="t.messages.maxMessages" />
 
+      <!-- 高级筛选按钮 -->
+      <button
+        class="btn btn-sm btn-ghost gap-1"
+        :class="{ 'btn-active text-primary': showTimeFilters }"
+        @click="showTimeFilters = !showTimeFilters"
+        :title="t.messages.timeRangeFilter"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
+        </svg>
+        <span class="hidden sm:inline">{{ t.messages.timeRange }}</span>
+      </button>
+
       <!-- 搜索 -->
       <div class="flex-1 min-w-[120px] relative">
         <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.valuePlaceholder" @keyup.enter="queryMessages" />
@@ -46,6 +59,36 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
         </svg>
+      </button>
+    </div>
+
+    <!-- 时间范围筛选面板 -->
+    <div v-if="showTimeFilters" class="time-filters flex flex-wrap items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50 animate-fadeIn">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-base-content/70">{{ t.messages.startTime }}:</span>
+        <input
+          v-model="filters.startTime"
+          type="datetime-local"
+          class="input input-bordered input-sm w-40"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-base-content/70">{{ t.messages.endTime }}:</span>
+        <input
+          v-model="filters.endTime"
+          type="datetime-local"
+          class="input input-bordered input-sm w-40"
+        />
+      </div>
+      <button
+        class="btn btn-ghost btn-xs gap-1"
+        @click="clearTimeFilters"
+        :disabled="!filters.startTime && !filters.endTime"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+        {{ t.messages.clear }}
       </button>
     </div>
 
@@ -291,7 +334,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
@@ -364,6 +407,13 @@ const selectedPartition = ref<string | number>('all');
 const fetchMode = ref<'newest' | 'oldest'>('newest');
 const maxMessages = ref(100);
 const searchKeyword = ref('');
+
+// 时间范围筛选
+const showTimeFilters = ref(false);
+const filters = reactive({
+  startTime: '',
+  endTime: '',
+});
 
 // UI 状态
 const loading = ref(false);
@@ -463,6 +513,14 @@ async function queryMessages() {
     if (searchKeyword.value.trim()) {
       params.search = searchKeyword.value.trim();
       params.search_in = 'value';
+    }
+
+    // 时间范围筛选
+    if (filters.startTime) {
+      params.start_time = new Date(filters.startTime).getTime();
+    }
+    if (filters.endTime) {
+      params.end_time = new Date(filters.endTime).getTime();
     }
 
     // 使用 SSE 流式获取
@@ -676,6 +734,12 @@ function getMsgOffset(item: any): number { return item?.offset ?? 0; }
 function getMsgKey(item: any): string | null { return item?.key; }
 function getMsgValue(item: any): string | null { return item?.value; }
 function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
+
+// 清除时间筛选
+function clearTimeFilters() {
+  filters.startTime = '';
+  filters.endTime = '';
+}
 
 // 格式化值为不同格式
 function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): string {
@@ -939,6 +1003,21 @@ function stopResize() {
 pre {
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
 }
 .vue-recycle-scroller {
   position: relative;

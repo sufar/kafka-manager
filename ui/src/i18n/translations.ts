@@ -142,6 +142,9 @@ export interface Translation {
     perPartition: string;
     startTime: string;
     endTime: string;
+    timeRange: string;
+    timeRangeFilter: string;
+    clear: string;
     selectTopic: string;
     selectMessage: string;
     noTopicSelected: string;
@@ -435,6 +438,9 @@ export const translations: Record<Language, Translation> = {
       perPartition: '每分区',
       startTime: '开始时间',
       endTime: '结束时间',
+      timeRange: '时间范围',
+      timeRangeFilter: '高级筛选',
+      clear: '清除',
       selectTopic: '选择主题',
       selectMessage: '选择消息',
       noTopicSelected: '未选择主题',
@@ -726,6 +732,9 @@ export const translations: Record<Language, Translation> = {
       perPartition: 'Per Partition',
       startTime: 'Start Time',
       endTime: 'End Time',
+      timeRange: 'Time Range',
+      timeRangeFilter: 'Advanced Filter',
+      clear: 'Clear',
       selectTopic: 'Select Topic',
       selectMessage: 'Select Message',
       noTopicSelected: 'No topic selected',
