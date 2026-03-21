@@ -399,7 +399,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, shallowRef } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, shallowRef, watch } from 'vue';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -429,6 +429,36 @@ const t = computed(() => languageStore.t);
 
 // 当前选中的分组（0 表示所有分组）
 const selectedGroupId = ref<number | null>(null);
+const hasLoadedGroupSelection = ref(false);
+
+// 从数据库加载选中的分组
+async function loadGroupSelection() {
+  if (hasLoadedGroupSelection.value) return;
+  try {
+    const settings = await apiClient.getSettings(['ui.selected_group_id']);
+    const setting = settings.find(s => s.key === 'ui.selected_group_id');
+    if (setting && setting.value) {
+      const groupId = parseInt(setting.value, 10);
+      if (!isNaN(groupId)) {
+        selectedGroupId.value = groupId;
+      }
+    }
+    hasLoadedGroupSelection.value = true;
+  } catch (e) {
+    console.warn('Failed to load group selection:', e);
+    hasLoadedGroupSelection.value = true;
+  }
+}
+
+// 保存选中的分组到数据库
+async function saveGroupSelection() {
+  try {
+    const value = selectedGroupId.value === null ? 'null' : String(selectedGroupId.value);
+    await apiClient.updateSetting('ui.selected_group_id', value);
+  } catch (e) {
+    console.error('Failed to save group selection:', e);
+  }
+}
 
 // Group selector ref for scrolling
 const groupSelectorRef = ref<HTMLElement | null>(null);
@@ -517,6 +547,7 @@ function getClusterHealth(clusterId: string) {
 
 function selectGroup(groupId: number | null) {
   selectedGroupId.value = groupId;
+  saveGroupSelection();
 }
 
 function toggleCluster(clusterName: string) {
@@ -1126,9 +1157,23 @@ async function handleTopicsRefreshed(event: Event) {
   }
 }
 
+// 监听 groups 变化，验证选中的分组是否仍然有效
+watch(() => clusterStore.groups, (newGroups) => {
+  if (hasLoadedGroupSelection.value && selectedGroupId.value !== null) {
+    const groupExists = newGroups.some(g => g.id === selectedGroupId.value);
+    if (!groupExists) {
+      // 选中的分组不存在了，重置为 null
+      selectedGroupId.value = null;
+      saveGroupSelection();
+    }
+  }
+}, { deep: true });
+
 onMounted(() => {
   // 加载分组
   clusterStore.fetchGroups();
+  // 加载选中的分组
+  loadGroupSelection();
   // 监听刷新事件（从 ModernLayout 的 Refresh Topics 按钮触发）
   window.addEventListener('cluster-topics-refreshed', handleTopicsRefreshed);
   // 监听点击外部关闭下拉菜单

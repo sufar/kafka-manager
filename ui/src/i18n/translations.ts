@@ -223,6 +223,16 @@ export interface Translation {
     valid: string;
     exportSuccess: string;
     exportFailed: string;
+    receiving: string;
+    recent5Minutes: string;
+    recent15Minutes: string;
+    recent30Minutes: string;
+    recent1Hour: string;
+    recent1Day: string;
+    topicLabel: string;
+    minutes: string;
+    hour: string;
+    day: string;
   };
   settings: {
     title: string;
@@ -562,6 +572,16 @@ export const translations: Record<Language, Translation> = {
       valid: '有效',
       exportSuccess: '消息已导出',
       exportFailed: '导出失败',
+      receiving: '接收中',
+      recent5Minutes: '最近 5 分钟',
+      recent15Minutes: '最近 15 分钟',
+      recent30Minutes: '最近 30 分钟',
+      recent1Hour: '最近 1 小时',
+      recent1Day: '最近 1 天',
+      topicLabel: '主题',
+      minutes: '分',
+      hour: '时',
+      day: '天',
     },
     settings: {
       title: '设置',
@@ -899,6 +919,16 @@ export const translations: Record<Language, Translation> = {
       valid: 'Valid',
       exportSuccess: 'Messages exported',
       exportFailed: 'Export failed',
+      receiving: 'Receiving',
+      recent5Minutes: 'Last 5 minutes',
+      recent15Minutes: 'Last 15 minutes',
+      recent30Minutes: 'Last 30 minutes',
+      recent1Hour: 'Last 1 hour',
+      recent1Day: 'Last 1 day',
+      topicLabel: 'Topic',
+      minutes: 'min',
+      hour: 'hr',
+      day: 'day',
     },
     settings: {
       title: 'Settings',
