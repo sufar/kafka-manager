@@ -3,7 +3,7 @@
     class="favorite-btn"
     :class="{ 'is-favorite': isFavorite }"
     @click.stop="toggleFavorite"
-    :title="isFavorite ? (t.favorites?.remove || '取消收藏') : (t.favorites?.add || '收藏')"
+    :title="isFavorite ? (t.favorites?.remove || 'Remove from Favorites') : (t.favorites?.add || 'Add to Favorites')"
   >
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -25,38 +25,38 @@
   <Teleport to="body">
     <dialog ref="modalRef" class="modal" @click.self="closeModal">
       <div class="modal-box w-full max-w-sm mx-2 md:mx-auto">
-        <h3 class="font-bold text-lg mb-4">{{ t.favorites?.selectGroup || '选择收藏分组' }}</h3>
+        <h3 class="font-bold text-lg mb-4">{{ t.favorites?.selectGroup || 'Select Group' }}</h3>
         <div v-if="loading" class="flex items-center justify-center py-8">
           <span class="loading loading-spinner loading-md text-primary"></span>
         </div>
         <div v-else-if="groups.length === 0 || showCreateGroupForm" class="text-center py-4">
           <div v-if="!showCreateGroupForm">
-            <p class="text-base-content/50">{{ t.favorites?.noGroups || '暂无分组' }}</p>
+            <p class="text-base-content/50">{{ t.favorites?.noGroups || 'No groups yet' }}</p>
             <button class="btn btn-primary btn-sm mt-2" @click="openCreateGroupForm">
-              {{ t.favorites?.createGroup || '创建分组' }}
+              {{ t.favorites?.createGroup || 'Create Group' }}
             </button>
           </div>
           <div v-else class="space-y-3">
-            <h4 class="font-medium text-sm text-left">{{ t.favorites?.createGroup || '创建分组' }}</h4>
+            <h4 class="font-medium text-sm text-left">{{ t.favorites?.createGroup || 'Create Group' }}</h4>
             <div class="space-y-2">
               <input
                 v-model="newGroupName"
                 type="text"
                 class="input input-bordered w-full input-sm"
-                :placeholder="t.favorites?.groupNamePlaceholder || '请输入分组名称'"
+                :placeholder="t.favorites?.groupNamePlaceholder || 'Enter group name'"
                 @keyup.enter="submitCreateGroup"
               />
               <input
                 v-model="newGroupDesc"
                 type="text"
                 class="input input-bordered w-full input-sm"
-                :placeholder="t.favorites?.groupDescPlaceholder || '请输入分组描述（可选）'"
+                :placeholder="t.favorites?.groupDescPlaceholder || 'Enter description (optional)'"
                 @keyup.enter="submitCreateGroup"
               />
             </div>
             <div class="flex gap-2 justify-end">
               <button class="btn btn-ghost btn-sm" @click="cancelCreateGroup">
-                {{ t.common?.cancel || '取消' }}
+                {{ t.common?.cancel || 'Cancel' }}
               </button>
               <button
                 class="btn btn-primary btn-sm"
@@ -64,7 +64,7 @@
                 @click="submitCreateGroup"
               >
                 <span v-if="creatingGroup" class="loading loading-spinner loading-xs"></span>
-                {{ t.common?.save || '保存' }}
+                {{ t.common?.save || 'Save' }}
               </button>
             </div>
           </div>
@@ -89,13 +89,13 @@
         <!-- 备注输入 -->
         <div v-if="groups.length > 0" class="mt-4">
           <label class="label">
-            <span class="label-text">{{ t.favorites?.remark || '备注' }}</span>
-            <span class="label-text-alt text-base-content/50">{{ t.common?.optional || '可选' }}</span>
+            <span class="label-text">{{ t.favorites?.remark || 'Remark' }}</span>
+            <span class="label-text-alt text-base-content/50">{{ t.common?.optional || 'Optional' }}</span>
           </label>
           <textarea
             v-model="remark"
             class="textarea textarea-bordered w-full textarea-sm"
-            :placeholder="t.favorites?.remarkPlaceholder || '添加备注（可选）'"
+            :placeholder="t.favorites?.remarkPlaceholder || 'Add remark (optional)'"
             rows="2"
           ></textarea>
         </div>
@@ -169,10 +169,10 @@ async function toggleFavorite() {
     try {
       await apiClient.deleteFavoriteByTopic(props.clusterId, props.topicName);
       isFavorite.value = false;
-      showSuccess(props.t.favorites?.removed || '已取消收藏');
+      showSuccess(props.t.favorites?.removed || 'Removed from favorites');
       emit('update');
     } catch (error: any) {
-      showError(error.message || '取消收藏失败');
+      showError(error.message || 'Failed to remove from favorites');
     }
   } else {
     // Show group selection modal
@@ -192,7 +192,7 @@ async function loadGroups() {
     const data = await apiClient.getFavoriteGroups();
     groups.value = data;
   } catch (error: any) {
-    showError(error.message || '加载分组失败');
+    showError(error.message || 'Failed to load groups');
   } finally {
     loading.value = false;
   }
@@ -236,9 +236,9 @@ async function submitCreateGroup() {
     newGroupName.value = '';
     newGroupDesc.value = '';
 
-    showSuccess(props.t.favorites?.groupCreated || '分组创建成功');
+    showSuccess(props.t.favorites?.groupCreated || 'Group created successfully');
   } catch (error: any) {
-    showError(error.message || '创建分组失败');
+    showError(error.message || 'Failed to create group');
   } finally {
     creatingGroup.value = false;
   }
@@ -257,11 +257,11 @@ async function confirmAdd() {
       description: remark.value || undefined,
     });
     isFavorite.value = true;
-    showSuccess(props.t.favorites?.added || '已添加到收藏');
+    showSuccess(props.t.favorites?.added || 'Added to favorites');
     closeModal();
     emit('update');
   } catch (error: any) {
-    showError(error.message || '添加收藏失败');
+    showError(error.message || 'Failed to add to favorites');
   } finally {
     saving.value = false;
   }

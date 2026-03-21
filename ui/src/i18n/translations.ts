@@ -33,6 +33,7 @@ export interface Translation {
     optional: string;
     confirm: string;
     close: string;
+    confirmDelete: string;
   };
   dashboard: {
     title: string;
@@ -86,6 +87,19 @@ export interface Translation {
     viewTopicsLink: string;
     group: string;
     noGroup: string;
+    addGroup: string;
+    testConnection: string;
+    testingConnection: string;
+    connectionSuccess: string;
+    connectionFailed: string;
+    noDescription: string;
+    manageGroups: string;
+    editGroup: string;
+    groupName: string;
+    groupNamePlaceholder: string;
+    groupDescription: string;
+    groupDescPlaceholder: string;
+    confirmDeleteGroup: string;
   };
   topics: {
     title: string;
@@ -197,12 +211,6 @@ export interface Translation {
     languageZh: string;
     languageEn: string;
     selectLanguage: string;
-    messageViewMode: string;
-    selectMessageViewMode: string;
-    classicMode: string;
-    simpleMode: string;
-    classicModeDesc: string;
-    simpleModeDesc: string;
     sidebarMode: string;
     selectSidebarMode: string;
     treeMode: string;
@@ -212,6 +220,8 @@ export interface Translation {
     version: string;
     versionDesc: string;
     currentVersion: string;
+    author: string;
+    help: string;
     themeDesc: string;
     lightMode: string;
     darkMode: string;
@@ -292,6 +302,9 @@ export interface Translation {
     confirmDeleteGroup: string;
     confirmDeleteFavorite: string;
     createGroupHint: string;
+    groupCreated: string;
+    remark: string;
+    remarkPlaceholder: string;
   };
 }
 
@@ -329,6 +342,7 @@ export const translations: Record<Language, Translation> = {
       optional: '可选',
       confirm: '确认',
       close: '关闭',
+      confirmDelete: '确定要删除',
     },
     dashboard: {
       title: '仪表盘',
@@ -382,6 +396,19 @@ export const translations: Record<Language, Translation> = {
       viewTopicsLink: '查看主题',
       group: '分组',
       noGroup: '无分组',
+      addGroup: '添加分组',
+      testConnection: '测试连接',
+      testingConnection: '测试中...',
+      connectionSuccess: '连接成功',
+      connectionFailed: '连接失败',
+      noDescription: '无描述',
+      manageGroups: '管理分组',
+      editGroup: '编辑分组',
+      groupName: '分组名称',
+      groupNamePlaceholder: '请输入分组名称',
+      groupDescription: '分组描述',
+      groupDescPlaceholder: '请输入分组描述（可选）',
+      confirmDeleteGroup: '删除后，该分组下的所有集群将变为无分组状态。',
     },
     topics: {
       title: '主题',
@@ -493,12 +520,6 @@ export const translations: Record<Language, Translation> = {
       languageZh: '中文',
       languageEn: 'English',
       selectLanguage: '选择语言',
-      messageViewMode: '消息界面模式',
-      selectMessageViewMode: '选择消息界面模式',
-      classicMode: '经典模式',
-      simpleMode: '简洁模式',
-      classicModeDesc: '功能完整，适合复杂操作',
-      simpleModeDesc: '轻量快速，适合日常查询',
       sidebarMode: '侧边栏模式',
       selectSidebarMode: '选择侧边栏显示模式',
       treeMode: '树形模式',
@@ -508,6 +529,8 @@ export const translations: Record<Language, Translation> = {
       version: '版本信息',
       versionDesc: 'Kafka Manager 当前版本',
       currentVersion: '当前版本',
+      author: '作者',
+      help: '帮助',
       themeDesc: '切换浅色或深色模式',
       lightMode: '浅色模式',
       darkMode: '深色模式',
@@ -588,6 +611,9 @@ export const translations: Record<Language, Translation> = {
       confirmDeleteGroup: '确定要删除这个分组吗？分组内的收藏也会被删除。',
       confirmDeleteFavorite: '确定要删除这个收藏吗？',
       createGroupHint: '请先在收藏管理中创建分组',
+      groupCreated: '分组创建成功',
+      remark: '备注',
+      remarkPlaceholder: '添加备注（可选）',
     },
   },
   en: {
@@ -623,6 +649,7 @@ export const translations: Record<Language, Translation> = {
       optional: 'Optional',
       confirm: 'Confirm',
       close: 'Close',
+      confirmDelete: 'Are you sure you want to delete',
     },
     dashboard: {
       title: 'Dashboard',
@@ -676,6 +703,19 @@ export const translations: Record<Language, Translation> = {
       viewTopicsLink: 'View Topics',
       group: 'Group',
       noGroup: 'No Group',
+      addGroup: 'Add Group',
+      testConnection: 'Test Connection',
+      testingConnection: 'Testing...',
+      connectionSuccess: 'Connection successful',
+      connectionFailed: 'Connection failed',
+      noDescription: 'No description',
+      manageGroups: 'Manage Groups',
+      editGroup: 'Edit Group',
+      groupName: 'Group Name',
+      groupNamePlaceholder: 'Enter group name',
+      groupDescription: 'Group Description',
+      groupDescPlaceholder: 'Enter description (optional)',
+      confirmDeleteGroup: 'After deletion, all clusters in this group will become ungrouped.',
     },
     topics: {
       title: 'Topics',
@@ -787,12 +827,6 @@ export const translations: Record<Language, Translation> = {
       languageZh: '中文',
       languageEn: 'English',
       selectLanguage: 'Select Language',
-      messageViewMode: 'Message View Mode',
-      selectMessageViewMode: 'Select Message View Mode',
-      classicMode: 'Classic Mode',
-      simpleMode: 'Simple Mode',
-      classicModeDesc: 'Full featured, suitable for complex operations',
-      simpleModeDesc: 'Lightweight and fast, suitable for daily queries',
       sidebarMode: 'Sidebar Mode',
       selectSidebarMode: 'Select Sidebar Display Mode',
       treeMode: 'Tree Mode',
@@ -802,6 +836,8 @@ export const translations: Record<Language, Translation> = {
       version: 'Version',
       versionDesc: 'Kafka Manager Current Version',
       currentVersion: 'Current Version',
+      author: 'Author',
+      help: 'Help',
       themeDesc: 'Toggle light or dark mode',
       lightMode: 'Light Mode',
       darkMode: 'Dark Mode',
@@ -882,6 +918,9 @@ export const translations: Record<Language, Translation> = {
       confirmDeleteGroup: 'Are you sure you want to delete this group? Favorites in this group will also be deleted.',
       confirmDeleteFavorite: 'Are you sure you want to delete this favorite?',
       createGroupHint: 'Please create a group in favorite management first',
+      groupCreated: 'Group created successfully',
+      remark: 'Remark',
+      remarkPlaceholder: 'Add remark (optional)',
     },
   },
 };

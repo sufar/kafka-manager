@@ -1,14 +1,16 @@
 <template>
-  <div class="editor-container" :style="{ height: containerHeight }">
+  <div class="editor-container" :style="{ height: containerHeight }" ref="containerRef">
     <!-- 高亮显示层 -->
     <pre
       class="highlight-layer"
+      ref="highlightRef"
       v-html="highlightedJson"
     ></pre>
     <!-- 透明输入层 -->
     <textarea
       v-model="inputValue"
       class="input-layer"
+      ref="inputRef"
       :placeholder="placeholder"
       :required="required"
       spellcheck="false"
@@ -16,6 +18,7 @@
       autocorrect="off"
       autocapitalize="off"
       @input="onInput(($event.target as HTMLTextAreaElement).value)"
+      @scroll="onScroll"
     ></textarea>
     <!-- Format Button Slot -->
     <div class="format-button">
@@ -44,11 +47,21 @@ const emit = defineEmits<{
 }>();
 
 const inputValue = ref(props.modelValue);
+const highlightRef = ref<HTMLPreElement | null>(null);
 
 // 同步 props 变化
 watch(() => props.modelValue, (newVal) => {
   inputValue.value = newVal;
 });
+
+// 滚动同步
+function onScroll(event: Event) {
+  const target = event.target as HTMLTextAreaElement;
+  if (highlightRef.value) {
+    highlightRef.value.scrollTop = target.scrollTop;
+    highlightRef.value.scrollLeft = target.scrollLeft;
+  }
+}
 
 // 容器高度
 const containerHeight = computed(() => {
@@ -64,17 +77,9 @@ const containerHeight = computed(() => {
 // 高亮后的 JSON
 const highlightedJson = computed(() => {
   if (!inputValue.value) return '';
-  try {
-    const parsed = JSON.parse(inputValue.value);
-    const result = highlightJson(JSON.stringify(parsed, null, 2));
-    console.log('[JsonEditor] Highlighted JSON:', result);
-    return result;
-  } catch (e) {
-    // 不是有效 JSON，显示原始内容用于高亮尝试
-    const result = highlightJson(inputValue.value);
-    console.log('[JsonEditor] Highlighted raw:', result);
-    return result;
-  }
+  // 始终显示原始内容的高亮，不自动格式化
+  // 只有在用户点击格式化按钮时才会格式化
+  return highlightJson(inputValue.value);
 });
 
 // 监听输入变化
@@ -119,8 +124,7 @@ defineExpose({
   padding: 0.625rem;
   padding-top: 2rem;
   padding-right: 2.5rem;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
   overflow: auto;
   border: none;
 }
@@ -131,6 +135,7 @@ defineExpose({
   color: oklch(var(--bc));
   background: transparent !important;
   display: block;
+  white-space: pre;
 }
 
 /* 重置 pre 默认样式 */
@@ -139,10 +144,14 @@ pre.highlight-layer {
   display: block;
 }
 
-/* 确保 span 不影响行高 */
+/* 确保 span 不影响行高和字符宽度 */
 .highlight-layer span {
   line-height: inherit;
   display: inline;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: normal;
+  word-spacing: normal;
 }
 
 .input-layer {

@@ -14,6 +14,7 @@ export function highlightJson(json: string): string {
     .replace(/>/g, '&gt;');
 
   // 使用单个正则表达式处理所有情况
+  // 注意：数字前面的空格会保留，不会被匹配进去
   escaped = escaped.replace(
     /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+\.?\d*)|\b(true|false|null)\b/g,
     (match, string, colon, number, bool) => {
@@ -41,8 +42,6 @@ export function highlightJson(json: string): string {
     }
   );
 
-  console.log('[highlightJson] input:', json);
-  console.log('[highlightJson] output:', escaped);
   return escaped;
 }
 

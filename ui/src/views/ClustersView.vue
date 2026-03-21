@@ -336,10 +336,10 @@
                 <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
                 </svg>
-                {{ testingConnection ? '测试中...' : '测试连接' }}
+                {{ testingConnection ? t.clusters.testingConnection : t.clusters.testConnection }}
               </button>
               <span v-if="connectionTestResult" class="text-xs" :class="connectionTestResult.success ? 'text-success' : 'text-error'">
-                {{ connectionTestResult.success ? '连接成功' : `连接失败：${connectionTestResult.error}` }}
+                {{ connectionTestResult.success ? t.clusters.connectionSuccess : `${t.clusters.connectionFailed}：${connectionTestResult.error}` }}
               </span>
             </div>
             <div class="modal-action mt-4">
@@ -384,22 +384,22 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>
-          <h3 class="font-bold text-xl mb-4">管理分组</h3>
+          <h3 class="font-bold text-xl mb-4">{{ t.clusters.manageGroups }}</h3>
 
           <!-- Groups List -->
           <div class="flex flex-col gap-2 mb-4">
             <div v-for="group in clusterStore.groups" :key="group.id" class="flex items-center justify-between p-3 rounded-lg bg-base-200">
               <div>
                 <div class="font-semibold">{{ group.name }}</div>
-                <div class="text-xs text-base-content/60">{{ group.description || '无描述' }}</div>
+                <div class="text-xs text-base-content/60">{{ group.description || t.clusters.noDescription }}</div>
               </div>
               <div class="flex gap-1">
-                <button class="btn btn-ghost btn-xs" @click="editGroup(group)" title="编辑分组">
+                <button class="btn btn-ghost btn-xs" @click="editGroup(group)" :title="t.clusters.editGroup">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                   </svg>
                 </button>
-                <button class="btn btn-ghost btn-xs text-error" @click="confirmDeleteGroup(group)" title="删除分组">
+                <button class="btn btn-ghost btn-xs text-error" @click="confirmDeleteGroup(group)" :title="t.common.delete">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                   </svg>
@@ -407,7 +407,7 @@
               </div>
             </div>
             <div v-if="clusterStore.groups.length === 0" class="text-center text-base-content/60 py-4">
-              暂无分组，点击"添加分组"创建
+              {{ t.clusters.noGroup }}，{{ t.clusters.addGroup || '点击"添加分组"创建' }}
             </div>
           </div>
 
@@ -417,30 +417,30 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              添加分组
+              {{ t.clusters.addGroup || '添加分组' }}
             </button>
           </div>
 
           <!-- Add/Edit Group Form -->
           <div v-if="showGroupForm" class="mt-4 p-4 rounded-lg bg-base-200">
-            <h4 class="font-semibold mb-3">{{ editingGroup ? '编辑分组' : '添加分组' }}</h4>
+            <h4 class="font-semibold mb-3">{{ editingGroup ? t.clusters.editGroup : (t.clusters.addGroup || '添加分组') }}</h4>
             <div class="form-control mb-3">
               <label class="label">
-                <span class="label-text font-medium">分组名称</span>
+                <span class="label-text font-medium">{{ t.clusters.groupName }}</span>
               </label>
-              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" placeholder="输入分组名称" />
+              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" :placeholder="t.clusters.groupNamePlaceholder || 'Enter group name'" />
             </div>
             <div class="form-control mb-3">
               <label class="label">
-                <span class="label-text font-medium">描述</span>
+                <span class="label-text font-medium">{{ t.clusters.groupDescription }}</span>
               </label>
-              <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" placeholder="输入分组描述（可选）"></textarea>
+              <textarea v-model="groupFormData.description" class="textarea textarea-bordered w-full" :placeholder="t.clusters.groupDescPlaceholder || 'Enter description (optional)'"></textarea>
             </div>
             <div class="flex justify-end gap-2">
-              <button type="button" class="btn btn-ghost btn-sm" @click="cancelGroupForm">取消</button>
+              <button type="button" class="btn btn-ghost btn-sm" @click="cancelGroupForm">{{ t.common.cancel }}</button>
               <button type="button" class="btn btn-primary btn-sm" @click="submitGroupForm" :disabled="groupSubmitting">
                 <span v-if="groupSubmitting" class="loading loading-spinner loading-xs"></span>
-                {{ editingGroup ? '保存' : '添加' }}
+                {{ editingGroup ? t.common.save : t.common.create }}
               </button>
             </div>
           </div>
@@ -453,14 +453,14 @@
       <!-- Delete Group Confirm Modal -->
       <dialog ref="deleteGroupModalRef" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box">
-          <h3 class="font-bold text-xl mb-4">确认删除分组</h3>
-          <p class="mb-2">确定要删除分组 <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span> 吗？</p>
-          <p class="text-sm text-base-content/60 mb-4">删除后，该分组下的所有集群将变为无分组状态。</p>
+          <h3 class="font-bold text-xl mb-4">{{ t.common.confirmDelete }}</h3>
+          <p class="mb-2">{{ t.common.confirmDelete }} <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span>？</p>
+          <p class="text-sm text-base-content/60 mb-4">{{ t.clusters.confirmDeleteGroup || '删除后，该分组下的所有集群将变为无分组状态。' }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn btn-ghost" @click="closeDeleteGroupModal">{{ t.common.cancel }}</button>
             <button type="button" class="btn btn-error" @click="confirmDeleteGroupAction" :disabled="groupDeleting">
               <span v-if="groupDeleting" class="loading loading-spinner loading-xs"></span>
-              删除
+              {{ t.common.delete }}
             </button>
           </div>
         </div>
