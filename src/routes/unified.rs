@@ -2289,6 +2289,13 @@ fn fetch_partition_messages_unified(
 
                 let msg_offset = msg.offset();
 
+                // 检查起始 offset - 如果小于 start_offset，说明还没到有效范围，继续
+                if msg_offset < start_offset {
+                    tracing::debug!("[Unified Partition] Partition {} msg offset {} < start_offset {}, skipping",
+                        partition, msg_offset, start_offset);
+                    continue;
+                }
+
                 // newest 模式下检查是否到达末尾
                 if let Some(end) = end_offset {
                     if msg_offset >= end {
@@ -2303,12 +2310,24 @@ fn fetch_partition_messages_unified(
                     // 处理完这条消息后退出
                     let ts = msg.timestamp().to_millis();
 
-                    // 时间范围过滤
+                    // 时间范围过滤 - 最后一条消息，不符合就直接退出
                     if let Some(start) = start_time {
-                        if let Some(t) = ts { if t < start { continue; } }
+                        if let Some(t) = ts {
+                            if t < start {
+                                tracing::info!("[Unified Partition] Last message timestamp {} < start_time {}, stopping",
+                                    t, start);
+                                break;
+                            }
+                        }
                     }
                     if let Some(end) = end_time {
-                        if let Some(t) = ts { if t > end { continue; } }
+                        if let Some(t) = ts {
+                            if t > end {
+                                tracing::info!("[Unified Partition] Last message timestamp {} > end_time {}, stopping",
+                                    t, end);
+                                break;
+                            }
+                        }
                     }
 
                     let key_bytes = msg.key().map(|k| k.to_vec());
@@ -2563,9 +2582,18 @@ async fn fetch_partition_messages_streaming(
 
                 let msg_offset = msg.offset();
 
-                // 检查结束 offset
+                // 检查起始 offset - 如果小于 start_offset，说明还没到有效范围，继续
+                if msg_offset < start_offset {
+                    tracing::debug!("[Streaming] Partition {} msg offset {} < start_offset {}, skipping",
+                        partition, msg_offset, start_offset);
+                    continue;
+                }
+
+                // 检查结束 offset - 如果大于等于 end_offset，说明超出范围，退出
                 if let Some(end) = end_offset {
                     if msg_offset >= end {
+                        tracing::info!("[Streaming] Partition {} msg offset {} >= end_offset {}, stopping",
+                            partition, msg_offset, end);
                         break;
                     }
                 }
@@ -2574,12 +2602,24 @@ async fn fetch_partition_messages_streaming(
                 if msg_offset >= high_watermark - 1 {
                     let ts = msg.timestamp().to_millis();
 
-                    // 时间范围过滤
+                    // 时间范围过滤 - 最后一条消息，不符合就直接退出，不再继续 poll
                     if let Some(start) = start_time {
-                        if let Some(t) = ts { if t < start { continue; } }
+                        if let Some(t) = ts {
+                            if t < start {
+                                tracing::info!("[Streaming] Partition {} last message timestamp {} < start_time {}, stopping",
+                                    partition, t, start);
+                                break;
+                            }
+                        }
                     }
                     if let Some(end) = end_time {
-                        if let Some(t) = ts { if t > end { continue; } }
+                        if let Some(t) = ts {
+                            if t > end {
+                                tracing::info!("[Streaming] Partition {} last message timestamp {} > end_time {}, stopping",
+                                    partition, t, end);
+                                break;
+                            }
+                        }
                     }
 
                     let key_bytes = msg.key().map(|k| k.to_vec());
@@ -2613,10 +2653,21 @@ async fn fetch_partition_messages_streaming(
 
                 // 时间范围过滤
                 if let Some(start) = start_time {
-                    if let Some(t) = ts { if t < start { continue; } }
+                    if let Some(t) = ts {
+                        if t < start {
+                            continue;  // 时间戳太小，继续 poll 后面的消息
+                        }
+                    }
                 }
                 if let Some(end) = end_time {
-                    if let Some(t) = ts { if t > end { continue; } }
+                    if let Some(t) = ts {
+                        if t > end {
+                            // 时间戳太大，后面的消息时间戳只会更大，直接退出
+                            tracing::info!("[Streaming] Partition {} message timestamp {} > end_time {}, stopping",
+                                partition, t, end);
+                            break;
+                        }
+                    }
                 }
 
                 let key_bytes = msg.key().map(|k| k.to_vec());
@@ -2721,7 +2772,33 @@ fn calculate_time_range_offsets(
     // 获取 watermark
     let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))
         .unwrap_or((0, 0));
-    let high_offset = high.saturating_sub(1).max(0);
+
+    // 处理分区为空的情况（low == high）
+    if low >= high {
+        tracing::info!("[calculate_time_range_offsets] Partition {} has no data (low={} >= high={}), returning empty range",
+            partition, low, high);
+        return Ok(TimeRangeInfo {
+            start_offset: low,
+            end_offset: low,
+            low_watermark: low,
+            high_watermark: high,
+        });
+    }
+
+    let high_offset = high - 1; // high > low >= 0, 所以不会溢出
+
+    // 检查时间范围有效性
+    if let (Some(start), Some(end)) = (start_time, end_time) {
+        if start > end {
+            tracing::warn!("[calculate_time_range_offsets] start_time {} > end_time {}, using low watermark", start, end);
+            return Ok(TimeRangeInfo {
+                start_offset: low,
+                end_offset: low,
+                low_watermark: low,
+                high_watermark: high,
+            });
+        }
+    }
 
     // 查询 start_time 对应的 offset
     let start_offset = if let Some(start_time) = start_time {
@@ -2734,10 +2811,18 @@ fn calculate_time_range_offsets(
                     for elem in r.elements_for_topic(topic) {
                         if elem.partition() == partition {
                             if let Some(offset) = elem.offset().to_raw() {
-                                tracing::info!("[calculate_time_range_offsets] start_time={} -> offset={} on partition {}",
-                                    start_time, offset, partition);
-                                // 确保不小于 low watermark
-                                found_offset = offset.max(low);
+                                // offsets_for_times 返回 -1 表示时间戳晚于所有消息
+                                if offset >= 0 {
+                                    tracing::info!("[calculate_time_range_offsets] start_time={} -> offset={} on partition {}",
+                                        start_time, offset, partition);
+                                    // 限制在 [low, high_offset] 范围内
+                                    found_offset = offset.clamp(low, high_offset);
+                                } else {
+                                    // 时间戳晚于所有消息，使用 high_offset
+                                    tracing::info!("[calculate_time_range_offsets] start_time={} -> offset=-1 (late), using high_offset={} on partition {}",
+                                        start_time, high_offset, partition);
+                                    found_offset = high_offset;
+                                }
                                 break;
                             }
                         }
@@ -2764,13 +2849,21 @@ fn calculate_time_range_offsets(
                     for elem in r.elements_for_topic(topic) {
                         if elem.partition() == partition {
                             if let Some(offset) = elem.offset().to_raw() {
-                                // end_time 对应的 offset 是大于等于该时间的第一条消息
-                                // 所以时间范围的有效结束 offset 是 offset - 1
-                                let effective_end = offset.saturating_sub(1);
-                                tracing::info!("[calculate_time_range_offsets] end_time={} -> raw_offset={}, effective_end={} on partition {}",
-                                    end_time, offset, effective_end, partition);
-                                // 确保不超过 high watermark
-                                found_offset = effective_end.min(high_offset);
+                                // offsets_for_times 返回 -1 表示时间戳晚于所有消息
+                                if offset >= 0 {
+                                    // end_time 对应的 offset 是大于等于该时间的第一条消息
+                                    // 所以时间范围的有效结束 offset 是 offset - 1
+                                    let effective_end = offset.saturating_sub(1);
+                                    tracing::info!("[calculate_time_range_offsets] end_time={} -> raw_offset={}, effective_end={} on partition {}",
+                                        end_time, offset, effective_end, partition);
+                                    // 限制在 [low, high_offset] 范围内
+                                    found_offset = effective_end.clamp(low, high_offset);
+                                } else {
+                                    // 时间戳晚于所有消息，使用 high_offset
+                                    tracing::info!("[calculate_time_range_offsets] end_time={} -> offset=-1 (late), using high_offset={} on partition {}",
+                                        end_time, high_offset, partition);
+                                    found_offset = high_offset;
+                                }
                                 break;
                             }
                         }
@@ -2786,9 +2879,13 @@ fn calculate_time_range_offsets(
         high_offset
     };
 
+    // 最终检查：确保 start_offset <= end_offset
+    let final_start = start_offset.min(end_offset);
+    let final_end = end_offset.max(start_offset);
+
     Ok(TimeRangeInfo {
-        start_offset,
-        end_offset,
+        start_offset: final_start,
+        end_offset: final_end,
         low_watermark: low,
         high_watermark: high,
     })

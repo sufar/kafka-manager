@@ -64,21 +64,33 @@
 
     <!-- 时间范围筛选面板 -->
     <div v-if="showTimeFilters" class="time-filters flex flex-wrap items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50 animate-fadeIn">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <span class="text-xs font-medium text-base-content/70">{{ t.messages.startTime }}:</span>
         <input
           v-model="filters.startTime"
-          type="datetime-local"
-          class="input input-bordered input-sm w-40"
+          type="text"
+          class="input input-bordered input-sm w-40 font-mono"
+          placeholder="YYYY-MM-DD HH:mm:ss"
+          @blur="formatDateTime('startTime')"
         />
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <span class="text-xs font-medium text-base-content/70">{{ t.messages.endTime }}:</span>
         <input
           v-model="filters.endTime"
-          type="datetime-local"
-          class="input input-bordered input-sm w-40"
+          type="text"
+          class="input input-bordered input-sm w-40 font-mono"
+          placeholder="YYYY-MM-DD HH:mm:ss"
+          @blur="formatDateTime('endTime')"
         />
+      </div>
+      <!-- 快捷按钮 -->
+      <div class="flex items-center gap-0.5 ml-1">
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(5)" title="最近 5 分钟">5 分</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(15)" title="最近 15 分钟">15 分</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(30)" title="最近 30 分钟">30 分</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(60)" title="最近 1 小时">1 时</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(24 * 60)" title="最近 1 天">1 天</button>
       </div>
       <button
         class="btn btn-ghost btn-xs gap-1"
@@ -498,6 +510,32 @@ async function loadPartitions() {
 async function queryMessages() {
   if (!canQuery.value) return;
 
+  // 验证时间格式
+  if (filters.startTime) {
+    const startDate = parseDateTime(filters.startTime);
+    if (!startDate) {
+      showError(`${t.value.messages.startTime} ${t.value.toast.invalidFormat || '格式无效'}`);
+      return;
+    }
+  }
+  if (filters.endTime) {
+    const endDate = parseDateTime(filters.endTime);
+    if (!endDate) {
+      showError(`${t.value.messages.endTime} ${t.value.toast.invalidFormat || '格式无效'}`);
+      return;
+    }
+  }
+
+  // 验证时间范围
+  if (filters.startTime && filters.endTime) {
+    const startDate = parseDateTime(filters.startTime);
+    const endDate = parseDateTime(filters.endTime);
+    if (startDate && endDate && startDate > endDate) {
+      showError(`${t.value.messages.startTime} ${t.value.common.cannotBeGreaterThan || '不能大于'} ${t.value.messages.endTime}`);
+      return;
+    }
+  }
+
   // 取消上一次的请求
   stopQuery();
 
@@ -529,10 +567,16 @@ async function queryMessages() {
 
     // 时间范围筛选
     if (filters.startTime) {
-      params.start_time = new Date(filters.startTime).getTime();
+      const startDate = parseDateTime(filters.startTime);
+      if (startDate) {
+        params.start_time = startDate.getTime();
+      }
     }
     if (filters.endTime) {
-      params.end_time = new Date(filters.endTime).getTime();
+      const endDate = parseDateTime(filters.endTime);
+      if (endDate) {
+        params.end_time = endDate.getTime();
+      }
     }
 
     // 使用 SSE 流式获取
@@ -751,6 +795,53 @@ function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
 function clearTimeFilters() {
   filters.startTime = '';
   filters.endTime = '';
+}
+
+// 格式化日期时间输入（确保秒级精度）
+// 支持多种输入格式：YYYY-MM-DD HH:mm:ss, YYYY/MM/DD HH:mm:ss, YYYY-MM-DDTHH:mm:ss 等
+function formatDateTime(field: 'startTime' | 'endTime') {
+  const input = filters[field];
+  if (!input) return;
+
+  const date = parseDateTime(input);
+  if (date) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    filters[field] = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+}
+
+// 解析日期时间字符串，支持多种格式
+function parseDateTime(input: string): Date | null {
+  // 尝试直接解析
+  const date = new Date(input);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+
+  // 尝试替换分隔符后解析 (YYYY-MM-DD HH:mm:ss -> YYYY-MM-DDTHH:mm:ss)
+  const normalized = input.replace(' ', 'T').replace('/', '-g');
+  const date2 = new Date(normalized);
+  if (!isNaN(date2.getTime())) {
+    return date2;
+  }
+
+  return null;
+}
+
+// 设置预设时间范围
+function setPresetTime(minutes: number) {
+  const now = new Date();
+  const start = new Date(now.getTime() - minutes * 60 * 1000);
+
+  // 格式化为文本输入框格式 (YYYY-MM-DD HH:mm:ss)
+  const toLocalString = (date: Date) => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  };
+
+  filters.endTime = toLocalString(now);
+  filters.startTime = toLocalString(start);
+  showTimeFilters.value = true;
 }
 
 // 处理键盘 Ctrl+A 事件，选中 Key 或 Value 内容

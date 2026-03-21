@@ -36,6 +36,7 @@ export interface Translation {
     confirmDelete: string;
     apply: string;
     clear: string;
+    cannotBeGreaterThan: string;
   };
   dashboard: {
     title: string;
@@ -265,6 +266,7 @@ export interface Translation {
     operationFailed: string;
     clusterNotFound: string;
     networkError: string;
+    invalidFormat: string;
   };
   topicContextMenu: {
     viewMessages: string;
@@ -371,6 +373,7 @@ export const translations: Record<Language, Translation> = {
       confirmDelete: '确定要删除',
       apply: '应用',
       clear: '清除',
+      cannotBeGreaterThan: '不能大于',
     },
     dashboard: {
       title: '仪表盘',
@@ -600,6 +603,7 @@ export const translations: Record<Language, Translation> = {
       operationFailed: '操作失败',
       clusterNotFound: '集群不存在',
       networkError: '网络错误',
+      invalidFormat: '格式无效',
     },
     topicContextMenu: {
       viewMessages: '查看消息',
@@ -704,6 +708,7 @@ export const translations: Record<Language, Translation> = {
       confirmDelete: 'Are you sure you want to delete',
       apply: 'Apply',
       clear: 'Clear',
+      cannotBeGreaterThan: 'cannot be greater than',
     },
     dashboard: {
       title: 'Dashboard',
@@ -933,6 +938,7 @@ export const translations: Record<Language, Translation> = {
       operationFailed: 'Operation failed',
       clusterNotFound: 'Cluster not found',
       networkError: 'Network error',
+      invalidFormat: 'Invalid format',
     },
     topicContextMenu: {
       viewMessages: 'View Messages',
