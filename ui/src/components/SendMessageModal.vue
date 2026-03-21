@@ -24,7 +24,7 @@
 
         <form @submit.prevent="handleSubmit(false)" class="space-y-3">
           <!-- Partition and Key Row -->
-          <div class="grid grid-cols-2 md:grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <!-- Partition Dropdown -->
             <div class="form-control">
               <label class="label py-1">
@@ -35,7 +35,7 @@
                   {{ t.messages.partition }}
                 </span>
               </label>
-              <select v-model.number="form.partition" class="select select-bordered select-sm w-full md:w-20" required :disabled="partitions.length === 0">
+              <select v-model.number="form.partition" class="select select-bordered select-sm w-full" required :disabled="partitions.length === 0">
                 <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
               </select>
             </div>

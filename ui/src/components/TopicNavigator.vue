@@ -710,14 +710,14 @@ onUnmounted(() => {
   apiClient.cancelRequest();
 });
 
-// Filtered topics - search only (cluster filtering is done on backend)
+// Filtered topics - search only topic name (no cluster search)
 const filteredTopics = computed(() => {
   if (!searchQuery.value.trim()) {
     return allTopics.value;
   }
   const query = searchQuery.value.toLowerCase();
   return allTopics.value.filter(
-    t => t.name.toLowerCase().includes(query) || t.cluster.toLowerCase().includes(query)
+    t => t.name.toLowerCase().includes(query)
   );
 });
 

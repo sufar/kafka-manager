@@ -119,6 +119,8 @@ export interface Translation {
     brokersHelp: string;
     createdDate: string;
     unknown: string;
+    refreshTopics: string;
+    refreshFailed: string;
   };
   topics: {
     title: string;

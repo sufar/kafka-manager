@@ -265,7 +265,7 @@ function toggleGroup(groupId: number) {
   }
 }
 
-// Filter group items by search query
+// Filter group items by search query - search only topic name and description (no cluster search)
 function filteredGroupItems(groupId: number) {
   const group = groups.value.find(g => g.id === groupId);
   if (!group || !group.items) return [];
@@ -278,9 +278,8 @@ function filteredGroupItems(groupId: number) {
   const query = searchQuery.toLowerCase();
   return group.items.filter((item: any) => {
     const matchTopic = item.topic_name?.toLowerCase().includes(query);
-    const matchCluster = item.cluster_id?.toLowerCase().includes(query);
     const matchDesc = item.description?.toLowerCase().includes(query);
-    return matchTopic || matchCluster || matchDesc;
+    return matchTopic || matchDesc;
   });
 }
 

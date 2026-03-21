@@ -105,7 +105,7 @@ defineExpose({
 .editor-container {
   position: relative;
   width: 100%;
-  border: 1px solid oklch(var(--bc) / 0.1);
+  border: 1px solid oklch(var(--bc) / 0.3);
   border-radius: 0.5rem;
   overflow: hidden;
   background: transparent;
