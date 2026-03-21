@@ -156,7 +156,7 @@
             <div
               v-show="showClusterSelector && !isMobile"
               ref="clusterSelectorRef"
-              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
+              class="absolute bottom-full right-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
             >
               <div class="flex flex-col sm:flex-row h-[300px]">
                 <!-- Left: Groups List -->
@@ -186,9 +186,7 @@
                   >
                     <div
                       class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
-                      :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
-                      @mouseenter="hoveredGroupId = group.id"
-                      @mouseleave="hoveredGroupId = null"
+                      :class="{ 'bg-primary/10': isGroupFullySelected(group.id), 'bg-base-200': activeGroupId === group.id }"
                     >
                       <input
                         type="checkbox"
@@ -198,7 +196,7 @@
                       />
                       <span
                         class="text-xs font-medium flex-1 truncate cursor-pointer"
-                        @click.stop="showGroupClusters(group.id)"
+                        @click="activeGroupId = group.id"
                       >
                         {{ group.name }}
                       </span>
@@ -218,8 +216,8 @@
                     </button>
                   </div>
                   <!-- Clusters for selected group or all clusters -->
-                  <template v-if="hoveredGroupId === null || hoveredGroupId === 0">
-                    <!-- Show all clusters when no group hovered -->
+                  <template v-if="activeGroupId === null || activeGroupId === 0">
+                    <!-- Show all clusters when no group selected -->
                     <label
                       v-for="cluster in clusterStore.clusters"
                       :key="cluster.name"
@@ -235,9 +233,9 @@
                     </label>
                   </template>
                   <template v-else>
-                    <!-- Show clusters for hovered group -->
+                    <!-- Show clusters for selected group -->
                     <label
-                      v-for="cluster in getClustersByGroup(hoveredGroupId)"
+                      v-for="cluster in getClustersByGroup(activeGroupId)"
                       :key="cluster.name"
                       class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
                     >
@@ -325,7 +323,7 @@
                           />
                           <span
                             class="text-xs font-medium flex-1 truncate cursor-pointer"
-                            @click="showGroupClusters(group.id)"
+                            @click="activeGroupId = group.id"
                           >
                             {{ group.name }}
                           </span>
@@ -337,7 +335,7 @@
                       <div class="p-2 border-b border-base-200 bg-base-100/50">
                         <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
                       </div>
-                      <template v-if="hoveredGroupId === null || hoveredGroupId === 0">
+                      <template v-if="activeGroupId === null || activeGroupId === 0">
                         <label
                           v-for="cluster in clusterStore.clusters"
                           :key="cluster.name"
@@ -354,7 +352,7 @@
                       </template>
                       <template v-else>
                         <label
-                          v-for="cluster in getClustersByGroup(hoveredGroupId)"
+                          v-for="cluster in getClustersByGroup(activeGroupId)"
                           :key="cluster.name"
                           class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
                         >
@@ -458,7 +456,7 @@ const isUnmounted = ref(false);
 const showClusterSelector = ref(false);
 const clusterSelectorButtonRef = ref<HTMLElement | null>(null);
 const clusterSelectorRef = ref<HTMLElement | null>(null);
-const hoveredGroupId = ref<number | null>(null); // For highlighting clusters in right panel
+const activeGroupId = ref<number | null>(null); // For tracking selected group in right panel
 
 // Mobile detection
 const isMobile = ref(window.innerWidth < 640);
@@ -546,7 +544,7 @@ function handleOutsideClick(event: MouseEvent) {
 
 function toggleClusterSelector() {
   showClusterSelector.value = !showClusterSelector.value;
-  hoveredGroupId.value = null;
+  activeGroupId.value = null;
 }
 
 // Set selection mode to 'all' (clear all selections)
@@ -554,7 +552,7 @@ function setSelectionMode(mode: 'all') {
   if (mode === 'all') {
     selectedClusters.value.clear();
     selectedGroups.value.clear();
-    hoveredGroupId.value = null;
+    activeGroupId.value = null;
   }
 }
 
@@ -578,11 +576,6 @@ function toggleGroupFull(groupId: number) {
     groupClusters.forEach(c => selectedClusters.value.add(c.name));
     selectedGroups.value.add(groupId);
   }
-}
-
-// Show clusters for a specific group (when clicking group name)
-function showGroupClusters(groupId: number) {
-  hoveredGroupId.value = groupId;
 }
 
 // Toggle single cluster
@@ -623,21 +616,21 @@ const hasCustomSelection = computed(() => selectedClusters.value.size > 0);
 
 // Check if there are selected clusters in current view
 const hasSelectedClustersInCurrentView = computed(() => {
-  if (hoveredGroupId.value === null) {
+  if (activeGroupId.value === null) {
     return selectedClusters.value.size > 0;
   }
-  const groupClusters = getClustersByGroup(hoveredGroupId.value);
+  const groupClusters = getClustersByGroup(activeGroupId.value);
   return groupClusters.some(c => selectedClusters.value.has(c.name));
 });
 
 // Deselect all in current view
 function deselectAllInCurrentView() {
-  if (hoveredGroupId.value === null) {
+  if (activeGroupId.value === null) {
     selectedClusters.value.clear();
   } else {
-    const groupClusters = getClustersByGroup(hoveredGroupId.value);
+    const groupClusters = getClustersByGroup(activeGroupId.value);
     groupClusters.forEach(c => selectedClusters.value.delete(c.name));
-    selectedGroups.value.delete(hoveredGroupId.value);
+    selectedGroups.value.delete(activeGroupId.value);
   }
   updateSelectedGroups();
 }

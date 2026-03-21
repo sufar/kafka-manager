@@ -86,11 +86,11 @@
       </div>
       <!-- 快捷按钮 -->
       <div class="flex items-center gap-0.5 ml-1">
-        <button class="btn btn-ghost btn-xs" @click="setPresetTime(5)" title="最近 5 分钟">5 分</button>
-        <button class="btn btn-ghost btn-xs" @click="setPresetTime(15)" title="最近 15 分钟">15 分</button>
-        <button class="btn btn-ghost btn-xs" @click="setPresetTime(30)" title="最近 30 分钟">30 分</button>
-        <button class="btn btn-ghost btn-xs" @click="setPresetTime(60)" title="最近 1 小时">1 时</button>
-        <button class="btn btn-ghost btn-xs" @click="setPresetTime(24 * 60)" title="最近 1 天">1 天</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(5)" :title="t.messages.recent5Minutes">5 {{ t.messages.minutes }}</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(15)" :title="t.messages.recent15Minutes">15 {{ t.messages.minutes }}</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(30)" :title="t.messages.recent30Minutes">30 {{ t.messages.minutes }}</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(60)" :title="t.messages.recent1Hour">1 {{ t.messages.hour }}</button>
+        <button class="btn btn-ghost btn-xs" @click="setPresetTime(24 * 60)" :title="t.messages.recent1Day">1 {{ t.messages.day }}</button>
       </div>
       <button
         class="btn btn-ghost btn-xs gap-1"
@@ -108,7 +108,7 @@
     <div class="status-bar flex items-center justify-between px-3 py-1 text-xs border-b border-base-300 bg-base-200/50">
       <div class="flex items-center gap-4">
         <span v-if="selectedTopic" class="text-base-content/70 flex items-center gap-1">
-          Topic: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
+          {{ t.messages.topicLabel }}: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
           <FavoriteButton
             v-if="props.cluster && selectedTopic"
             :cluster-id="props.cluster"
@@ -119,7 +119,7 @@
         <!-- 流式进度指示器 -->
         <span v-if="streamingProgress.isStreaming" class="flex items-center gap-1.5 text-info">
           <span class="loading loading-spinner loading-xs"></span>
-          <span>接收中 {{ streamingProgress.received.toLocaleString() }}</span>
+          <span>{{ t.messages.receiving }} {{ streamingProgress.received.toLocaleString() }}</span>
           <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
         </span>
         <span v-else-if="lastQueryTime > 0" class="text-base-content/70">
@@ -253,7 +253,7 @@
             </div>
             <div class="h-4 mb-1 overflow-hidden">
               <div v-if="getMsgKey(item)" class="text-[10px] font-mono text-secondary truncate">
-                <span class="opacity-60">Key:</span> {{ getMsgKey(item) }}
+                <span class="opacity-60">{{ t.messages.key }}:</span> {{ getMsgKey(item) }}
               </div>
             </div>
             <div class="text-[10px] font-mono truncate text-base-content/80">
@@ -514,14 +514,14 @@ async function queryMessages() {
   if (filters.startTime) {
     const startDate = parseDateTime(filters.startTime);
     if (!startDate) {
-      showError(`${t.value.messages.startTime} ${t.value.toast.invalidFormat || '格式无效'}`);
+      showError(`${t.value.messages.startTime} ${t.value.toast.invalidFormat}`);
       return;
     }
   }
   if (filters.endTime) {
     const endDate = parseDateTime(filters.endTime);
     if (!endDate) {
-      showError(`${t.value.messages.endTime} ${t.value.toast.invalidFormat || '格式无效'}`);
+      showError(`${t.value.messages.endTime} ${t.value.toast.invalidFormat}`);
       return;
     }
   }
@@ -531,7 +531,7 @@ async function queryMessages() {
     const startDate = parseDateTime(filters.startTime);
     const endDate = parseDateTime(filters.endTime);
     if (startDate && endDate && startDate > endDate) {
-      showError(`${t.value.messages.startTime} ${t.value.common.cannotBeGreaterThan || '不能大于'} ${t.value.messages.endTime}`);
+      showError(`${t.value.messages.startTime} ${t.value.common.cannotBeGreaterThan} ${t.value.messages.endTime}`);
       return;
     }
   }
@@ -706,11 +706,11 @@ function exportMessages() {
         const encoder = new TextEncoder();
         const bytes = encoder.encode(data);
         await writeFile(filePath, bytes);
-        showSuccess(t.value.messages.exportSuccess || '消息已导出');
+        showSuccess(t.value.messages.exportSuccess);
       }
     }).catch((err: Error) => {
       console.error('Failed to save file:', err);
-      showError(t.value.messages.exportFailed || '导出失败');
+      showError(t.value.messages.exportFailed);
     });
   } else {
     // 浏览器环境下使用传统下载方式
