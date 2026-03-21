@@ -470,6 +470,8 @@ export const translations: Record<Language, Translation> = {
       brokersHelp: '逗号分隔的 broker 地址列表',
       createdDate: '创建时间',
       unknown: '未知',
+      refreshTopics: '刷新 Topic',
+      refreshFailed: '刷新失败',
     },
     topics: {
       title: '主题',
@@ -817,6 +819,8 @@ export const translations: Record<Language, Translation> = {
       brokersHelp: 'Comma-separated list of broker addresses',
       createdDate: 'Created',
       unknown: 'unknown',
+      refreshTopics: 'Refresh Topics',
+      refreshFailed: 'Refresh failed',
     },
     topics: {
       title: 'Topics',
