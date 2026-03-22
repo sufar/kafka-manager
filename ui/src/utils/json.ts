@@ -21,21 +21,21 @@ export function highlightJson(json: string): string {
       if (string) {
         if (colon) {
           // 键名
-          return `<span class="text-secondary font-semibold">${string}</span>${colon}`;
+          return `<span class="json-key">${string}</span>${colon}`;
         } else {
           // 字符串值
-          return `<span class="text-accent">${string}</span>`;
+          return `<span class="json-string">${string}</span>`;
         }
       }
       if (number) {
-        return `<span class="text-base-content">${number}</span>`;
+        return `<span class="json-number">${number}</span>`;
       }
       if (bool) {
         if (bool === 'true' || bool === 'false') {
-          return `<span class="text-info font-bold">${bool}</span>`;
+          return `<span class="json-boolean">${bool}</span>`;
         }
         if (bool === 'null') {
-          return `<span class="text-warning font-bold">${bool}</span>`;
+          return `<span class="json-null">${bool}</span>`;
         }
       }
       return match;

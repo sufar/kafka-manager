@@ -2,49 +2,49 @@
 /* 柔和现代风格 - 金色数字 */
 /* 只针对 pre 标签内的 span 元素，不影响 textarea */
 
-/* 浅色模式 */
-pre span.text-secondary,
-.json-highlight span.text-secondary {
-  color: #7c3aed !important;
+/* 浅色模式 - 使用和深色模式一致的颜色 */
+pre span.json-key,
+.json-highlight span.json-key {
+  color: #a78bfa !important;
   font-weight: 600;
 }
-pre span.text-accent,
-.json-highlight span.text-accent {
-  color: #0a0a0a !important;
+pre span.json-string,
+.json-highlight span.json-string {
+  color: #34d399 !important;
 }
-pre span.text-base-content,
-.json-highlight span.text-base-content {
-  color: #d97706 !important;
+pre span.json-number,
+.json-highlight span.json-number {
+  color: #fbbf24 !important;
 }
-pre span.text-info,
-.json-highlight span.text-info {
-  color: #0284c7 !important;
+pre span.json-boolean,
+.json-highlight span.json-boolean {
+  color: #38bdf8 !important;
   font-weight: 700;
 }
-pre span.text-warning,
-.json-highlight span.text-warning {
-  color: #9ca3af !important;
+pre span.json-null,
+.json-highlight span.json-null {
+  color: #6b7280 !important;
   font-weight: 700;
 }
 
 /* 深色模式 */
-[data-theme="dark"] pre span.text-secondary,
-[data-theme="dark"] .json-highlight span.text-secondary {
+[data-theme="dark"] pre span.json-key,
+[data-theme="dark"] .json-highlight span.json-key {
   color: #a78bfa !important;
 }
-[data-theme="dark"] pre span.text-accent,
-[data-theme="dark"] .json-highlight span.text-accent {
+[data-theme="dark"] pre span.json-string,
+[data-theme="dark"] .json-highlight span.json-string {
   color: #34d399 !important;
 }
-[data-theme="dark"] pre span.text-base-content,
-[data-theme="dark"] .json-highlight span.text-base-content {
+[data-theme="dark"] pre span.json-number,
+[data-theme="dark"] .json-highlight span.json-number {
   color: #fbbf24 !important;
 }
-[data-theme="dark"] pre span.text-info,
-[data-theme="dark"] .json-highlight span.text-info {
+[data-theme="dark"] pre span.json-boolean,
+[data-theme="dark"] .json-highlight span.json-boolean {
   color: #38bdf8 !important;
 }
-[data-theme="dark"] pre span.text-warning,
-[data-theme="dark"] .json-highlight span.text-warning {
+[data-theme="dark"] pre span.json-null,
+[data-theme="dark"] .json-highlight span.json-null {
   color: #6b7280 !important;
 }

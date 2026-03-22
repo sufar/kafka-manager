@@ -922,25 +922,25 @@ function highlightJson(json: string): string {
     (match, string, colon, number, bool) => {
       if (string) {
         if (colon) {
-          // 键名 - text-secondary
-          return `<span class="text-secondary font-semibold">${string}</span>${colon}`;
+          // 键名
+          return `<span class="json-key">${string}</span>${colon}`;
         } else {
-          // 字符串值 - text-accent
-          return `<span class="text-accent">${string}</span>`;
+          // 字符串值
+          return `<span class="json-string">${string}</span>`;
         }
       }
       if (number) {
-        // 数字 - text-base-content
-        return `<span class="text-base-content">${number}</span>`;
+        // 数字
+        return `<span class="json-number">${number}</span>`;
       }
       if (bool) {
         if (bool === 'true' || bool === 'false') {
-          // 布尔值 - text-info
-          return `<span class="text-info font-bold">${bool}</span>`;
+          // 布尔值
+          return `<span class="json-boolean">${bool}</span>`;
         }
         if (bool === 'null') {
-          // null - text-warning
-          return `<span class="text-warning font-bold">${bool}</span>`;
+          // null
+          return `<span class="json-null">${bool}</span>`;
         }
       }
       return match;
