@@ -261,73 +261,112 @@
 
     <!-- Create/Edit Modal using Teleport and DaisyUI modal -->
     <Teleport to="body">
-      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box">
-          <!-- close button -->
-          <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" @click="closeModal">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <h3 class="font-bold text-xl mt-2 mb-4">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
-          <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text font-medium">{{ t.clusters.clusterName }}</span>
-              </label>
-              <input
-                v-model="formData.name"
-                type="text"
-                placeholder="my-cluster"
-                class="input input-bordered w-full"
-                required
-              />
+      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" @click.self="closeModal">
+        <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-base">{{ editingCluster ? t.clusters.editCluster : t.clusters.createCluster }}</h3>
+                <span class="text-xs text-base-content/60 font-mono">{{ formData.name || t.clusters.newCluster }}</span>
+              </div>
             </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text font-medium">{{ t.clusters.brokers }}</span>
-              </label>
-              <input
-                v-model="formData.brokers"
-                type="text"
-                placeholder="localhost:9092,localhost:9093"
-                class="input input-bordered w-full"
-                required
-              />
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">{{ t.clusters.brokersHelp }}</span>
-              </label>
+            <button class="btn btn-sm btn-circle btn-ghost" @click="closeModal">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <form @submit.prevent="handleSubmit" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium mb-1.5">
+                  <span class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12 8.954 8.954a2.25 2.25 0 0 1 2.121 0L20.25 12m-9-6 9 6-9 6m-9-6 9-6-9 6Z" />
+                    </svg>
+                    {{ t.clusters.clusterName }} <span class="text-error text-xs ml-1">{{ t.messages.required }}</span>
+                  </span>
+                </label>
+                <input
+                  v-model="formData.name"
+                  type="text"
+                  placeholder="my-cluster"
+                  class="input input-bordered input-sm w-full"
+                  required
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1.5">
+                  <span class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                    {{ t.clusters.brokers }} <span class="text-error text-xs ml-1">{{ t.messages.required }}</span>
+                  </span>
+                </label>
+                <input
+                  v-model="formData.brokers"
+                  type="text"
+                  placeholder="localhost:9092,localhost:9093"
+                  class="input input-bordered input-sm w-full"
+                  required
+                />
+                <label class="label py-1">
+                  <span class="label-text-alt text-base-content/60">{{ t.clusters.brokersHelp }}</span>
+                </label>
+              </div>
             </div>
-            <div class="flex flex-wrap gap-4">
-              <div class="form-control w-auto">
-                <label class="label">
-                  <span class="label-text font-medium">{{ t.clusters.requestTimeout }}</span>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium mb-1.5">
+                  <span class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    {{ t.clusters.requestTimeout }}
+                  </span>
                 </label>
                 <input
                   v-model.number="formData.request_timeout_ms"
                   type="number"
-                  class="input input-bordered w-40"
+                  class="input input-bordered input-sm w-full"
                   placeholder="30000"
                 />
               </div>
-              <div class="form-control w-auto">
-                <label class="label">
-                  <span class="label-text font-medium">{{ t.clusters.operationTimeout }}</span>
+              <div>
+                <label class="block text-sm font-medium mb-1.5">
+                  <span class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    {{ t.clusters.operationTimeout }}
+                  </span>
                 </label>
                 <input
                   v-model.number="formData.operation_timeout_ms"
                   type="number"
-                  class="input input-bordered w-40"
+                  class="input input-bordered input-sm w-full"
                   placeholder="30000"
                 />
               </div>
             </div>
             <!-- Group Selector -->
-            <div v-if="clusterStore.groups.length > 0" class="form-control">
-              <label class="label">
-                <span class="label-text font-medium">{{ t.clusters.group }}</span>
+            <div v-if="clusterStore.groups.length > 0">
+              <label class="block text-sm font-medium mb-1.5">
+                <span class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44z" />
+                  </svg>
+                  {{ t.clusters.group }}
+                </span>
               </label>
-              <select v-model="formData.group_id" class="select select-bordered w-full">
+              <select v-model="formData.group_id" class="select select-bordered select-sm w-full">
                 <option :value="undefined">{{ t.clusters.noGroup }}</option>
                 <option v-for="group in clusterStore.groups" :key="group.id" :value="group.id">
                   {{ group.name }}
@@ -335,35 +374,34 @@
               </select>
             </div>
             <!-- Test Connection Button -->
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="btn btn-outline btn-sm flex items-center gap-2"
-                :disabled="!formData.brokers || testingConnection"
-                @click="testConnectionConfig"
-              >
-                <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
-                </svg>
-                {{ testingConnection ? t.clusters.testingConnection : t.clusters.testConnection }}
-              </button>
-              <span v-if="connectionTestResult" class="text-xs" :class="connectionTestResult.success ? 'text-success' : 'text-error'">
-                {{ connectionTestResult.success ? t.clusters.connectionSuccess : `${t.clusters.connectionFailed}：${connectionTestResult.error}` }}
-              </span>
+            <div class="border-t border-base-content/10 pt-4">
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm flex items-center gap-2"
+                  :disabled="!formData.brokers || testingConnection"
+                  @click="testConnectionConfig"
+                >
+                  <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                  </svg>
+                  {{ testingConnection ? t.clusters.testingConnection : t.clusters.testConnection }}
+                </button>
+                <span v-if="connectionTestResult" class="text-xs" :class="connectionTestResult.success ? 'text-success' : 'text-error'">
+                  {{ connectionTestResult.success ? t.clusters.connectionSuccess : `${t.clusters.connectionFailed}：${connectionTestResult.error}` }}
+                </span>
+              </div>
             </div>
-            <div class="modal-action mt-4">
-              <button type="button" class="btn btn-outline" @click="closeModal">{{ t.common.cancel }}</button>
-              <button type="submit" class="btn btn-primary flex items-center gap-2" :disabled="submitting">
+            <div class="modal-action flex-wrap gap-2 pt-3">
+              <button type="button" class="btn btn-ghost btn-sm" @click="closeModal">{{ t.common.cancel }}</button>
+              <button type="submit" class="btn btn-primary btn-sm flex items-center gap-2" :disabled="submitting">
                 <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
                 {{ editingCluster ? t.common.edit : t.common.create }}
               </button>
             </div>
           </form>
         </div>
-        <form method="dialog" class="modal-backdrop" @click="closeModal">
-          <button>close</button>
-        </form>
       </dialog>
 
       <!-- Disconnect Confirm Modal -->
@@ -926,13 +964,7 @@ async function refreshClusterTopics(clusterName: string) {
   try {
     const result = await apiClient.refreshTopics(clusterName);
     if (result.success) {
-      const addedCount = result.added?.length || 0;
-      const removedCount = result.removed?.length || 0;
-      let message = `${t.value.clusters.topicsRefreshed}: ${result.total || 0} ${t.value.topics.partitions}`;
-      if (addedCount > 0 || removedCount > 0) {
-        message += ` (+${addedCount} -${removedCount})`;
-      }
-      showSuccess(message);
+      showSuccess(t.value.clusters.refreshed);
     }
   } catch (e) {
     showError(`${t.value.clusters.refreshFailed}: ${(e as { message: string }).message}`);
@@ -1039,5 +1071,17 @@ watch(() => route.fullPath, (newPath, oldPath) => {
   text-align: center;
   padding: 2rem;
   color: var(--text-secondary);
+}
+
+/* 移除背景模糊效果 */
+:global(.modal:has(.modal-box)::backdrop) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:global(dialog[open]::backdrop) {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 </style>

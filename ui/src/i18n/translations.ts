@@ -83,6 +83,7 @@ export interface Translation {
     updated: string;
     created: string;
     connected: string;
+    refreshed: string;
     topicsRefreshed: string;
     reconnected: string;
     topics: string;
@@ -126,6 +127,7 @@ export interface Translation {
     validationNameInvalid: string;
     validationBrokersRequired: string;
     validationBrokersInvalid: string;
+    newCluster: string;
   };
   topics: {
     title: string;
@@ -440,6 +442,7 @@ export const translations: Record<Language, Translation> = {
       updated: '集群已更新',
       created: '集群已创建',
       connected: '连接成功',
+      refreshed: 'Topic 刷新成功',
       topicsRefreshed: '已刷新集群 Topic',
       reconnected: '重连成功',
       topics: '主题',
@@ -473,6 +476,7 @@ export const translations: Record<Language, Translation> = {
       scrollRight: '向右滚动',
       editClusterTitle: '编辑集群',
       createClusterTitle: '创建集群',
+      newCluster: '新集群',
       brokersHelp: '逗号分隔的 broker 地址列表',
       createdDate: '创建时间',
       unknown: '未知',
@@ -795,6 +799,7 @@ export const translations: Record<Language, Translation> = {
       updated: 'Cluster updated',
       created: 'Cluster created',
       connected: 'Connection successful',
+      refreshed: 'Topics refreshed',
       topicsRefreshed: 'Topics refreshed for cluster',
       reconnected: 'Reconnected successfully',
       topics: 'Topics',
@@ -828,6 +833,7 @@ export const translations: Record<Language, Translation> = {
       scrollRight: 'Scroll right',
       editClusterTitle: 'Edit Cluster',
       createClusterTitle: 'Create Cluster',
+      newCluster: 'New Cluster',
       brokersHelp: 'Comma-separated list of broker addresses',
       createdDate: 'Created',
       unknown: 'unknown',

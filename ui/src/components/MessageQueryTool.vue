@@ -370,6 +370,9 @@ import { useLanguageStore } from '@/stores/language';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
 
+// 键盘导航方向类型
+type NavigationDirection = 'up' | 'down';
+
 const route = useRoute();
 const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
@@ -797,6 +800,65 @@ function getMsgKey(item: any): string | null { return item?.key; }
 function getMsgValue(item: any): string | null { return item?.value; }
 function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
 
+// 键盘导航：处理方向键
+function handleKeyNavigation(e: KeyboardEvent) {
+  // 只在有消息列表且详情面板未打开时响应
+  if (sortedMessages.value.length === 0) return;
+
+  // 如果详情面板打开且焦点在面板内，不处理方向键（让用户可以编辑/选择文本）
+  const activeElement = document.activeElement;
+  const isDetailPanelFocused = selectedMessage.value && (
+    keyPreRef.value?.contains(activeElement) ||
+    valuePreRef.value?.contains(activeElement)
+  );
+  if (isDetailPanelFocused) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    navigateMessage('down');
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    navigateMessage('up');
+  }
+}
+
+// 导航到上一条或下一条消息
+function navigateMessage(direction: NavigationDirection) {
+  const currentIndex = selectedMessage.value
+    ? sortedMessages.value.findIndex(
+        (msg) => msg.partition === selectedMessage.value?.partition && msg.offset === selectedMessage.value?.offset
+      )
+    : -1;
+
+  let newIndex: number;
+  if (direction === 'down') {
+    newIndex = currentIndex < sortedMessages.value.length - 1 ? currentIndex + 1 : 0; // 循环到第一条
+  } else {
+    newIndex = currentIndex > 0 ? currentIndex - 1 : sortedMessages.value.length - 1; // 循环到最后一条
+  }
+
+  const targetMessage = sortedMessages.value[newIndex];
+  if (targetMessage) {
+    selectedMessage.value = targetMessage;
+    scrollToSelectedMessage();
+  }
+}
+
+// 滚动虚拟列表使选中消息可见
+function scrollToSelectedMessage() {
+  if (!selectedMessage.value) return;
+
+  const scroller = scrollerRef.value;
+  if (!scroller) return;
+
+  const uid = `${selectedMessage.value.partition}-${selectedMessage.value.offset}`;
+  const index = sortedMessages.value.findIndex((msg) => msg.uid === uid);
+  if (index >= 0) {
+    // 使用虚拟滚动的 scrollToItem 方法
+    scroller.scrollToItem(index);
+  }
+}
+
 // 清除时间筛选
 function clearTimeFilters() {
   filters.startTime = '';
@@ -1014,6 +1076,9 @@ onMounted(async () => {
     await loadPartitions();
     await queryMessages();
   }
+
+  // 添加键盘事件监听
+  document.addEventListener('keydown', handleKeyNavigation);
 });
 
 // 监听 props 变化
@@ -1062,6 +1127,8 @@ onUnmounted(() => {
     stopQuery();
   }
   stopResize();
+  // 移除键盘事件监听
+  document.removeEventListener('keydown', handleKeyNavigation);
 });
 
 // 加载设置（从数据库）

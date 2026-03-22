@@ -381,20 +381,47 @@
     </div>
 
     <!-- Connection Error Dialog -->
-    <dialog ref="errorDialogRef" class="modal modal-bottom sm:modal-middle">
-      <form method="dialog" class="modal-box">
-        <h3 class="font-bold text-lg mb-2">Connection Failed</h3>
-        <p class="text-sm text-base-content/70 mb-1">Cluster: <span class="font-mono">{{ errorDialogClusterName }}</span></p>
-        <p class="text-sm text-error mb-4">{{ errorDialogMessage }}</p>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-ghost btn-sm" @click="handleErrorDialogClose">Cancel</button>
-          <button class="btn btn-error btn-sm" @click="handleErrorDialogRetry">Retry</button>
+    <Teleport to="body">
+      <dialog ref="errorDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="handleErrorDialogClose">
+        <div class="modal-box w-full max-w-sm mx-2 md:mx-auto p-5">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-error/20 to-error/10 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-error">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-base">Connection Failed</h3>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-circle btn-ghost" @click="handleErrorDialogClose">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-3">
+            <p class="text-sm">
+              Cluster: <span class="font-mono">{{ errorDialogClusterName }}</span>
+            </p>
+            <p class="text-sm text-error">{{ errorDialogMessage }}</p>
+          </div>
+
+          <!-- Footer -->
+          <div class="modal-action flex-wrap gap-2 pt-3">
+            <button type="button" class="btn btn-ghost btn-sm" @click="handleErrorDialogClose">Cancel</button>
+            <button type="button" class="btn btn-error btn-sm" @click="handleErrorDialogRetry">Retry</button>
+          </div>
         </div>
-      </form>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="handleErrorDialogClose">close</button>
-      </form>
-    </dialog>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+    </Teleport>
   </div>
 </template>
 
@@ -503,7 +530,7 @@ const topicCounts = reactive<Record<string, number>>({});
 const clusterTopics = reactive<Record<string, Topic[]>>({});
 
 // 错误对话框状态
-const errorDialogRef = ref<HTMLDialogElement>();
+const errorDialogRef = ref<HTMLDialogElement | null>(null);
 const errorDialogClusterName = ref<string>('');
 const errorDialogMessage = ref<string>('');
 const pendingClusterName = ref<string | null>(null); // 等待展开的集群
@@ -628,7 +655,9 @@ function showConnectionError(clusterName: string, errorMsg: string) {
   errorDialogClusterName.value = clusterName;
   errorDialogMessage.value = errorMsg;
   pendingClusterName.value = clusterName;
-  errorDialogRef.value?.showModal();
+  nextTick(() => {
+    errorDialogRef.value?.showModal();
+  });
 }
 
 // 处理对话框关闭（取消）
@@ -1244,5 +1273,17 @@ function handleEditClusterFromMenu(event: Event) {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* Connection error dialog backdrop */
+:global(.modal:has(.modal-box)::backdrop) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:global(dialog[open]::backdrop) {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 </style>

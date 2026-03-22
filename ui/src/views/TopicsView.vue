@@ -369,117 +369,162 @@
     </template>
 
     <!-- Create Topic Dialog -->
-    <dialog ref="createTopicDialogRef" class="modal modal-bottom sm:modal-middle">
-      <form method="dialog" class="modal-box" @submit.prevent="handleCreateTopic">
-        <h3 class="font-bold text-lg mb-4">{{ t.topics.createTopic }}</h3>
+    <Teleport to="body">
+      <dialog ref="createTopicDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeCreateTopicDialog">
+        <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-base">{{ t.topics.createTopic }}</h3>
+                <span class="text-xs text-base-content/60 font-mono">{{ newTopic.name || t.topics.topicNamePlaceholder }}</span>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-circle btn-ghost" @click="closeCreateTopicDialog">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
 
+          <form @submit.prevent="handleCreateTopic" class="space-y-4">
         <!-- Topic Name -->
-        <div class="mb-4">
-          <label class="label text-sm font-medium">{{ t.topics.topicName }}</label>
+        <div>
+          <label class="block text-sm font-medium mb-1.5">
+            <span class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+              </svg>
+              {{ t.topics.topicName }} <span class="text-error text-xs ml-1">{{ t.messages.required }}</span>
+            </span>
+          </label>
           <input
             v-model="newTopic.name"
             type="text"
             :placeholder="t.topics.topicNamePlaceholder"
-            class="input input-bordered w-full"
+            class="input input-bordered input-sm w-full"
             required
             pattern="^[a-zA-Z0-9._-]+$"
             :title="t.topics.topicNameValidation"
           />
         </div>
 
-        <!-- Partitions -->
-        <div class="mb-4">
-          <label class="label text-sm font-medium">{{ t.topics.numPartitions }}</label>
-          <input
-            v-model.number="newTopic.numPartitions"
-            type="number"
-            min="1"
-            max="100"
-            class="input input-bordered w-full"
-            required
-          />
-          <p class="text-xs text-base-content/60 mt-1">{{ t.topics.numPartitionsHelp }}</p>
-        </div>
+        <!-- Partitions and Replication Factor Row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Partitions -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">
+              <span class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6Z" />
+                </svg>
+                {{ t.topics.numPartitions }}
+              </span>
+            </label>
+            <input
+              v-model.number="newTopic.numPartitions"
+              type="number"
+              min="1"
+              max="100"
+              class="input input-bordered input-sm w-full"
+              required
+            />
+            <p class="text-xs text-base-content/60 mt-1">{{ t.topics.numPartitionsHelp }}</p>
+          </div>
 
-        <!-- Replication Factor -->
-        <div class="mb-4">
-          <label class="label text-sm font-medium">{{ t.topics.replicationFactor }}</label>
-          <input
-            v-model.number="newTopic.replicationFactor"
-            type="number"
-            min="1"
-            max="10"
-            class="input input-bordered w-full"
-            required
-          />
-          <p class="text-xs text-base-content/60 mt-1">{{ t.topics.replicationFactorHelp }}</p>
+          <!-- Replication Factor -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">
+              <span class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
+                </svg>
+                {{ t.topics.replicationFactor }}
+              </span>
+            </label>
+            <input
+              v-model.number="newTopic.replicationFactor"
+              type="number"
+              min="1"
+              max="10"
+              class="input input-bordered input-sm w-full"
+              required
+            />
+            <p class="text-xs text-base-content/60 mt-1">{{ t.topics.replicationFactorHelp }}</p>
+          </div>
         </div>
 
         <!-- Advanced Options -->
-        <div class="mb-4">
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              v-model="showAdvanced"
-              class="checkbox checkbox-sm"
-            />
-            <span class="text-sm">{{ t.topics.advancedOptions }}</span>
-          </label>
+        <div class="border-t border-base-content/10 pt-4">
+          <button type="button" class="btn btn-ghost btn-sm w-full justify-between group" @click="showAdvanced = !showAdvanced">
+            <span class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 transition-transform group-hover:rotate-90" :class="{ 'rotate-90': showAdvanced }">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+              {{ t.topics.advancedOptions }}
+            </span>
+            <span class="text-xs text-base-content/50">{{ showAdvanced ? t.messages.hide : t.messages.show }}</span>
+          </button>
+
+          <!-- Advanced Config -->
+          <div v-if="showAdvanced" class="mt-3 space-y-3 animate-fadeIn">
+            <div>
+              <label class="block text-sm font-medium mb-1.5">cleanup.policy</label>
+              <select v-model="newTopic.config.cleanup_policy" class="select select-bordered select-sm w-full">
+                <option value="delete">delete</option>
+                <option value="compact">compact</option>
+                <option value="delete,compact">delete,compact</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1.5">retention.ms</label>
+              <input
+                v-model="newTopic.config.retention_ms"
+                type="text"
+                placeholder="604800000 (7 days)"
+                class="input input-bordered input-sm w-full"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1.5">retention.bytes</label>
+              <input
+                v-model="newTopic.config.retention_bytes"
+                type="text"
+                placeholder="-1 (unlimited)"
+                class="input input-bordered input-sm w-full"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1.5">segment.bytes</label>
+              <input
+                v-model="newTopic.config.segment_bytes"
+                type="text"
+                placeholder="1073741824 (1GB)"
+                class="input input-bordered input-sm w-full"
+              />
+            </div>
+          </div>
         </div>
 
-        <!-- Advanced Config -->
-        <div v-if="showAdvanced" class="mb-4 space-y-3">
-          <div>
-            <label class="label text-sm font-medium">cleanup.policy</label>
-            <select v-model="newTopic.config.cleanup_policy" class="select select-bordered w-full">
-              <option value="delete">delete</option>
-              <option value="compact">compact</option>
-              <option value="delete,compact">delete,compact</option>
-            </select>
-          </div>
-          <div>
-            <label class="label text-sm font-medium">retention.ms</label>
-            <input
-              v-model="newTopic.config.retention_ms"
-              type="text"
-              placeholder="604800000 (7 days)"
-              class="input input-bordered w-full"
-            />
-          </div>
-          <div>
-            <label class="label text-sm font-medium">retention.bytes</label>
-            <input
-              v-model="newTopic.config.retention_bytes"
-              type="text"
-              placeholder="-1 (unlimited)"
-              class="input input-bordered w-full"
-            />
-          </div>
-          <div>
-            <label class="label text-sm font-medium">segment.bytes</label>
-            <input
-              v-model="newTopic.config.segment_bytes"
-              type="text"
-              placeholder="1073741824 (1GB)"
-              class="input input-bordered w-full"
-            />
-          </div>
+            <div class="modal-action flex-wrap gap-2 pt-3">
+              <button type="button" class="btn btn-ghost btn-sm" @click="closeCreateTopicDialog">{{ t.common.cancel }}</button>
+              <button type="submit" class="btn btn-primary btn-sm flex items-center gap-2" :disabled="creatingTopic">
+                <span v-if="creatingTopic" class="loading loading-spinner loading-sm"></span>
+                {{ t.common.create }}
+              </button>
+            </div>
+          </form>
         </div>
-
-        <div class="flex justify-end gap-2 mt-6">
-          <button type="button" class="btn btn-ghost btn-sm" @click="closeCreateTopicDialog">
-            {{ t.common.cancel }}
-          </button>
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="creatingTopic">
-            <span v-if="creatingTopic" class="loading loading-spinner loading-sm"></span>
-            {{ t.common.create }}
-          </button>
-        </div>
-      </form>
-      <form method="dialog" class="modal-backdrop">
-        <button @click="closeCreateTopicDialog">{{ t.common.close }}</button>
-      </form>
-    </dialog>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+    </Teleport>
   </div>
 </template>
 
@@ -1071,5 +1116,33 @@ onMounted(() => {
   font-size: 0.75rem;
   text-transform: none;
   letter-spacing: normal;
+}
+
+/* 可展开区域的动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* 移除背景模糊效果 */
+:global(.modal:has(.modal-box)::backdrop) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:global(dialog[open]::backdrop) {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 </style>

@@ -23,8 +23,8 @@
 
   <!-- 选择分组弹窗 -->
   <Teleport to="body">
-    <dialog ref="modalRef" class="modal" @click.self="closeModal">
-      <div class="modal-box w-full max-w-sm mx-2 md:mx-auto p-4">
+    <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" @click.self="closeModal">
+      <div class="modal-box w-full max-w-sm mx-2 md:mx-auto p-5">
         <!-- Header -->
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
@@ -43,93 +43,103 @@
             </svg>
           </button>
         </div>
-        <div v-if="loading" class="modal-loading-state">
-          <span class="loading loading-spinner loading-md text-primary"></span>
-        </div>
-        <div v-else-if="groups.length === 0 || showCreateGroupForm" class="text-center py-4">
-          <div v-if="!showCreateGroupForm">
-            <p class="text-base-content/50 mb-3">{{ t.favorites?.noGroups || 'No groups yet' }}</p>
-            <button class="btn btn-primary btn-sm" @click="openCreateGroupForm">
-              {{ t.favorites?.createGroup || 'Create Group' }}
+
+        <div class="space-y-4">
+          <div v-if="loading" class="flex items-center justify-center py-8">
+            <span class="loading loading-spinner loading-md text-primary"></span>
+          </div>
+          <div v-else-if="groups.length === 0 || showCreateGroupForm" class="text-center py-4">
+            <div v-if="!showCreateGroupForm">
+              <p class="text-base-content/50 mb-3">{{ t.favorites?.noGroups || 'No groups yet' }}</p>
+              <button class="btn btn-primary btn-sm" @click="openCreateGroupForm">
+                {{ t.favorites?.createGroup || 'Create Group' }}
+              </button>
+            </div>
+            <div v-else class="space-y-3 text-left">
+              <h4 class="font-medium text-sm">{{ t.favorites?.createGroup || 'Create Group' }}</h4>
+              <div class="space-y-2">
+                <input
+                  v-model="newGroupName"
+                  type="text"
+                  class="input input-bordered w-full input-sm"
+                  :placeholder="t.favorites?.groupNamePlaceholder || 'Enter group name'"
+                  @keyup.enter="submitCreateGroup"
+                />
+                <input
+                  v-model="newGroupDesc"
+                  type="text"
+                  class="input input-bordered w-full input-sm"
+                  :placeholder="t.favorites?.groupDescPlaceholder || 'Enter description (optional)'"
+                  @keyup.enter="submitCreateGroup"
+                />
+              </div>
+              <div class="flex gap-2 justify-end">
+                <button class="btn btn-ghost btn-sm" @click="cancelCreateGroup">
+                  {{ t.common?.cancel || 'Cancel' }}
+                </button>
+                <button
+                  class="btn btn-primary btn-sm"
+                  :disabled="!newGroupName.trim() || creatingGroup"
+                  @click="submitCreateGroup"
+                >
+                  <span v-if="creatingGroup" class="loading loading-spinner loading-xs"></span>
+                  {{ t.common?.save || 'Save' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="space-y-2">
+            <div
+              v-for="group in groups"
+              :key="group.id"
+              class="p-2 rounded-lg cursor-pointer transition-colors hover:bg-base-200"
+              :class="{ 'bg-primary/10 hover:bg-primary/20': selectedGroupId === group.id }"
+              @click="selectedGroupId = group.id"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                  </svg>
+                  <span>{{ group.name }}</span>
+                </div>
+                <span class="badge badge-sm badge-ghost">{{ group.item_count || 0 }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 备注输入 -->
+          <div v-if="groups.length > 0 && !showCreateGroupForm" class="pt-2 border-t border-base-content/10">
+            <label class="block text-sm font-medium mb-1">
+              <span class="flex items-center gap-1">
+                <span>{{ t.favorites?.remark || 'Remark' }}</span>
+                <span class="text-xs text-base-content/50">{{ t.common?.optional || 'Optional' }}</span>
+              </span>
+            </label>
+            <textarea
+              v-model="remark"
+              class="textarea textarea-bordered w-full textarea-sm"
+              :placeholder="t.favorites?.remarkPlaceholder || 'Add remark (optional)'"
+              rows="2"
+            ></textarea>
+          </div>
+
+          <!-- Actions -->
+          <div class="modal-action flex-wrap gap-2 pt-3">
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeModal">{{ t.common?.cancel || 'Cancel' }}</button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!selectedGroupId || saving"
+              @click="confirmAdd"
+            >
+              <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+              {{ t.common?.confirm || 'Confirm' }}
             </button>
           </div>
-          <div v-else class="space-y-3">
-            <h4 class="font-medium text-sm text-left">{{ t.favorites?.createGroup || 'Create Group' }}</h4>
-            <div class="space-y-2">
-              <input
-                v-model="newGroupName"
-                type="text"
-                class="input input-bordered w-full input-sm"
-                :placeholder="t.favorites?.groupNamePlaceholder || 'Enter group name'"
-                @keyup.enter="submitCreateGroup"
-              />
-              <input
-                v-model="newGroupDesc"
-                type="text"
-                class="input input-bordered w-full input-sm"
-                :placeholder="t.favorites?.groupDescPlaceholder || 'Enter description (optional)'"
-                @keyup.enter="submitCreateGroup"
-              />
-            </div>
-            <div class="flex gap-2 justify-end">
-              <button class="btn btn-ghost btn-sm" @click="cancelCreateGroup">
-                {{ t.common?.cancel || 'Cancel' }}
-              </button>
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="!newGroupName.trim() || creatingGroup"
-                @click="submitCreateGroup"
-              >
-                <span v-if="creatingGroup" class="loading loading-spinner loading-xs"></span>
-                {{ t.common?.save || 'Save' }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-else class="modal-option-list">
-          <div
-            v-for="group in groups"
-            :key="group.id"
-            class="modal-option"
-            :class="{ 'is-selected': selectedGroupId === group.id }"
-            @click="selectedGroupId = group.id"
-          >
-            <div class="flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-              </svg>
-              <span>{{ group.name }}</span>
-              <span class="badge badge-sm badge-ghost">{{ group.item_count || 0 }}</span>
-            </div>
-          </div>
-        </div>
-        <!-- 备注输入 -->
-        <div v-if="groups.length > 0" class="mt-4">
-          <label class="label">
-            <span class="label-text">{{ t.favorites?.remark || 'Remark' }}</span>
-            <span class="label-text-alt text-base-content/50">{{ t.common?.optional || 'Optional' }}</span>
-          </label>
-          <textarea
-            v-model="remark"
-            class="textarea textarea-bordered w-full textarea-sm"
-            :placeholder="t.favorites?.remarkPlaceholder || 'Add remark (optional)'"
-            rows="2"
-          ></textarea>
-        </div>
-        <div class="modal-action flex-wrap gap-2 pt-2">
-          <button type="button" class="btn btn-ghost btn-sm" @click="closeModal">{{ t.common?.cancel || '取消' }}</button>
-          <button
-            type="button"
-            class="btn btn-sm text-primary border border-primary/50 hover:bg-primary hover:text-white"
-            :disabled="!selectedGroupId || saving"
-            @click="confirmAdd"
-          >
-            <span v-if="saving" class="loading loading-spinner loading-xs"></span>
-            {{ t.common?.confirm || '确定' }}
-          </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop" @click="closeModal">
+      <form method="dialog" class="modal-backdrop">
         <button>close</button>
       </form>
     </dialog>
@@ -137,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
@@ -164,7 +174,8 @@ const saving = ref(false);
 const groups = ref<any[]>([]);
 const selectedGroupId = ref<number | null>(null);
 const remark = ref('');
-const modalRef = ref<HTMLDialogElement>();
+const showModal = ref(false);
+const modalRef = ref<HTMLDialogElement | null>(null);
 
 // Create group form state
 const showCreateGroupForm = ref(false);
@@ -208,6 +219,9 @@ async function toggleFavorite() {
     showCreateGroupForm.value = false;
     newGroupName.value = '';
     newGroupDesc.value = '';
+    showModal.value = true;
+    // 打开原生 dialog
+    await nextTick();
     modalRef.value?.showModal();
   }
 }
@@ -298,6 +312,7 @@ async function confirmAdd() {
 // Close modal
 function closeModal() {
   modalRef.value?.close();
+  showModal.value = false;
   selectedGroupId.value = null;
   remark.value = '';
   showCreateGroupForm.value = false;
@@ -334,5 +349,17 @@ onMounted(() => {
 
 .favorite-btn.is-favorite:hover {
   color: #ef4444;
+}
+
+/* 移除背景模糊效果 */
+:global(.modal:has(.modal-box)::backdrop) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:global(dialog[open]::backdrop) {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 </style>
