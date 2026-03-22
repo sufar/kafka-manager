@@ -519,7 +519,7 @@ const router = useRouter();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
 const languageStore = useLanguageStore();
-const { showError, showSuccess } = useToast();
+const { showError, showSuccess, confirm } = useToast();
 
 const clusters = computed(() => clusterStore.clusters);
 const loading = computed(() => clusterStore.loading);
@@ -846,10 +846,11 @@ async function testConnection(id: number) {
   }
 }
 
-function confirmDelete(cluster: Cluster) {
-  if (confirm(`${t.value.clusters.confirmDelete} "${cluster.name}"?`)) {
-    clusterStore.deleteCluster(cluster.id);
-  }
+async function confirmDelete(cluster: Cluster) {
+  const confirmed = await confirm(`${t.value.clusters.confirmDelete} "${cluster.name}"?`);
+  if (!confirmed) return;
+
+  clusterStore.deleteCluster(cluster.id);
 }
 
 function formatDate(dateStr: string): string {
