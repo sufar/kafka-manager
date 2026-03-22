@@ -5,6 +5,8 @@
 [![Tauri](https://img.shields.io/badge/tauri-2.x-blue.svg)](https://tauri.app/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+**[中文文档](README-cn.md)** | **[English](README.md)**
+
 A powerful Kafka cluster management tool with Web API and cross-platform desktop application. Easily manage multiple Kafka clusters, browse topics, explore messages, and manage favorites.
 
 ## Quick Start
@@ -160,13 +162,6 @@ cargo test
 cargo clippy
 cargo fmt
 ```
-
-## Documentation
-
-- [API Reference](./docs/api.md) - Complete API documentation (English)
-- [API Reference](./docs/api-cn.md) - Complete API documentation (Chinese)
-- [Architecture Design](./docs/architecture.md) - Technical architecture and design (English)
-- [Architecture Design](./docs/architecture-cn.md) - Technical architecture and design (Chinese)
 
 ## License
 
