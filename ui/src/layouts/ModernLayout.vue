@@ -1150,8 +1150,8 @@ onMounted(async () => {
 }
 
 .resizer:hover {
-  background-color: rgba(100, 100, 255, 0.3);
-  border-right-color: rgba(100, 100, 255, 0.5);
+  background-color: rgba(100, 100, 255, 0.15);
+  border-right-color: rgba(100, 100, 255, 0.25);
 }
 
 /* 拖动时全局样式 */
