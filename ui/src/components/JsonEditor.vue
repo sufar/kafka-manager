@@ -28,8 +28,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { formatJson, highlightJson } from '@/utils/json';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { formatJson } from '@/utils/json';
+import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
+
+// 用于强制刷新的响应式变量
+const refreshTrigger = ref(0);
+
+// 监听模板变化事件，强制刷新
+function handleTemplateChange() {
+  clearTemplateCache();
+  // 增加触发器值，强制 computed 重新计算
+  refreshTrigger.value++;
+}
+
+onMounted(() => {
+  window.addEventListener('json-highlight-changed', handleTemplateChange as EventListener);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('json-highlight-changed', handleTemplateChange as EventListener);
+});
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -76,10 +95,13 @@ const containerHeight = computed(() => {
 
 // 高亮后的 JSON
 const highlightedJson = computed(() => {
+  // 读取 refreshTrigger 以建立依赖关系，当模板变化时强制重新计算
+  void refreshTrigger.value;
   if (!inputValue.value) return '';
   // 始终显示原始内容的高亮，不自动格式化
   // 只有在用户点击格式化按钮时才会格式化
-  return highlightJson(inputValue.value);
+  // 不传递 isDark，让函数直接从 DOM 获取当前主题
+  return highlightJsonWithTemplate(inputValue.value);
 });
 
 // 监听输入变化

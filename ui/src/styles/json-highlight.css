@@ -1,50 +1,51 @@
 /* JSON 语法高亮样式 - 全局共享样式 */
 /* 柔和现代风格 - 金色数字 */
 /* 只针对 pre 标签内的 span 元素，不影响 textarea */
+/* 注意：实际颜色由模板系统通过内联样式控制，这里仅作为后备 */
 
-/* 浅色模式 - 使用和深色模式一致的颜色 */
+/* 浅色模式 - 默认后备样式 */
 pre span.json-key,
 .json-highlight span.json-key {
-  color: #a78bfa !important;
+  color: #a78bfa;
   font-weight: 600;
 }
 pre span.json-string,
 .json-highlight span.json-string {
-  color: #34d399 !important;
+  color: #34d399;
 }
 pre span.json-number,
 .json-highlight span.json-number {
-  color: #fbbf24 !important;
+  color: #fbbf24;
 }
 pre span.json-boolean,
 .json-highlight span.json-boolean {
-  color: #38bdf8 !important;
+  color: #38bdf8;
   font-weight: 700;
 }
 pre span.json-null,
 .json-highlight span.json-null {
-  color: #6b7280 !important;
+  color: #6b7280;
   font-weight: 700;
 }
 
-/* 深色模式 */
+/* 深色模式 - 默认后备样式 */
 [data-theme="dark"] pre span.json-key,
 [data-theme="dark"] .json-highlight span.json-key {
-  color: #a78bfa !important;
+  color: #a78bfa;
 }
 [data-theme="dark"] pre span.json-string,
 [data-theme="dark"] .json-highlight span.json-string {
-  color: #34d399 !important;
+  color: #34d399;
 }
 [data-theme="dark"] pre span.json-number,
 [data-theme="dark"] .json-highlight span.json-number {
-  color: #fbbf24 !important;
+  color: #fbbf24;
 }
 [data-theme="dark"] pre span.json-boolean,
 [data-theme="dark"] .json-highlight span.json-boolean {
-  color: #38bdf8 !important;
+  color: #38bdf8;
 }
 [data-theme="dark"] pre span.json-null,
 [data-theme="dark"] .json-highlight span.json-null {
-  color: #6b7280 !important;
+  color: #6b7280;
 }

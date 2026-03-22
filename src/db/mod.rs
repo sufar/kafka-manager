@@ -8,6 +8,7 @@ pub mod tag;
 pub mod topic;
 pub mod topic_template;
 pub mod user;
+pub mod json_highlight;
 
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
@@ -309,6 +310,31 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
+        // 创建 JSON 高亮模板表
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS json_highlight_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                style_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_json_highlight_name ON json_highlight_templates(name)")
+            .execute(self.inner())
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_json_highlight_builtin ON json_highlight_templates(is_builtin)")
+            .execute(self.inner())
+            .await?;
+
         // 创建收藏表
         favorite::init_tables(self.inner()).await?;
 
@@ -320,6 +346,9 @@ impl DbPool {
 
         // 初始化默认角色
         self.init_default_roles().await?;
+
+        // 初始化内置 JSON 高亮模板
+        json_highlight::JsonHighlightTemplate::init_builtin_templates(self.inner()).await?;
 
         tracing::info!("[KAFKA-MANAGER] Database tables initialized successfully");
 

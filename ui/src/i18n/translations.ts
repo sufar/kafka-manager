@@ -255,6 +255,20 @@ export interface Translation {
     themeDesc: string;
     lightMode: string;
     darkMode: string;
+    jsonHighlight: string;
+    jsonHighlightDesc: string;
+    selectTemplate: string;
+    preview: string;
+    customTemplates: string;
+    addCustomTemplate: string;
+    templateName: string;
+    templateDescription: string;
+    templateStyle: string;
+    saveTemplate: string;
+    deleteTemplate: string;
+    confirmDeleteTemplate: string;
+    templateFormat: string;
+    builtInTemplates: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -605,6 +619,20 @@ export const translations: Record<Language, Translation> = {
       themeDesc: '切换浅色或深色模式',
       lightMode: '浅色模式',
       darkMode: '深色模式',
+      jsonHighlight: 'JSON 高亮',
+      jsonHighlightDesc: '配置消息详情和发送消息弹框中的 JSON 高亮样式',
+      selectTemplate: '选择模板',
+      preview: '预览效果',
+      customTemplates: '自定义模板',
+      addCustomTemplate: '添加自定义模板',
+      templateName: '模板名称',
+      templateDescription: '模板描述',
+      templateStyle: '样式配置',
+      saveTemplate: '保存模板',
+      deleteTemplate: '删除模板',
+      confirmDeleteTemplate: '确定要删除这个自定义模板吗？',
+      templateFormat: '模板格式',
+      builtInTemplates: '内置模板',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -953,6 +981,20 @@ export const translations: Record<Language, Translation> = {
       themeDesc: 'Toggle light or dark mode',
       lightMode: 'Light Mode',
       darkMode: 'Dark Mode',
+      jsonHighlight: 'JSON Highlight',
+      jsonHighlightDesc: 'Configure JSON highlight style for message details and send message modal',
+      selectTemplate: 'Select Template',
+      preview: 'Preview',
+      customTemplates: 'Custom Templates',
+      addCustomTemplate: 'Add Custom Template',
+      templateName: 'Template Name',
+      templateDescription: 'Description',
+      templateStyle: 'Style Config',
+      saveTemplate: 'Save Template',
+      deleteTemplate: 'Delete Template',
+      confirmDeleteTemplate: 'Are you sure you want to delete this custom template?',
+      templateFormat: 'Template Format',
+      builtInTemplates: 'Built-in Templates',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',

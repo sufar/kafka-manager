@@ -367,6 +367,7 @@ import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
+import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
 
@@ -399,6 +400,8 @@ const messages = shallowRef<Message[]>([]);
 const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
 const panelHeight = ref(380); // 默认高度增加到 380px
+// 用于强制刷新 JSON 高亮的响应式变量
+const jsonHighlightRefresh = ref(0);
 // 虚拟滚动 ref
 const scrollerRef = ref<any>(null);
 const scrollerRefMobile = ref<any>(null);
@@ -974,48 +977,19 @@ function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): stri
   return value;
 }
 
-// JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML（与 JsonEditor.vue 保持一致）
+// JSON 语法高亮 - 使用模板高亮
 function highlightJson(json: string): string {
-  if (!json) return '';
+  // 读取 jsonHighlightRefresh 以建立依赖关系，当模板变化时强制重新计算
+  void jsonHighlightRefresh.value;
+  // 不传递 isDark，让函数直接从 DOM 获取当前主题
+  return highlightJsonWithTemplate(json);
+}
 
-  // 转义 HTML 特殊字符
-  let html = json
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // 使用单个正则表达式处理所有情况
-  html = html.replace(
-    /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+\.?\d*)|\b(true|false|null)\b/g,
-    (match, string, colon, number, bool) => {
-      if (string) {
-        if (colon) {
-          // 键名
-          return `<span class="json-key">${string}</span>${colon}`;
-        } else {
-          // 字符串值
-          return `<span class="json-string">${string}</span>`;
-        }
-      }
-      if (number) {
-        // 数字
-        return `<span class="json-number">${number}</span>`;
-      }
-      if (bool) {
-        if (bool === 'true' || bool === 'false') {
-          // 布尔值
-          return `<span class="json-boolean">${bool}</span>`;
-        }
-        if (bool === 'null') {
-          // null
-          return `<span class="json-null">${bool}</span>`;
-        }
-      }
-      return match;
-    }
-  );
-
-  return html;
+// 监听模板变化事件
+function handleTemplateChange(_event: CustomEvent) {
+  clearTemplateCache();
+  // 增加触发器值，强制 computed 重新计算
+  jsonHighlightRefresh.value++;
 }
 
 function copyKey() {
@@ -1079,6 +1053,9 @@ onMounted(async () => {
 
   // 添加键盘事件监听
   document.addEventListener('keydown', handleKeyNavigation);
+
+  // 监听模板变化事件
+  window.addEventListener('json-highlight-changed', handleTemplateChange as EventListener);
 });
 
 // 监听 props 变化
@@ -1129,6 +1106,8 @@ onUnmounted(() => {
   stopResize();
   // 移除键盘事件监听
   document.removeEventListener('keydown', handleKeyNavigation);
+  // 移除模板变化事件监听
+  window.removeEventListener('json-highlight-changed', handleTemplateChange as EventListener);
 });
 
 // 加载设置（从数据库）

@@ -9,6 +9,8 @@
 
 一个强大的 Kafka 集群管理工具，提供 Web API 和跨平台桌面应用程序。轻松管理多个 Kafka 集群、浏览主题、探索消息和管理收藏。
 
+![Kafka Manager](img/about.png)
+
 ## 快速开始
 
 ### 方式一：运行 Web 后端

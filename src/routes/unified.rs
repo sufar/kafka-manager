@@ -538,6 +538,14 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "settings.get" => handle_settings_get(state, body).await,
         "settings.update" => handle_settings_update(state, body).await,
 
+        // JSON Highlight Templates
+        "json_highlight.list" => handle_json_highlight_list(state).await,
+        "json_highlight.get_current" => handle_json_highlight_get_current(state).await,
+        "json_highlight.set_current" => handle_json_highlight_set_current(state, body).await,
+        "json_highlight.create" => handle_json_highlight_create(state, body).await,
+        "json_highlight.update" => handle_json_highlight_update(state, body).await,
+        "json_highlight.delete" => handle_json_highlight_delete(state, body).await,
+
         // Topic Template
         "template.list" => handle_template_list(state).await,
         "template.get" => handle_template_get(state, body).await,
@@ -3555,6 +3563,104 @@ async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
         "key": key,
         "value": value,
     }))
+}
+
+// ==================== JSON Highlight Templates ====================
+
+use crate::db::json_highlight::JsonHighlightTemplate;
+
+async fn handle_json_highlight_list(state: AppState) -> Result<Value> {
+    let templates: Vec<Value> = JsonHighlightTemplate::get_all_templates(state.db.inner())
+        .await?
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "is_builtin": t.is_builtin,
+                "style_json": t.style_json,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "templates": templates }))
+}
+
+async fn handle_json_highlight_get_current(state: AppState) -> Result<Value> {
+    let name = SettingStore::get(state.db.inner(), "ui.json_highlight_template")
+        .await?
+        .unwrap_or_else(|| "default".to_string());
+
+    Ok(serde_json::json!({ "name": name }))
+}
+
+async fn handle_json_highlight_set_current(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+
+    SettingStore::set(state.db.inner(), "ui.json_highlight_template", &name).await?;
+
+    Ok(serde_json::json!({ "name": name }))
+}
+
+async fn handle_json_highlight_create(state: AppState, body: Value) -> Result<Value> {
+    let name = get_string_param(&body, "name")?;
+    let description = get_string_param(&body, "description")?;
+    let style_json = get_string_param(&body, "style_json")?;
+
+    let id = JsonHighlightTemplate::save_template(
+        state.db.inner(),
+        &name,
+        &description,
+        false,
+        &style_json,
+    )
+    .await?;
+
+    Ok(serde_json::json!({ "id": id }))
+}
+
+async fn handle_json_highlight_update(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+    let description = get_string_param(&body, "description")?;
+    let style_json = get_string_param(&body, "style_json")?;
+
+    // Get template info
+    let template = JsonHighlightTemplate::get_template_by_id(state.db.inner(), id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Template {} not found", id)))?;
+
+    // Cannot update built-in templates
+    if template.is_builtin {
+        return Err(AppError::BadRequest("Cannot update built-in templates".to_string()));
+    }
+
+    JsonHighlightTemplate::save_template(
+        state.db.inner(),
+        &template.name,
+        &description,
+        false,
+        &style_json,
+    )
+    .await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+async fn handle_json_highlight_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let deleted = JsonHighlightTemplate::delete_template(state.db.inner(), id).await?;
+
+    if !deleted {
+        return Err(AppError::NotFound(
+            "Template not found or cannot delete built-in templates".to_string()
+        ));
+    }
+
+    Ok(serde_json::json!({ "success": true }))
 }
 
 // ==================== Topic Template ====================

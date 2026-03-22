@@ -710,6 +710,32 @@ class ApiClient {
   async deleteFavoriteByTopic(clusterId: string, topicName: string): Promise<void> {
     return this.request('favorite.delete_by_topic', { cluster_id: clusterId, topic_name: topicName });
   }
+
+  // ==================== JSON 高亮模板 ====================
+  async getJsonHighlightTemplates(): Promise<Array<{ id: number | null; name: string; description: string; is_builtin: boolean; style_json: string; created_at: string; updated_at: string }>> {
+    const data = await this.request<{ templates: Array<{ id: number | null; name: string; description: string; is_builtin: boolean; style_json: string; created_at: string; updated_at: string }> }>('json_highlight.list', {});
+    return data.templates;
+  }
+
+  async getCurrentJsonHighlightTemplate(): Promise<{ name: string }> {
+    return this.request('json_highlight.get_current', {});
+  }
+
+  async setCurrentJsonHighlightTemplate(name: string): Promise<{ name: string }> {
+    return this.request('json_highlight.set_current', { name });
+  }
+
+  async createJsonHighlightTemplate(params: { name: string; description: string; style_json: string }): Promise<{ id: number }> {
+    return this.request('json_highlight.create', params);
+  }
+
+  async updateJsonHighlightTemplate(id: number, params: { description: string; style_json: string }): Promise<{ success: boolean }> {
+    return this.request('json_highlight.update', { id, ...params });
+  }
+
+  async deleteJsonHighlightTemplate(id: number): Promise<{ success: boolean }> {
+    return this.request('json_highlight.delete', { id });
+  }
 }
 
 // 导出单例

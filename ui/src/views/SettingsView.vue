@@ -138,6 +138,11 @@
           </div>
         </div>
       </div>
+
+      <!-- JSON Highlight Setting -->
+      <div class="md:col-span-2">
+        <JsonHighlightSelector />
+      </div>
     </div>
   </div>
 </template>
@@ -149,6 +154,7 @@ import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
+import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
