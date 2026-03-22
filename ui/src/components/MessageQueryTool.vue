@@ -109,8 +109,11 @@
       <div class="flex items-center gap-4">
         <span v-if="selectedTopic" class="text-base-content/70 flex items-center gap-1">
           {{ t.messages.topicLabel }}:
-          <span class="font-mono font-bold text-primary">
+          <span class="font-mono font-bold text-primary relative group cursor-help">
             {{ selectedTopic }}
+            <span class="invisible group-hover:visible absolute top-full left-0 mt-1 px-2 py-1 bg-base-300 text-base-content text-xs rounded whitespace-nowrap z-50">
+              {{ t.clusters.clusters }}: {{ props.cluster || selectedCluster }}
+            </span>
           </span>
           <FavoriteButton
             v-if="props.cluster && selectedTopic"

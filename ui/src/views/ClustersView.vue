@@ -448,7 +448,7 @@
           <div class="modal-option-list mb-4">
             <div v-for="group in clusterStore.groups" :key="group.id" class="modal-option justify-between">
               <div>
-                <div class="font-semibold">{{ group.name }}</div>
+                <div class="font-semibold">{{ group.name }} <span class="text-xs text-base-content/60 ml-2">({{ clusterStore.groupClusterCounts[group.id] || 0 }} {{ t.clusters.clusters }})</span></div>
                 <div class="text-xs text-base-content/60">{{ group.description || t.clusters.noDescription }}</div>
               </div>
               <div class="flex gap-1">

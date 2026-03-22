@@ -49,6 +49,17 @@ export const useClusterStore = defineStore('clusters', () => {
     },
   });
 
+  // 每个分组的集群数量
+  const groupClusterCounts = computed(() => {
+    const counts: Record<number, number> = {};
+    clusters.value.forEach((cluster) => {
+      if (cluster.group_id) {
+        counts[cluster.group_id] = (counts[cluster.group_id] || 0) + 1;
+      }
+    });
+    return counts;
+  });
+
   async function fetchClusters() {
     // 如果正在加载，跳过重复请求
     if (loading.value) return;
@@ -305,6 +316,7 @@ export const useClusterStore = defineStore('clusters', () => {
     refreshingHealth,
     totalStats,
     clustersByGroup,
+    groupClusterCounts,
     fetchClusters,
     fetchGroups,
     createCluster,
