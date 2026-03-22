@@ -206,7 +206,7 @@ import { ref, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
-const { showSuccess, showError } = useToast();
+const { showSuccess, showError, confirm } = useToast();
 
 // Props
 const props = defineProps<{
@@ -334,7 +334,7 @@ async function saveGroup() {
 }
 
 async function deleteGroup(id: number) {
-  if (!confirm(props.t.favorites?.confirmDeleteGroup || '确定要删除这个分组吗？分组内的收藏也会被删除。')) {
+  if (!await confirm(props.t.favorites?.confirmDeleteGroup || '确定要删除这个分组吗？分组内的收藏也会被删除。')) {
     return;
   }
   try {
@@ -384,7 +384,7 @@ async function saveFavorite() {
 }
 
 async function deleteFavorite(id: number) {
-  if (!confirm(props.t.favorites?.confirmDeleteFavorite || '确定要删除这个收藏吗？')) {
+  if (!await confirm(props.t.favorites?.confirmDeleteFavorite || '确定要删除这个收藏吗？')) {
     return;
   }
   try {

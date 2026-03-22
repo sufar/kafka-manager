@@ -403,6 +403,9 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, shallowRef, 
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import { useToast } from '@/composables/useToast';
+
+const { confirm } = useToast();
 
 interface Topic {
   name: string;
@@ -734,7 +737,7 @@ async function handleClusterAction(action: string, clusterName: string) {
       window.dispatchEvent(new CustomEvent('edit-cluster-from-menu', { detail: { clusterName } }));
       break;
     case 'deleteCluster':
-      if (confirm(`Are you sure you want to delete cluster "${clusterName}"?`)) {
+      if (await confirm(`Are you sure you want to delete cluster "${clusterName}"?`)) {
         await deleteCluster(clusterName);
       }
       break;
@@ -784,7 +787,7 @@ async function refreshConnectionStatus(clusterName: string) {
 }
 
 async function disconnectCluster(clusterName: string) {
-  if (confirm(`Are you sure you want to disconnect from cluster "${clusterName}"?`)) {
+  if (await confirm(`Are you sure you want to disconnect from cluster "${clusterName}"?`)) {
     disconnecting.value.add(clusterName);
     try {
       await apiClient.disconnectCluster(clusterName);

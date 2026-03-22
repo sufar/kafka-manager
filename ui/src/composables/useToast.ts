@@ -9,10 +9,18 @@ export function useToast() {
   const showToast = inject<(type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => void>(
     'showToast',
     (type, message) => {
-      // 降级方案：如果是错误则 alert，其他类型忽略
-      if (type === 'error') {
-        alert(message);
-      }
+      // 降级方案：输出到控制台，不阻塞用户
+      console.warn(`[Toast:${type}]`, message);
+    }
+  );
+
+  // 注入全局 confirm 方法
+  const showConfirm = inject<(message: string) => Promise<boolean>>(
+    'showConfirm',
+    () => {
+      // 降级方案：默认返回 false（取消）
+      console.warn('[Confirm] 降级方案：返回 false');
+      return Promise.resolve(false);
     }
   );
 
@@ -32,11 +40,16 @@ export function useToast() {
     showToast('info', message, duration);
   };
 
+  const confirm = (message: string): Promise<boolean> => {
+    return showConfirm(message);
+  };
+
   return {
     showToast,
     showError,
     showSuccess,
     showWarning,
     showInfo,
+    confirm,
   };
 }

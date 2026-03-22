@@ -354,6 +354,19 @@
         <button class="btn btn-ghost btn-xs" @click="removeToast(toast.id)">✕</button>
       </div>
     </div>
+
+    <!-- Confirmation Dialog -->
+    <div v-show="confirmDialogVisible" class="fixed inset-0 z-[9999] flex items-center justify-center" style="background: rgba(0,0,0,0.5);">
+      <!-- Dialog Box -->
+      <div class="bg-base-100 text-base-content p-6 rounded-lg shadow-2xl" style="min-width: 300px; max-width: 90vw;">
+        <h3 class="text-lg font-bold mb-4">{{ t.common.confirm }}</h3>
+        <p class="mb-4">{{ confirmMessage }}</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn btn-ghost btn-sm" @click="handleConfirmCancel">{{ t.common.cancel }}</button>
+          <button class="btn btn-primary btn-sm" @click="handleConfirmConfirm">{{ t.common.confirm }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -616,6 +629,38 @@ function getToastClass(type: string): string {
 // 提供给所有子组件使用
 provide('showToast', showToast);
 
+// Confirmation dialog
+const confirmMessage = ref('');
+const confirmDialogVisible = ref(false);
+let confirmResolve: ((value: boolean) => void) | null = null;
+
+function showConfirm(message: string): Promise<boolean> {
+  confirmMessage.value = message;
+  confirmDialogVisible.value = true;
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+  });
+}
+
+function handleConfirmConfirm() {
+  confirmDialogVisible.value = false;
+  if (confirmResolve) {
+    confirmResolve(true);
+    confirmResolve = null;
+  }
+}
+
+function handleConfirmCancel() {
+  confirmDialogVisible.value = false;
+  if (confirmResolve) {
+    confirmResolve(false);
+    confirmResolve = null;
+  }
+}
+
+// 提供给所有子组件使用
+provide('showConfirm', showConfirm);
+
 // ==================== 状态持久化 ====================
 const STORAGE_KEY = 'kafka-manager-last-state';
 
@@ -727,7 +772,7 @@ function handleNavigateFromFavorites(clusterId: string, topicName: string) {
   }
 }
 
-function handleClusterAction(action: string, cluster: string) {
+async function handleClusterAction(action: string, cluster: string) {
   switch (action) {
     case 'viewBrokers':
       router.push({ path: '/dashboard', query: { cluster } });
@@ -757,7 +802,7 @@ function handleClusterAction(action: string, cluster: string) {
       editCluster(cluster);
       break;
     case 'deleteCluster':
-      if (confirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
+      if (await showConfirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
         // 通过集群名称找到对应的 ID
         const clusterId = clusterStore.clusters.find((c) => c.name === cluster)?.id;
         if (clusterId) {
@@ -812,7 +857,7 @@ async function refreshConnectionStatus(clusterName: string) {
 }
 
 async function disconnectCluster(clusterName: string) {
-  if (confirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
+  if (await showConfirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
     disconnectingCluster.value = clusterName;
     try {
       await connectionStore.disconnectCluster(clusterName);
@@ -902,7 +947,7 @@ async function refreshClusterTopics(cluster: string) {
   }
 }
 
-function handleTopicAction(action: string, topic: string, cluster: string) {
+async function handleTopicAction(action: string, topic: string, cluster: string) {
 
   switch (action) {
     case 'viewMessages':
@@ -921,8 +966,16 @@ function handleTopicAction(action: string, topic: string, cluster: string) {
       router.push({ path: '/messages', query: { cluster, topic, action: 'send' } });
       break;
     case 'deleteTopic':
-      if (confirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topic))) {
-        // Handle delete
+      // 删除操作由 ModernLayout 统一处理，显示确认对话框并调用 API
+      if (await showConfirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topic))) {
+        try {
+          await apiClient.deleteTopic(cluster, topic);
+          showToast('success', 'Topic deleted successfully');
+          // 通知刷新
+          window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster, topic } }));
+        } catch (e) {
+          showToast('error', `${t.value.toast.operationFailed}: ${(e as { message: string }).message}`);
+        }
       }
       break;
   }
