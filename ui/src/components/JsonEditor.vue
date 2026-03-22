@@ -105,10 +105,15 @@ defineExpose({
 .editor-container {
   position: relative;
   width: 100%;
-  border: 1px solid oklch(var(--bc) / 0.3);
+  border: 1px solid oklch(var(--bc) / 0.5);
   border-radius: 0.5rem;
   overflow: hidden;
   background: transparent;
+}
+
+.editor-container:focus-within {
+  border-color: oklch(var(--bc) / 0.8);
+  box-shadow: 0 0 0 2px oklch(var(--bc) / 0.1);
 }
 
 .highlight-layer,

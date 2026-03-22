@@ -69,7 +69,7 @@
         <input
           v-model="filters.startTime"
           type="text"
-          class="input input-bordered input-sm w-40 font-mono"
+          class="input input-bordered input-sm w-48 font-mono text-xs"
           placeholder="YYYY-MM-DD HH:mm:ss"
           @blur="formatDateTime('startTime')"
         />
@@ -79,7 +79,7 @@
         <input
           v-model="filters.endTime"
           type="text"
-          class="input input-bordered input-sm w-40 font-mono"
+          class="input input-bordered input-sm w-48 font-mono text-xs"
           placeholder="YYYY-MM-DD HH:mm:ss"
           @blur="formatDateTime('endTime')"
         />

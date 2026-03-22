@@ -148,7 +148,8 @@
                     :cluster-id="clusterParam"
                     :topic-name="topic.name"
                     :t="t"
-                    @update="refreshFavorites"
+                    :favorite-cache="favoriteCache"
+                    @change="handleFavoriteChange(clusterParam, topic.name, $event)"
                   />
                   <span class="font-medium text-sm">{{ topic.name }}</span>
                 </div>
@@ -255,7 +256,8 @@
                           :cluster-id="clusterName"
                           :topic-name="topic.name"
                           :t="t"
-                          @update="refreshFavorites"
+                          :favorite-cache="favoriteCache"
+                          @change="handleFavoriteChange(clusterName, topic.name, $event)"
                         />
                         <span class="font-medium text-sm">{{ topic.name }}</span>
                       </div>
@@ -529,6 +531,9 @@ const topicsByCluster = ref<Record<string, TopicItem[]>>({});
 const allTopicsList = ref<TopicItem[]>([]);
 const clusterTopics = ref<TopicItem[]>([]);
 
+// Favorite cache: Set of "clusterId-topicName" keys
+const favoriteCache = ref<Set<string>>(new Set());
+
 const currentCluster = ref<string>('');
 
 // Create Topic Dialog
@@ -779,6 +784,8 @@ async function fetchTopics() {
       }));
       topicsByCluster.value = {};
       allTopicsList.value = [];
+      // Fetch favorites
+      await fetchFavorites();
     } catch (e) {
       console.error('[TopicsView] Error fetching topics:', e);
       error.value = (e as { message: string }).message || 'Failed to load topics';
@@ -805,6 +812,8 @@ async function fetchTopics() {
       }));
       topicsByCluster.value = {};
       clusterTopics.value = [];
+      // Fetch favorites for all selected clusters
+      await fetchFavorites();
     } catch (e) {
       console.error('[TopicsView] Error fetching all topics:', e);
       error.value = (e as { message: string }).message || 'Failed to load topics';
@@ -828,6 +837,8 @@ async function fetchTopics() {
     }));
     topicsByCluster.value[clusterId || ''] = topics;
     updateAllTopicsList();
+    // Fetch favorites
+    await fetchFavorites();
   } catch (e) {
     error.value = (e as { message: string }).message || 'Failed to load topics';
   } finally {
@@ -992,10 +1003,34 @@ async function handleCreateTopic() {
   }
 }
 
-// Placeholder function for refreshing favorites (called when favorites are updated)
-async function refreshFavorites() {
-  // Favorites are refreshed automatically in the FavoriteButton component
-  // This function is called via emit to notify parent if needed
+// Fetch favorites in batch and populate the cache
+async function fetchFavorites() {
+  try {
+    const groups = await apiClient.getFavorites();
+
+    // Always fetch all favorites and cache them
+    const newCache = new Set<string>();
+
+    for (const group of groups) {
+      for (const item of group.items) {
+        newCache.add(`${item.cluster_id}-${item.topic_name}`);
+      }
+    }
+
+    favoriteCache.value = newCache;
+  } catch (e) {
+    console.error('[TopicsView] Error fetching favorites:', e);
+  }
+}
+
+// Handle favorite change event to update cache
+function handleFavoriteChange(clusterId: string, topicName: string, isFavorite: boolean) {
+  const key = `${clusterId}-${topicName}`;
+  if (isFavorite) {
+    favoriteCache.value.add(key);
+  } else {
+    favoriteCache.value.delete(key);
+  }
 }
 
 onMounted(() => {

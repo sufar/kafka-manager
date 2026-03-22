@@ -148,11 +148,13 @@ const props = defineProps<{
   clusterId: string;
   topicName: string;
   t: Record<string, any>;
+  favoriteCache?: Set<string>;
 }>();
 
 // Emits
 const emit = defineEmits<{
   (e: 'update'): void;
+  (e: 'change', isFavorite: boolean): void;
 }>();
 
 // State
@@ -172,6 +174,13 @@ const creatingGroup = ref(false);
 
 // Check if topic is favorite
 async function checkFavorite() {
+  // If favoriteCache is provided, use it instead of making an API call
+  if (props.favoriteCache) {
+    const key = `${props.clusterId}-${props.topicName}`;
+    isFavorite.value = props.favoriteCache.has(key);
+    return;
+  }
+
   try {
     isFavorite.value = await apiClient.checkFavorite(props.clusterId, props.topicName);
   } catch (error) {
@@ -188,6 +197,7 @@ async function toggleFavorite() {
       isFavorite.value = false;
       showSuccess(props.t.favorites?.removed || 'Removed from favorites');
       emit('update');
+      emit('change', false);
     } catch (error: any) {
       showError(error.message || 'Failed to remove from favorites');
     }
@@ -277,6 +287,7 @@ async function confirmAdd() {
     showSuccess(props.t.favorites?.added || 'Added to favorites');
     closeModal();
     emit('update');
+    emit('change', true);
   } catch (error: any) {
     showError(error.message || 'Failed to add to favorites');
   } finally {

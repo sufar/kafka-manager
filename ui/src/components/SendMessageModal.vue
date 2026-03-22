@@ -35,7 +35,7 @@
                   {{ t.messages.partition }}
                 </span>
               </label>
-              <select v-model.number="form.partition" class="select select-bordered select-sm w-full" required :disabled="partitions.length === 0">
+              <select v-model.number="form.partition" class="select select-bordered select-sm w-24" required :disabled="partitions.length === 0">
                 <option v-for="p in partitions" :key="p" :value="p">{{ p }}</option>
               </select>
             </div>
