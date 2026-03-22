@@ -505,7 +505,7 @@ const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
-const { showError, showSuccess } = useToast();
+const { showError, showSuccess, confirm } = useToast();
 
 const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
 
@@ -866,14 +866,15 @@ function selectTopicInTree(clusterName: string, topic: TopicItem) {
 }
 
 async function confirmDelete(clusterId: string, topicName: string) {
-  if (confirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topicName))) {
-    try {
-      await apiClient.deleteTopic(clusterId, topicName);
-      showSuccess('Topic deleted successfully');
-      fetchTopics();
-    } catch (e) {
-      showError((e as { message: string }).message);
-    }
+  const confirmed = await confirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topicName));
+  if (!confirmed) return;
+
+  try {
+    await apiClient.deleteTopic(clusterId, topicName);
+    showSuccess('Topic deleted successfully');
+    fetchTopics();
+  } catch (e) {
+    showError((e as { message: string }).message);
   }
 }
 
