@@ -9,6 +9,8 @@
 
 A powerful Kafka cluster management tool with Web API and cross-platform desktop application. Easily manage multiple Kafka clusters, browse topics, explore messages, and manage favorites.
 
+![Kafka Manager](img/about.png)
+
 ## Quick Start
 
 ### Option 1: Run Web Backend
