@@ -998,4 +998,46 @@ watch(() => route.fullPath, (newPath, oldPath) => {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Manage Groups Modal Styles */
+.modal-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.modal-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+
+.modal-option:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.modal-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.modal-empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
 </style>
