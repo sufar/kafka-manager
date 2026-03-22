@@ -22,6 +22,16 @@ cargo run
 
 The backend server will start on `http://localhost:9732`
 
+Then start the frontend development server:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+The frontend will start on `http://localhost:9733`
+
 ### Option 2: Run Desktop Application
 
 ```bash

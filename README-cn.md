@@ -22,6 +22,16 @@ cargo run
 
 后端服务将启动在 `http://localhost:9732`
 
+然后启动前端开发服务器：
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+前端将启动在 `http://localhost:9733`
+
 ### 方式二：运行桌面应用
 
 ```bash
