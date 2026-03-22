@@ -20,7 +20,7 @@
       @input="onInput(($event.target as HTMLTextAreaElement).value)"
       @scroll="onScroll"
     ></textarea>
-    <!-- Format Button Slot -->
+    <!-- Format Button -->
     <div class="format-button">
       <slot name="format-button"></slot>
     </div>
@@ -101,19 +101,34 @@ defineExpose({
 });
 </script>
 
+<style>
+/* 深色主题 - 使用全局样式 */
+:root[data-theme="dark"] .editor-container,
+:root.dark .editor-container {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  background: rgba(26, 26, 46, 0.8) !important;
+}
+
+:root[data-theme="dark"] .editor-container:focus-within,
+:root.dark .editor-container:focus-within {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+</style>
+
 <style scoped>
 .editor-container {
   position: relative;
   width: 100%;
-  border: 1px solid oklch(var(--bc) / 0.5);
+  border: 1px solid #a5a5b5 !important;
   border-radius: 0.5rem;
   overflow: hidden;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.9) !important;
 }
 
 .editor-container:focus-within {
-  border-color: oklch(var(--bc) / 0.8);
-  box-shadow: 0 0 0 2px oklch(var(--bc) / 0.1);
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
 .highlight-layer,
@@ -127,8 +142,6 @@ defineExpose({
   font-size: 0.875rem;
   line-height: 1.5rem;
   padding: 0.625rem;
-  padding-top: 2rem;
-  padding-right: 2.5rem;
   white-space: pre;
   overflow: auto;
   border: none;
@@ -189,8 +202,8 @@ pre.highlight-layer {
 
 .format-button {
   position: absolute;
-  top: 0.375rem;
-  right: 0.375rem;
+  top: 0.5rem;
+  right: 0.5rem;
   z-index: 10;
   pointer-events: auto;
 }
