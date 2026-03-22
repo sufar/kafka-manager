@@ -11,7 +11,7 @@
             {{ t.topics.title }}
           </h1>
           <p class="text-base-content/60 mt-1 text-sm">
-            <span v-if="clusterParam">{{ t.dashboard.clusters }}: <span class="font-medium">{{ clusterParam }}</span></span>
+            <span v-if="clusterParam">{{ t.clusters.clusters }}: <span class="font-medium">{{ clusterParam }}</span></span>
             <span v-else>{{ t.topics.description }}</span>
           </p>
         </div>
@@ -22,7 +22,7 @@
             :class="viewMode === 'by-cluster' ? 'btn-primary' : 'btn-outline'"
             @click="viewMode = 'by-cluster'"
           >
-            {{ t.dashboard.byCluster }}
+            {{ t.clusters.byCluster }}
           </button>
           <button
             v-if="!clusterParam && selectedClusterIds.length > 0"
@@ -315,7 +315,7 @@
             <thead>
               <tr>
                 <th class="p-2">
-                  <span class="text-sm font-semibold">{{ t.dashboard.clusters }}</span>
+                  <span class="text-sm font-semibold">{{ t.clusters.clusters }}</span>
                 </th>
                 <th class="p-2">
                   <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>

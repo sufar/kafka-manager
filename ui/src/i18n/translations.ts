@@ -2,7 +2,6 @@ export type Language = 'zh' | 'en';
 
 export interface Translation {
   nav: {
-    dashboard: string;
     clusters: string;
     favorites: string;
     topics: string;
@@ -37,23 +36,7 @@ export interface Translation {
     apply: string;
     clear: string;
     cannotBeGreaterThan: string;
-  };
-  dashboard: {
-    title: string;
-    description: string;
-    totalClusters: string;
-    totalTopics: string;
-    totalPartitions: string;
-    healthyClusters: string;
-    unhealthyClusters: string;
-    partitionsPerTopic: string;
-    clusters: string;
-    selectAll: string;
-    deselectAll: string;
-    topics: string;
-    partitions: string;
-    lastChecked: string;
-    byCluster: string;
+    unknown: string;
   };
   clusters: {
     title: string;
@@ -128,6 +111,14 @@ export interface Translation {
     validationBrokersRequired: string;
     validationBrokersInvalid: string;
     newCluster: string;
+    connectionTestSuccess: string;
+    connectionTestFailed: string;
+    clusterStatusRefreshed: string;
+    clusterConnectionIssue: string;
+    reconnectSuccessToast: string;
+    clusterDeletedToast: string;
+    byCluster: string;
+    clusters: string;
   };
   topics: {
     title: string;
@@ -361,7 +352,6 @@ export interface Translation {
 export const translations: Record<Language, Translation> = {
   zh: {
     nav: {
-      dashboard: '仪表盘',
       clusters: '集群',
       favorites: '收藏',
       topics: '主题',
@@ -396,23 +386,7 @@ export const translations: Record<Language, Translation> = {
       apply: '应用',
       clear: '清除',
       cannotBeGreaterThan: '不能大于',
-    },
-    dashboard: {
-      title: '仪表盘',
-      description: 'Kafka 集群概览',
-      totalClusters: '集群总数',
-      totalTopics: '主题总数',
-      totalPartitions: '分区总数',
-      healthyClusters: '健康',
-      unhealthyClusters: '不健康',
-      partitionsPerTopic: '平均每主题分区',
-      clusters: '集群',
-      selectAll: '全选',
-      deselectAll: '取消全选',
-      topics: '主题',
-      partitions: '分区',
-      lastChecked: '最后检查',
-      byCluster: '按集群',
+      unknown: '未知',
     },
     clusters: {
       title: '集群',
@@ -432,8 +406,8 @@ export const translations: Record<Language, Translation> = {
       retry: '重试',
       brokersLabel: 'Brokers',
       timeoutsLabel: '超时设置',
-      confirmDelete: '确定要删除集群',
-      disconnectConfirm: '确定要断开集群连接',
+      confirmDelete: '确定要删除集群 "{name}"',
+      disconnectConfirm: '确定要断开集群 "{name}" 的连接',
       reconnectFailed: '重连失败',
       fetchFailed: '获取失败',
       connectedLabel: '已连接',
@@ -487,6 +461,14 @@ export const translations: Record<Language, Translation> = {
       validationNameInvalid: '集群名称只能包含字母、数字、连字符和下划线',
       validationNameTooLong: '集群名称不能超过 256 个字符',
       validationBrokersInvalid: 'Broker 地址不能包含空格、引号或逗号',
+      connectionTestSuccess: '连接测试成功',
+      connectionTestFailed: '连接测试失败',
+      clusterStatusRefreshed: '集群状态已刷新',
+      clusterConnectionIssue: '集群连接问题',
+      reconnectSuccessToast: '重连成功',
+      clusterDeletedToast: '集群已删除',
+      byCluster: '按集群',
+      clusters: '集群',
     },
     topics: {
       title: '主题',
@@ -718,7 +700,6 @@ export const translations: Record<Language, Translation> = {
   },
   en: {
     nav: {
-      dashboard: 'Dashboard',
       clusters: 'Clusters',
       favorites: 'Favorites',
       topics: 'Topics',
@@ -753,23 +734,7 @@ export const translations: Record<Language, Translation> = {
       apply: 'Apply',
       clear: 'Clear',
       cannotBeGreaterThan: 'cannot be greater than',
-    },
-    dashboard: {
-      title: 'Dashboard',
-      description: 'Overview of your Kafka clusters',
-      totalClusters: 'Total Clusters',
-      totalTopics: 'Total Topics',
-      totalPartitions: 'Total Partitions',
-      healthyClusters: 'healthy',
-      unhealthyClusters: 'unhealthy',
-      partitionsPerTopic: 'partitions/topic avg',
-      clusters: 'Clusters',
-      selectAll: 'Select All',
-      deselectAll: 'Deselect All',
-      topics: 'Topics',
-      partitions: 'Partitions',
-      lastChecked: 'Last checked',
-      byCluster: 'By Cluster',
+      unknown: 'Unknown',
     },
     clusters: {
       title: 'Clusters',
@@ -789,8 +754,8 @@ export const translations: Record<Language, Translation> = {
       retry: 'Retry',
       brokersLabel: 'Brokers',
       timeoutsLabel: 'Timeouts',
-      confirmDelete: 'Are you sure you want to delete cluster',
-      disconnectConfirm: 'Are you sure you want to disconnect cluster',
+      confirmDelete: 'Are you sure you want to delete cluster "{name}"',
+      disconnectConfirm: 'Are you sure you want to disconnect from cluster "{name}"',
       reconnectFailed: 'Reconnect failed',
       fetchFailed: 'Fetch failed',
       connectedLabel: 'Connected',
@@ -844,6 +809,14 @@ export const translations: Record<Language, Translation> = {
       validationNameInvalid: 'Cluster name can only contain letters, numbers, hyphens, and underscores',
       validationNameTooLong: 'Cluster name cannot exceed 256 characters',
       validationBrokersInvalid: 'Broker address cannot contain spaces, quotes, or commas',
+      connectionTestSuccess: 'Connection test successful',
+      connectionTestFailed: 'Connection test failed',
+      clusterStatusRefreshed: 'Cluster status refreshed',
+      clusterConnectionIssue: 'Cluster connection issue',
+      reconnectSuccessToast: 'Reconnected successfully',
+      clusterDeletedToast: 'Cluster deleted',
+      byCluster: 'By Cluster',
+      clusters: 'Clusters',
     },
     topics: {
       title: 'Topics',

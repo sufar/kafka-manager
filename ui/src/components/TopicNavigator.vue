@@ -87,13 +87,14 @@
         :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
         :item-size="28"
         key-field="uid"
-        v-slot="{ item }"
+        v-slot="{ item, index }"
         @scroll="handleScroll"
       >
         <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
-          :class="{ 'bg-primary/10': selectedTopic?.cluster === (item as TopicItem).topic.cluster && selectedTopic?.name === (item as TopicItem).topic.name }"
+          :class="{ 'bg-primary/10': hoveredIndex === index }"
           @click="selectTopic((item as TopicItem).topic)"
+          @mouseenter="hoveredIndex = index"
         >
           <!-- Cluster Health Indicator -->
           <div
@@ -520,6 +521,7 @@ onMounted(() => {
   }
   document.addEventListener('click', handleOutsideClick);
   window.addEventListener('resize', updateMobileState);
+  document.addEventListener('keydown', handleKeydown);
   updateMobileState();
 });
 
@@ -530,6 +532,7 @@ onUnmounted(() => {
   }
   apiClient.cancelRequest();
   document.removeEventListener('click', handleOutsideClick);
+  document.removeEventListener('keydown', handleKeydown);
   window.removeEventListener('resize', updateMobileState);
 });
 
@@ -743,6 +746,68 @@ function getClusterHealth(clusterName: string) {
 // Track pending highlight for after topics load
 const pendingHighlight = ref<{ cluster: string; topic: string } | null>(null);
 
+// Keyboard navigation
+const hoveredIndex = ref<number>(-1);
+
+// Get current visible topics list
+const visibleTopics = computed(() => {
+  return searchQuery.value.trim() ? filteredTopics.value : allTopics.value;
+});
+
+// Navigate to previous topic
+function navigateUp() {
+  if (visibleTopics.value.length === 0) return;
+  if (hoveredIndex.value <= 0) {
+    hoveredIndex.value = visibleTopics.value.length - 1;
+  } else {
+    hoveredIndex.value--;
+  }
+  updateSelectedFromHover();
+}
+
+// Navigate to next topic
+function navigateDown() {
+  if (visibleTopics.value.length === 0) return;
+  if (hoveredIndex.value >= visibleTopics.value.length - 1) {
+    hoveredIndex.value = 0;
+  } else {
+    hoveredIndex.value++;
+  }
+  updateSelectedFromHover();
+}
+
+// Update selected topic based on hover index
+function updateSelectedFromHover() {
+  if (hoveredIndex.value < 0 || hoveredIndex.value >= visibleTopics.value.length) return;
+  const topic = visibleTopics.value[hoveredIndex.value];
+  if (topic) {
+    selectedTopic.value = topic;
+  }
+}
+
+// Handle keyboard events
+function handleKeydown(event: KeyboardEvent) {
+  // Only handle arrow keys when search input is not focused
+  const target = event.target as HTMLElement;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    navigateUp();
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    navigateDown();
+  } else if (event.key === 'Enter' && hoveredIndex.value >= 0) {
+    event.preventDefault();
+    if (hoveredIndex.value < visibleTopics.value.length) {
+      const topic = visibleTopics.value[hoveredIndex.value];
+      if (topic) {
+        selectTopic(topic);
+      }
+    }
+  }
+}
+
 // Load all topics from all clusters or selected clusters
 async function loadAllTopics() {
   if (isUnmounted.value) return;
@@ -778,6 +843,21 @@ async function loadAllTopics() {
 
     if (!isUnmounted.value) {
       allTopics.value = topics;
+
+      // Initialize hovered index to match selected topic or pending highlight
+      if (pendingHighlight.value) {
+        const index = topics.findIndex(
+          t => t.cluster === pendingHighlight.value!.cluster && t.name === pendingHighlight.value!.topic
+        );
+        hoveredIndex.value = index >= 0 ? index : -1;
+      } else if (selectedTopic.value) {
+        const index = topics.findIndex(
+          t => t.cluster === selectedTopic.value!.cluster && t.name === selectedTopic.value!.name
+        );
+        hoveredIndex.value = index >= 0 ? index : -1;
+      } else {
+        hoveredIndex.value = -1;
+      }
 
       // Check if there's a pending highlight after topics load
       if (pendingHighlight.value) {
@@ -887,6 +967,12 @@ async function refreshTopics() {
 
 // Search input handler with debounce
 function onSearchInput() {
+  // Reset hover index when search changes
+  const index = visibleTopics.value.findIndex(
+    t => selectedTopic.value && t.cluster === selectedTopic.value.cluster && t.name === selectedTopic.value.name
+  );
+  hoveredIndex.value = index >= 0 ? index : -1;
+
   if (searchTimer) {
     clearTimeout(searchTimer);
   }
@@ -905,6 +991,11 @@ function clearSearch() {
 // Select topic
 function selectTopic(topic: TopicInfo) {
   selectedTopic.value = topic;
+  // Update hovered index to match selected topic
+  const index = visibleTopics.value.findIndex(
+    t => t.cluster === topic.cluster && t.name === topic.name
+  );
+  hoveredIndex.value = index;
   emit('navigate', {
     path: '/messages',
     query: {

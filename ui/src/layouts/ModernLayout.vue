@@ -691,8 +691,8 @@ function restorePreviousState() {
     if (!saved) return;
 
     const state: LastState = JSON.parse(saved);
-    // 只恢复非默认路径（不是 / 或 /dashboard）
-    if (state.path && state.path !== '/' && state.path !== '/dashboard') {
+    // 只恢复非默认路径（不是 / 或 /clusters）
+    if (state.path && state.path !== '/' && state.path !== '/clusters') {
       router.replace({ path: state.path, query: state.query });
     }
   } catch (e) {
@@ -774,9 +774,6 @@ function handleNavigateFromFavorites(clusterId: string, topicName: string) {
 
 async function handleClusterAction(action: string, cluster: string) {
   switch (action) {
-    case 'viewBrokers':
-      router.push({ path: '/dashboard', query: { cluster } });
-      break;
     case 'viewTopics':
       router.push({ path: '/topics', query: { cluster } });
       break;

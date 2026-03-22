@@ -109,11 +109,8 @@
       <div class="flex items-center gap-4">
         <span v-if="selectedTopic" class="text-base-content/70 flex items-center gap-1">
           {{ t.messages.topicLabel }}:
-          <span class="font-mono font-bold text-primary cursor-help relative inline-flex items-center group">
-            <span class="border-b border-dotted border-base-content/30 group-hover:border-primary group-hover:text-secondary transition-colors">{{ selectedTopic }}</span>
-            <span class="invisible group-hover:visible absolute top-full left-0 mt-1 px-2 py-1 text-xs bg-base-300 border border-base-content/10 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
-              {{ t.messages.cluster }}: {{ clusterName || props.cluster || '-' }}
-            </span>
+          <span class="font-mono font-bold text-primary">
+            {{ selectedTopic }}
           </span>
           <FavoriteButton
             v-if="props.cluster && selectedTopic"
