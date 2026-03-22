@@ -11,7 +11,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, comp
 
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
-    Config, DbPool, KafkaClients, AuthMiddleware, ClusterPools,
+    Config, DbPool, KafkaClients, ClusterPools,
     MetadataCache,
     AppState, create_router,
 };
@@ -194,14 +194,12 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
 
     // 创建其他组件
     let cache = MetadataCache::new();
-    let auth = AuthMiddleware::new(vec![], false);
 
     // 构建应用状态
     let state = AppState {
         db: pool,
         clients,
         config: config.clone(),
-        auth,
         pools: kafka_pools,
         cache,
     };
