@@ -230,6 +230,7 @@ export interface Translation {
     recent1Hour: string;
     recent1Day: string;
     topicLabel: string;
+    cluster: string;
     minutes: string;
     hour: string;
     day: string;
@@ -581,6 +582,7 @@ export const translations: Record<Language, Translation> = {
       recent1Hour: '最近 1 小时',
       recent1Day: '最近 1 天',
       topicLabel: '主题',
+      cluster: '集群',
       minutes: '分',
       hour: '时',
       day: '天',
@@ -930,6 +932,7 @@ export const translations: Record<Language, Translation> = {
       recent1Hour: 'Last 1 hour',
       recent1Day: 'Last 1 day',
       topicLabel: 'Topic',
+      cluster: 'Cluster',
       minutes: 'min',
       hour: 'hr',
       day: 'day',

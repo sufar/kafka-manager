@@ -108,7 +108,7 @@
     <div class="status-bar flex items-center justify-between px-3 py-1 text-xs border-b border-base-300 bg-base-200/50">
       <div class="flex items-center gap-4">
         <span v-if="selectedTopic" class="text-base-content/70 flex items-center gap-1">
-          {{ t.messages.topicLabel }}: <span class="font-mono font-bold text-primary">{{ selectedTopic }}</span>
+          {{ t.messages.topicLabel }}: <span class="font-mono font-bold text-primary cursor-help" :title="`${t.messages.cluster}: ${clusterName || props.cluster || ''}`">{{ selectedTopic }}</span>
           <FavoriteButton
             v-if="props.cluster && selectedTopic"
             :cluster-id="props.cluster"
@@ -326,13 +326,13 @@
             <pre
               v-if="valueViewFormat === 'json'"
               ref="valuePreRef"
-              class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1 json-highlight"
+              class="bg-base-100 p-1.5 rounded text-xs font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1 json-highlight"
               v-html="highlightJson(formatValue(selectedMessage.value, valueViewFormat))"
             ></pre>
             <pre
               v-else
               ref="valuePreRef"
-              class="bg-base-100 p-1.5 rounded text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1"
+              class="bg-base-100 p-1.5 rounded text-xs font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1"
             >{{ formatValue(selectedMessage.value, valueViewFormat) }}</pre>
           </div>
         </div>
@@ -389,7 +389,7 @@ const partitions = ref<number[]>([]);
 const messages = shallowRef<Message[]>([]);
 const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
-const panelHeight = ref(280); // 默认高度增加到 280px
+const panelHeight = ref(380); // 默认高度增加到 380px
 // 虚拟滚动 ref
 const scrollerRef = ref<any>(null);
 const scrollerRefMobile = ref<any>(null);
