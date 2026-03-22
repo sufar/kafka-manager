@@ -127,8 +127,8 @@
     <!-- Status Bar -->
     <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
       <div class="flex items-center justify-between gap-2">
-        <span>{{ allTopics.length }} / {{ total }} topics</span>
-        <div class="flex items-center gap-1">
+        <span class="truncate max-w-[50%]">{{ allTopics.length }} / {{ total }} topics</span>
+        <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Load More Button -->
           <button
             v-if="hasMore && allTopics.length < 10000"
