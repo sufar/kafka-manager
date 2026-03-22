@@ -750,12 +750,42 @@ async function testConnectionConfig() {
 }
 
 async function handleSubmit() {
+  // 验证集群名称
+  const trimmedName = formData.name.trim();
+  if (!trimmedName) {
+    showError(t.value.clusters.validationNameRequired);
+    return;
+  }
+  if (trimmedName.length > 256) {
+    showError(t.value.clusters.validationNameTooLong);
+    return;
+  }
+  // 集群名称只能包含字母、数字、连字符和下划线
+  const clusterNameRegex = /^[a-zA-Z0-9_-]+$/;
+  if (!clusterNameRegex.test(trimmedName)) {
+    showError(t.value.clusters.validationNameInvalid);
+    return;
+  }
+
+  // 验证 Broker 地址
+  const trimmedBrokers = formData.brokers.trim();
+  if (!trimmedBrokers) {
+    showError(t.value.clusters.validationBrokersRequired);
+    return;
+  }
+  // Broker 地址不能包含空格、引号、逗号（逗号用于分隔多个 broker，所以允许）
+  const brokersInvalidRegex = /["'\s]/;
+  if (brokersInvalidRegex.test(trimmedBrokers)) {
+    showError(t.value.clusters.validationBrokersInvalid);
+    return;
+  }
+
   submitting.value = true;
   try {
     if (editingCluster.value) {
       await clusterStore.updateCluster(editingCluster.value.id, {
-        name: formData.name,
-        brokers: formData.brokers,
+        name: trimmedName,
+        brokers: trimmedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
@@ -764,8 +794,8 @@ async function handleSubmit() {
       await clusterStore.fetchClusters();
     } else {
       await clusterStore.createCluster({
-        name: formData.name,
-        brokers: formData.brokers,
+        name: trimmedName,
+        brokers: trimmedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,

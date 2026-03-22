@@ -166,6 +166,7 @@ async fn delete_cluster(
 
     // 异步删除 Kafka 集群中的 topic（不阻塞响应）
     if !topic_names.is_empty() {
+        let db = state.db.clone();
         tokio::spawn(async move {
             use crate::config::KafkaConfig;
             use crate::kafka::KafkaAdmin;
@@ -180,7 +181,7 @@ async fn delete_cluster(
                 Ok(admin) => {
                     tracing::info!("Starting async deletion of {} topics for cluster '{}'", topic_names.len(), cluster_name);
 
-                    // 并发删除所有 topic
+                    // 并发删除所有 topic，收集详细结果
                     let delete_tasks: Vec<_> = topic_names.iter().map(|topic_name| {
                         let admin = admin.clone();
                         let topic_name = topic_name.clone();
@@ -188,19 +189,29 @@ async fn delete_cluster(
                             match admin.delete_topic(&topic_name).await {
                                 Ok(_) => {
                                     tracing::info!("Deleted topic '{}'", topic_name);
-                                    Ok(())
+                                    (topic_name, true, None)
                                 }
                                 Err(e) => {
+                                    let error_msg = e.to_string();
                                     tracing::warn!("Failed to delete topic '{}': {}", topic_name, e);
-                                    Err(e)
+                                    (topic_name, false, Some(error_msg))
                                 }
                             }
                         }
                     }).collect();
 
                     let results = futures::future::join_all(delete_tasks).await;
-                    let success_count = results.iter().filter(|r| r.is_ok()).count();
-                    let failed_count = results.iter().filter(|r| r.is_err()).count();
+                    let success_count = results.iter().filter(|(_, success, _)| *success).count();
+                    let failed_count = results.iter().filter(|(_, success, _)| !*success).count();
+
+                    // 记录失败的 Topic 详情
+                    let failed_topics: Vec<&(String, bool, Option<String>)> = results.iter().filter(|(_, success, _)| !*success).collect();
+                    if !failed_topics.is_empty() {
+                        tracing::warn!("Failed to delete {} topics for cluster '{}':", failed_count, cluster_name);
+                        for (name, _, error) in &failed_topics {
+                            tracing::warn!("  - {}: {}", name, error.as_deref().unwrap_or("Unknown error"));
+                        }
+                    }
 
                     tracing::info!(
                         "Completed topic deletion for cluster '{}': {} succeeded, {} failed",
@@ -208,9 +219,43 @@ async fn delete_cluster(
                         success_count,
                         failed_count
                     );
+
+                    // 记录审计日志
+                    let now = chrono::Utc::now().to_rfc3339();
+                    for (topic_name, success, _error) in &results {
+                        let action = if *success { "topic.deleted" } else { "topic.delete_failed" };
+                        let status = if *success { 200 } else { 500 };
+                        let _ = sqlx::query(
+                            "INSERT INTO audit_logs (timestamp, method, path, cluster_id, resource, action, status, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                        )
+                        .bind(&now)
+                        .bind("DELETE")
+                        .bind("/api/cluster")
+                        .bind(&cluster_name)
+                        .bind(topic_name)
+                        .bind(action)
+                        .bind(status)
+                        .bind(0)
+                        .execute(db.inner())
+                        .await;
+                    }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to create Kafka admin client for cluster '{}': {}", cluster_name, e);
+                    tracing::error!("Failed to create Kafka admin client for cluster '{}': {}", cluster_name, e);
+                    // 记录审计日志
+                    let _ = sqlx::query(
+                        "INSERT INTO audit_logs (timestamp, method, path, cluster_id, resource, action, status, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    )
+                    .bind(&chrono::Utc::now().to_rfc3339())
+                    .bind("DELETE")
+                    .bind("/api/cluster")
+                    .bind(&cluster_name)
+                    .bind("*")
+                    .bind("topic.delete_failed")
+                    .bind(500)
+                    .bind(0)
+                    .execute(db.inner())
+                    .await;
                 }
             }
         });

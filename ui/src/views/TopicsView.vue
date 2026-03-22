@@ -937,6 +937,15 @@ async function handleCreateTopic() {
     showError('Topic name is required');
     return;
   }
+  if (trimmedName.length > 256) {
+    showError('Topic name cannot exceed 256 characters');
+    return;
+  }
+  // Topic 名称不能包含空格、引号、逗号
+  if (trimmedName.includes(' ') || trimmedName.includes('"') || trimmedName.includes("'") || trimmedName.includes(',')) {
+    showError('Topic name cannot contain spaces, quotes, or commas');
+    return;
+  }
 
   // Kafka topic naming rules: only letters, numbers, dots, underscores, and hyphens
   const topicNameRegex = /^[a-zA-Z0-9._-]+$/;

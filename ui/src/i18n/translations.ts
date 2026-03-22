@@ -121,6 +121,11 @@ export interface Translation {
     unknown: string;
     refreshTopics: string;
     refreshFailed: string;
+    validationNameRequired: string;
+    validationNameTooLong: string;
+    validationNameInvalid: string;
+    validationBrokersRequired: string;
+    validationBrokersInvalid: string;
   };
   topics: {
     title: string;
@@ -473,6 +478,11 @@ export const translations: Record<Language, Translation> = {
       unknown: '未知',
       refreshTopics: '刷新 Topic',
       refreshFailed: '刷新失败',
+      validationNameRequired: '集群名称不能为空',
+      validationBrokersRequired: 'Broker 地址不能为空',
+      validationNameInvalid: '集群名称只能包含字母、数字、连字符和下划线',
+      validationNameTooLong: '集群名称不能超过 256 个字符',
+      validationBrokersInvalid: 'Broker 地址不能包含空格、引号或逗号',
     },
     topics: {
       title: '主题',
@@ -823,6 +833,11 @@ export const translations: Record<Language, Translation> = {
       unknown: 'unknown',
       refreshTopics: 'Refresh Topics',
       refreshFailed: 'Refresh failed',
+      validationNameRequired: 'Cluster name is required',
+      validationBrokersRequired: 'Broker address is required',
+      validationNameInvalid: 'Cluster name can only contain letters, numbers, hyphens, and underscores',
+      validationNameTooLong: 'Cluster name cannot exceed 256 characters',
+      validationBrokersInvalid: 'Broker address cannot contain spaces, quotes, or commas',
     },
     topics: {
       title: 'Topics',

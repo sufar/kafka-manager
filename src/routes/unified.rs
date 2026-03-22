@@ -49,6 +49,36 @@ fn get_string_param(body: &Value, key: &str) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+        .and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                Err(AppError::BadRequest(format!("Parameter '{}' cannot be empty", key)))
+            } else if trimmed.len() > 256 {
+                Err(AppError::BadRequest(format!("Parameter '{}' exceeds maximum length of 256 characters", key)))
+            } else {
+                Ok(trimmed.to_string())
+            }
+        })
+}
+
+/// 获取集群 ID 参数，带格式验证
+fn get_cluster_id_param(body: &Value) -> Result<String> {
+    let cluster_id = get_string_param(body, "cluster_id")?;
+    // 集群 ID 只能包含字母、数字、连字符和下划线
+    if !cluster_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::BadRequest("Cluster ID can only contain letters, numbers, hyphens, and underscores".to_string()));
+    }
+    Ok(cluster_id)
+}
+
+/// 获取 Topic 名称参数，带格式验证
+fn get_topic_name_param(body: &Value) -> Result<String> {
+    let topic_name = get_string_param(body, "topic_name")?;
+    // Topic 名称验证：不能包含某些特殊字符
+    if topic_name.contains(' ') || topic_name.contains('"') || topic_name.contains(',') {
+        return Err(AppError::BadRequest("Topic name cannot contain spaces, quotes, or commas".to_string()));
+    }
+    Ok(topic_name)
 }
 
 /// 确保集群客户端已创建（如果未创建则自动创建）
@@ -2337,10 +2367,11 @@ fn fetch_partition_messages_unified(
 
                     // 搜索过滤
                     if need_search {
-                        let term = search_lower.as_ref().unwrap();
-                        if !message_matches_search(&key_bytes, &value_bytes, term) {
-                            // 不匹配，直接退出（已经到末尾了）
-                            break;
+                        if let Some(term) = search_lower.as_ref() {
+                            if !message_matches_search(&key_bytes, &value_bytes, term) {
+                                // 不匹配，直接退出（已经到末尾了）
+                                break;
+                            }
                         }
                     }
 
@@ -2370,9 +2401,10 @@ fn fetch_partition_messages_unified(
 
                 // 如果需要搜索，立即进行过滤（避免保存不需要的消息）
                 if need_search {
-                    let term = search_lower.as_ref().unwrap();
-                    if !message_matches_search(&key_bytes, &value_bytes, term) {
-                        continue; // 不匹配搜索条件，跳过
+                    if let Some(term) = search_lower.as_ref() {
+                        if !message_matches_search(&key_bytes, &value_bytes, term) {
+                            continue; // 不匹配搜索条件，跳过
+                        }
                     }
                 }
 
@@ -2629,9 +2661,10 @@ async fn fetch_partition_messages_streaming(
 
                     // 搜索过滤
                     if need_search {
-                        let term = search_lower.as_ref().unwrap();
-                        if !message_matches_search(&key_bytes, &value_bytes, term) {
-                            break;
+                        if let Some(term) = search_lower.as_ref() {
+                            if !message_matches_search(&key_bytes, &value_bytes, term) {
+                                break;
+                            }
                         }
                     }
 
@@ -2677,9 +2710,10 @@ async fn fetch_partition_messages_streaming(
 
                 // 搜索过滤
                 if need_search {
-                    let term = search_lower.as_ref().unwrap();
-                    if !message_matches_search(&key_bytes, &value_bytes, term) {
-                        continue;
+                    if let Some(term) = search_lower.as_ref() {
+                        if !message_matches_search(&key_bytes, &value_bytes, term) {
+                            continue;
+                        }
                     }
                 }
 

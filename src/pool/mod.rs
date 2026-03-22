@@ -131,7 +131,8 @@ impl ClusterPools {
                         }
                     }
                 }
-                unreachable!()
+                // 所有重试都失败，返回错误状态
+                Some(ConnectionStatus::Error("Health check failed after all retries".into()))
             }
             Err(e) => Some(ConnectionStatus::Error(format!("Pool error: {}", e))),
         }

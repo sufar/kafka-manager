@@ -582,13 +582,11 @@ impl KafkaConsumer {
 
         let mut client_config = ClientConfig::new();
         client_config.set("bootstrap.servers", &kafka_config.brokers);
-        client_config.set("group.id", "kafka-manager-simple-fetcher");
-        client_config.set("enable.auto.commit", "false");
-        // 强制使用 IPv4，避免 IPv6 连接问题
-        client_config.set("broker.address.family", "v4");
         client_config.set("group.id", "kafka-manager-fetcher");
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
+        // 强制使用 IPv4，避免 IPv6 连接问题
+        client_config.set("broker.address.family", "v4");
         // 降低 fetch 等待时间，加快空主题响应
         client_config.set("fetch.wait.max.ms", "50");
         client_config.set("fetch.min.bytes", "1");
