@@ -42,17 +42,11 @@ function getBaseURL(): string {
 
 class ApiClient {
   private baseURL: string;
-  private apiKey: string | null;
   private currentAbortController: AbortController | null = null;
   private backendReady: boolean | null = null;
 
-  constructor(baseURL: string = getBaseURL(), apiKey: string | null = null) {
+  constructor(baseURL: string = getBaseURL()) {
     this.baseURL = baseURL;
-    this.apiKey = apiKey;
-  }
-
-  setApiKey(apiKey: string) {
-    this.apiKey = apiKey;
   }
 
   // 检查后端是否就绪
@@ -115,10 +109,6 @@ class ApiClient {
       'Content-Type': 'application/json',
       'X-API-Method': method,
     };
-
-    if (this.apiKey) {
-      headers['X-API-Key'] = this.apiKey;
-    }
 
     // 在 Tauri 环境下，添加更多重试
     const maxRetries = isTauri() ? 3 : 1; // Tauri 下最多重试 3 次（原来是 10 次）
@@ -487,8 +477,7 @@ class ApiClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Method': 'message.list',
-        ...(this.apiKey ? { 'X-API-Key': this.apiKey } : {})
+        'X-API-Method': 'message.list'
       },
       body: JSON.stringify(body),
       signal
@@ -726,7 +715,7 @@ class ApiClient {
 // 导出单例
 export const apiClient = new ApiClient();
 
-// 用于测试环境设置 API Key
-export function setupApiClient(baseURL?: string, apiKey?: string) {
-  return new ApiClient(baseURL, apiKey);
+// 用于测试环境设置 baseURL
+export function setupApiClient(baseURL?: string) {
+  return new ApiClient(baseURL);
 }

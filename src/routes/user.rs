@@ -121,7 +121,7 @@ async fn update_password(
         .map_err(|e| AppError::Internal(format!("Failed to verify password: {}", e)))?;
 
     if !valid {
-        return Err(AppError::Unauthorized("Invalid old password".to_string()));
+        return Err(AppError::BadRequest("Invalid old password".to_string()));
     }
 
     // 更新密码

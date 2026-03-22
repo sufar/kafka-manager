@@ -53,7 +53,6 @@ fn into_response(result: Result<Value>) -> impl IntoResponse {
             let (status, message) = match &e {
                 AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
                 AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-                AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             };
             (status, Json(ApiResponse::error(message)))

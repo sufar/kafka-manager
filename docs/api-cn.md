@@ -356,8 +356,6 @@ export AUTH_ENABLED=true
 |--------|------|
 | 200 OK | 请求成功 |
 | 400 Bad Request | 无效的请求参数 |
-| 401 Unauthorized | 认证失败 |
-| 403 Forbidden | 权限不足 |
 | 404 Not Found | 资源不存在 |
 | 500 Internal Server Error | 服务器错误 |
 

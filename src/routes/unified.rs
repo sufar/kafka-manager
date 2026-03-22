@@ -384,7 +384,6 @@ async fn handle_unified_request(
             let (status, error_msg) = match &e {
                 AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
                 AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-                AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
                 AppError::Kafka(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Kafka error: {}", err)),
                 AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),

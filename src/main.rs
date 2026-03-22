@@ -15,18 +15,15 @@ mod tests;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use axum::Extension;
-use std::time::Duration;
 
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::kafka::KafkaClients;
 use crate::middleware::audit::audit_middleware;
-use crate::middleware::auth::{auth_middleware, AuthMiddleware};
-use crate::middleware::performance::performance_tracker;
 use crate::pool::ClusterPools;
 use crate::cache::MetadataCache;
 
@@ -36,7 +33,6 @@ pub struct AppState {
     pub db: DbPool,
     pub clients: Arc<ArcSwap<KafkaClients>>,
     pub config: Config,
-    pub auth: AuthMiddleware,
     /// Kafka 连接池
     pub pools: ClusterPools,
     /// 元数据缓存
@@ -101,23 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = MetadataCache::new();
     tracing::info!("Metadata cache initialized");
 
-    // 从数据库加载 API Keys 并初始化认证中间件
-    let api_keys = load_api_keys_from_db(db.inner()).await?;
-    let auth_enabled = std::env::var("AUTH_ENABLED")
-        .map(|v| v.to_lowercase() == "true")
-        .unwrap_or(false);
-
-    let auth = AuthMiddleware::new(api_keys, auth_enabled);
-    if auth_enabled {
-        tracing::info!("API authentication enabled");
-    }
-
     // 应用状态
     let state = AppState {
         db: db.clone(),
         clients,
         config: config.clone(),
-        auth: auth.clone(),
         pools: pools.clone(),
         cache: cache.clone(),
     };
@@ -125,9 +109,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 构建路由
     let app = routes::create_router(state.clone())
         .layer(axum::middleware::from_fn(audit_middleware))
-        .layer(axum::middleware::from_fn(auth_middleware))
-        .layer(Extension(state.auth.clone()))
-        .layer(axum::middleware::from_fn(performance_tracker))
         .layer(TimeoutLayer::new(Duration::from_secs(300)))
         .layer(CompressionLayer::new()
             .gzip(true)
@@ -170,21 +151,4 @@ async fn load_clusters_from_db(
     }
 
     Ok(clusters)
-}
-
-/// 从数据库加载 API Keys
-async fn load_api_keys_from_db(
-    _pool: &sqlx::SqlitePool,
-) -> Result<Vec<String>, crate::error::AppError> {
-    // 从环境变量加载 API Keys
-    // 注意：数据库中的 API Keys 用于管理（添加/删除），但验证时仍使用环境变量
-    // 如果需要完全基于数据库的认证，可以修改 validate_key 函数查询数据库
-    let api_keys = std::env::var("API_KEYS")
-        .unwrap_or_default()
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-        .collect();
-
-    Ok(api_keys)
 }

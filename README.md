@@ -102,8 +102,6 @@ connection_timeout_sec = 30
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_KEYS` | Comma-separated API Keys | - |
-| `AUTH_ENABLED` | Enable authentication | `false` |
 | `HEALTH_CHECK_INTERVAL_SECS` | Health check interval | `30` |
 
 ## Database

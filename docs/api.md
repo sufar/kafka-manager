@@ -351,31 +351,12 @@ curl -X POST http://localhost:9732/api \
 
 ---
 
-## Authentication
-
-If authentication is enabled, include the API Key in the request header:
-
-```http
-X-API-Key: your-api-key
-```
-
-Or configure via environment variables:
-
-```bash
-export API_KEYS="key1,key2,key3"
-export AUTH_ENABLED=true
-```
-
----
-
 ## HTTP Status Codes
 
 | Status Code | Description |
 |-------------|-------------|
 | 200 OK | Request successful |
 | 400 Bad Request | Invalid request parameters |
-| 401 Unauthorized | Authentication failed |
-| 403 Forbidden | Insufficient permissions |
 | 404 Not Found | Resource not found |
 | 500 Internal Server Error | Server error |
 

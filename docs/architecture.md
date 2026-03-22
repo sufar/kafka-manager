@@ -25,9 +25,9 @@ Kafka Manager is a full-stack Kafka cluster management application with a Rust b
 │                      Rust Backend (Axum)                        │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
 │  │ Middleware  │  │   Routes    │  │   Service Layer         │ │
-│  │  - Auth     │  │  - Cluster  │  │  - Kafka Admin          │ │
-│  │  - Audit    │  │  - Topic    │  │  - Consumer/Producer    │ │
-│  │  - Perf     │  │  - Message  │  │  - Throughput Stats     │ │
+│  │  - Audit    │  │  - Cluster  │  │  - Kafka Admin          │ │
+│  │             │  │  - Topic    │  │  - Consumer/Producer    │ │
+│  │             │  │  - Message  │  │  - Throughput Stats     │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
 │           │              │                    │                 │
 │           ▼              ▼                    ▼                 │
@@ -78,9 +78,7 @@ src/
 │   └── kafka_producer.rs   # Producer connection pool
 ├── middleware/             # HTTP middleware
 │   ├── mod.rs              # Middleware registration
-│   ├── auth.rs             # API Key authentication
-│   ├── audit.rs            # Audit log recording
-│   └── performance.rs      # Request timing and metrics
+│   └── audit.rs            # Audit log recording
 ├── routes/                 # API route handlers
 │   ├── mod.rs              # Route registration
 │   ├── unified.rs          # Unified API handler (all API requests)
@@ -165,9 +163,7 @@ Axum middleware stack handles cross-cutting concerns:
 ```rust
 let app = Router::new()
     .merge(routes)
-    .layer(middleware::from_fn(auth_middleware))      // API Key authentication
     .layer(middleware::from_fn(audit_middleware))      // Audit log recording
-    .layer(middleware::from_fn(performance_middleware)) // Request timing and metrics
     .layer(TimeoutLayer::new(Duration::from_secs(300))) // 5 minute timeout
     .layer(CompressionLayer::new()                     // Gzip/Brotli compression
         .gzip(true)
@@ -177,9 +173,7 @@ let app = Router::new()
 ```
 
 **Middleware Description:**
-- `auth_middleware`: API Key authentication from `X-API-Key` header or query params
 - `audit_middleware`: Records all API requests to audit log
-- `performance_middleware`: Tracks request processing time, logs slow queries
 
 ### Database Schema
 
@@ -530,13 +524,6 @@ max_connections = 10
 - Connection pool metrics via `connection.metrics` API
 
 ## Security
-
-### Authentication
-
-- API Key validation via `X-API-Key` header
-- Whitelist paths skip authentication (`/api/health`)
-- API Keys configured via `API_KEYS` environment variable
-- Dynamic API Key management from database supported
 
 ### Audit
 

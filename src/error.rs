@@ -26,9 +26,6 @@ pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
 
-    #[error("Unauthorized: {0}")]
-    Unauthorized(String),
-
     #[error("Not connected: {0}")]
     NotConnected(String),
 
@@ -84,7 +81,6 @@ impl axum::response::IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             AppError::NotConnected(msg) => (StatusCode::PRECONDITION_FAILED, msg),
-            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, msg)

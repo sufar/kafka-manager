@@ -25,9 +25,9 @@ Kafka Manager 是一个全栈 Kafka 集群管理应用，采用 Rust 后端和 V
 │                      Rust 后端 (Axum)                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
 │  │  中间件层    │  │  路由层      │  │   服务层               │ │
-│  │  - 认证      │  │  - 集群      │  │  - Kafka Admin         │ │
-│  │  - 审计      │  │  - Topic    │  │  - Consumer/Producer   │ │
-│  │  - 限流      │  │  - 消息      │  │  - 吞吐量统计          │ │
+│  │  - 审计      │  │  - 集群      │  │  - Kafka Admin         │ │
+│  │             │  │  - Topic    │  │  - Consumer/Producer   │ │
+│  │             │  │  - 消息      │  │  - 吞吐量统计          │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
 │           │              │                    │                 │
 │           ▼              ▼                    ▼                 │
@@ -78,9 +78,7 @@ src/
 │   └── kafka_producer.rs   # Producer 连接池
 ├── middleware/             # HTTP 中间件
 │   ├── mod.rs              # 中间件注册
-│   ├── auth.rs             # API Key 认证
-│   ├── audit.rs            # 审计日志记录
-│   └── performance.rs      # 请求计时和指标
+│   └── audit.rs            # 审计日志记录
 ├── routes/                 # API 路由处理器
 │   ├── mod.rs              # 路由注册
 │   ├── unified.rs          # 统一 API 处理器（所有 API 请求）
@@ -165,9 +163,7 @@ Axum 中间件栈处理横切关注点：
 ```rust
 let app = Router::new()
     .merge(routes)
-    .layer(middleware::from_fn(auth_middleware))      // API Key 认证
     .layer(middleware::from_fn(audit_middleware))      // 审计日志记录
-    .layer(middleware::from_fn(performance_middleware)) // 请求计时和指标
     .layer(TimeoutLayer::new(Duration::from_secs(300))) // 5 分钟超时
     .layer(CompressionLayer::new()                     // Gzip/Brotli 压缩
         .gzip(true)
@@ -177,9 +173,7 @@ let app = Router::new()
 ```
 
 **中间件说明：**
-- `auth_middleware`: API Key 认证，从 `X-API-Key` 头或查询参数中验证
 - `audit_middleware`: 记录所有 API 请求到审计日志
-- `performance_middleware`: 追踪请求处理时间，记录慢查询
 
 ### 数据库表结构
 
@@ -530,13 +524,6 @@ max_connections = 10
 - 通过 `connection.metrics` API 获取连接池指标
 
 ## 安全
-
-### 认证
-
-- 通过 `X-API-Key` 头进行 API Key 验证
-- 白名单路径跳过认证（`/api/health`）
-- 通过 `API_KEYS` 环境变量配置 API Keys
-- 支持从数据库动态管理 API Keys
 
 ### 审计
 

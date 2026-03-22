@@ -21,7 +21,6 @@ pub use db::DbPool;
 pub use kafka::KafkaClients;
 pub use pool::ClusterPools;
 pub use cache::MetadataCache;
-pub use middleware::auth::{auth_middleware, AuthMiddleware};
 
 /// 应用状态
 #[derive(Clone)]
@@ -29,7 +28,6 @@ pub struct AppState {
     pub db: DbPool,
     pub clients: Arc<ArcSwap<KafkaClients>>,
     pub config: Config,
-    pub auth: AuthMiddleware,
     pub pools: ClusterPools,
     pub cache: MetadataCache,
 }
