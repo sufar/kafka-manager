@@ -10,7 +10,7 @@ pre span.text-secondary,
 }
 pre span.text-accent,
 .json-highlight span.text-accent {
-  color: #1f2937 !important;
+  color: #0a0a0a !important;
 }
 pre span.text-base-content,
 .json-highlight span.text-base-content {
