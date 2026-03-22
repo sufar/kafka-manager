@@ -79,7 +79,7 @@
           class="relative"
         >
           <div
-            class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 backdrop-blur-sm group overflow-visible"
+            class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 group overflow-visible"
             :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
             @contextmenu.prevent="showClusterMenu($event, cluster.name)"
             @dblclick="toggleCluster(cluster.name)"
@@ -129,7 +129,7 @@
         <!-- Cluster Children -->
         <div v-show="expandedClusters.has(cluster.name)" class="flex flex-col">
           <!-- Topics Folder -->
-          <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 backdrop-blur-sm flex-shrink-0">
+          <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 flex-shrink-0">
             <div
               class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
               :class="{ 'bg-secondary/10': expandedTopicsFolders.has(cluster.name) }"

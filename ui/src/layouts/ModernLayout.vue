@@ -1,7 +1,7 @@
 <template>
   <div class="h-[100dvh] bg-base-100 overflow-hidden">
     <!-- Top Navigation Bar -->
-    <header class="fixed top-0 left-0 right-0 h-10 bg-base-100/80 backdrop-blur border-b border-base-200 z-50 px-2 flex items-center justify-between">
+    <header class="fixed top-0 left-0 right-0 h-10 bg-base-100/80 border-b border-base-200 z-50 px-2 flex items-center justify-between">
       <div class="flex items-center gap-2">
         <!-- Mobile Menu Button -->
         <button

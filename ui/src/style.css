@@ -520,8 +520,6 @@ aside .hover\:bg-base-200:hover {
    ============================================ */
 
 .dialog, .modal {
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
   border: 1px solid var(--glass-border);
   box-shadow:
     0 25px 50px rgba(0, 0, 0, 0.3),
@@ -666,8 +664,6 @@ aside .hover\:bg-base-200:hover {
    ============================================ */
 
 .context-menu {
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
   border: 1px solid var(--glass-border);
   box-shadow:
     0 10px 40px rgba(0, 0, 0, 0.3),
