@@ -475,13 +475,14 @@ impl KafkaAdmin {
         temp_consumer.assign(&tpl).ok()?;
 
         match temp_consumer.poll(std::time::Duration::from_millis(100)) {
-            Some(Ok(msg)) => Some(crate::kafka::consumer::KafkaMessage {
-                partition: msg.partition(),
-                offset: msg.offset(),
-                key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                timestamp: msg.timestamp().to_millis(),
-            }),
+            Some(Ok(msg)) => Some(crate::kafka::consumer::KafkaMessage::from_bytes(
+                msg.partition(),
+                msg.offset(),
+                msg.timestamp().to_millis(),
+                msg.key(),
+                msg.payload(),
+                None,
+            )),
             _ => None,
         }
     }

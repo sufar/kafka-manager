@@ -92,8 +92,8 @@ pub async fn export_messages_to_file(
         let record = MessageRecord {
             partition: msg.partition,
             offset: msg.offset,
-            key: msg.key,
-            value: msg.value.unwrap_or_default(),
+            key: msg.key.map(|k| k.formatted),
+            value: msg.value.map(|v| v.formatted).unwrap_or_default(),
             timestamp: msg.timestamp,
         };
 

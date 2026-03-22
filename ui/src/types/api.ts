@@ -138,11 +138,32 @@ export interface ApiError {
 
 // ==================== 消息管理 ====================
 
+// 消息格式类型
+export type MessageFormatType = 'json' | 'text' | 'binary_hex' | 'binary_base64' | 'avro' | 'protobuf' | 'unknown';
+
+// 格式化后的消息内容
+export interface FormattedMessage {
+  raw: string;
+  formatted: string;
+  format: MessageFormatType;
+  parsed?: any;
+  metadata: MessageMetadata;
+}
+
+// 消息元数据
+export interface MessageMetadata {
+  size_bytes: number;
+  is_empty: boolean;
+  field_count?: number;
+  nesting_depth?: number;
+  is_binary: boolean;
+}
+
 export interface MessageRecord {
   partition: number;
   offset: number;
-  key?: string;
-  value?: string;
+  key?: FormattedMessage;
+  value?: FormattedMessage;
   timestamp?: number;
 }
 

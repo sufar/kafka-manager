@@ -2431,13 +2431,14 @@ fn fetch_partition_messages_unified(
     // 转换为最终消息格式
     let messages: Vec<crate::kafka::consumer::KafkaMessage> = raw_messages
         .into_iter()
-        .map(|raw| crate::kafka::consumer::KafkaMessage {
-            partition: raw.partition,
-            offset: raw.offset,
-            key: raw.key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
-            value: raw.value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
-            timestamp: raw.timestamp,
-        })
+        .map(|raw| crate::kafka::consumer::KafkaMessage::from_bytes(
+            raw.partition,
+            raw.offset,
+            raw.timestamp,
+            raw.key_bytes.as_deref(),
+            raw.value_bytes.as_deref(),
+            None,
+        ))
         .collect();
 
     tracing::info!("[Unified Partition] Fetched {} messages from partition {}", messages.len(), partition);
@@ -2667,13 +2668,14 @@ async fn fetch_partition_messages_streaming(
                         }
                     }
 
-                    let kafka_msg = crate::kafka::consumer::KafkaMessage {
+                    let kafka_msg = crate::kafka::consumer::KafkaMessage::from_bytes(
                         partition,
-                        offset: msg_offset,
-                        key: key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
-                        value: value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
-                        timestamp: ts,
-                    };
+                        msg_offset,
+                        ts,
+                        key_bytes.as_deref(),
+                        value_bytes.as_deref(),
+                        None,
+                    );
 
                     if tx.send(kafka_msg).await.is_err() {
                         tracing::warn!("[Streaming] Channel closed for partition {}", partition);
@@ -2716,13 +2718,14 @@ async fn fetch_partition_messages_streaming(
                     }
                 }
 
-                let kafka_msg = crate::kafka::consumer::KafkaMessage {
+                let kafka_msg = crate::kafka::consumer::KafkaMessage::from_bytes(
                     partition,
-                    offset: msg_offset,
-                    key: key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
-                    value: value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
-                    timestamp: ts,
-                };
+                    msg_offset,
+                    ts,
+                    key_bytes.as_deref(),
+                    value_bytes.as_deref(),
+                    None,
+                );
 
                 if tx.try_send(kafka_msg).is_err() {
                     tracing::warn!("[Streaming] Channel closed for partition {}", partition);

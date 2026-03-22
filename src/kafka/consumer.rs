@@ -8,6 +8,8 @@ use futures::stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use serde::{Serialize, Deserialize};
 
+pub use crate::kafka::message_format::{FormattedMessage, FormatConfig};
+
 pub struct KafkaConsumer {
     timeout: Duration,
 }
@@ -98,13 +100,14 @@ impl KafkaConsumer {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
-                    let kafka_msg = KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    };
+                    let kafka_msg = KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    );
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
                     }
@@ -197,13 +200,14 @@ impl KafkaConsumer {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
                     total_received += 1;
-                    let kafka_msg = KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    };
+                    let kafka_msg = KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    );
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
                     }
@@ -377,13 +381,14 @@ impl KafkaConsumer {
                         }
                     }
 
-                    messages.push(KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    });
+                    messages.push(KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    ));
 
                     if messages.len() >= max_messages {
                         break;
@@ -497,13 +502,14 @@ impl KafkaConsumer {
                                     }
                                 }
 
-                                let kafka_msg = KafkaMessage {
-                                    partition: msg.partition(),
-                                    offset: msg.offset(),
-                                    key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                                    value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                                    timestamp: msg.timestamp().to_millis(),
-                                };
+                                let kafka_msg = KafkaMessage::from_bytes(
+                                    msg.partition(),
+                                    msg.offset(),
+                                    msg.timestamp().to_millis(),
+                                    msg.key(),
+                                    msg.payload(),
+                                    None,
+                                );
 
                                 if tx.send(Ok(kafka_msg)).is_err() {
                                     break;
@@ -547,13 +553,14 @@ impl KafkaConsumer {
         for _ in 0..max_messages {
             match tokio::time::timeout(self.timeout, consumer.recv()).await {
                 Ok(Ok(msg)) => {
-                    messages.push(KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    });
+                    messages.push(KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    ));
                 }
                 Ok(Err(e)) => {
                     if messages.is_empty() {
@@ -617,13 +624,14 @@ impl KafkaConsumer {
                         }
                     }
 
-                    messages.push(KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    });
+                    messages.push(KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    ));
                 }
                 Ok(Err(_)) | Err(_) => {
                     consecutive_timeouts += 1;
@@ -718,13 +726,14 @@ impl KafkaConsumer {
                         }
                     }
 
-                    let kafka_msg = KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    };
+                    let kafka_msg = KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    );
 
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
@@ -818,13 +827,14 @@ impl KafkaConsumer {
                         }
                     }
 
-                    let kafka_msg = KafkaMessage {
-                        partition: msg.partition(),
-                        offset: msg.offset(),
-                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                        timestamp: msg.timestamp().to_millis(),
-                    };
+                    let kafka_msg = KafkaMessage::from_bytes(
+                        msg.partition(),
+                        msg.offset(),
+                        msg.timestamp().to_millis(),
+                        msg.key(),
+                        msg.payload(),
+                        None,
+                    );
 
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
@@ -852,7 +862,48 @@ impl KafkaConsumer {
 pub struct KafkaMessage {
     pub partition: i32,
     pub offset: i64,
-    pub key: Option<String>,
-    pub value: Option<String>,
+    pub key: Option<FormattedMessage>,
+    pub value: Option<FormattedMessage>,
     pub timestamp: Option<i64>,
+}
+
+impl KafkaMessage {
+    /// 从原始字节创建 KafkaMessage，自动检测和格式化消息内容
+    pub fn from_bytes(
+        partition: i32,
+        offset: i64,
+        timestamp: Option<i64>,
+        key_bytes: Option<&[u8]>,
+        value_bytes: Option<&[u8]>,
+        config: Option<&FormatConfig>,
+    ) -> Self {
+        use crate::kafka::message_format;
+        Self {
+            partition,
+            offset,
+            timestamp,
+            key: key_bytes.map(|b| message_format::detect_and_format(b, config)),
+            value: value_bytes.map(|b| message_format::detect_and_format(b, config)),
+        }
+    }
+
+    /// 从原始字符串创建 KafkaMessage（向后兼容）
+    pub fn from_raw_strings(
+        partition: i32,
+        offset: i64,
+        timestamp: Option<i64>,
+        key: Option<String>,
+        value: Option<String>,
+    ) -> Self {
+        use crate::kafka::message_format;
+        let key_formatted = key.as_ref().map(|s| message_format::detect_and_format(s.as_bytes(), None));
+        let value_formatted = value.as_ref().map(|s| message_format::detect_and_format(s.as_bytes(), None));
+        Self {
+            partition,
+            offset,
+            timestamp,
+            key: key_formatted,
+            value: value_formatted,
+        }
+    }
 }

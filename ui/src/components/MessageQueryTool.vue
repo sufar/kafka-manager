@@ -208,8 +208,14 @@
             </div>
             <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
             <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
-            <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
-            <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;">{{ getMsgValue(item) }}</div>
+            <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">
+              <span>{{ getMsgKey(item as any) || '-' }}</span>
+              <span v-if="(item as any)._format?.key && (item as any)._format?.key !== 'unknown' && (item as any)._format?.key !== 'text'" class="badge badge-xs ml-1 scale-75" :class="getFormatBadgeClass((item as any)._format?.key || 'unknown')">{{ getFormatLabel((item as any)._format?.key || 'unknown') }}</span>
+            </div>
+            <div class="flex-1 text-[10px] font-mono truncate pr-2 flex items-center gap-1" style="min-width: 0;">
+              <span class="truncate">{{ getMsgValue(item as any) }}</span>
+              <span v-if="(item as any)._format?.value && (item as any)._format?.value !== 'unknown' && (item as any)._format?.value !== 'text'" class="badge badge-xs scale-75 flex-shrink-0" :class="getFormatBadgeClass((item as any)._format?.value || 'unknown')">{{ getFormatLabel((item as any)._format?.value || 'unknown') }}</span>
+            </div>
             <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
@@ -298,7 +304,10 @@
         <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
           <div v-if="selectedMessage.key" class="mb-1">
             <div class="flex items-center justify-between mb-0.5">
-              <div class="text-base-content/50 text-[10px] font-semibold">{{ t.messages.key }}:</div>
+              <div class="flex items-center gap-1">
+                <div class="text-base-content/50 text-[10px] font-semibold">{{ t.messages.key }}:</div>
+                <span class="badge badge-xs" :class="getFormatBadgeClass(selectedMessage._format?.key || 'unknown')">{{ getFormatLabel(selectedMessage._format?.key || 'unknown') }}</span>
+              </div>
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyKey" :title="t.messages.copyKey">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
@@ -309,8 +318,11 @@
           </div>
           <div class="flex flex-col flex-1">
             <div class="flex items-center justify-between mb-0.5">
-              <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
-                {{ t.messages.value }}:
+              <div class="flex items-center gap-1">
+                <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
+                  {{ t.messages.value }}:
+                  <span class="badge badge-xs" :class="getFormatBadgeClass(selectedMessage._format?.value || 'unknown')">{{ getFormatLabel(selectedMessage._format?.value || 'unknown') }}</span>
+                </div>
                 <select v-model="valueViewFormat" class="select select-bordered select-xs scale-90 origin-left">
                   <option value="json">{{ t.messages.json }}</option>
                   <option value="raw">{{ t.messages.raw }}</option>
@@ -376,6 +388,10 @@ interface Message {
   value: string | null;
   timestamp: number | null;
   uid: string;
+  _format?: {
+    key: string;
+    value: string;
+  };
 }
 
 // Props - 从父组件接收 cluster 和 topic
@@ -597,13 +613,19 @@ async function queryMessages() {
           lastQueryTime.value = Math.round(performance.now() - startTime);
           // 追加到非响应式缓存数组
           for (const msg of newMessages) {
+            const keyStr = typeof msg.key === 'string' ? msg.key : msg.key?.formatted || '';
+            const valueStr = typeof msg.value === 'string' ? msg.value : msg.value?.formatted || '';
             pendingMessages.push({
               partition: msg.partition,
               offset: msg.offset,
-              key: msg.key || '',
-              value: msg.value || '',
+              key: keyStr,
+              value: valueStr,
               timestamp: msg.timestamp || null,
               uid: `${msg.partition}-${msg.offset}`,
+              _format: {
+                key: msg.key?.format || 'unknown',
+                value: msg.value?.format || 'unknown',
+              },
             });
           }
           // 批量调度 UI 更新
@@ -729,8 +751,15 @@ function openSendModal() {
   // 如果有选中的消息，自动填充 partition、key、value
   if (selectedMessage.value) {
     messageFormPartition.value = selectedMessage.value.partition ?? 0;
-    messageFormKey.value = selectedMessage.value.key || '';
-    messageFormValue.value = selectedMessage.value.value || '';
+    // 处理 FormattedMessage 对象
+    const keyVal = selectedMessage.value.key;
+    messageFormKey.value = typeof keyVal === 'string'
+      ? keyVal
+      : keyVal?.formatted || '';
+    const valueVal = selectedMessage.value.value;
+    messageFormValue.value = typeof valueVal === 'string'
+      ? valueVal
+      : valueVal?.formatted || '';
   } else {
     // 如果没有选中分区，默认选第一个
     if (partitions.value.length > 0 && messageFormPartition.value === 0) {
@@ -787,9 +816,43 @@ function truncate(str: string | null, len: number): string {
 // 辅助函数：获取消息属性
 function getMsgPartition(item: any): number { return item?.partition ?? 0; }
 function getMsgOffset(item: any): number { return item?.offset ?? 0; }
-function getMsgKey(item: any): string | null { return item?.key; }
-function getMsgValue(item: any): string | null { return item?.value; }
-function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
+function getMsgKey(item: any): string | null {
+  const key = item?.key;
+  if (typeof key === 'string') return key;
+  if (key && typeof key === 'object' && 'formatted' in key) return key.formatted;
+  return key || null;
+}
+function getMsgValue(item: any): string | null {
+  const value = item?.value;
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'formatted' in value) return value.formatted;
+  return value || null;
+}
+function getMsgTimestamp(item: any): number | null { return item?.timestamp ?? null; }
+function getFormatBadgeClass(format: string): string {
+  const classes: Record<string, string> = {
+    json: 'badge-info',
+    text: 'badge-ghost',
+    binary_hex: 'badge-warning',
+    binary_base64: 'badge-warning',
+    avro: 'badge-error',
+    protobuf: 'badge-error',
+    unknown: 'badge-ghost',
+  };
+  return classes[format] || 'badge-ghost';
+}
+function getFormatLabel(format: string): string {
+  const labels: Record<string, string> = {
+    json: 'JSON',
+    text: 'Text',
+    binary_hex: 'Hex',
+    binary_base64: 'Base64',
+    avro: 'Avro',
+    protobuf: 'Protobuf',
+    unknown: '?',
+  };
+  return labels[format] || format;
+}
 
 // 清除时间筛选
 function clearTimeFilters() {
@@ -857,7 +920,9 @@ function handleSelectAll() {
   const isValueFocused = valuePreRef.value && (activeElement === valuePreRef.value || valuePreRef.value.contains(activeElement));
 
   // 如果 Key 区域有焦点且有 Key 内容，选中 Key
-  if (isKeyFocused && selectedMessage.value.key) {
+  const keyVal = selectedMessage.value.key;
+  const hasKey = typeof keyVal === 'string' ? !!keyVal : !!keyVal?.formatted;
+  if (isKeyFocused && hasKey) {
     preElement = keyPreRef.value;
   }
   // 如果 Value 区域有焦点，选中 Value
@@ -869,7 +934,7 @@ function handleSelectAll() {
     preElement = valuePreRef.value;
   }
   // 降级方案：如果没有 Value 但有 Key，选中 Key
-  else if (keyPreRef.value && selectedMessage.value.key) {
+  else if (keyPreRef.value && hasKey) {
     preElement = keyPreRef.value;
   }
 
@@ -883,27 +948,37 @@ function handleSelectAll() {
 }
 
 // 格式化值为不同格式
-function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): string {
-  if (!value) return 'null';
+function formatValue(value: string | any | null, format: 'json' | 'raw' | 'hex'): string {
+  // 如果是 FormattedMessage 对象，提取 formatted 属性
+  let strValue: string | null = null;
+  if (value && typeof value === 'object' && 'formatted' in value) {
+    strValue = value.formatted;
+  } else if (typeof value === 'string') {
+    strValue = value;
+  } else {
+    strValue = value;
+  }
+
+  if (!strValue) return 'null';
 
   if (format === 'json') {
     try {
-      const parsed = JSON.parse(value);
+      const parsed = JSON.parse(strValue);
       return JSON.stringify(parsed, null, 2);
     } catch {
-      return value;
+      return strValue;
     }
   } else if (format === 'hex') {
     try {
-      const bytes = new TextEncoder().encode(value);
+      const bytes = new TextEncoder().encode(strValue);
       return Array.from(bytes)
         .map(b => b.toString(16).padStart(2, '0'))
         .join(' ');
     } catch {
-      return value;
+      return strValue;
     }
   }
-  return value;
+  return strValue;
 }
 
 // JSON 语法高亮 - 将 JSON 字符串转换为带样式的 HTML（与 JsonEditor.vue 保持一致）
@@ -952,14 +1027,20 @@ function highlightJson(json: string): string {
 
 function copyKey() {
   if (!selectedMessage.value?.key) return;
-  navigator.clipboard.writeText(selectedMessage.value.key).then(() => {
+  const key = typeof selectedMessage.value.key === 'string'
+    ? selectedMessage.value.key
+    : selectedMessage.value.key?.formatted || '';
+  navigator.clipboard.writeText(key).then(() => {
     showSuccess(`${t.value.messages.key} ${t.value.messages.copied}`, 2000);
   });
 }
 
 function copyValue() {
   if (!selectedMessage.value?.value) return;
-  const text = formatValue(selectedMessage.value.value, valueViewFormat.value);
+  const value = typeof selectedMessage.value.value === 'string'
+    ? selectedMessage.value.value
+    : selectedMessage.value.value?.formatted || '';
+  const text = formatValue(value, valueViewFormat.value);
   navigator.clipboard.writeText(text).then(() => {
     showSuccess(`${t.value.messages.value} ${t.value.messages.copied}`, 2000);
   });

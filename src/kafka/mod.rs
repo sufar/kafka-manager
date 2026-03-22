@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod consumer;
 pub mod import_export;
+pub mod message_format;
 pub mod offset;
 pub mod throughput;
 pub mod transaction;
