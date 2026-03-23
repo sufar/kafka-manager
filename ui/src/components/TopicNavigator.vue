@@ -706,11 +706,20 @@ onUnmounted(() => {
   apiClient.cancelRequest();
 });
 
+// 判断是否使用后端搜索（当 topic 总数超过 10000 时使用后端搜索）
+const useBackendSearch = computed(() => total.value > 10000);
+
 // Filtered topics - search only topic name (no cluster search)
+// 当使用后端搜索时，filteredTopics 直接使用 allTopics（因为后端已经过滤）
 const filteredTopics = computed(() => {
   if (!searchQuery.value.trim()) {
     return allTopics.value;
   }
+  // 如果使用后端搜索，后端已经过滤了，直接返回
+  if (useBackendSearch.value) {
+    return allTopics.value;
+  }
+  // 否则使用前端过滤
   const query = searchQuery.value.toLowerCase();
   return allTopics.value.filter(
     t => t.name.toLowerCase().includes(query)
@@ -821,8 +830,16 @@ async function loadAllTopics() {
     // Get selected cluster names
     const selectedClustersList = getAllSelectedClusterNames();
 
+    // 如果有搜索词，传递给后端进行过滤
+    const searchQueryValue = searchQuery.value.trim();
+
     // Use multi-cluster API
-    const result = await apiClient.getTopicsWithClusters(selectedClustersList, 0, limit.value);
+    const result = await apiClient.getTopicsWithClusters(
+      selectedClustersList,
+      0,
+      limit.value,
+      searchQueryValue || undefined
+    );
     if (isUnmounted.value) return;
     for (const topic of result.topics) {
       topics.push({
@@ -833,13 +850,16 @@ async function loadAllTopics() {
     total.value = result.total;
     hasMore.value = result.has_more;
 
-    // Sort by cluster then by name
-    topics.sort((a, b) => {
-      if (a.cluster !== b.cluster) {
-        return a.cluster.localeCompare(b.cluster);
-      }
-      return a.name.localeCompare(b.name);
-    });
+    // 后端搜索已经排序，不需要再次排序
+    // 只有在没有搜索词时才按 cluster 和 name 排序
+    if (!searchQueryValue) {
+      topics.sort((a, b) => {
+        if (a.cluster !== b.cluster) {
+          return a.cluster.localeCompare(b.cluster);
+        }
+        return a.name.localeCompare(b.name);
+      });
+    }
 
     if (!isUnmounted.value) {
       allTopics.value = topics;
@@ -891,7 +911,15 @@ async function loadMoreTopics() {
     const nextOffset = offset.value + limit.value;
     const selectedClustersList = getAllSelectedClusterNames();
 
-    const result = await apiClient.getTopicsWithClusters(selectedClustersList, nextOffset, limit.value);
+    // 传递搜索词给后端
+    const searchQueryValue = searchQuery.value.trim();
+
+    const result = await apiClient.getTopicsWithClusters(
+      selectedClustersList,
+      nextOffset,
+      limit.value,
+      searchQueryValue || undefined
+    );
     if (isUnmounted.value) return;
 
     // Append new topics
@@ -976,9 +1004,20 @@ function onSearchInput() {
   if (searchTimer) {
     clearTimeout(searchTimer);
   }
-  searchTimer = window.setTimeout(() => {
-    // Search is reactive via computed property
-  }, 300);
+
+  // 当 topic 总数超过 10000 时，使用后端搜索（防抖 300ms）
+  if (useBackendSearch.value) {
+    searchTimer = window.setTimeout(() => {
+      // 重置 offset，重新加载（会传递搜索词给后端）
+      offset.value = 0;
+      loadAllTopics();
+    }, 300);
+  } else {
+    // 前端搜索，不需要 API 调用
+    searchTimer = window.setTimeout(() => {
+      // Search is reactive via computed property
+    }, 300);
+  }
 }
 
 // Clear search

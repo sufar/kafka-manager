@@ -184,6 +184,92 @@ impl TopicStore {
         Ok(topics)
     }
 
+    /// 搜索 Topic（支持多集群过滤和分页）
+    pub async fn search_topics_with_filter(
+        pool: &sqlx::SqlitePool,
+        keyword: &str,
+        cluster_ids: &[String],
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<TopicMetadata>, u32)> {
+        let start = std::time::Instant::now();
+        tracing::info!(
+            "[TopicStore::search_topics_with_filter] keyword: {}, clusters: {:?}, offset: {}, limit: {}",
+            keyword, cluster_ids, offset, limit
+        );
+
+        // 使用通配符匹配，支持任意位置匹配
+        let pattern = format!("%{}%", keyword);
+
+        // 构建集群过滤条件
+        let (cluster_filter, cluster_count) = if cluster_ids.is_empty() {
+            // 空数组表示搜索所有集群
+            ("".to_string(), 0)
+        } else {
+            // 构建 IN 子句
+            let placeholders: Vec<String> = (0..cluster_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+            let filter = format!("AND cluster_id IN ({})", placeholders.join(", "));
+            (filter, cluster_ids.len())
+        };
+
+        // 查询总数
+        let count_query = if cluster_ids.is_empty() {
+            "SELECT COUNT(*) FROM topic_metadata WHERE topic_name LIKE ?1".to_string()
+        } else {
+            format!(
+                "SELECT COUNT(*) FROM topic_metadata WHERE topic_name LIKE ?1 AND cluster_id IN ({})",
+                (2..2 + cluster_count).map(|i| format!("?{}", i)).collect::<Vec<_>>().join(", ")
+            )
+        };
+
+        let total: u32 = sqlx::query_scalar(&count_query)
+            .bind(&pattern)
+            .fetch_one(pool)
+            .await?;
+
+        // 查询分页结果
+        let data_query = if cluster_ids.is_empty() {
+            "SELECT id, cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at
+             FROM topic_metadata
+             WHERE topic_name LIKE ?1
+             ORDER BY cluster_id, topic_name
+             LIMIT ?2 OFFSET ?3".to_string()
+        } else {
+            format!(
+                "SELECT id, cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at
+                 FROM topic_metadata
+                 WHERE topic_name LIKE ?1 {}
+                 ORDER BY cluster_id, topic_name
+                 LIMIT ?{} OFFSET ?{}",
+                cluster_filter,
+                2 + cluster_count,
+                3 + cluster_count
+            )
+        };
+
+        let mut query = sqlx::query_as::<_, TopicMetadata>(&data_query)
+            .bind(&pattern);
+
+        // 绑定集群 ID 参数
+        for cluster_id in cluster_ids {
+            query = query.bind(cluster_id);
+        }
+
+        // 绑定 limit 和 offset
+        query = query.bind(limit as i64).bind(offset as i64);
+
+        let topics: Vec<TopicMetadata> = query.fetch_all(pool).await?;
+
+        tracing::info!(
+            "[TopicStore::search_topics_with_filter] found {} topics (total: {}) in {:?}",
+            topics.len(),
+            total,
+            start.elapsed()
+        );
+
+        Ok((topics, total))
+    }
+
     /// 返回新增和删除的 topic 名称列表
     pub async fn sync_topics(
         pool: &sqlx::SqlitePool,

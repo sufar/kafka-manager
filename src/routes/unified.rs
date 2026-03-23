@@ -1024,8 +1024,11 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
     let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as usize;
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10000) as usize;
 
-    // Determine which clusters to fetch topics from
-    let clusters_to_fetch: Vec<(i64, String)> = if let Some(ids) = cluster_ids {
+    // Get search query parameter
+    let search_query = body.get("search").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // Determine which clusters to fetch topics from (for non-search mode)
+    let clusters_to_fetch: Vec<(i64, String)> = if let Some(ref ids) = cluster_ids {
         // Multi-cluster selection: fetch topics from specified cluster IDs
         if ids.is_empty() {
             // Empty array means "all clusters"
@@ -1035,16 +1038,16 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
             // Fetch only specified clusters
             let mut result = Vec::new();
             for id in ids {
-                if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), &id).await {
-                    result.push((cluster.id, cluster.name));
+                if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), id).await {
+                    result.push((cluster.id, cluster.name.clone()));
                 }
             }
             result
         }
-    } else if let Some(id) = cluster_id {
+    } else if let Some(ref id) = cluster_id {
         // Single cluster selection (backward compatibility)
-        if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), &id).await {
-            vec![(cluster.id, cluster.name)]
+        if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), id).await {
+            vec![(cluster.id, cluster.name.clone())]
         } else {
             vec![]
         }
@@ -1054,6 +1057,49 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
             .into_iter().map(|c| (c.id, c.name)).collect()
     };
 
+    // If search query is provided, use database search with filter
+    if let Some(query) = search_query.filter(|q| !q.is_empty()) {
+        // Convert cluster_ids for search: empty or None means all clusters
+        let search_cluster_ids: Vec<String> = cluster_ids
+            .as_ref()
+            .map(|ids| {
+                if ids.is_empty() {
+                    Vec::new() // Empty means all clusters
+                } else {
+                    ids.clone()
+                }
+            })
+            .unwrap_or_default();
+
+        let (topics, total) = TopicStore::search_topics_with_filter(
+            state.db.inner(),
+            &query,
+            &search_cluster_ids,
+            offset as u32,
+            limit as u32,
+        ).await?;
+
+        let all_topics: Vec<TopicWithCluster> = topics
+            .into_iter()
+            .map(|t| TopicWithCluster {
+                name: t.topic_name,
+                cluster: t.cluster_id,
+            })
+            .collect();
+
+        let end = (offset + limit).min(total as usize);
+        let has_more = end < total as usize;
+
+        return Ok(serde_json::json!({
+            "topics": all_topics,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more
+        }));
+    }
+
+    // No search query - use original logic
     let mut all_topics: Vec<TopicWithCluster> = Vec::new();
 
     for (_cluster_id, cluster_name) in &clusters_to_fetch {

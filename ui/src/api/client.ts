@@ -273,7 +273,7 @@ class ApiClient {
     return this.request('topic.list_with_cluster', params);
   }
 
-  async getTopicsWithClusters(clusterIds: string[], offset?: number, limit?: number): Promise<{ topics: { name: string; cluster: string }[]; total: number; has_more: boolean }> {
+  async getTopicsWithClusters(clusterIds: string[], offset?: number, limit?: number, search?: string): Promise<{ topics: { name: string; cluster: string }[]; total: number; has_more: boolean }> {
     const params: any = {};
     params.cluster_ids = clusterIds;
     if (offset !== undefined) {
@@ -281,6 +281,9 @@ class ApiClient {
     }
     if (limit !== undefined) {
       params.limit = limit;
+    }
+    if (search !== undefined && search.trim() !== '') {
+      params.search = search.trim();
     }
     return this.request('topic.list_with_cluster', params);
   }
