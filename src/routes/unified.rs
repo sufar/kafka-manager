@@ -2021,6 +2021,13 @@ async fn fetch_messages_streaming_sse(
                 batch.clear();
                 batch_timer = None;
             }
+            // 检查所有发送任务是否都已完成
+            let all_handles_done = handles.iter().all(|h| h.is_finished());
+            if all_handles_done {
+                // 所有分区都完成了，堆也为空，可以退出
+                tracing::info!("[SSE Stream] All partitions done and heap empty, exiting merge loop");
+                break;
+            }
             // 给一点时间让消息到达
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

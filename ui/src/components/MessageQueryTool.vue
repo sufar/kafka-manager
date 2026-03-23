@@ -463,6 +463,8 @@ let currentRequestId = 0;
 let finalizedSort: 'desc' | undefined = undefined;
 // 非响应式消息缓存，减少响应式更新频率
 let pendingMessages: Message[] = [];
+// 加载超时保护定时器
+let loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 // 重置状态
 function resetMessageState() {
@@ -561,6 +563,18 @@ async function queryMessages() {
   resetMessageState();
   const startTime = performance.now();
 
+  // 设置加载超时保护：90 秒后自动停止加载
+  if (loadingTimeoutId) {
+    clearTimeout(loadingTimeoutId);
+  }
+  loadingTimeoutId = setTimeout(() => {
+    console.warn('[MessageQueryTool] Loading timeout, forcing stop');
+    if (loading.value) {
+      stopQuery();
+      error.value = t.value.messages.queryTimeout || '查询超时，请减少查询数量或缩短时间范围';
+    }
+  }, 90000);
+
   try {
     const params: any = {
       max_messages: maxMessages.value,
@@ -645,6 +659,11 @@ async function queryMessages() {
           streamingProgress.value.isStreaming = false;
           currentAbortController = null;
           lastQueryTime.value = Math.round(performance.now() - startTime);
+          // 清除加载超时定时器
+          if (loadingTimeoutId) {
+            clearTimeout(loadingTimeoutId);
+            loadingTimeoutId = null;
+          }
           console.log(`[SSE] Complete: total=${messages.value.length}`);
         },
         onError: (err) => {
@@ -653,6 +672,11 @@ async function queryMessages() {
           loading.value = false;
           streamingProgress.value.isStreaming = false;
           currentAbortController = null;
+          // 清除加载超时定时器
+          if (loadingTimeoutId) {
+            clearTimeout(loadingTimeoutId);
+            loadingTimeoutId = null;
+          }
         }
       }
     );
@@ -678,6 +702,11 @@ function stopQuery() {
   currentRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
+  // 清除加载超时定时器
+  if (loadingTimeoutId) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
 }
 
 // 检测是否在 Tauri 环境下运行

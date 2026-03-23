@@ -1004,6 +1004,8 @@ function clearSearch() {
   searchQuery.value = '';
   // Reset pagination
   offset.value = 0;
+  // Reload topics list
+  loadAllTopics();
 }
 
 // Select topic
