@@ -706,24 +706,10 @@ onUnmounted(() => {
   apiClient.cancelRequest();
 });
 
-// 判断是否使用后端搜索（当 topic 总数超过 10000 时使用后端搜索）
-const useBackendSearch = computed(() => total.value > 10000);
-
 // Filtered topics - search only topic name (no cluster search)
-// 当使用后端搜索时，filteredTopics 直接使用 allTopics（因为后端已经过滤）
+// 始终使用后端过滤，filteredTopics 直接使用 allTopics（因为后端已经过滤）
 const filteredTopics = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return allTopics.value;
-  }
-  // 如果使用后端搜索，后端已经过滤了，直接返回
-  if (useBackendSearch.value) {
-    return allTopics.value;
-  }
-  // 否则使用前端过滤
-  const query = searchQuery.value.toLowerCase();
-  return allTopics.value.filter(
-    t => t.name.toLowerCase().includes(query)
-  );
+  return allTopics.value;
 });
 
 // Topics with uid for virtual scroll (use filtered for search results)
@@ -760,7 +746,7 @@ const hoveredIndex = ref<number>(-1);
 
 // Get current visible topics list
 const visibleTopics = computed(() => {
-  return searchQuery.value.trim() ? filteredTopics.value : allTopics.value;
+  return allTopics.value;
 });
 
 // Navigate to previous topic
@@ -1005,19 +991,12 @@ function onSearchInput() {
     clearTimeout(searchTimer);
   }
 
-  // 当 topic 总数超过 10000 时，使用后端搜索（防抖 300ms）
-  if (useBackendSearch.value) {
-    searchTimer = window.setTimeout(() => {
-      // 重置 offset，重新加载（会传递搜索词给后端）
-      offset.value = 0;
-      loadAllTopics();
-    }, 300);
-  } else {
-    // 前端搜索，不需要 API 调用
-    searchTimer = window.setTimeout(() => {
-      // Search is reactive via computed property
-    }, 300);
-  }
+  // 始终使用后端搜索（防抖 300ms）
+  searchTimer = window.setTimeout(() => {
+    // 重置 offset，重新加载（会传递搜索词给后端）
+    offset.value = 0;
+    loadAllTopics();
+  }, 300);
 }
 
 // Clear search
