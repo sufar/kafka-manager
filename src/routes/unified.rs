@@ -1878,12 +1878,13 @@ async fn fetch_messages_streaming_sse(
     sse_tx.send(Ok(Event::default().event("start").data(start_event.to_string()))).await
         .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
 
-    // 为每个分区创建 channel
+    // 为每个分区创建 channel（缓冲大小减小到 100，引入背压，实现真正的流式处理）
     let mut rxs = Vec::new();
     let mut handles = vec![];
+    const CHANNEL_BUFFER_SIZE: usize = 100; // 减小缓冲，让 poll 和归并并行执行
 
     for &part_id in &partitions {
-        let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(max_messages);
+        let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(CHANNEL_BUFFER_SIZE);
         rxs.push((part_id, rx));
 
         let brokers = brokers.clone();
@@ -1907,25 +1908,43 @@ async fn fetch_messages_streaming_sse(
     let mut sent_count = 0usize;
     const BATCH_SIZE: usize = 500; // 每批发送500条，平衡实时性和性能
 
-    // 从每个分区先取一条消息放入堆
+    // 从每个分区先取一条消息放入堆（带超时，不等慢分区）
+    let init_timeout = Duration::from_secs(3);
+    let init_deadline = tokio::time::Instant::now() + init_timeout;
+
     for (part_id, rx) in &mut rxs {
-        match rx.recv().await {
-            Some(msg) => {
+        let remaining = init_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            tracing::warn!("[SSE Stream] Init timeout for partition {}, skipping", part_id);
+            completed_partitions += 1;
+            continue;
+        }
+
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(msg)) => {
                 heap.push(Reverse(HeapMessage {
                     timestamp: msg.timestamp,
                     offset: msg.offset,
                     message: msg,
                 }));
             }
-            None => {
+            Ok(None) => {
                 completed_partitions += 1;
                 tracing::info!("[SSE Stream] Partition {} completed immediately", part_id);
+            }
+            Err(_) => {
+                completed_partitions += 1;
+                tracing::warn!("[SSE Stream] Init timeout for partition {}, skipping", part_id);
             }
         }
     }
 
+    tracing::info!("[SSE Stream] Init complete: heap size = {}, completed = {}", heap.len(), completed_partitions);
+
     // 流式归并并发送
     let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
+    let mut batch_timer: Option<tokio::time::Instant> = None;
+    const BATCH_TIMEOUT_MS: u64 = 100; // 最多等待 100ms 发送一批，保证实时性
 
     while completed_partitions < partition_count || !heap.is_empty() {
         // 处理堆中的消息
@@ -1943,8 +1962,16 @@ async fn fetch_messages_streaming_sse(
             batch.push(msg_json);
             sent_count += 1;
 
-            // 批次满则发送
-            if batch.len() >= BATCH_SIZE {
+            // 初始化批次定时器
+            if batch_timer.is_none() {
+                batch_timer = Some(tokio::time::Instant::now());
+            }
+
+            // 批次满或超时则发送
+            let should_flush = batch.len() >= BATCH_SIZE
+                || batch_timer.unwrap().elapsed() >= Duration::from_millis(BATCH_TIMEOUT_MS);
+
+            if should_flush {
                 let batch_event = serde_json::json!({
                     "event": "batch",
                     "messages": batch,
@@ -1954,26 +1981,46 @@ async fn fetch_messages_streaming_sse(
                 sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
                     .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
                 batch.clear();
+                batch_timer = None;
             }
 
-            // 从对应分区获取下一条
+            // 从对应分区获取下一条（带超时，避免阻塞）
             if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
-                match rx.recv().await {
-                    Some(msg) => {
+                match tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+                    Ok(Some(msg)) => {
                         heap.push(Reverse(HeapMessage {
                             timestamp: msg.timestamp,
                             offset: msg.offset,
                             message: msg,
                         }));
                     }
-                    None => {
+                    Ok(None) => {
+                        // Channel closed, partition completed
                         completed_partitions += 1;
                         tracing::info!("[SSE Stream] Partition {} completed, total sent: {}", part_id, sent_count);
+                    }
+                    Err(_) => {
+                        // Timeout: channel is empty but sender is still running
+                        // Push back a marker or just continue - we'll come back to this partition later
+                        // For now, just continue the loop, the partition will be checked again
+                        tracing::debug!("[SSE Stream] Partition {} recv timeout, channel empty", part_id);
                     }
                 }
             }
         } else {
             // 堆为空但还在接收中，等待消息
+            // 先 flush 批次中已累积的消息，不让用户等待
+            if !batch.is_empty() {
+                let batch_event = serde_json::json!({
+                    "event": "batch",
+                    "messages": batch,
+                    "progress": sent_count,
+                    "total": total_target
+                });
+                let _ = sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await;
+                batch.clear();
+                batch_timer = None;
+            }
             // 给一点时间让消息到达
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -2794,7 +2841,8 @@ async fn fetch_partition_messages_streaming(
                     timestamp: ts,
                 };
 
-                if tx.try_send(kafka_msg).is_err() {
+                // 使用 await send 实现背压：当 channel 满时阻塞，让 poll 和消费并行
+                if tx.send(kafka_msg).await.is_err() {
                     tracing::warn!("[Streaming] Channel closed for partition {}", partition);
                     return;
                 }

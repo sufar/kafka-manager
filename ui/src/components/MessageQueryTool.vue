@@ -472,7 +472,7 @@ function resetMessageState() {
   finalizedSort = undefined;
 }
 
-// 批量更新 UI，每 200ms 固定更新一次（throttle 模式）
+// 批量更新 UI，每 100ms 固定更新一次（throttle 模式）
 // 虚拟滚动只会渲染可见区域，所以更新频率可以更高
 let updateTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleUpdate() {
@@ -492,7 +492,7 @@ function scheduleUpdate() {
         scrollerRefMobile.value?.refresh();
       });
     }
-  }, 200);
+  }, 100);
 }
 
 // 发送消息弹框状态
