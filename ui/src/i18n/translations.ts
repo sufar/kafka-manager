@@ -37,6 +37,7 @@ export interface Translation {
     clear: string;
     cannotBeGreaterThan: string;
     unknown: string;
+    copy: string;
   };
   clusters: {
     title: string;
@@ -148,6 +149,13 @@ export interface Translation {
     partitions: string;
     settings: string;
     refreshed: string;
+    confirmDeleteTitle: string;
+    confirmDeleteHint: string;
+    confirmDeleteInput: string;
+    confirmDeleteMatchError: string;
+    copied: string;
+    copyFailed: string;
+    deletedSuccess: string;
   };
   messages: {
     title: string;
@@ -232,6 +240,7 @@ export interface Translation {
     minutes: string;
     hour: string;
     day: string;
+    queryTimeout: string;
   };
   settings: {
     title: string;
@@ -401,6 +410,7 @@ export const translations: Record<Language, Translation> = {
       clear: '清除',
       cannotBeGreaterThan: '不能大于',
       unknown: '未知',
+      copy: '复制',
     },
     clusters: {
       title: '集群',
@@ -512,6 +522,13 @@ export const translations: Record<Language, Translation> = {
       partitions: '分区',
       settings: '设置',
       refreshed: 'Topic 已刷新',
+      confirmDeleteTitle: '删除主题',
+      confirmDeleteHint: '删除后无法恢复',
+      confirmDeleteInput: '输入主题名称以确认',
+      confirmDeleteMatchError: '输入的主题名称不匹配',
+      copied: '已复制',
+      copyFailed: '复制失败',
+      deletedSuccess: '主题已删除',
     },
     messages: {
       title: '消息',
@@ -596,6 +613,7 @@ export const translations: Record<Language, Translation> = {
       minutes: '分',
       hour: '时',
       day: '天',
+      queryTimeout: '查询超时，请重试',
     },
     settings: {
       title: '设置',
@@ -763,6 +781,7 @@ export const translations: Record<Language, Translation> = {
       clear: 'Clear',
       cannotBeGreaterThan: 'cannot be greater than',
       unknown: 'Unknown',
+      copy: 'Copy',
     },
     clusters: {
       title: 'Clusters',
@@ -874,6 +893,13 @@ export const translations: Record<Language, Translation> = {
       partitions: 'Partitions',
       settings: 'Settings',
       refreshed: 'Topics refreshed',
+      confirmDeleteTitle: 'Delete Topic',
+      confirmDeleteHint: 'This action cannot be undone',
+      confirmDeleteInput: 'Type the topic name to confirm',
+      confirmDeleteMatchError: 'Topic name does not match',
+      copied: 'Copied',
+      copyFailed: 'Copy failed',
+      deletedSuccess: 'Topic deleted successfully',
     },
     messages: {
       title: 'Messages',
@@ -958,6 +984,7 @@ export const translations: Record<Language, Translation> = {
       minutes: 'min',
       hour: 'hr',
       day: 'day',
+      queryTimeout: 'Query timeout, please try again',
     },
     settings: {
       title: 'Settings',
