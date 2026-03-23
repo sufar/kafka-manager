@@ -222,8 +222,15 @@ impl TopicStore {
             )
         };
 
-        let total: u32 = sqlx::query_scalar(&count_query)
-            .bind(&pattern)
+        let mut count_query_builder = sqlx::query_scalar::<_, u32>(&count_query)
+            .bind(&pattern);
+
+        // 绑定集群 ID 参数
+        for cluster_id in cluster_ids {
+            count_query_builder = count_query_builder.bind(cluster_id);
+        }
+
+        let total: u32 = count_query_builder
             .fetch_one(pool)
             .await?;
 
