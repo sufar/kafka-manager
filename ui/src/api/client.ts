@@ -460,7 +460,7 @@ class ApiClient {
       onStart?: (data: { partitions: number; total_target: number }) => void;
       onBatch?: (messages: import('@/types/api').MessageRecord[], progress: number, total: number) => void;
       onOrder?: (sort: string) => void;
-      onComplete?: () => void;
+      onComplete?: (data?: { actual_total?: number }) => void;
       onError?: (error: string) => void;
     }
   ): AbortController {
@@ -550,7 +550,8 @@ class ApiClient {
                 callbacks?.onOrder?.(parsed.sort);
                 break;
               case 'complete':
-                console.log(`[SSE Client] Complete event received`);
+                console.log(`[SSE Client] Complete event received: actual_total=${parsed.actual_total}, target_total=${parsed.target_total}`);
+                callbacks?.onComplete?.(parsed);
                 break;
               case 'error':
                 callbacks?.onError?.(parsed.error);
@@ -605,7 +606,8 @@ class ApiClient {
       }
 
       console.log(`[SSE Client] Stream complete. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
-      callbacks?.onComplete?.();
+      // 传递 complete 事件数据（包括 actual_total）
+      callbacks?.onComplete?.({ actual_total: totalMessagesReceived });
     }).catch((error) => {
       if (error.name !== 'AbortError') {
         callbacks?.onError?.(error.message || 'Network error');

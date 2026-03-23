@@ -2003,8 +2003,16 @@ async fn fetch_messages_streaming_sse(
             .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
     }
 
-    tracing::info!("[SSE Stream] Completed: sent {} messages from {} partitions in {:?}",
-        sent_count, partition_count, start_time_total.elapsed());
+    // 发送实际总数，让前端更新进度条
+    let complete_event = serde_json::json!({
+        "event": "complete",
+        "actual_total": sent_count,
+        "target_total": total_target
+    });
+    let _ = sse_tx.send(Ok(Event::default().event("complete").data(complete_event.to_string()))).await;
+
+    tracing::info!("[SSE Stream] Completed: sent {} messages from {} partitions (target: {}) in {:?}",
+        sent_count, partition_count, total_target, start_time_total.elapsed());
 
     Ok(())
 }

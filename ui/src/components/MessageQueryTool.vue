@@ -639,7 +639,7 @@ async function queryMessages() {
           if (requestId !== currentRequestId) return;
           finalizedSort = sort === 'desc' ? 'desc' : undefined;
         },
-        onComplete: () => {
+        onComplete: (data) => {
           if (requestId !== currentRequestId) return;
           // 处理剩余未渲染的消息
           if (updateTimer) {
@@ -657,6 +657,10 @@ async function queryMessages() {
           }
           loading.value = false;
           streamingProgress.value.isStreaming = false;
+          // 更新实际总数（如果与 target 不同）
+          if (data?.actual_total && data.actual_total !== streamingProgress.value.total) {
+            streamingProgress.value.total = data.actual_total;
+          }
           currentAbortController = null;
           lastQueryTime.value = Math.round(performance.now() - startTime);
           // 清除加载超时定时器
@@ -664,7 +668,7 @@ async function queryMessages() {
             clearTimeout(loadingTimeoutId);
             loadingTimeoutId = null;
           }
-          console.log(`[SSE] Complete: total=${messages.value.length}`);
+          console.log(`[SSE] Complete: total=${messages.value.length}, actual_total from backend=${data?.actual_total}`);
         },
         onError: (err) => {
           if (requestId !== currentRequestId) return;
