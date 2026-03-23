@@ -85,7 +85,15 @@ export function getThemeStyle(isDark: boolean): ThemeStyles {
   return themeStyle;
 }
 
-// JSON 高亮
+// 安全的 HTML 实体转义，防止 XSS 注入
+function escapeHtmlEntities(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// JSON 高亮 - 安全版本，自动转义 HTML 特殊字符防止 XSS
 export function highlightJsonWithTemplate(json: string, isDark?: boolean): string {
   if (!json) return '';
 
@@ -97,11 +105,9 @@ export function highlightJsonWithTemplate(json: string, isDark?: boolean): strin
 
     const style = getThemeStyle(useDark);
 
-    // 转义 HTML 特殊字符
-    let html = json
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    // 首先转义 HTML 特殊字符，防止 XSS 注入
+    // 注意：我们只转义 & < > 三个字符，保持引号不变以便正则匹配
+    let html = escapeHtmlEntities(json);
 
     // 使用单个正则表达式处理所有情况
     html = html.replace(
@@ -109,7 +115,7 @@ export function highlightJsonWithTemplate(json: string, isDark?: boolean): strin
       (match, string, colon, number, bool) => {
         if (string) {
           if (colon) {
-            // 键名
+            // 键名 (带引号的字符串后跟冒号)
             const fontWeight = style.key.font_weight ? `font-weight: ${style.key.font_weight};` : '';
             return `<span class="json-key" style="color: ${style.key.color}; ${fontWeight}">${string}</span>${colon}`;
           } else {
@@ -139,8 +145,8 @@ export function highlightJsonWithTemplate(json: string, isDark?: boolean): strin
     return html;
   } catch (e) {
     console.error('Failed to highlight JSON:', e);
-    // 返回未高亮的纯文本
-    return json;
+    // 返回未高亮的纯文本（但也要转义，防止 XSS）
+    return escapeHtmlEntities(json);
   }
 }
 

@@ -798,8 +798,9 @@ async function handleSubmit() {
     showError(t.value.clusters.validationNameTooLong);
     return;
   }
-  // 集群名称只能包含字母、数字、连字符和下划线
-  const clusterNameRegex = /^[a-zA-Z0-9_-]+$/;
+  // 集群名称可以包含字母、数字、中文、连字符和下划线
+  // 使用 Unicode 属性转义，支持中文和其他语言字符
+  const clusterNameRegex = /^[\p{L}\p{N}_-]+$/u;
   if (!clusterNameRegex.test(trimmedName)) {
     showError(t.value.clusters.validationNameInvalid);
     return;
