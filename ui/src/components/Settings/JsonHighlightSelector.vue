@@ -100,10 +100,10 @@ interface ThemeStyles {
   string: { color: string };
   number: { color: string };
   boolean: { color: string; font_weight?: string };
-  null: { color: string };
-  bracket: { color: string };
-  colon: { color: string };
-  comma: { color: string };
+  null: { color: string; font_weight?: string };
+  bracket: { color: string; font_weight?: string };
+  colon: { color: string; font_weight?: string };
+  comma: { color: string; font_weight?: string };
 }
 
 interface TemplateStyle {
@@ -133,24 +133,24 @@ const customForm = ref({
 
 const templateFormatHelp = `{
   "light": {
-    "key": { "color": "#a78bfa", "font_weight": "600" },
-    "string": { "color": "#34d399" },
-    "number": { "color": "#fbbf24" },
-    "boolean": { "color": "#38bdf8", "font_weight": "700" },
-    "null": { "color": "#6b7280", "font_weight": "700" },
-    "bracket": { "color": "#9ca3af" },
-    "colon": { "color": "#9ca3af" },
-    "comma": { "color": "#9ca3af" }
+    "key": { "color": "#9333ea", "font_weight": "600" },
+    "string": { "color": "#059669" },
+    "number": { "color": "#d97706" },
+    "boolean": { "color": "#0284c7", "font_weight": "700" },
+    "null": { "color": "#475569", "font_weight": "700" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#64748b" },
+    "comma": { "color": "#64748b" }
   },
   "dark": {
-    "key": { "color": "#a78bfa", "font_weight": "600" },
+    "key": { "color": "#c084fc", "font_weight": "600" },
     "string": { "color": "#34d399" },
     "number": { "color": "#fbbf24" },
     "boolean": { "color": "#38bdf8", "font_weight": "700" },
-    "null": { "color": "#6b7280", "font_weight": "700" },
-    "bracket": { "color": "#9ca3af" },
-    "colon": { "color": "#9ca3af" },
-    "comma": { "color": "#9ca3af" }
+    "null": { "color": "#94a3b8", "font_weight": "700" },
+    "bracket": { "color": "#94a3b8" },
+    "colon": { "color": "#cbd5e1" },
+    "comma": { "color": "#cbd5e1" }
   }
 }`;
 
@@ -177,8 +177,13 @@ const previewHtml = computed(() => {
     const style: TemplateStyle = JSON.parse(selectedTemplateInfo.value.style_json);
     // 根据当前主题选择浅色或深色样式
     const currentStyle = isDark ? style.dark : style.light;
+    if (!currentStyle) {
+      console.warn('Template style is undefined for current theme');
+      return previewJson;
+    }
     return highlightJson(previewJson, currentStyle);
   } catch (e) {
+    console.error('Failed to parse template style:', e);
     return previewJson;
   }
 });
@@ -272,7 +277,13 @@ async function updateSessionStorageCache() {
     const templateMap: Record<string, any> = {};
     for (const t of allTemplates) {
       try {
-        templateMap[t.name] = JSON.parse(t.style_json);
+        const style = JSON.parse(t.style_json);
+        // 验证模板是否包含必需字段
+        if (isValidTemplate(style)) {
+          templateMap[t.name] = style;
+        } else {
+          console.warn(`Template ${t.name} has invalid structure, skipping`);
+        }
       } catch (e) {
         console.error(`Failed to parse template ${t.name}:`, e);
       }
@@ -281,6 +292,19 @@ async function updateSessionStorageCache() {
   } catch (e) {
     console.error('Failed to update template cache:', e);
   }
+}
+
+// 验证模板是否包含所有必需字段
+function isValidTemplate(style: any): boolean {
+  if (!style?.light || !style?.dark) return false;
+
+  const requiredFields = ['key', 'string', 'number', 'boolean', 'null', 'bracket', 'colon', 'comma'];
+  for (const theme of [style.light, style.dark]) {
+    for (const field of requiredFields) {
+      if (!theme[field]?.color) return false;
+    }
+  }
+  return true;
 }
 
 // 复制当前模板为自定义
@@ -316,6 +340,20 @@ async function saveCustomTemplate() {
     return;
   }
 
+  // 验证 JSON 格式
+  try {
+    const style = JSON.parse(customForm.value.style_json);
+
+    // 验证模板是否包含所有必需字段
+    if (!isValidTemplate(style)) {
+      showError('模板格式无效：必须包含 light 和 dark 主题的所有字段 (key, string, number, boolean, null, bracket, colon, comma)，且每个字段必须有 color 属性');
+      return;
+    }
+  } catch (e) {
+    showError('JSON 格式无效：' + (e as Error).message);
+    return;
+  }
+
   saving.value = true;
   try {
     if (isEditing.value && selectedTemplateInfo.value?.id) {
@@ -334,7 +372,8 @@ async function saveCustomTemplate() {
     showCustomEditor.value = false;
   } catch (e) {
     console.error('Failed to save template:', e);
-    showError(t.value.toast.operationFailed);
+    const errorMsg = e as { message?: string };
+    showError(errorMsg.message || t.value.toast.operationFailed);
   } finally {
     saving.value = false;
   }

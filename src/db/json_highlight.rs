@@ -62,6 +62,48 @@ pub struct StyleConfig {
 }
 
 impl JsonHighlightTemplate {
+    /// 验证模板样式 JSON 是否包含所有必需字段
+    pub fn validate_style_json(style_json: &str) -> Result<(), String> {
+        // 首先尝试解析为 TemplateStyle 结构
+        let style: TemplateStyle = serde_json::from_str(style_json)
+            .map_err(|e| format!("无效的 JSON 格式：{}", e))?;
+
+        // 验证浅色主题
+        Self::validate_theme_styles(&style.light, "light")?;
+        // 验证深色主题
+        Self::validate_theme_styles(&style.dark, "dark")?;
+
+        Ok(())
+    }
+
+    /// 验证单个主题的样式配置
+    fn validate_theme_styles(theme: &ThemeStyles, theme_name: &str) -> Result<(), String> {
+        // 验证所有必需字段
+        Self::validate_style_config(&theme.key, &format!("{}.key", theme_name))?;
+        Self::validate_style_config(&theme.string, &format!("{}.string", theme_name))?;
+        Self::validate_style_config(&theme.number, &format!("{}.number", theme_name))?;
+        Self::validate_style_config(&theme.boolean, &format!("{}.boolean", theme_name))?;
+        Self::validate_style_config(&theme.null, &format!("{}.null", theme_name))?;
+        Self::validate_style_config(&theme.bracket, &format!("{}.bracket", theme_name))?;
+        Self::validate_style_config(&theme.colon, &format!("{}.colon", theme_name))?;
+        Self::validate_style_config(&theme.comma, &format!("{}.comma", theme_name))?;
+
+        Ok(())
+    }
+
+    /// 验证单个样式配置
+    fn validate_style_config(config: &StyleConfig, field_path: &str) -> Result<(), String> {
+        // 验证颜色字段
+        if config.color.is_empty() {
+            return Err(format!("字段 '{}' 的 'color' 不能为空", field_path));
+        }
+        // 验证颜色格式（简单的十六进制格式检查）
+        if !config.color.starts_with('#') || config.color.len() != 7 {
+            return Err(format!("字段 '{}' 的颜色 '{}' 必须是 6 位十六进制格式 (如 #RRGGBB)", field_path, config.color));
+        }
+
+        Ok(())
+    }
     /// 获取所有模板（包括内置和自定义）
     pub async fn get_all_templates(pool: &SqlitePool) -> Result<Vec<JsonHighlightTemplate>, sqlx::Error> {
         sqlx::query_as(
@@ -216,7 +258,7 @@ impl JsonHighlightTemplate {
 /// 获取内置模板 SQL
 fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
-        // 浅色默认主题
+        // 浅色默认主题 - 经典 Web 风格
         (
             "light_default",
             "浅色默认主题",
@@ -232,6 +274,23 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
     "comma": { "color": "#24292e" }
   },
   "dark": {
+    "key": { "color": "#c792ea", "font_weight": "normal" },
+    "string": { "color": "#ecc486" },
+    "number": { "color": "#f78c6c" },
+    "boolean": { "color": "#ff5370", "font_weight": "bold" },
+    "null": { "color": "#89ddff" },
+    "bracket": { "color": "#eeffff" },
+    "colon": { "color": "#eeffff" },
+    "comma": { "color": "#eeffff" }
+  }
+}"##
+        ),
+        // 深色默认主题 - One Dark 风格
+        (
+            "dark_default",
+            "深色默认主题",
+            r##"{
+  "light": {
     "key": { "color": "#881391", "font_weight": "normal" },
     "string": { "color": "#c41a16" },
     "number": { "color": "#1c00cf" },
@@ -240,23 +299,6 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
     "bracket": { "color": "#24292e" },
     "colon": { "color": "#24292e" },
     "comma": { "color": "#24292e" }
-  }
-}"##
-        ),
-        // 深色默认主题
-        (
-            "dark_default",
-            "深色默认主题",
-            r##"{
-  "light": {
-    "key": { "color": "#c792ea", "font_weight": "normal" },
-    "string": { "color": "#ecc486" },
-    "number": { "color": "#f78c6c" },
-    "boolean": { "color": "#ff5370", "font_weight": "bold" },
-    "null": { "color": "#89ddff" },
-    "bracket": { "color": "#eeffff" },
-    "colon": { "color": "#eeffff" },
-    "comma": { "color": "#eeffff" }
   },
   "dark": {
     "key": { "color": "#c792ea", "font_weight": "normal" },
@@ -270,47 +312,47 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
   }
 }"##
         ),
-        // 默认主题（Default）- 柔和现代风格，金色数字
+        // 默认主题（Default）- 高对比度现代风格，双主题优化
         (
             "default",
-            "默认主题（柔和现代风格）",
+            "默认主题（高对比度，双主题优化）",
             r##"{
   "light": {
-    "key": { "color": "#a78bfa", "font_weight": "600" },
-    "string": { "color": "#34d399" },
-    "number": { "color": "#fbbf24" },
-    "boolean": { "color": "#38bdf8", "font_weight": "700" },
-    "null": { "color": "#6b7280", "font_weight": "700" },
-    "bracket": { "color": "#9ca3af" },
-    "colon": { "color": "#9ca3af" },
-    "comma": { "color": "#9ca3af" }
+    "key": { "color": "#9333ea", "font_weight": "600" },
+    "string": { "color": "#059669" },
+    "number": { "color": "#d97706" },
+    "boolean": { "color": "#0284c7", "font_weight": "700" },
+    "null": { "color": "#475569", "font_weight": "700" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#64748b" },
+    "comma": { "color": "#64748b" }
   },
   "dark": {
-    "key": { "color": "#a78bfa", "font_weight": "600" },
+    "key": { "color": "#c084fc", "font_weight": "600" },
     "string": { "color": "#34d399" },
     "number": { "color": "#fbbf24" },
     "boolean": { "color": "#38bdf8", "font_weight": "700" },
-    "null": { "color": "#6b7280", "font_weight": "700" },
-    "bracket": { "color": "#9ca3af" },
-    "colon": { "color": "#9ca3af" },
-    "comma": { "color": "#9ca3af" }
+    "null": { "color": "#94a3b8", "font_weight": "700" },
+    "bracket": { "color": "#94a3b8" },
+    "colon": { "color": "#cbd5e1" },
+    "comma": { "color": "#cbd5e1" }
   }
 }"##
         ),
-        // 深色主题（Monokai）
+        // 深色主题（Monokai）- 经典深色主题，浅色主题已优化
         (
             "monokai",
             "经典深色主题，适合夜间编码",
             r##"{
   "light": {
-    "key": { "color": "#f92672", "font_weight": "normal" },
-    "string": { "color": "#e6db74" },
-    "number": { "color": "#ae81ff" },
-    "boolean": { "color": "#ae81ff", "font_weight": "bold" },
-    "null": { "color": "#ae81ff" },
-    "bracket": { "color": "#272822" },
-    "colon": { "color": "#272822" },
-    "comma": { "color": "#272822" }
+    "key": { "color": "#c14fac", "font_weight": "normal" },
+    "string": { "color": "#3a9c48" },
+    "number": { "color": "#a36de6" },
+    "boolean": { "color": "#a36de6", "font_weight": "bold" },
+    "null": { "color": "#a36de6" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#475569" },
+    "comma": { "color": "#475569" }
   },
   "dark": {
     "key": { "color": "#f92672", "font_weight": "normal" },
@@ -330,14 +372,14 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
             "GitHub 代码风格主题",
             r##"{
   "light": {
-    "key": { "color": "#6f42c1", "font_weight": "normal" },
-    "string": { "color": "#24292e" },
-    "number": { "color": "#005cc5" },
-    "boolean": { "color": "#005cc5", "font_weight": "bold" },
-    "null": { "color": "#005cc5" },
-    "bracket": { "color": "#24292e" },
-    "colon": { "color": "#24292e" },
-    "comma": { "color": "#24292e" }
+    "key": { "color": "#8250df", "font_weight": "normal" },
+    "string": { "color": "#0a3070" },
+    "number": { "color": "#0550ae" },
+    "boolean": { "color": "#0550ae", "font_weight": "bold" },
+    "null": { "color": "#0550ae" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#475569" },
+    "comma": { "color": "#475569" }
   },
   "dark": {
     "key": { "color": "#b392f0", "font_weight": "normal" },
@@ -351,23 +393,23 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
   }
 }"##
         ),
-        // One Dark 主题
+        // One Dark 主题 - Atom One Dark 风格，浅色主题已优化
         (
             "one_dark",
             "Atom One Dark 风格主题",
             r##"{
   "light": {
-    "key": { "color": "#e06c75", "font_weight": "normal" },
+    "key": { "color": "#e06c75" },
     "string": { "color": "#98c379" },
     "number": { "color": "#d19a66" },
     "boolean": { "color": "#56b6c2", "font_weight": "bold" },
     "null": { "color": "#56b6c2" },
-    "bracket": { "color": "#282c34" },
-    "colon": { "color": "#282c34" },
-    "comma": { "color": "#282c34" }
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#475569" },
+    "comma": { "color": "#475569" }
   },
   "dark": {
-    "key": { "color": "#e06c75", "font_weight": "normal" },
+    "key": { "color": "#e06c75" },
     "string": { "color": "#98c379" },
     "number": { "color": "#d19a66" },
     "boolean": { "color": "#56b6c2", "font_weight": "bold" },
@@ -378,23 +420,23 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
   }
 }"##
         ),
-        // Dracula 主题
+        // Dracula 主题 - 深色主题，浅色主题已优化
         (
             "dracula",
             "Dracula 深色主题",
             r##"{
   "light": {
-    "key": { "color": "#ff79c6", "font_weight": "normal" },
-    "string": { "color": "#f1fa8c" },
-    "number": { "color": "#bd93f9" },
-    "boolean": { "color": "#bd93f9", "font_weight": "bold" },
-    "null": { "color": "#bd93f9" },
-    "bracket": { "color": "#282a36" },
-    "colon": { "color": "#282a36" },
-    "comma": { "color": "#282a36" }
+    "key": { "color": "#d946a5" },
+    "string": { "color": "#6b8f06" },
+    "number": { "color": "#9063cd" },
+    "boolean": { "color": "#9063cd", "font_weight": "bold" },
+    "null": { "color": "#9063cd" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#475569" },
+    "comma": { "color": "#475569" }
   },
   "dark": {
-    "key": { "color": "#ff79c6", "font_weight": "normal" },
+    "key": { "color": "#ff79c6" },
     "string": { "color": "#f1fa8c" },
     "number": { "color": "#bd93f9" },
     "boolean": { "color": "#bd93f9", "font_weight": "bold" },
@@ -405,23 +447,23 @@ fn get_builtin_templates_sql() -> Vec<(&'static str, &'static str, &'static str)
   }
 }"##
         ),
-        // Nord 主题
+        // Nord 主题 - 冷静蓝主题，浅色主题已优化
         (
             "nord",
             "Nord 冷静蓝主题",
             r##"{
   "light": {
-    "key": { "color": "#81a1c1", "font_weight": "normal" },
+    "key": { "color": "#5e81ac" },
     "string": { "color": "#a3be8c" },
     "number": { "color": "#b48ead" },
-    "boolean": { "color": "#81a1c1", "font_weight": "bold" },
-    "null": { "color": "#81a1c1" },
-    "bracket": { "color": "#2e3440" },
-    "colon": { "color": "#2e3440" },
-    "comma": { "color": "#2e3440" }
+    "boolean": { "color": "#5e81ac", "font_weight": "bold" },
+    "null": { "color": "#5e81ac" },
+    "bracket": { "color": "#475569" },
+    "colon": { "color": "#475569" },
+    "comma": { "color": "#475569" }
   },
   "dark": {
-    "key": { "color": "#81a1c1", "font_weight": "normal" },
+    "key": { "color": "#81a1c1" },
     "string": { "color": "#a3be8c" },
     "number": { "color": "#b48ead" },
     "boolean": { "color": "#81a1c1", "font_weight": "bold" },

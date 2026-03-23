@@ -61,6 +61,22 @@ fn get_string_param(body: &Value, key: &str) -> Result<String> {
         })
 }
 
+// Helper function for long text parameters (e.g., style_json, config JSON)
+fn get_long_string_param(body: &Value, key: &str) -> Result<String> {
+    body.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
+        .and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                Err(AppError::BadRequest(format!("Parameter '{}' cannot be empty", key)))
+            } else {
+                Ok(trimmed.to_string())
+            }
+        })
+}
+
 /// 获取集群 ID 参数，带格式验证
 fn get_cluster_id_param(body: &Value) -> Result<String> {
     let cluster_id = get_string_param(body, "cluster_id")?;
@@ -3608,7 +3624,18 @@ async fn handle_json_highlight_set_current(state: AppState, body: Value) -> Resu
 async fn handle_json_highlight_create(state: AppState, body: Value) -> Result<Value> {
     let name = get_string_param(&body, "name")?;
     let description = get_string_param(&body, "description")?;
-    let style_json = get_string_param(&body, "style_json")?;
+    let style_json = get_long_string_param(&body, "style_json")?;
+
+    // 验证 style_json 是否是有效的 JSON 并包含所有必需字段
+    if let Err(e) = JsonHighlightTemplate::validate_style_json(&style_json) {
+        return Err(AppError::BadRequest(format!("模板样式验证失败：{}", e)));
+    }
+
+    // 检查是否已存在同名模板
+    let templates = JsonHighlightTemplate::get_all_templates(state.db.inner()).await?;
+    if templates.iter().any(|t| t.name == name) {
+        return Err(AppError::BadRequest(format!("模板名称 '{}' 已存在，请使用其他名称", name)));
+    }
 
     let id = JsonHighlightTemplate::save_template(
         state.db.inner(),
@@ -3625,7 +3652,7 @@ async fn handle_json_highlight_create(state: AppState, body: Value) -> Result<Va
 async fn handle_json_highlight_update(state: AppState, body: Value) -> Result<Value> {
     let id = get_i64_param(&body, "id")?;
     let description = get_string_param(&body, "description")?;
-    let style_json = get_string_param(&body, "style_json")?;
+    let style_json = get_long_string_param(&body, "style_json")?;
 
     // Get template info
     let template = JsonHighlightTemplate::get_template_by_id(state.db.inner(), id)
@@ -3635,6 +3662,11 @@ async fn handle_json_highlight_update(state: AppState, body: Value) -> Result<Va
     // Cannot update built-in templates
     if template.is_builtin {
         return Err(AppError::BadRequest("Cannot update built-in templates".to_string()));
+    }
+
+    // 验证 style_json 是否是有效的 JSON 并包含所有必需字段
+    if let Err(e) = JsonHighlightTemplate::validate_style_json(&style_json) {
+        return Err(AppError::BadRequest(format!("模板样式验证失败：{}", e)));
     }
 
     JsonHighlightTemplate::save_template(
