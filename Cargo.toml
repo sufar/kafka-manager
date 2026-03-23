@@ -51,6 +51,7 @@ moka = { version = "0.12", features = ["future"] }
 # Futures utilities
 futures = "0.3"
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # Lock-free Arc for AppState
 arc-swap = "1.7"
