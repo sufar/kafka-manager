@@ -177,12 +177,12 @@
 
     <!-- Resizer -->
     <div
-      class="w-3 h-full flex items-center justify-center bg-base-300/30 hover:bg-base-300/50 transition-all cursor-col-resize z-50 group"
-      :class="{ 'bg-base-300': isResizing }"
+      class="w-2 h-full flex items-center justify-center bg-base-content/5 hover:bg-base-content/10 transition-all cursor-col-resize z-50 group"
+      :class="{ 'bg-primary/30': isResizing }"
       @mousedown="startResize"
-      title="Drag to resize sidebar"
+      :title="t.mainLayout.dragToResize || '拖动以调整侧边栏宽度'"
     >
-      <div class="w-1 h-12 bg-base-content/30 group-hover:bg-base-content/60 group-hover:h-16 group-hover:w-1.5 rounded transition-all" :class="{ 'h-20 bg-base-content/80 w-1.5': isResizing }"></div>
+      <div class="w-px h-8 bg-base-content/20 group-hover:bg-primary/40 transition-all rounded"></div>
     </div>
 
     <!-- Main content -->

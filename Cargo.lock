@@ -2639,6 +2639,7 @@ dependencies = [
  "futures",
  "mockall",
  "moka",
+ "rand 0.8.5",
  "rdkafka",
  "reqwest 0.11.27",
  "rstest",

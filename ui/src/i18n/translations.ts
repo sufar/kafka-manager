@@ -118,7 +118,6 @@ export interface Translation {
     clusterConnectionIssue: string;
     reconnectSuccessToast: string;
     clusterDeletedToast: string;
-    byCluster: string;
     clusters: string;
   };
   topics: {
@@ -144,7 +143,6 @@ export interface Translation {
     sendMessage: string;
     deleteTopic: string;
     exportData: string;
-    allTopics: string;
     topicDetails: string;
     partitions: string;
     settings: string;
@@ -156,6 +154,8 @@ export interface Translation {
     copied: string;
     copyFailed: string;
     deletedSuccess: string;
+    noSearchResults: string;
+    clearSearch: string;
   };
   messages: {
     title: string;
@@ -325,6 +325,7 @@ export interface Translation {
     manageClusters: string;
     topics: string;
     messages: string;
+    dragToResize: string;
   };
   navigator: {
     allClusters: string;
@@ -491,7 +492,6 @@ export const translations: Record<Language, Translation> = {
       clusterConnectionIssue: '集群连接问题',
       reconnectSuccessToast: '重连成功',
       clusterDeletedToast: '集群已删除',
-      byCluster: '按集群',
       clusters: '集群',
     },
     topics: {
@@ -517,7 +517,6 @@ export const translations: Record<Language, Translation> = {
       sendMessage: '发送消息',
       deleteTopic: '删除主题',
       exportData: '导出数据',
-      allTopics: '所有主题',
       topicDetails: '主题详情',
       partitions: '分区',
       settings: '设置',
@@ -529,6 +528,8 @@ export const translations: Record<Language, Translation> = {
       copied: '已复制',
       copyFailed: '复制失败',
       deletedSuccess: '主题已删除',
+      noSearchResults: '未找到匹配的 Topic',
+      clearSearch: '清除搜索',
     },
     messages: {
       title: '消息',
@@ -698,6 +699,7 @@ export const translations: Record<Language, Translation> = {
       manageClusters: '管理集群',
       topics: '主题',
       messages: '消息',
+      dragToResize: '拖动以调整侧边栏宽度',
     },
     navigator: {
       allClusters: '所有集群',
@@ -862,7 +864,6 @@ export const translations: Record<Language, Translation> = {
       clusterConnectionIssue: 'Cluster connection issue',
       reconnectSuccessToast: 'Reconnected successfully',
       clusterDeletedToast: 'Cluster deleted',
-      byCluster: 'By Cluster',
       clusters: 'Clusters',
     },
     topics: {
@@ -888,7 +889,6 @@ export const translations: Record<Language, Translation> = {
       sendMessage: 'Send Message',
       deleteTopic: 'Delete Topic',
       exportData: 'Export Data',
-      allTopics: 'All Topics',
       topicDetails: 'Topic Details',
       partitions: 'Partitions',
       settings: 'Settings',
@@ -900,6 +900,8 @@ export const translations: Record<Language, Translation> = {
       copied: 'Copied',
       copyFailed: 'Copy failed',
       deletedSuccess: 'Topic deleted successfully',
+      noSearchResults: 'No matching topics found',
+      clearSearch: 'Clear Search',
     },
     messages: {
       title: 'Messages',
@@ -1069,6 +1071,7 @@ export const translations: Record<Language, Translation> = {
       manageClusters: 'Manage Clusters',
       topics: 'Topics',
       messages: 'Messages',
+      dragToResize: 'Drag to resize sidebar',
     },
     navigator: {
       allClusters: 'All Clusters',

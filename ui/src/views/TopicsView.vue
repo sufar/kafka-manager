@@ -17,25 +17,9 @@
         </div>
         <div class="flex flex-wrap gap-2">
           <button
-            v-if="!clusterParam && selectedClusterIds.length > 0"
-            class="btn btn-xs"
-            :class="viewMode === 'by-cluster' ? 'btn-primary' : 'btn-outline'"
-            @click="viewMode = 'by-cluster'"
-          >
-            {{ t.clusters.byCluster }}
-          </button>
-          <button
-            v-if="!clusterParam && selectedClusterIds.length > 0"
-            class="btn btn-xs"
-            :class="viewMode === 'all-topics' ? 'btn-primary' : 'btn-outline'"
-            @click="viewMode = 'all-topics'"
-          >
-            {{ t.topics.allTopics }}
-          </button>
-          <button
             class="btn btn-xs btn-outline"
             @click="refreshAllTopics"
-            :disabled="refreshing || selectedClusterIds.length === 0"
+            :disabled="refreshing || !clusterParam"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -45,7 +29,7 @@
           <button
             class="btn btn-xs btn-primary"
             @click="openCreateTopicDialog"
-            :disabled="!clusterParam && selectedClusterIds.length !== 1"
+            :disabled="!clusterParam"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -68,14 +52,35 @@
     </div>
 
     <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && !filteredClusterTopics.length && !loading" class="flex flex-col items-center justify-center py-8 text-center">
-      <div class="text-base-content/30 mb-4">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-        </svg>
+    <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl">
+      <!-- Search Bar -->
+      <div class="p-3 bg-base-100">
+        <div class="relative w-full">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t.common.search"
+            class="input input-bordered w-full pl-10"
+          />
+        </div>
       </div>
-      <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
-      <p class="text-base-content/60 mb-4 text-sm">{{ t.topics.description }}</p>
+      <!-- 搜索无结果或真正无数据 -->
+      <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div class="text-base-content/30 mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">{{ searchQuery ? t.topics.noSearchResults : t.common.noData }}</h3>
+        <p class="text-base-content/60 mb-4 text-sm">
+          <span v-if="searchQuery">{{ t.common.search }}: "{{ searchQuery }}"</span>
+          <span v-else>{{ t.topics.description }}</span>
+        </p>
+        <button v-if="searchQuery" class="btn btn-sm btn-outline" @click="searchQuery = ''">{{ t.topics.clearSearch }}</button>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -174,199 +179,11 @@
       </div>
     </div>
 
-    <!-- View by cluster mode -->
-    <template v-else-if="viewMode === 'by-cluster'">
-      <!-- Search Bar -->
-      <div class="mb-4">
-        <div class="relative">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Search topics..."
-            class="input input-bordered w-full max-w-md pl-10"
-          />
-        </div>
-      </div>
-      <div v-for="(clusterTopics, clusterName) in filteredTopicsByCluster" :key="clusterName" class="mb-8">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <div
-              class="w-2 h-2 rounded-full"
-              :class="[
-                clusterHealthCache[clusterName]?.healthy ? 'bg-success animate-pulse' : 'bg-error'
-              ]"
-            ></div>
-            <h3 class="text-lg font-semibold">{{ clusterName }}</h3>
-            <span class="text-sm text-base-content/60">{{ clusterTopics.length }} topics</span>
-          </div>
-          <div class="flex gap-2">
-            <button
-              v-if="clusterTopics.length > 0"
-              class="btn btn-outline btn-xs"
-              @click="currentCluster = clusterName; viewAllTopics(clusterTopics)"
-            >
-              {{ t.common.refresh }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="clusterTopics.length === 0" class="card glass gradient-border">
-          <p class="text-base-content/60 text-center p-8">{{ t.common.noData }}</p>
-        </div>
-        <div v-else class="card glass gradient-border">
-          <!-- 表头 - 固定在容器外部 -->
-          <div class="bg-base-100 border-b border-base-200">
-            <table class="table w-full">
-              <thead>
-                <tr>
-                  <th class="p-2">
-                    <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
-                  </th>
-                  <th class="p-2 text-right pr-4">{{ t.common.actions }}</th>
-                </tr>
-              </thead>
-            </table>
-          </div>
-          <!-- 表格内容 - 滚动 -->
-          <div
-            class="overflow-y-auto"
-            :ref="(el: Element | ComponentPublicInstance | null) => setClusterContainerRef(el as HTMLElement | null, clusterName)"
-            @scroll="(e: Event) => handleClusterScroll(e, clusterName)"
-            style="max-height: calc(100vh - 350px);"
-          >
-            <table class="table w-full">
-              <tbody>
-                <template v-if="(visibleClusterTopicsMap[clusterName] || []).length > 0">
-                  <!-- 虚拟滚动：顶部占位 -->
-                  <tr v-if="getClusterVirtualStartIndex(clusterName) > 0" :style="{ height: getClusterVirtualStartIndex(clusterName) * ROW_HEIGHT + 'px' }">
-                    <td colspan="2" style="padding: 0; border: 0;"></td>
-                  </tr>
-                  <tr v-for="topic in visibleClusterTopicsMap[clusterName]" :key="topic.name" @dblclick="selectTopicInTree(clusterName, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
-                    <td>
-                      <div class="flex items-center gap-2">
-                        <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
-                          </svg>
-                        </div>
-                        <FavoriteButton
-                          :cluster-id="clusterName"
-                          :topic-name="topic.name"
-                          :t="t"
-                          :favorite-cache="favoriteCache"
-                          @change="handleFavoriteChange(clusterName, topic.name, $event)"
-                        />
-                        <span class="font-medium text-sm">{{ topic.name }}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div class="flex justify-end gap-0.5">
-                        <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(clusterName, topic.name)">{{ t.common.delete }}</button>
-                      </div>
-                    </td>
-                  </tr>
-                </template>
-                <template v-else>
-                  <!-- 虚拟滚动：底部占位 -->
-                  <tr v-if="getClusterBottomPadding(clusterName) > 0" :style="{ height: getClusterBottomPadding(clusterName) + 'px' }">
-                    <td colspan="2" style="padding: 0; border: 0;"></td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- All topics mode (consolidated) -->
-    <template v-else>
-      <!-- Search Bar -->
-      <div class="mb-4">
-        <div class="relative">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            :placeholder="t.common.search"
-            class="input input-bordered w-full max-w-md pl-10"
-          />
-        </div>
-      </div>
-      <div v-if="filteredAllTopicsList.length === 0" class="flex flex-col items-center justify-center py-12 text-center">
-        <div class="text-base-content/30 mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-          </svg>
-        </div>
-        <h3 class="text-lg font-semibold mb-2">{{ t.common.noData }}</h3>
-        <p class="text-base-content/60 mb-4">{{ t.topics.description }}</p>
-      </div>
-
-      <div v-else class="card bg-base-200">
-        <!-- 表头 - 固定在容器外部 -->
-        <div class="bg-base-200 border-b border-base-300">
-          <table class="table w-full">
-            <thead>
-              <tr>
-                <th class="p-2">
-                  <span class="text-sm font-semibold">{{ t.clusters.clusters }}</span>
-                </th>
-                <th class="p-2">
-                  <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
-                </th>
-                <th class="p-2 text-right pr-4">{{ t.common.actions }}</th>
-              </tr>
-            </thead>
-          </table>
-        </div>
-        <!-- 表格内容 - 滚动 -->
-        <div ref="containerRef" class="overflow-y-auto" @scroll="handleScroll" style="max-height: calc(100vh - 310px);">
-          <table class="table w-full">
-            <tbody>
-              <!-- 虚拟滚动：顶部占位 -->
-              <tr v-if="allTopicsVirtualStartIndex > 0" :style="{ height: allTopicsVirtualStartIndex * ROW_HEIGHT + 'px' }">
-                <td colspan="3" style="padding: 0; border: 0;"></td>
-              </tr>
-              <!-- 可见区域的行 -->
-              <tr v-for="item in visibleTopics" :key="`${item.cluster}-${item.name}`" @dblclick="selectTopicInTree(item.cluster, item)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px` }">
-                <td>
-                  <div class="flex items-center gap-2">
-                    <div
-                      class="w-2 h-2 rounded-full"
-                      :class="[
-                        getClusterHealth(item.cluster)?.healthy ? 'bg-success animate-pulse' : 'bg-error'
-                      ]"
-                    ></div>
-                    <span class="font-medium text-sm">{{ item.cluster }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="flex items-center gap-2">
-                    <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
-                      </svg>
-                    </div>
-                    <span class="font-medium text-sm">{{ item.name }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="flex justify-end gap-0.5">
-                    <button class="btn btn-ghost btn-xs text-error" @click="confirmDelete(item.cluster, item.name)">{{ t.common.delete }}</button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </template>
+    <!-- Loading state -->
+    <div v-else-if="loading" class="flex justify-center py-8">
+      <span class="loading loading-spinner loading-md text-primary"></span>
+      <p class="ml-4 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
+    </div>
 
     <!-- Create Topic Dialog -->
     <Teleport to="body">
@@ -620,7 +437,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, type ComponentPublicInstance } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute, onBeforeRouteUpdate } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
@@ -657,20 +474,16 @@ const searchParam = computed(() => {
   return Array.isArray(val) ? val[0] : (val || '');
 });
 
-const viewMode = ref<'by-cluster' | 'all-topics'>('by-cluster');
 const loading = ref(false);
 const error = ref<string | null>(null);
 const refreshing = ref(false);
 const searchQuery = ref('');
 
 const topicsByCluster = ref<Record<string, TopicItem[]>>({});
-const allTopicsList = ref<TopicItem[]>([]);
 const clusterTopics = ref<TopicItem[]>([]);
 
 // Favorite cache: Set of "clusterId-topicName" keys
 const favoriteCache = ref<Set<string>>(new Set());
-
-const currentCluster = ref<string>('');
 
 // Create Topic Dialog
 const createTopicDialogRef = ref<HTMLDialogElement>();
@@ -700,13 +513,6 @@ const newTopic = reactive({
 // 虚拟滚动相关
 const ROW_HEIGHT = 40; // 每行高度（像素）
 const VISIBLE_OFFSET = 5; // 额外渲染的行数（减少以优化性能）
-const containerRef = ref<HTMLElement | null>(null); // used in template
-void containerRef; // prevent ts-unused warning
-const clusterContainerRefs = ref<Record<string, HTMLElement | null>>({});
-const scrollTop = ref(0);
-const containerHeight = ref(0);
-const clusterScrollTops = ref<Record<string, number>>({});
-const clusterContainerHeights = ref<Record<string, number>>({});
 
 // Single cluster 模式虚拟滚动
 const singleClusterContainerRef = ref<HTMLElement | null>(null);
@@ -714,53 +520,12 @@ void singleClusterContainerRef; // prevent ts-unused warning
 const singleClusterScrollTop = ref(0);
 const singleClusterContainerHeight = ref(0);
 
-function handleScroll(event: Event) {
-  const target = event.target as HTMLElement;
-  if (!target) return;
-  scrollTop.value = target.scrollTop;
-  containerHeight.value = target.clientHeight;
-}
-
 function handleSingleClusterScroll(event: Event) {
   const target = event.target as HTMLElement;
   if (!target) return;
   singleClusterScrollTop.value = target.scrollTop;
   singleClusterContainerHeight.value = target.clientHeight;
 }
-
-function handleClusterScroll(event: Event, clusterName: string) {
-  const target = event.target as HTMLElement;
-  if (!target) return;
-  clusterScrollTops.value[clusterName] = target.scrollTop;
-  clusterContainerHeights.value[clusterName] = target.clientHeight;
-}
-
-function setClusterContainerRef(el: HTMLElement | null, clusterName: string) {
-  if (clusterName) {
-    clusterContainerRefs.value[clusterName] = el;
-  }
-}
-
-// 计算可见的行（all-topics 模式）
-const allTopicsVirtualStartIndex = computed(() => {
-  const allTopics = filteredAllTopicsList.value;
-  if (!allTopics.length) return 0;
-  return Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - VISIBLE_OFFSET);
-});
-
-const visibleTopics = computed(() => {
-  const allTopics = filteredAllTopicsList.value;
-  if (!allTopics.length) return [];
-
-  const startIndex = allTopicsVirtualStartIndex.value;
-  const containerH = containerHeight.value || 600;
-  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-  const endIndex = Math.min(allTopics.length, startIndex + visibleCount);
-
-  return allTopics.slice(startIndex, endIndex);
-});
-
-// 计算底部占位高度（all-topics 模式） - 已移除，改用顶部占位行
 
 // Single cluster 模式虚拟滚动
 const singleClusterVirtualStartIndex = computed(() => {
@@ -780,60 +545,6 @@ const singleClusterVisibleTopics = computed(() => {
   return allTopics.slice(startIndex, endIndex);
 });
 
-// 集群健康状态缓存（避免频繁调用）
-const clusterHealthCache = computed(() => {
-  const result: Record<string, { healthy: boolean }> = {};
-  for (const clusterName of Object.keys(topicsByCluster.value)) {
-    const health = clusterStore.getClusterHealth(clusterName);
-    result[clusterName] = { healthy: health?.healthy ?? false };
-  }
-  return result;
-});
-
-// 可见的集群主题列表（computed 缓存，按集群名称）
-const visibleClusterTopicsMap = computed(() => {
-  const result: Record<string, TopicItem[]> = {};
-  for (const [clusterName, clusterTopics] of Object.entries(filteredTopicsByCluster.value)) {
-    if (!clusterTopics.length) {
-      result[clusterName] = [];
-      continue;
-    }
-    const scrollY = clusterScrollTops.value[clusterName] || 0;
-    const containerH = clusterContainerHeights.value[clusterName] || 600;
-    const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-    const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-    const endIndex = Math.min(clusterTopics.length, startIndex + visibleCount);
-    result[clusterName] = clusterTopics.slice(startIndex, endIndex);
-  }
-  return result;
-});
-
-// 获取集群虚拟滚动起始索引（用于模板）
-function getClusterVirtualStartIndex(clusterName: string): number {
-  const topics = filteredTopicsByCluster.value[clusterName];
-  if (!topics?.length) return 0;
-  const scrollY = clusterScrollTops.value[clusterName] || 0;
-  return Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-}
-
-// 获取集群底部占位高度（用于模板）
-function getClusterBottomPadding(clusterName: string): number {
-  const topics = filteredTopicsByCluster.value[clusterName];
-  if (!topics?.length) return 0;
-  const scrollY = clusterScrollTops.value[clusterName] || 0;
-  const containerH = clusterContainerHeights.value[clusterName] || 600;
-  const startIndex = Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - VISIBLE_OFFSET);
-  const visibleCount = Math.ceil(containerH / ROW_HEIGHT) + VISIBLE_OFFSET * 2;
-  const endIndex = Math.min(topics.length, startIndex + visibleCount);
-  const visibleTopics = topics.slice(startIndex, endIndex);
-  if (visibleTopics.length === 0) return 0;
-  return Math.max(0, topics.length - startIndex - visibleTopics.length) * ROW_HEIGHT;
-}
-
-function getClusterHealth(clusterId: string) {
-  return clusterStore.getClusterHealth(clusterId);
-}
-
 // Filtered topics based on search query (使用防抖优化)
 const searchQueryDebounced = ref('');
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -845,44 +556,9 @@ watch(searchQuery, (newVal) => {
   }, 150); // 150ms 防抖
 });
 
-const filteredTopicsByCluster = computed(() => {
-  if (!searchQueryDebounced.value) return topicsByCluster.value;
-
-  const query = searchQueryDebounced.value.toLowerCase();
-  const filtered: Record<string, TopicItem[]> = {};
-
-  for (const [clusterName, topics] of Object.entries(topicsByCluster.value)) {
-    // 使用更高效的搜索方式
-    const filteredTopics = [];
-    for (const topic of topics) {
-      if (topic.name.toLowerCase().includes(query)) {
-        filteredTopics.push(topic);
-      }
-      // 限制每个集群的搜索结果数量，避免渲染过多
-      if (filteredTopics.length >= 100) break;
-    }
-    if (filteredTopics.length > 0) {
-      filtered[clusterName] = filteredTopics;
-    }
-  }
-
-  return filtered;
-});
-
-const filteredAllTopicsList = computed(() => {
-  if (!searchQueryDebounced.value) return allTopicsList.value;
-
-  const query = searchQueryDebounced.value.toLowerCase();
-  const result = [];
-  for (const topic of allTopicsList.value) {
-    if (topic.name.toLowerCase().includes(query)) {
-      result.push(topic);
-    }
-    // 限制搜索结果数量
-    if (result.length >= 200) break;
-  }
-  return result;
-});
+function getClusterHealth(clusterId: string) {
+  return clusterStore.getClusterHealth(clusterId);
+}
 
 const filteredClusterTopics = computed(() => {
   if (!searchQueryDebounced.value) return clusterTopics.value;
@@ -894,9 +570,6 @@ const filteredClusterTopics = computed(() => {
 });
 
 onBeforeRouteUpdate((to) => {
-  if (to.query.cluster) {
-    fetchTopics();
-  }
   // 处理 search 参数变化
   const searchVal = Array.isArray(to.query.search) ? to.query.search[0] : (to.query.search || '');
   if (searchVal) {
@@ -906,11 +579,9 @@ onBeforeRouteUpdate((to) => {
   }
 });
 
-// 使用 watch 替代 watchEffect，精确监听特定依赖
-watch([clusterParam, selectedClusterIds], ([newClusterParam, newSelectedClusterIds]) => {
+// 使用 watch 替代 watchEffect，精确监听 clusterParam 变化
+watch(clusterParam, (newClusterParam) => {
   if (newClusterParam) {
-    fetchTopics();
-  } else if (newSelectedClusterIds.length > 0) {
     fetchTopics();
   }
 }, { immediate: true });
@@ -919,87 +590,27 @@ async function fetchTopics() {
   loading.value = true;
   error.value = null;
 
-  if (clusterParam.value) {
-    try {
-      const topicNames = await apiClient.getTopics(clusterParam.value);
-      clusterTopics.value = topicNames.map((name) => ({
-        name,
-        cluster: clusterParam.value as string,
-        partition_count: undefined,
-      }));
-      topicsByCluster.value = {};
-      allTopicsList.value = [];
-      // Fetch favorites
-      await fetchFavorites();
-    } catch (e) {
-      console.error('[TopicsView] Error fetching topics:', e);
-      error.value = (e as { message: string }).message || 'Failed to load topics';
-    } finally {
-      loading.value = false;
-    }
-    return;
-  }
-
-  if (selectedClusterIds.value.length === 0) {
+  if (!clusterParam.value) {
     loading.value = false;
     return;
   }
 
-  // When multiple clusters are selected (no specific clusterParam), call API without cluster_id to get all topics
-  if (selectedClusterIds.value.length > 1) {
-    try {
-      const topicNames = await apiClient.getTopics();
-      // For all topics view without cluster filter, we use empty string as cluster placeholder
-      allTopicsList.value = topicNames.map((name) => ({
-        name,
-        cluster: '',
-        partition_count: undefined,
-      }));
-      topicsByCluster.value = {};
-      clusterTopics.value = [];
-      // Fetch favorites for all selected clusters
-      await fetchFavorites();
-    } catch (e) {
-      console.error('[TopicsView] Error fetching all topics:', e);
-      error.value = (e as { message: string }).message || 'Failed to load topics';
-    } finally {
-      loading.value = false;
-    }
-    return;
-  }
-
-  // Only one cluster selected - fetch from that cluster
-  topicsByCluster.value = {};
-  allTopicsList.value = [];
-
   try {
-    const clusterId = selectedClusterIds.value[0];
-    const topicNames = await apiClient.getTopics(clusterId);
-    const topics: TopicItem[] = topicNames.map((name) => ({
+    const topicNames = await apiClient.getTopics(clusterParam.value);
+    clusterTopics.value = topicNames.map((name) => ({
       name,
-      cluster: clusterId || '',
+      cluster: clusterParam.value as string,
       partition_count: undefined,
     }));
-    topicsByCluster.value[clusterId || ''] = topics;
-    updateAllTopicsList();
+    topicsByCluster.value = {};
     // Fetch favorites
     await fetchFavorites();
   } catch (e) {
+    console.error('[TopicsView] Error fetching topics:', e);
     error.value = (e as { message: string }).message || 'Failed to load topics';
   } finally {
     loading.value = false;
   }
-}
-
-function updateAllTopicsList() {
-  allTopicsList.value = Object.entries(topicsByCluster.value).flatMap(([cluster, topics]) =>
-    topics.map((t) => ({ ...t, cluster }))
-  );
-}
-
-function viewAllTopics(topics: TopicItem[]) {
-  currentCluster.value = topics[0]?.cluster || '';
-  viewMode.value = 'all-topics';
 }
 
 // 双击 Topic 时触发：通知父组件展开并选中左侧树中的对应 Topic
@@ -1064,16 +675,13 @@ async function handleDeleteTopic() {
 }
 
 async function refreshAllTopics() {
-  if (selectedClusterIds.value.length === 0) return;
+  if (!clusterParam.value) return;
 
   refreshing.value = true;
   try {
-    const promises = selectedClusterIds.value.map((clusterId) =>
-      apiClient.refreshTopics(clusterId).catch(() => {})
-    );
-    await Promise.all(promises);
+    await apiClient.refreshTopics(clusterParam.value).catch(() => {});
 
-    // 等待后台同步完成（异步刷新现在立即返回，需要等待一下）
+    // 等待后台同步完成
     await new Promise(resolve => setTimeout(resolve, 500));
 
     await fetchTopics();
@@ -1106,12 +714,12 @@ function closeCreateTopicDialog() {
 }
 
 async function handleCreateTopic() {
-  if (!clusterParam.value && selectedClusterIds.value.length !== 1) {
+  if (!clusterParam.value) {
     showError('Please select a cluster first');
     return;
   }
 
-  const clusterId = clusterParam.value || selectedClusterIds.value[0];
+  const clusterId = clusterParam.value;
   if (!clusterId) {
     showError('Cluster ID is required');
     return;
@@ -1199,23 +807,46 @@ async function handleCreateTopic() {
 }
 
 // Fetch favorites in batch and populate the cache
+const favoritesCacheTime = 5 * 60 * 1000; // 5 分钟缓存
+let lastFavoritesFetchTime = 0;
+let favoritesFetchPromise: Promise<void> | null = null;
+
 async function fetchFavorites() {
-  try {
-    const groups = await apiClient.getFavorites();
-
-    // Always fetch all favorites and cache them
-    const newCache = new Set<string>();
-
-    for (const group of groups) {
-      for (const item of group.items) {
-        newCache.add(`${item.cluster_id}-${item.topic_name}`);
-      }
-    }
-
-    favoriteCache.value = newCache;
-  } catch (e) {
-    console.error('[TopicsView] Error fetching favorites:', e);
+  // 如果正在请求中，等待完成
+  if (favoritesFetchPromise) {
+    return favoritesFetchPromise;
   }
+
+  // 如果缓存未过期，使用缓存
+  const now = Date.now();
+  if (now - lastFavoritesFetchTime < favoritesCacheTime) {
+    return;
+  }
+
+  favoritesFetchPromise = (async () => {
+    try {
+      const groups = await apiClient.getFavorites();
+
+      // Always fetch all favorites and cache them
+      const newCache = new Set<string>();
+
+      for (const group of groups) {
+        for (const item of group.items) {
+          newCache.add(`${item.cluster_id}-${item.topic_name}`);
+        }
+      }
+
+      favoriteCache.value = newCache;
+      lastFavoritesFetchTime = Date.now();
+    } catch (e) {
+      console.error('[TopicsView] Error fetching favorites:', e);
+      // 超时等错误不阻断主流程
+    } finally {
+      favoritesFetchPromise = null;
+    }
+  })();
+
+  return favoritesFetchPromise;
 }
 
 // Handle favorite change event to update cache

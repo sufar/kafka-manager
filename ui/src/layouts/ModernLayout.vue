@@ -275,9 +275,13 @@
       <div
         v-if="!isMobile"
         ref="resizerRef"
-        class="resizer w-px cursor-col-resize hover:w-1.5 hover:bg-primary/50 transition-all z-50 flex-shrink-0"
+        class="resizer w-1 cursor-col-resize bg-base-content/5 hover:bg-base-content/10 transition-all z-50 flex-shrink-0 group flex items-center justify-center"
         @mousedown="startResize"
-      ></div>
+        :title="t.mainLayout.dragToResize || '拖动以调整侧边栏宽度'"
+      >
+        <!-- 拖动指示器 -->
+        <div class="w-px h-8 bg-base-content/20 group-hover:bg-primary/40 transition-all rounded"></div>
+      </div>
 
       <!-- Main Content -->
       <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl">
