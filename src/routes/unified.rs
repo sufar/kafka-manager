@@ -4346,18 +4346,15 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
         // 从 Kafka 集群获取当前 Consumer Group 列表
         let current_groups = cg_manager.list_consumer_groups()?;
 
-        // 获取每个 group 的 topic 信息（使用数据库中已保存的 topics）
-        let mut group_details = Vec::new();
-        for group in &current_groups {
-            let topics = topics_map.get(group).cloned().unwrap_or_default();
-
-            if let Ok(info) = cg_manager.get_consumer_group_info(group, &topics) {
-                group_details.push((group.clone(), info.topics));
-            } else {
-                // 如果 Kafka 查询失败，使用数据库中的 topics
-                group_details.push((group.clone(), topics));
-            }
-        }
+        // 对于大量 consumer groups，直接使用数据库中的 topics，不再逐个查询 Kafka
+        // 这样可以显著提高性能（从几分钟降低到几秒）
+        let group_details: Vec<(String, Vec<String>)> = current_groups
+            .iter()
+            .map(|group| {
+                let topics = topics_map.get(group).cloned().unwrap_or_default();
+                (group.clone(), topics)
+            })
+            .collect();
 
         Ok((current_groups, group_details))
     })
@@ -4367,7 +4364,7 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // 同步到数据库
     let sync_result = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &current_groups).await?;
 
-    // 更新新增 group 的详细信息
+    // 批量更新新增 group 的详细信息
     for (group_name, topics) in group_details {
         let _ = ConsumerGroupStore::upsert(state.db.inner(), &cluster_id, &group_name, &topics).await;
     }

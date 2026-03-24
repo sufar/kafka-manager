@@ -454,11 +454,17 @@ const uniqueTopics = computed(() => {
 });
 
 // Watch for group parameter to show detail view
-watch([() => groupParam.value, () => clusterParam.value], ([newGroup, newCluster]) => {
-  if (newGroup && newCluster) {
+watch([() => groupParam.value, () => clusterParam.value, () => route.path], ([newGroup, newCluster, newPath], [oldGroup, oldCluster, oldPath]) => {
+  console.log('[ConsumerGroupsView] Watch triggered:', { newGroup, newCluster, newPath, oldGroup, oldCluster, oldPath, detailView: detailView.value });
+
+  if (newGroup && newCluster && newPath === '/consumer-groups') {
     detailView.value = true;
     currentGroup.value = newGroup;
     loadConsumerGroupDetail();
+  } else if (newPath === '/consumer-groups' && clusterParam.value && !groupParam.value) {
+    detailView.value = false;
+    console.log('[ConsumerGroupsView] Loading consumer groups list');
+    fetchConsumerGroups();
   } else {
     detailView.value = false;
   }
@@ -501,6 +507,7 @@ async function loadOffsets() {
 }
 
 async function fetchConsumerGroups() {
+  console.log('[ConsumerGroupsView] fetchConsumerGroups called', { clusterParam: clusterParam.value });
   loading.value = true;
   error.value = null;
 
@@ -512,6 +519,7 @@ async function fetchConsumerGroups() {
   try {
     // Use consumer_group.list API to get groups with topics information
     const result = await apiClient.getConsumerGroupsList([clusterParam.value]);
+    console.log('[ConsumerGroupsView] fetchConsumerGroups result:', result);
     consumerGroups.value = result.groups.map((g) => ({
       name: g.group_name,
       cluster: g.cluster_id,
@@ -720,8 +728,14 @@ function formatTime(timeStr?: string): string {
 }
 
 onMounted(() => {
+  console.log('[ConsumerGroupsView] onMounted', { clusterParam: clusterParam.value, groupParam: groupParam.value, path: route.path });
   if (containerRef.value) {
     containerHeight.value = containerRef.value.clientHeight || 400;
+  }
+  // Load consumer groups on mount if cluster is selected and not in detail view
+  if (clusterParam.value && !groupParam.value && route.path === '/consumer-groups') {
+    console.log('[ConsumerGroupsView] Fetching consumer groups on mount');
+    fetchConsumerGroups();
   }
 });
 </script>

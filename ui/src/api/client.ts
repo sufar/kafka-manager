@@ -470,7 +470,7 @@ class ApiClient {
   }
 
   async getConsumerGroupInfo(clusterId: string, groupName: string): Promise<{ name: string; cluster: string; topics: string[]; state: string }> {
-    return this.request('consumer_group.get', { cluster_id: clusterId, group: groupName });
+    return this.request('consumer_group.get', { cluster_id: clusterId, group_name: groupName });
   }
 
   async getConsumerGroupOffsets(clusterId: string, groupName: string): Promise<Array<{
@@ -488,7 +488,7 @@ class ApiClient {
       end_offset: number;
       committed_offset: number;
       lag: number;
-    }> }>('consumer_group.offsets', { cluster_id: clusterId, group: groupName });
+    }> }>('consumer_group.offsets', { cluster_id: clusterId, group_name: groupName });
     return data.offsets || [];
   }
 
