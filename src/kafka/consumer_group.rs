@@ -42,19 +42,24 @@ impl KafkaConsumerGroupManager {
 
     /// 列出所有 Consumer Groups
     pub fn list_consumer_groups(&self) -> Result<Vec<String>> {
-        // 注意：rdkafka Rust 绑定不直接支持列出 consumer groups
-        // 这里创建一个临时消费者来获取
+        // 使用 rdkafka 的 fetch_group_list API 获取所有 consumer groups
+        // 创建一个临时的 client 来获取 group 列表
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
         client_config.set("group.id", "kafka-manager-temp-group");
         client_config.set("enable.auto.commit", "false");
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        // 使用 rdkafka 的 list_groups 方法（通过底层 client）
-        // 由于 API 限制，这里返回空列表，实际使用中需要其他方式获取
-        // TODO: 使用 Kafka Admin API 或命令行工具获取
-        let _ = consumer;
-        Ok(vec![])
+        // 使用 fetch_group_list API，None 表示获取所有组
+        let group_list = consumer.fetch_group_list(None, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
+
+        let groups = group_list.groups()
+            .iter()
+            .map(|g| g.name().to_string())
+            .collect();
+
+        Ok(groups)
     }
 
     /// 获取 Consumer Group 详情
