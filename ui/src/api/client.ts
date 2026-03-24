@@ -511,12 +511,22 @@ class ApiClient {
     return data.offsets || [];
   }
 
-  async resetConsumerGroupOffset(clusterId: string, groupName: string, topic: string, partition: number, offset: number): Promise<void> {
+  async resetConsumerGroupOffset(
+    clusterId: string,
+    groupName: string,
+    topic: string,
+    partition: number,
+    resetTo: 'earliest' | 'latest' | 'offset' | 'timestamp',
+    timestamp?: number,
+    offset?: number
+  ): Promise<void> {
     return this.request('consumer_group.reset_offset', {
       cluster_id: clusterId,
       group: groupName,
       topic,
       partition,
+      reset_to: resetTo,
+      timestamp,
       offset
     });
   }

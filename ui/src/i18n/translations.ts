@@ -268,6 +268,23 @@ export interface Translation {
     noData: string;
     emptyHelp: string;
     refreshed: string;
+    deleteGroup: string;
+    deleted: string;
+    offsets: string;
+    topic: string;
+    partition: string;
+    startOffset: string;
+    endOffset: string;
+    committedOffset: string;
+    lastCommit: string;
+    selectTopic: string;
+    resetTo: string;
+    earliest: string;
+    latest: string;
+    specificOffset: string;
+    offsetValue: string;
+    timestampValue: string;
+    noOffsets: string;
   };
   settings: {
     title: string;
@@ -669,6 +686,23 @@ export const translations: Record<Language, Translation> = {
       noData: '暂无消费者组',
       emptyHelp: '点击上方刷新按钮从 Kafka 集群同步消费者组',
       refreshed: '消费者组已刷新',
+      deleteGroup: '删除消费者组',
+      deleted: '消费者组已删除',
+      offsets: '偏移量详情',
+      topic: '主题',
+      partition: '分区',
+      startOffset: '起始偏移',
+      endOffset: '结束偏移',
+      committedOffset: '已提交偏移',
+      lastCommit: '最后提交时间',
+      selectTopic: '选择主题',
+      resetTo: '重置到',
+      earliest: '最早 (earliest)',
+      latest: '最新 (latest)',
+      specificOffset: '指定偏移 (offset)',
+      offsetValue: '偏移值',
+      timestampValue: '时间戳',
+      noOffsets: '暂无偏移量数据',
     },
     settings: {
       title: '设置',
@@ -1068,6 +1102,23 @@ export const translations: Record<Language, Translation> = {
       noData: 'No consumer groups',
       emptyHelp: 'Click the refresh button above to sync consumer groups from the Kafka cluster',
       refreshed: 'Consumer groups refreshed',
+      deleteGroup: 'Delete Group',
+      deleted: 'Consumer group deleted',
+      offsets: 'Offset Details',
+      topic: 'Topic',
+      partition: 'Partition',
+      startOffset: 'Start Offset',
+      endOffset: 'End Offset',
+      committedOffset: 'Committed Offset',
+      lastCommit: 'Last Commit',
+      selectTopic: 'Select Topic',
+      resetTo: 'Reset To',
+      earliest: 'Earliest',
+      latest: 'Latest',
+      specificOffset: 'Specific Offset',
+      offsetValue: 'Offset Value',
+      timestampValue: 'Timestamp',
+      noOffsets: 'No offset data available',
     },
     settings: {
       title: 'Settings',

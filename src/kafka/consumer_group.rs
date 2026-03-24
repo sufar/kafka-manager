@@ -160,7 +160,7 @@ impl KafkaConsumerGroupManager {
         topic: &str,
         partition: i32,
         offset: i64,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
@@ -174,7 +174,7 @@ impl KafkaConsumerGroupManager {
         // 提交 offset
         consumer.commit(&tpl, CommitMode::Sync)?;
 
-        Ok(())
+        Ok(offset)
     }
 
     /// 重置 Consumer Group 的 offset 到最早

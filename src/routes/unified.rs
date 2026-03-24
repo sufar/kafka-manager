@@ -4551,8 +4551,9 @@ async fn handle_consumer_group_reset_offset(state: AppState, body: Value) -> Res
     let group_name = get_string_param(&body, "group_name")?;
     let topic = get_string_param(&body, "topic")?;
     let partition = get_i32_param(&body, "partition")?;
-    let reset_to = get_string_param(&body, "reset_to")?;  // "earliest", "latest", or "timestamp"
+    let reset_to = get_string_param(&body, "reset_to")?;  // "earliest", "latest", "offset", or "timestamp"
     let timestamp = get_optional_i64_param(&body, "timestamp");
+    let offset = get_optional_i64_param(&body, "offset");
 
     // 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
@@ -4564,11 +4565,15 @@ async fn handle_consumer_group_reset_offset(state: AppState, body: Value) -> Res
         match reset_to.as_str() {
             "earliest" => cg_manager.reset_consumer_group_offset_to_earliest(&group_name, &topic, partition),
             "latest" => cg_manager.reset_consumer_group_offset_to_latest(&group_name, &topic, partition),
+            "offset" => {
+                let off = offset.ok_or_else(|| AppError::BadRequest("offset is required when reset_to is 'offset'".to_string()))?;
+                cg_manager.reset_consumer_group_offset(&group_name, &topic, partition, off)
+            }
             "timestamp" => {
                 let ts = timestamp.ok_or_else(|| AppError::BadRequest("timestamp is required when reset_to is 'timestamp'".to_string()))?;
                 cg_manager.reset_consumer_group_offset_to_timestamp(&group_name, &topic, partition, ts)
             }
-            _ => Err(AppError::BadRequest(format!("Invalid reset_to value: {}. Must be 'earliest', 'latest', or 'timestamp'", reset_to))),
+            _ => Err(AppError::BadRequest(format!("Invalid reset_to value: {}. Must be 'earliest', 'latest', 'offset', or 'timestamp'", reset_to))),
         }
     })
     .await
