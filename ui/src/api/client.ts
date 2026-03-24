@@ -408,6 +408,45 @@ class ApiClient {
   }
 
   // ==================== Consumer Groups ====================
+  /**
+   * Get consumer groups list with topics information from database
+   * Returns paginated results with total, offset, limit, and has_more
+   */
+  async getConsumerGroupsList(clusterIds?: string[], offset: number = 0, limit: number = 10000): Promise<{
+    groups: Array<{
+      id: number;
+      cluster_id: string;
+      group_name: string;
+      topics: string[];
+      fetched_at: string;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+  }> {
+    const params: any = { offset, limit };
+    if (clusterIds) {
+      params.cluster_ids = clusterIds;
+    }
+    return await this.request<{
+      groups: Array<{
+        id: number;
+        cluster_id: string;
+        group_name: string;
+        topics: string[];
+        fetched_at: string;
+      }>;
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>('consumer_group.list', params);
+  }
+
+  /**
+   * @deprecated Use getConsumerGroupsList instead which returns paginated results
+   */
   async getConsumerGroups(clusterId?: string): Promise<string[]> {
     const params: any = {};
     if (clusterId) {

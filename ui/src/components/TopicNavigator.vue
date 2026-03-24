@@ -192,6 +192,16 @@
             <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
             加载更多
           </button>
+          <!-- Load More Button (Consumer Groups only) -->
+          <button
+            v-if="currentView === 'consumer-groups' && hasMoreGroups && allConsumerGroups.length < 10000"
+            class="btn btn-ghost btn-xs text-primary"
+            :disabled="loadingMore"
+            @click="loadMoreConsumerGroups"
+          >
+            <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
+            加载更多
+          </button>
           <span class="text-xs">Cluster:</span>
           <!-- Advanced Cluster Selector -->
           <div class="relative">
@@ -448,7 +458,7 @@
               {{ allTopics.length }} / {{ total }} topics
             </template>
             <template v-else>
-              {{ allConsumerGroups.length }} / {{ allConsumerGroups.length }} consumer groups
+              {{ allConsumerGroups.length }} / {{ totalGroups }} consumer groups
             </template>
           </span>
           <!-- Refresh Button -->
@@ -786,11 +796,17 @@ async function saveClusterSelection() {
   }
 }
 
-// Pagination state
+// Pagination state for topics
 const offset = ref(0);
 const limit = ref(10000);
 const total = ref(0);
 const hasMore = ref(false);
+
+// Pagination state for consumer groups
+const offsetGroups = ref(0);
+const limitGroups = ref(10000);
+const totalGroups = ref(0);
+const hasMoreGroups = ref(false);
 
 // Scroll state
 let scrollLock = false; // Prevent multiple simultaneous loads
@@ -1106,43 +1122,38 @@ async function loadAllConsumerGroups() {
   if (isUnmounted.value) return;
   loading.value = true;
   allConsumerGroups.value = [];
+  offsetGroups.value = 0;
   try {
-    const groups: ConsumerGroupInfo[] = [];
     const selectedClustersList = getAllSelectedClusterNames();
+    const searchQueryValue = searchQuery.value.trim();
 
-    // 如果有搜索词，在本地过滤
-    const searchQueryValue = searchQuery.value.trim().toLowerCase();
+    // Use multi-cluster API with pagination
+    // Pass cluster_ids only if there are selected clusters, otherwise let backend use all clusters
+    const clusterIdsParam = selectedClustersList.length > 0 ? selectedClustersList : undefined;
+    const result = await apiClient.getConsumerGroupsList(
+      clusterIdsParam,
+      offsetGroups.value,
+      limitGroups.value
+    );
 
-    // 从每个选中的集群加载 consumer groups
-    for (const clusterName of selectedClustersList) {
-      if (isUnmounted.value) return;
-      try {
-        const clusterGroups = await apiClient.getSavedConsumerGroups(clusterName);
-        for (const groupName of clusterGroups) {
-          groups.push({
-            name: groupName,
-            cluster: clusterName
-          });
-        }
-      } catch (e) {
-        console.warn(`Failed to load consumer groups for cluster ${clusterName}:`, e);
-      }
-    }
+    if (isUnmounted.value) return;
 
-    // 本地搜索过滤
+    const groups: ConsumerGroupInfo[] = result.groups.map((g) => ({
+      name: g.group_name,
+      cluster: g.cluster_id,
+    }));
+
+    totalGroups.value = result.total;
+    hasMoreGroups.value = result.has_more;
+
+    // Local search filter if needed
     if (searchQueryValue) {
+      const query = searchQueryValue.toLowerCase();
       allConsumerGroups.value = groups.filter(g =>
-        g.name.toLowerCase().includes(searchQueryValue) ||
-        g.cluster.toLowerCase().includes(searchQueryValue)
+        g.name.toLowerCase().includes(query) ||
+        g.cluster.toLowerCase().includes(query)
       );
     } else {
-      // 按 cluster 和 name 排序
-      groups.sort((a, b) => {
-        if (a.cluster !== b.cluster) {
-          return a.cluster.localeCompare(b.cluster);
-        }
-        return a.name.localeCompare(b.name);
-      });
       allConsumerGroups.value = groups;
     }
   } catch (e) {
@@ -1152,6 +1163,44 @@ async function loadAllConsumerGroups() {
   } finally {
     if (!isUnmounted.value) {
       loading.value = false;
+    }
+  }
+}
+
+// Load more consumer groups (for pagination)
+async function loadMoreConsumerGroups() {
+  if (isUnmounted.value || loadingMore.value || !hasMoreGroups.value) return;
+
+  loadingMore.value = true;
+  offsetGroups.value += limitGroups.value;
+
+  try {
+    const selectedClustersList = getAllSelectedClusterNames();
+    const clusterIdsParam = selectedClustersList.length > 0 ? selectedClustersList : undefined;
+    const result = await apiClient.getConsumerGroupsList(
+      clusterIdsParam,
+      offsetGroups.value,
+      limitGroups.value
+    );
+
+    if (isUnmounted.value) return;
+
+    const newGroups: ConsumerGroupInfo[] = result.groups.map((g) => ({
+      name: g.group_name,
+      cluster: g.cluster_id,
+    }));
+
+    totalGroups.value = result.total;
+    hasMoreGroups.value = result.has_more;
+
+    allConsumerGroups.value = [...allConsumerGroups.value, ...newGroups];
+  } catch (e) {
+    if (!isUnmounted.value) {
+      console.error('Failed to load more consumer groups:', e);
+    }
+  } finally {
+    if (!isUnmounted.value) {
+      loadingMore.value = false;
     }
   }
 }

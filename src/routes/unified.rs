@@ -4393,27 +4393,83 @@ async fn handle_consumer_group_saved(state: AppState, body: Value) -> Result<Val
     Ok(serde_json::json!({ "groups": group_names }))
 }
 
-/// 列出 Consumer Groups
+/// 列出 Consumer Groups（支持分页）
 async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_cluster_id_param(&body)?;
+    // Get pagination parameters (default: offset=0, limit=10000)
+    let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as usize;
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10000) as usize;
 
-    let groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    // Get cluster_ids array for multi-cluster selection
+    let cluster_ids: Option<Vec<String>> = body.get("cluster_ids").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+    });
 
-    let groups_json: Vec<Value> = groups
-        .into_iter()
-        .map(|g| {
-            let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
-            serde_json::json!({
-                "id": g.id,
-                "cluster_id": g.cluster_id,
-                "group_name": g.group_name,
-                "topics": topics,
-                "fetched_at": g.fetched_at,
-            })
-        })
-        .collect();
+    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    Ok(serde_json::json!(groups_json))
+    // Determine which clusters to fetch consumer groups from
+    let clusters_to_fetch: Vec<String> = if let Some(ref ids) = cluster_ids {
+        if ids.is_empty() {
+            // Empty array means "all clusters"
+            crate::db::cluster::ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+                .into_iter().map(|c| c.name).collect()
+        } else {
+            ids.clone()
+        }
+    } else if let Some(ref id) = cluster_id {
+        vec![id.clone()]
+    } else {
+        // Default to all clusters
+        crate::db::cluster::ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+            .into_iter().map(|c| c.name).collect()
+    };
+
+    // Fetch all consumer groups from specified clusters
+    let mut all_groups: Vec<serde_json::Value> = Vec::new();
+
+    for cluster_name in &clusters_to_fetch {
+        if let Ok(groups) = crate::db::consumer_group::ConsumerGroupStore::list_by_cluster(
+            state.db.inner(),
+            cluster_name,
+        ).await {
+            for group in groups {
+                let topics: Vec<String> = serde_json::from_str(&group.topics).unwrap_or_default();
+                all_groups.push(serde_json::json!({
+                    "id": group.id,
+                    "cluster_id": group.cluster_id,
+                    "group_name": group.group_name,
+                    "topics": topics,
+                    "fetched_at": group.fetched_at,
+                }));
+            }
+        }
+    }
+
+    // Sort by cluster then by group name
+    all_groups.sort_by(|a, b| {
+        let cluster_cmp = a["cluster_id"].as_str().cmp(&b["cluster_id"].as_str());
+        if cluster_cmp == std::cmp::Ordering::Equal {
+            a["group_name"].as_str().cmp(&b["group_name"].as_str())
+        } else {
+            cluster_cmp
+        }
+    });
+
+    // Apply pagination
+    let total = all_groups.len();
+    let end = (offset + limit).min(total);
+    let paginated_groups = if offset < total {
+        all_groups.into_iter().skip(offset).take(limit).collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(serde_json::json!({
+        "groups": paginated_groups,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": end < total
+    }))
 }
 
 /// 获取 Consumer Group 详情

@@ -249,11 +249,12 @@ async function fetchConsumerGroups() {
   }
 
   try {
-    const groups = await apiClient.getSavedConsumerGroups(clusterParam.value);
-    consumerGroups.value = groups.map((name) => ({
-      name,
-      cluster: clusterParam.value as string,
-      topics: [],
+    // Use consumer_group.list API to get groups with topics information
+    const result = await apiClient.getConsumerGroupsList([clusterParam.value]);
+    consumerGroups.value = result.groups.map((g) => ({
+      name: g.group_name,
+      cluster: g.cluster_id,
+      topics: g.topics || [],
     }));
   } catch (e) {
     console.error('[ConsumerGroupsView] Error fetching consumer groups:', e);
@@ -286,14 +287,23 @@ async function refreshConsumerGroups() {
 
   refreshing.value = true;
   try {
-    await apiClient.refreshConsumerGroups(clusterParam.value).catch(() => {});
+    // First, refresh data from Kafka to database
+    const refreshResult = await apiClient.refreshConsumerGroups(clusterParam.value);
+    console.log('[ConsumerGroupsView] Refresh result:', refreshResult);
 
     // Wait for sync to complete
     await new Promise(resolve => setTimeout(resolve, 500));
 
+    // Then fetch the updated data from database
     await fetchConsumerGroups();
-    showSuccess(t.value.consumerGroups.refreshed);
+
+    if (refreshResult && refreshResult.success) {
+      showSuccess(t.value.consumerGroups.refreshed);
+    } else {
+      showError('Refresh completed but no data was updated');
+    }
   } catch (e) {
+    console.error('[ConsumerGroupsView] Refresh error:', e);
     showError(`Refresh failed: ${(e as { message: string }).message}`);
   } finally {
     refreshing.value = false;

@@ -9,7 +9,6 @@ mod producer;
 
 pub use admin::KafkaAdmin;
 pub use consumer::KafkaConsumer;
-pub use consumer_group::KafkaConsumerGroupManager;
 pub use producer::KafkaProducer;
 
 use crate::config::KafkaConfig;
