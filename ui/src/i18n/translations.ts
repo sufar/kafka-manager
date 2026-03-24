@@ -285,6 +285,7 @@ export interface Translation {
     offsetValue: string;
     timestampValue: string;
     noOffsets: string;
+    selectFromNav: string;
   };
   settings: {
     title: string;
@@ -703,6 +704,7 @@ export const translations: Record<Language, Translation> = {
       offsetValue: '偏移值',
       timestampValue: '时间戳',
       noOffsets: '暂无偏移量数据',
+      selectFromNav: '请从左侧导航栏选择一个消费者组查看详情',
     },
     settings: {
       title: '设置',
@@ -1119,6 +1121,7 @@ export const translations: Record<Language, Translation> = {
       offsetValue: 'Offset Value',
       timestampValue: 'Timestamp',
       noOffsets: 'No offset data available',
+      selectFromNav: 'Please select a consumer group from the left navigation to view details',
     },
     settings: {
       title: 'Settings',
