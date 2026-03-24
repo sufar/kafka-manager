@@ -296,6 +296,7 @@
                 <input
                   v-model="formData.name"
                   type="text"
+                  maxlength="15"
                   placeholder="my-cluster"
                   class="input input-bordered input-sm w-full"
                   required
@@ -488,7 +489,7 @@
               <label class="label">
                 <span class="label-text font-medium">{{ t.clusters.groupName }}</span>
               </label>
-              <input v-model="groupFormData.name" type="text" class="input input-bordered w-full" :placeholder="t.clusters.groupNamePlaceholder" />
+              <input v-model="groupFormData.name" type="text" maxlength="15" class="input input-bordered w-full" :placeholder="t.clusters.groupNamePlaceholder" />
             </div>
             <div class="form-control mb-3">
               <label class="label">
@@ -794,7 +795,7 @@ async function handleSubmit() {
     showError(t.value.clusters.validationNameRequired);
     return;
   }
-  if (trimmedName.length > 256) {
+  if (trimmedName.length > 15) {
     showError(t.value.clusters.validationNameTooLong);
     return;
   }

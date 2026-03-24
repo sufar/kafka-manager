@@ -4506,21 +4506,14 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
     let cluster_id = get_cluster_id_param(&body)?;
     let group_name = get_string_param(&body, "group_name")?;
 
-    // 从数据库获取 group 信息（包含 topics）
-    let group = ConsumerGroupStore::get_by_name(state.db.inner(), &cluster_id, &group_name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Consumer group '{}' not found", group_name)))?;
-
-    let topics: Vec<String> = serde_json::from_str(&group.topics).unwrap_or_default();
-
     // 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
 
-    // 在阻塞线程中执行 Kafka 操作
+    // 在阻塞线程中执行 Kafka 操作 - 自动从 Kafka 获取 topics
     let offsets = tokio::task::spawn_blocking(move || {
-        cg_manager.get_consumer_group_offsets(&group_name, &topics)
+        cg_manager.get_consumer_group_offsets_auto(&group_name)
     })
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
@@ -4535,6 +4528,7 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
                 "end_offset": o.end_offset,
                 "committed_offset": o.committed_offset,
                 "lag": o.lag,
+                "last_commit_time": o.last_commit_time,
             })
         })
         .collect();

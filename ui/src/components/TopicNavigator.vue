@@ -530,6 +530,18 @@ const allConsumerGroups = ref<ConsumerGroupInfo[]>([]);
 const selectedConsumerGroup = ref<ConsumerGroupInfo | null>(null);
 const refreshingGroups = ref(false);
 
+// Pagination state for topics
+const offset = ref(0);
+const limit = ref(10000);
+const total = ref(0);
+const hasMore = ref(false);
+
+// Pagination state for consumer groups
+const offsetGroups = ref(0);
+const limitGroups = ref(10000);
+const totalGroups = ref(0);
+const hasMoreGroups = ref(false);
+
 // View switcher (topics vs consumer-groups)
 const currentView = ref<'topics' | 'consumer-groups'>('topics');
 
@@ -796,33 +808,11 @@ async function saveClusterSelection() {
   }
 }
 
-// Pagination state for topics
-const offset = ref(0);
-const limit = ref(10000);
-const total = ref(0);
-const hasMore = ref(false);
-
-// Pagination state for consumer groups
-const offsetGroups = ref(0);
-const limitGroups = ref(10000);
-const totalGroups = ref(0);
-const hasMoreGroups = ref(false);
-
 // Scroll state
 let scrollLock = false; // Prevent multiple simultaneous loads
 
 // Debounce timer
 let searchTimer: number | null = null;
-
-// Cleanup on unmount to prevent blocking navigation
-onUnmounted(() => {
-  isUnmounted.value = true;
-  if (searchTimer) {
-    clearTimeout(searchTimer);
-  }
-  // Cancel any pending API requests
-  apiClient.cancelRequest();
-});
 
 // Filtered topics - search only topic name (no cluster search)
 // 始终使用后端过滤，filteredTopics 直接使用 allTopics（因为后端已经过滤）

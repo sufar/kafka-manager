@@ -480,6 +480,7 @@ class ApiClient {
     end_offset: number;
     committed_offset: number;
     lag: number;
+    last_commit_time?: number | null;
   }>> {
     const data = await this.request<{ offsets: Array<{
       topic: string;
@@ -488,6 +489,7 @@ class ApiClient {
       end_offset: number;
       committed_offset: number;
       lag: number;
+      last_commit_time?: number | null;
     }> }>('consumer_group.offsets', { cluster_id: clusterId, group_name: groupName });
     return data.offsets || [];
   }

@@ -88,13 +88,13 @@
               <tr v-for="item in offsets" :key="`${item.topic}-${item.partition}`" class="hover">
                 <td class="font-medium">{{ item.topic }}</td>
                 <td><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
-                <td class="text-right font-mono text-sm">{{ formatNumber(item.start_offset) }}</td>
-                <td class="text-right font-mono text-sm">{{ formatNumber(item.end_offset) }}</td>
+                <td class="text-right font-mono text-sm">{{ item.start_offset }}</td>
+                <td class="text-right font-mono text-sm">{{ item.end_offset }}</td>
                 <td class="text-right font-mono text-sm">{{ formatNumber(item.committed_offset) }}</td>
                 <td class="text-right">
-                  <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ formatNumber(item.lag) }}</span>
+                  <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
                 </td>
-                <td class="text-right text-xs text-base-content/60">{{ formatTime(item.last_commit) }}</td>
+                <td class="text-right text-xs text-base-content/60">{{ formatLastCommitTime(item.last_commit_time) }}</td>
               </tr>
             </tbody>
           </table>
@@ -355,7 +355,7 @@ interface OffsetItem {
   end_offset: number;
   committed_offset: number;
   lag: number;
-  last_commit?: string;
+  last_commit_time?: number | null;
 }
 
 const route = useRoute();
@@ -496,10 +496,7 @@ async function loadOffsets() {
 
   try {
     const offsetsData = await apiClient.getConsumerGroupOffsets(clusterParam.value, currentGroup.value);
-    offsets.value = offsetsData.map(o => ({
-      ...o,
-      last_commit: new Date().toISOString(),
-    }));
+    offsets.value = offsetsData;
   } catch (e) {
     console.error('[ConsumerGroupsView] Error loading offsets:', e);
     throw e;
@@ -724,6 +721,16 @@ function formatTime(timeStr?: string): string {
     return date.toLocaleString();
   } catch {
     return timeStr;
+  }
+}
+
+function formatLastCommitTime(timestamp?: number | null): string {
+  if (!timestamp) return '-';
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+  } catch {
+    return '-';
   }
 }
 

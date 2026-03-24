@@ -128,7 +128,7 @@
                 <span class="label-text">{{ t.favorites?.groupName || '分组名称' }}</span>
                 <span class="label-text-alt text-error">*</span>
               </label>
-              <input v-model="groupForm.name" type="text" class="input input-bordered w-full" :placeholder="t.favorites?.groupNamePlaceholder || '请输入分组名称'" required />
+              <input v-model="groupForm.name" type="text" maxlength="15" class="input input-bordered w-full" :placeholder="t.favorites?.groupNamePlaceholder || '请输入分组名称'" required />
             </div>
             <div>
               <label class="label">

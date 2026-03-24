@@ -24,6 +24,7 @@ pub struct PartitionOffsetDetail {
     pub end_offset: i64,
     pub committed_offset: i64,
     pub lag: i64,
+    pub last_commit_time: Option<i64>,  // 最后提交时间（毫秒时间戳），暂无数据
 }
 
 /// Consumer Group 管理器
@@ -62,6 +63,78 @@ impl KafkaConsumerGroupManager {
         Ok(groups)
     }
 
+    /// 获取 Consumer Group 关联的所有 topics（从 committed offsets 获取）
+    pub fn get_consumer_group_topics(&self, group_id: &str) -> Result<Vec<String>> {
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        let mut topics: Vec<String> = Vec::new();
+
+        // 方法 1：尝试从 active members 的 metadata 获取 topics（适用于有 active consumer 的情况）
+        let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer group info: {}", e)))?;
+
+        for group in group_list.groups() {
+            for member in group.members() {
+                if let Some(metadata) = member.metadata() {
+                    if let Some(group_topics) = parse_consumer_protocol_metadata(metadata) {
+                        for topic in group_topics {
+                            if !topics.contains(&topic) {
+                                topics.push(topic);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 方法 2：如果从 member metadata 没获取到 topics，尝试从 committed offsets 获取
+        // 这需要知道所有可能的 topics，所以我们先尝试从 broker 获取所有 topics
+        if topics.is_empty() {
+            let metadata = consumer.fetch_metadata(None, self.timeout)?;
+            for topic_meta in metadata.topics() {
+                let topic_name = topic_meta.name();
+                // 跳过内部 topics
+                if topic_name.starts_with("__") {
+                    continue;
+                }
+
+                // 检查这个 topic 是否有 committed offsets
+                let mut tpl = TopicPartitionList::new();
+                for partition_meta in topic_meta.partitions() {
+                    tpl.add_partition(topic_name, partition_meta.id());
+                }
+
+                let committed = consumer.committed_offsets(tpl, self.timeout)?;
+                // 如果有任何 partition 有有效的 committed offset，说明这个 topic 被 consumer group 订阅过
+                for elem in committed.elements() {
+                    if matches!(elem.offset(), Offset::Offset(_)) {
+                        if !topics.contains(&topic_name.to_string()) {
+                            topics.push(topic_name.to_string());
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(topics)
+    }
+
+    /// 获取 Consumer Group 的 offset 和 lag 信息（自动获取 topics）
+    pub fn get_consumer_group_offsets_auto(&self, group_id: &str) -> Result<Vec<PartitionOffsetDetail>> {
+        // 先获取 topics
+        let topics = self.get_consumer_group_topics(group_id)?;
+        // 再获取 offsets
+        if topics.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.get_consumer_group_offsets(group_id, &topics)
+    }
+
     /// 获取 Consumer Group 详情
     pub fn get_consumer_group_info(&self, group_id: &str, topics: &[String]) -> Result<ConsumerGroupInfo> {
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
@@ -94,6 +167,8 @@ impl KafkaConsumerGroupManager {
 
     /// 获取 Consumer Group 的 offset 和 lag 信息
     pub fn get_consumer_group_offsets(&self, group_id: &str, topics: &[String]) -> Result<Vec<PartitionOffsetDetail>> {
+        use rdkafka::topic_partition_list::Offset;
+
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
@@ -120,10 +195,17 @@ impl KafkaConsumerGroupManager {
                     tpl.add_partition(topic, partition);
 
                     let committed = consumer.committed_offsets(tpl, self.timeout)?;
+                    // 处理 Offset 类型，将 Invalid 转换为 -1
                     let committed_offset = committed
                         .elements()
                         .first()
-                        .and_then(|e| e.offset().to_raw())
+                        .map(|e| {
+                            match e.offset() {
+                                Offset::Offset(n) => n,
+                                Offset::Invalid => -1,
+                                _ => -1,
+                            }
+                        })
                         .unwrap_or(-1);
 
                     // 获取 start offset (earliest) 和 end offset (latest)
@@ -145,6 +227,7 @@ impl KafkaConsumerGroupManager {
                         end_offset,
                         committed_offset,
                         lag,
+                        last_commit_time: None,
                     });
                 }
             }
@@ -265,5 +348,72 @@ impl KafkaConsumerGroupManager {
         // 实际上，consumer group 会在没有 active consumer 且所有 offset 过期后自动删除
         // 这里我们只是从数据库中删除记录
         Ok(())
+    }
+}
+
+/// 解析 Kafka Consumer Protocol Metadata
+/// 格式参考：https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-ConsumerMetadata
+/// 简化版解析，只提取 topic 名称
+fn parse_consumer_protocol_metadata(data: &[u8]) -> Option<Vec<String>> {
+    if data.is_empty() {
+        return None;
+    }
+
+    let mut topics = Vec::new();
+    let mut pos = 0;
+
+    // 跳过 version (2 bytes)
+    if data.len() < 2 {
+        return None;
+    }
+    pos += 2;
+
+    // 读取 topic 数量
+    if data.len() < pos + 4 {
+        return None;
+    }
+    let topic_count = u32::from_be_bytes([
+        data[pos],
+        data[pos + 1],
+        data[pos + 2],
+        data[pos + 3],
+    ]) as usize;
+    pos += 4;
+
+    // 解析每个 topic
+    for _ in 0..topic_count {
+        // 读取 topic 名称长度
+        if data.len() < pos + 2 {
+            break;
+        }
+        let topic_name_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+
+        // 读取 topic 名称
+        if data.len() < pos + topic_name_len {
+            break;
+        }
+        let topic_name = String::from_utf8_lossy(&data[pos..pos + topic_name_len]).to_string();
+        pos += topic_name_len;
+
+        topics.push(topic_name);
+
+        // 跳过分区信息（每个分区 4 字节）
+        if data.len() < pos + 4 {
+            break;
+        }
+        let partition_count = u32::from_be_bytes([
+            data[pos],
+            data[pos + 1],
+            data[pos + 2],
+            data[pos + 3],
+        ]) as usize;
+        pos += 4 + partition_count * 4;
+    }
+
+    if topics.is_empty() {
+        None
+    } else {
+        Some(topics)
     }
 }
