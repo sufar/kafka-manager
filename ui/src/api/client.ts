@@ -407,6 +407,122 @@ class ApiClient {
     });
   }
 
+  // ==================== Consumer Groups ====================
+  async getConsumerGroups(clusterId?: string): Promise<string[]> {
+    const params: any = {};
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    const data = await this.request<{ groups: string[] }>('consumer_group.list', params);
+    return data.groups || [];
+  }
+
+  async getSavedConsumerGroups(clusterId: string): Promise<string[]> {
+    const data = await this.request<{ groups: string[] }>('consumer_group.saved', { cluster_id: clusterId });
+    return data.groups || [];
+  }
+
+  async refreshConsumerGroups(clusterId?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
+    const params: Record<string, any> = {};
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    return this.request('consumer_group.refresh', params);
+  }
+
+  async getConsumerGroupInfo(clusterId: string, groupName: string): Promise<{ name: string; cluster: string; topics: string[]; state: string }> {
+    return this.request('consumer_group.get', { cluster_id: clusterId, group: groupName });
+  }
+
+  async getConsumerGroupOffsets(clusterId: string, groupName: string): Promise<Array<{
+    topic: string;
+    partition: number;
+    start_offset: number;
+    end_offset: number;
+    committed_offset: number;
+    lag: number;
+  }>> {
+    const data = await this.request<{ offsets: Array<{
+      topic: string;
+      partition: number;
+      start_offset: number;
+      end_offset: number;
+      committed_offset: number;
+      lag: number;
+    }> }>('consumer_group.offsets', { cluster_id: clusterId, group: groupName });
+    return data.offsets || [];
+  }
+
+  async refreshConsumerGroupOffsets(clusterId: string, groupName: string): Promise<{
+    topic: string;
+    partition: number;
+    start_offset: number;
+    end_offset: number;
+    committed_offset: number;
+    lag: number;
+  }[]> {
+    const data = await this.request<{ offsets: Array<{
+      topic: string;
+      partition: number;
+      start_offset: number;
+      end_offset: number;
+      committed_offset: number;
+      lag: number;
+    }> }>('consumer_group.refresh_offsets', { cluster_id: clusterId, group: groupName });
+    return data.offsets || [];
+  }
+
+  async resetConsumerGroupOffset(clusterId: string, groupName: string, topic: string, partition: number, offset: number): Promise<void> {
+    return this.request('consumer_group.reset_offset', {
+      cluster_id: clusterId,
+      group: groupName,
+      topic,
+      partition,
+      offset
+    });
+  }
+
+  async resetConsumerGroupOffsetToEarliest(clusterId: string, groupName: string, topic: string, partition: number): Promise<{ offset: number }> {
+    return this.request('consumer_group.reset_offset_earliest', {
+      cluster_id: clusterId,
+      group: groupName,
+      topic,
+      partition
+    });
+  }
+
+  async resetConsumerGroupOffsetToLatest(clusterId: string, groupName: string, topic: string, partition: number): Promise<{ offset: number }> {
+    return this.request('consumer_group.reset_offset_latest', {
+      cluster_id: clusterId,
+      group: groupName,
+      topic,
+      partition
+    });
+  }
+
+  async resetConsumerGroupOffsetToTimestamp(clusterId: string, groupName: string, topic: string, partition: number, timestamp: number): Promise<{ offset: number }> {
+    return this.request('consumer_group.reset_offset_timestamp', {
+      cluster_id: clusterId,
+      group: groupName,
+      topic,
+      partition,
+      timestamp
+    });
+  }
+
+  async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
+    return this.request('consumer_group.delete', { cluster_id: clusterId, group: groupName });
+  }
+
+  async searchConsumerGroups(keyword?: string): Promise<{ cluster: string; group: string }[]> {
+    const params: Record<string, any> = {};
+    if (keyword && keyword.trim()) {
+      params.keyword = keyword.trim();
+    }
+    const data = await this.request<{ results: { cluster: string; group: string }[] }>('consumer_group.search', params);
+    return data.results || [];
+  }
+
   // ==================== 消息管理 ====================
   async getMessages(clusterId: string, topic: string, params?: {
     partition?: number;

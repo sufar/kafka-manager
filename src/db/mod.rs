@@ -2,6 +2,7 @@ pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod cluster_group;
+pub mod consumer_group;
 pub mod favorite;
 pub mod settings;
 pub mod tag;
@@ -293,6 +294,65 @@ impl DbPool {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_topic_metadata_name ON topic_metadata(topic_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 创建 Consumer Group 元数据表
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS consumer_group_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                group_name TEXT NOT NULL,
+                topics TEXT NOT NULL DEFAULT '[]',
+                fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(cluster_id, group_name)
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_metadata_cluster ON consumer_group_metadata(cluster_id)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_metadata_name ON consumer_group_metadata(group_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 创建 Consumer Group Offset 缓存表
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS consumer_group_offsets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                group_name TEXT NOT NULL,
+                topic_name TEXT NOT NULL,
+                partition_id INTEGER NOT NULL,
+                offset_value INTEGER NOT NULL,
+                lag INTEGER NOT NULL,
+                fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(cluster_id, group_name, topic_name, partition_id)
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_offsets_cluster_group ON consumer_group_offsets(cluster_id, group_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_offsets_topic ON consumer_group_offsets(cluster_id, topic_name)",
         )
         .execute(self.inner())
         .await?;

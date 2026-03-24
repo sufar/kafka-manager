@@ -269,6 +269,105 @@
                 </button>
               </div>
             </div>
+
+            <!-- Consumer Groups Folder -->
+            <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 flex-shrink-0">
+              <div
+                class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
+                :class="{ 'bg-secondary/10': expandedConsumerGroupsFolders.has(cluster.name) }"
+                @click.stop="handleConsumerGroupsFolderClickAndExpand(cluster.name)"
+              >
+                <div class="flex items-center gap-1 flex-1 min-w-0">
+                  <button class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0" @click.stop="handleConsumerGroupsFolderToggle(cluster.name)" tabindex="-1">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="2"
+                      stroke="currentColor"
+                      class="w-2.5 h-2.5 transition-transform duration-200"
+                      :class="{ 'rotate-90': expandedConsumerGroupsFolders.has(cluster.name) }"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                  <span class="text-xs truncate">{{ consumerGroupCounts[cluster.name] || 0 }}</span>
+                  <span class="text-xs truncate">Consumer Groups</span>
+                </div>
+                <!-- Consumer Groups Refresh Button -->
+                <button
+                  class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-0 hover:opacity-100 transition-opacity"
+                  :class="{ 'opacity-100': refreshingClusters.has(cluster.name) }"
+                  @click.stop="refreshClusterConsumerGroups(cluster.name)"
+                  :disabled="refreshingClusters.has(cluster.name)"
+                  title="Refresh Consumer Groups"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                    stroke="currentColor"
+                    class="w-3 h-3"
+                    :class="{ 'animate-spin': refreshingClusters.has(cluster.name) }"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Consumer Groups Scrollable Container -->
+              <div v-show="expandedConsumerGroupsFolders.has(cluster.name)" class="pl-3 overflow-y-auto max-h-[500px]">
+                <!-- Consumer Group Search Box - sticky under Consumer Groups folder -->
+                <div v-if="getTotalConsumerGroups(cluster.name) > 0" class="mb-1 sticky top-0 bg-base-100 z-10 py-1">
+                  <div class="join w-full">
+                    <input
+                      v-model="consumerGroupSearchQuery[cluster.name]"
+                      type="text"
+                      :placeholder="`Search ${getTotalConsumerGroups(cluster.name)}...`"
+                      class="input input-bordered input-xs join-item w-full"
+                      @click.stop
+                    />
+                    <button
+                      v-if="consumerGroupSearchQuery[cluster.name]"
+                      class="btn join-item btn-ghost btn-xs"
+                      @click.stop="setConsumerGroupSearch(cluster.name, '')"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <p v-if="!consumerGroupSearchQuery[cluster.name]" class="text-[10px] text-base-content/50 mt-0.5">
+                    {{ getTotalConsumerGroups(cluster.name) }} consumer groups
+                  </p>
+                  <p v-else class="text-[10px] text-primary mt-0.5">
+                    {{ getClusterConsumerGroups(cluster.name).length }} matching
+                  </p>
+                </div>
+
+                <div
+                  v-for="group in getClusterConsumerGroups(cluster.name)"
+                  :key="group.name"
+                  class="mb-0.5"
+                  ref="el => setConsumerGroupElementRef(`${cluster.name}:${group.name}`, el)"
+                >
+                  <!-- Consumer Group Node -->
+                  <div
+                    class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-accent/5"
+                    :class="{ 'bg-accent/10 text-accent': selectedConsumerGroup?.name === group.name && selectedConsumerGroup?.cluster === cluster.name }"
+                    @click="selectConsumerGroup(group, cluster.name)"
+                  >
+                    <div class="flex items-center gap-1 flex-1 min-w-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary flex-shrink-0">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
+                      </svg>
+                      <span class="text-xs truncate flex-1 min-w-0" :title="group.name">{{ group.name }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -404,6 +503,7 @@ const expandedTopics = ref(new Set<string>());
 const refreshingClusters = ref(new Set<string>()); // 正在刷新的集群
 const loadingClusters = ref(new Set<string>()); // 正在加载 topics 的集群
 const expandedTopicsFolders = ref(new Set<string>()); // Topics 文件夹展开状态
+const expandedConsumerGroupsFolders = ref(new Set<string>()); // Consumer Groups 文件夹展开状态
 
 // 按分组过滤集群
 const filteredClusters = computed(() => {
@@ -419,6 +519,13 @@ const selectedPartition = ref<{ topic: string; partition: number; cluster: strin
 
 const topicCounts = reactive<Record<string, number>>({});
 const clusterTopics = reactive<Record<string, Topic[]>>({});
+
+// Consumer Groups state
+const consumerGroupCounts = reactive<Record<string, number>>({});
+const clusterConsumerGroups = reactive<Record<string, { name: string }[]>>({});
+const consumerGroupSearchQuery = reactive<Record<string, string>>({});
+const selectedConsumerGroup = ref<{ name: string; cluster: string } | null>(null);
+const consumerGroupElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
 
 // 错误对话框状态
 const errorDialogRef = ref<HTMLDialogElement | null>(null);
@@ -784,6 +891,116 @@ async function connectClusterIfNeeded(clusterName: string) {
     }
   }
 }
+
+// ==================== Consumer Groups Functions ====================
+
+// @ts-ignore - used in template
+function setConsumerGroupElementRef(key: string, el: HTMLDivElement | null) {
+  consumerGroupElementRefs[key] = el;
+}
+
+async function handleConsumerGroupsFolderClickAndExpand(clusterName: string) {
+  // 点击 Consumer Groups 文件夹时，先展开文件夹并加载 consumer groups
+  if (!expandedConsumerGroupsFolders.value.has(clusterName)) {
+    expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
+    await loadClusterConsumerGroups(clusterName);
+  }
+  // 然后导航到 Consumer Groups 页面
+  emit('navigate', { path: '/consumer-groups', query: { cluster: clusterName } });
+}
+
+function handleConsumerGroupsFolderToggle(clusterName: string) {
+  if (expandedConsumerGroupsFolders.value.has(clusterName)) {
+    expandedConsumerGroupsFolders.value.delete(clusterName);
+    expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value);
+  } else {
+    expandedConsumerGroupsFolders.value = new Set(expandedConsumerGroupsFolders.value.add(clusterName));
+    loadClusterConsumerGroups(clusterName);
+  }
+}
+
+async function loadClusterConsumerGroups(clusterName: string) {
+  try {
+    // 先从数据库获取已保存的 consumer groups
+    const groups = await apiClient.getSavedConsumerGroups(clusterName);
+
+    // 如果数据库中没有 consumer groups，从 Kafka 集群实时获取并保存到数据库
+    if (!groups || groups.length === 0) {
+      // 调用刷新接口，将集群 consumer groups 同步到数据库
+      await apiClient.refreshConsumerGroups(clusterName);
+      // 刷新后重新获取完整的 consumer groups 列表
+      const refreshedGroups = await apiClient.getSavedConsumerGroups(clusterName);
+      clusterConsumerGroups[clusterName] = (refreshedGroups || []).map((name: string) => ({
+        name
+      }));
+      consumerGroupCounts[clusterName] = refreshedGroups?.length || 0;
+    } else {
+      clusterConsumerGroups[clusterName] = groups.map((name: string) => ({
+        name
+      }));
+      consumerGroupCounts[clusterName] = groups.length;
+    }
+  } catch (error) {
+    console.error('[ClusterTreeNavigator] Failed to load consumer groups:', error);
+  }
+}
+
+async function refreshClusterConsumerGroups(clusterName: string) {
+  if (refreshingClusters.value.has(clusterName)) return;
+
+  refreshingClusters.value = new Set(refreshingClusters.value.add(clusterName));
+  try {
+    // 调用后端 API 刷新 consumer groups（从 Kafka 集群同步到数据库）
+    await apiClient.refreshConsumerGroups(clusterName);
+
+    // 等待后台同步完成
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 刷新后重新获取完整的 consumer groups 列表
+    const savedGroups = await apiClient.getSavedConsumerGroups(clusterName);
+    clusterConsumerGroups[clusterName] = (savedGroups || []).map((name: string) => ({
+      name
+    }));
+    consumerGroupCounts[clusterName] = savedGroups?.length || 0;
+  } catch (error) {
+    console.error('Failed to refresh consumer groups:', error);
+  } finally {
+    refreshingClusters.value.delete(clusterName);
+    refreshingClusters.value = new Set(refreshingClusters.value);
+  }
+}
+
+function getClusterConsumerGroups(clusterName: string): { name: string }[] {
+  const groups = clusterConsumerGroups[clusterName] || [];
+  const query = consumerGroupSearchQuery[clusterName];
+
+  if (query && query.trim()) {
+    // 搜索模式：过滤匹配的 group
+    const lowerQuery = query.toLowerCase();
+    return groups.filter(g => g.name.toLowerCase().includes(lowerQuery));
+  }
+
+  return groups;
+}
+
+function setConsumerGroupSearch(clusterName: string, query: string) {
+  consumerGroupSearchQuery[clusterName] = query;
+}
+
+function getTotalConsumerGroups(clusterName: string): number {
+  return (clusterConsumerGroups[clusterName] || []).length;
+}
+
+async function selectConsumerGroup(group: { name: string }, clusterName: string) {
+  selectedConsumerGroup.value = { name: group.name, cluster: clusterName };
+
+  // 确保集群已连接
+  await connectClusterIfNeeded(clusterName);
+
+  emit('navigate', { path: '/consumer-groups', query: { cluster: clusterName, group: group.name } });
+}
+
+// ==================== End Consumer Groups Functions ====================
 
 // 从外部调用：展开集群、Topics 文件夹并选中特定 Topic
 async function highlightAndSelectTopic(topicName: string, clusterName: string) {

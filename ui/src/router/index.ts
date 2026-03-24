@@ -23,6 +23,11 @@ const router = createRouter({
           component: () => import('@/views/TopicsView.vue'),
         },
         {
+          path: 'consumer-groups',
+          name: 'ConsumerGroups',
+          component: () => import('@/views/ConsumerGroupsView.vue'),
+        },
+        {
           path: 'messages',
           name: 'Messages',
           component: () => import('@/views/MessagesView.vue'),

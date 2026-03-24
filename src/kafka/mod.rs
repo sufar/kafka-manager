@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod consumer;
+pub mod consumer_group;
 pub mod import_export;
 pub mod offset;
 pub mod throughput;
@@ -8,6 +9,7 @@ mod producer;
 
 pub use admin::KafkaAdmin;
 pub use consumer::KafkaConsumer;
+pub use consumer_group::KafkaConsumerGroupManager;
 pub use producer::KafkaProducer;
 
 use crate::config::KafkaConfig;

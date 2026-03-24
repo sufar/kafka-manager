@@ -242,6 +242,33 @@ export interface Translation {
     day: string;
     queryTimeout: string;
   };
+  consumerGroups: {
+    title: string;
+    description: string;
+    groupName: string;
+    topics: string;
+    state: string;
+    partitions: string;
+    offset: string;
+    lag: string;
+    start: string;
+    end: string;
+    resetOffset: string;
+    resetOffsetToEarliest: string;
+    resetOffsetToLatest: string;
+    resetOffsetToTimestamp: string;
+    timestamp: string;
+    refreshOffsets: string;
+    offsetsRefreshed: string;
+    offsetResetSuccess: string;
+    confirmResetOffset: string;
+    confirmResetOffsetToEarliest: string;
+    confirmResetOffsetToLatest: string;
+    confirmResetOffsetToTimestamp: string;
+    noData: string;
+    emptyHelp: string;
+    refreshed: string;
+  };
   settings: {
     title: string;
     description: string;
@@ -616,6 +643,33 @@ export const translations: Record<Language, Translation> = {
       day: '天',
       queryTimeout: '查询超时，请重试',
     },
+    consumerGroups: {
+      title: '消费者组',
+      description: '管理 Kafka 消费者组',
+      groupName: '组名称',
+      topics: '主题',
+      state: '状态',
+      partitions: '分区',
+      offset: '偏移量',
+      lag: '延迟',
+      start: '起始',
+      end: '结束',
+      resetOffset: '重置偏移量',
+      resetOffsetToEarliest: '重置到最早',
+      resetOffsetToLatest: '重置到最新',
+      resetOffsetToTimestamp: '重置到指定时间',
+      timestamp: '时间戳',
+      refreshOffsets: '刷新偏移量',
+      offsetsRefreshed: '偏移量已刷新',
+      offsetResetSuccess: '偏移量已重置',
+      confirmResetOffset: '确认重置偏移量？',
+      confirmResetOffsetToEarliest: '确认重置偏移量到最早？',
+      confirmResetOffsetToLatest: '确认重置偏移量到最新？',
+      confirmResetOffsetToTimestamp: '确认重置偏移量到指定时间？',
+      noData: '暂无消费者组',
+      emptyHelp: '点击上方刷新按钮从 Kafka 集群同步消费者组',
+      refreshed: '消费者组已刷新',
+    },
     settings: {
       title: '设置',
       description: '管理全局设置',
@@ -987,6 +1041,33 @@ export const translations: Record<Language, Translation> = {
       hour: 'hr',
       day: 'day',
       queryTimeout: 'Query timeout, please try again',
+    },
+    consumerGroups: {
+      title: 'Consumer Groups',
+      description: 'Manage Kafka consumer groups',
+      groupName: 'Group Name',
+      topics: 'Topics',
+      state: 'State',
+      partitions: 'Partitions',
+      offset: 'Offset',
+      lag: 'Lag',
+      start: 'Start',
+      end: 'End',
+      resetOffset: 'Reset Offset',
+      resetOffsetToEarliest: 'Reset to Earliest',
+      resetOffsetToLatest: 'Reset to Latest',
+      resetOffsetToTimestamp: 'Reset to Timestamp',
+      timestamp: 'Timestamp',
+      refreshOffsets: 'Refresh Offsets',
+      offsetsRefreshed: 'Offsets refreshed',
+      offsetResetSuccess: 'Offset reset successfully',
+      confirmResetOffset: 'Confirm reset offset?',
+      confirmResetOffsetToEarliest: 'Confirm reset offset to earliest?',
+      confirmResetOffsetToLatest: 'Confirm reset offset to latest?',
+      confirmResetOffsetToTimestamp: 'Confirm reset offset to timestamp?',
+      noData: 'No consumer groups',
+      emptyHelp: 'Click the refresh button above to sync consumer groups from the Kafka cluster',
+      refreshed: 'Consumer groups refreshed',
     },
     settings: {
       title: 'Settings',

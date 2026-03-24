@@ -3,12 +3,15 @@
     <!-- Header -->
     <div class="flex items-center justify-between p-1.5 flex-shrink-0 border-b border-base-200">
       <div class="flex items-center gap-1.5">
-        <div class="w-6 h-6 rounded bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-primary">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-          </svg>
-        </div>
-        <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Topics</span>
+        <!-- View Switcher -->
+        <select
+          v-model="currentView"
+          class="select select-bordered select-xs h-7 text-xs"
+          @change="switchView"
+        >
+          <option value="topics">Topics</option>
+          <option value="consumer-groups">Consumer Groups</option>
+        </select>
       </div>
       <div class="flex items-center gap-0.5">
         <button
@@ -39,7 +42,7 @@
           v-model="searchQuery"
           type="text"
           class="input input-bordered input-sm w-full pr-8"
-          placeholder="搜索 Topic..."
+          :placeholder="currentView === 'topics' ? '搜索 Topic...' : '搜索 Consumer Group...'"
           @input="onSearchInput"
         />
         <svg
@@ -72,17 +75,25 @@
         <span class="loading loading-spinner loading-sm"></span>
       </div>
 
-      <!-- Empty -->
-      <div v-else-if="filteredTopics.length === 0" class="text-center py-8 text-base-content/50">
+      <!-- Empty - Topics -->
+      <div v-else-if="currentView === 'topics' && filteredTopics.length === 0" class="text-center py-8 text-base-content/50">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
         <p class="text-xs">{{ searchQuery ? '无匹配结果' : '暂无 Topics' }}</p>
       </div>
 
+      <!-- Empty - Consumer Groups -->
+      <div v-else-if="currentView === 'consumer-groups' && filteredConsumerGroups.length === 0" class="text-center py-8 text-base-content/50">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
+        </svg>
+        <p class="text-xs">{{ searchQuery ? '无匹配结果' : '暂无 Consumer Groups' }}</p>
+      </div>
+
       <!-- Virtual Scroll Topic Items -->
       <RecycleScroller
-        v-else
+        v-else-if="currentView === 'topics'"
         class="h-full overflow-auto"
         :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
         :item-size="28"
@@ -122,16 +133,58 @@
           </span>
         </div>
       </RecycleScroller>
+
+      <!-- Virtual Scroll Consumer Group Items -->
+      <RecycleScroller
+        v-else-if="currentView === 'consumer-groups'"
+        class="h-full overflow-auto"
+        :items="filteredConsumerGroupsWithUid"
+        :item-size="28"
+        key-field="uid"
+        v-slot="{ item, index }"
+        @scroll="handleScroll"
+      >
+        <div
+          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
+          :class="{ 'bg-primary/10': hoveredIndex === index }"
+          @click="selectConsumerGroup((item as ConsumerGroupItem).group)"
+          @mouseenter="hoveredIndex = index"
+        >
+          <!-- Cluster Health Indicator -->
+          <div
+            class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            :class="{
+              'bg-success': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === true,
+              'bg-error': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === false,
+              'bg-warning': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === undefined
+            }"
+          ></div>
+
+          <!-- Consumer Group Name with Tooltip -->
+          <div class="flex-1 min-w-0 relative">
+            <span
+              class="text-xs truncate block"
+              :title="`${(item as ConsumerGroupItem).group.name} (${(item as ConsumerGroupItem).group.cluster})`"
+            >
+              {{ (item as ConsumerGroupItem).group.name }}
+            </span>
+          </div>
+
+          <!-- Cluster Badge -->
+          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1">
+            {{ (item as ConsumerGroupItem).group.cluster }}
+          </span>
+        </div>
+      </RecycleScroller>
     </div>
 
     <!-- Status Bar -->
     <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
       <div class="flex items-center justify-between gap-2">
-        <span class="truncate max-w-[50%]">{{ allTopics.length }} / {{ total }} topics</span>
         <div class="flex items-center gap-1 flex-shrink-0">
-          <!-- Load More Button -->
+          <!-- Load More Button (Topics only) -->
           <button
-            v-if="hasMore && allTopics.length < 10000"
+            v-if="currentView === 'topics' && hasMore && allTopics.length < 10000"
             class="btn btn-ghost btn-xs text-primary"
             :disabled="loadingMore"
             @click="loadMoreTopics"
@@ -387,27 +440,26 @@
               </div>
             </div>
           </div>
+        </div>
+        <!-- Count and Refresh Button -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-base-content/50 truncate max-w-[150px]">
+            <template v-if="currentView === 'topics'">
+              {{ allTopics.length }} / {{ total }} topics
+            </template>
+            <template v-else>
+              {{ allConsumerGroups.length }} / {{ allConsumerGroups.length }} consumer groups
+            </template>
+          </span>
           <!-- Refresh Button -->
           <button
             class="btn btn-ghost btn-xs"
-            :disabled="refreshing"
-            @click="refreshTopics"
-            title="刷新 Topics"
+            :disabled="currentView === 'topics' ? refreshing : refreshingGroups"
+            @click="currentView === 'topics' ? refreshTopics() : refreshConsumerGroups()"
+            :title="currentView === 'topics' ? '刷新 Topics' : '刷新 Consumer Groups'"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-3.5 h-3.5"
-              :class="{ 'animate-spin': refreshing }"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': currentView === 'topics' ? refreshing : refreshingGroups }">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
           </button>
         </div>
@@ -417,7 +469,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
@@ -431,6 +483,16 @@ interface TopicInfo {
 
 interface TopicItem {
   topic: TopicInfo;
+  uid: string;
+}
+
+interface ConsumerGroupInfo {
+  name: string;
+  cluster: string;
+}
+
+interface ConsumerGroupItem {
+  group: ConsumerGroupInfo;
   uid: string;
 }
 
@@ -452,6 +514,35 @@ const refreshing = ref(false);
 const loadingMore = ref(false);
 const selectedTopic = ref<TopicInfo | null>(null);
 const isUnmounted = ref(false);
+
+// Consumer Groups state
+const allConsumerGroups = ref<ConsumerGroupInfo[]>([]);
+const selectedConsumerGroup = ref<ConsumerGroupInfo | null>(null);
+const refreshingGroups = ref(false);
+
+// View switcher (topics vs consumer-groups)
+const currentView = ref<'topics' | 'consumer-groups'>('topics');
+
+async function switchView() {
+  const query = route.query.cluster ? { cluster: route.query.cluster as string } : undefined;
+  const newPath = currentView.value === 'topics' ? '/topics' : '/consumer-groups';
+
+  // 切换视图时重置搜索
+  searchQuery.value = '';
+
+  emit('navigate', {
+    path: newPath,
+    query
+  });
+
+  // 加载对应视图的数据
+  await nextTick();
+  if (currentView.value === 'consumer-groups') {
+    await loadAllConsumerGroups();
+  } else {
+    await loadAllTopics();
+  }
+}
 
 // Advanced cluster selection state
 const showClusterSelector = ref(false);
@@ -510,6 +601,17 @@ watch(() => clusterStore.clusters, (newClusters) => {
   // Update selectedGroups based on current cluster selection
   updateSelectedGroups();
 }, { deep: true });
+
+// Watch for route changes to sync currentView
+watch(() => route.path, (newPath) => {
+  if (newPath === '/consumer-groups') {
+    currentView.value = 'consumer-groups';
+    loadAllConsumerGroups();
+  } else if (newPath === '/topics') {
+    currentView.value = 'topics';
+    loadAllTopics();
+  }
+}, { immediate: true });
 
 onMounted(() => {
   if (clusterStore.clusters.length > 0) {
@@ -732,6 +834,25 @@ const displayedTopicsWithUid = computed((): TopicItem[] => {
     uid: `${topic.cluster}-${topic.name}`
   }));
 });
+
+// ==================== Consumer Groups Computed ====================
+const filteredConsumerGroups = computed(() => {
+  return allConsumerGroups.value;
+});
+
+const filteredConsumerGroupsWithUid = computed((): ConsumerGroupItem[] => {
+  return filteredConsumerGroups.value.map(group => ({
+    group,
+    uid: `${group.cluster}-${group.name}`
+  }));
+});
+
+// Get current visible consumer groups list
+const visibleConsumerGroups = computed(() => {
+  return allConsumerGroups.value;
+});
+
+// ==================== End Consumer Groups Computed ====================
 
 // Get cluster health
 function getClusterHealth(clusterName: string) {
@@ -979,23 +1100,136 @@ async function refreshTopics() {
   }
 }
 
+// ==================== Consumer Groups Functions ====================
+// Load all consumer groups from selected clusters
+async function loadAllConsumerGroups() {
+  if (isUnmounted.value) return;
+  loading.value = true;
+  allConsumerGroups.value = [];
+  try {
+    const groups: ConsumerGroupInfo[] = [];
+    const selectedClustersList = getAllSelectedClusterNames();
+
+    // 如果有搜索词，在本地过滤
+    const searchQueryValue = searchQuery.value.trim().toLowerCase();
+
+    // 从每个选中的集群加载 consumer groups
+    for (const clusterName of selectedClustersList) {
+      if (isUnmounted.value) return;
+      try {
+        const clusterGroups = await apiClient.getSavedConsumerGroups(clusterName);
+        for (const groupName of clusterGroups) {
+          groups.push({
+            name: groupName,
+            cluster: clusterName
+          });
+        }
+      } catch (e) {
+        console.warn(`Failed to load consumer groups for cluster ${clusterName}:`, e);
+      }
+    }
+
+    // 本地搜索过滤
+    if (searchQueryValue) {
+      allConsumerGroups.value = groups.filter(g =>
+        g.name.toLowerCase().includes(searchQueryValue) ||
+        g.cluster.toLowerCase().includes(searchQueryValue)
+      );
+    } else {
+      // 按 cluster 和 name 排序
+      groups.sort((a, b) => {
+        if (a.cluster !== b.cluster) {
+          return a.cluster.localeCompare(b.cluster);
+        }
+        return a.name.localeCompare(b.name);
+      });
+      allConsumerGroups.value = groups;
+    }
+  } catch (e) {
+    if (!isUnmounted.value) {
+      console.error('Failed to load consumer groups:', e);
+    }
+  } finally {
+    if (!isUnmounted.value) {
+      loading.value = false;
+    }
+  }
+}
+
+// Refresh consumer groups from Kafka to SQLite database
+async function refreshConsumerGroups() {
+  if (refreshingGroups.value || isUnmounted.value) return;
+
+  refreshingGroups.value = true;
+  try {
+    const selectedClustersList = getAllSelectedClusterNames();
+
+    // Refresh consumer groups for each selected cluster
+    for (const clusterName of selectedClustersList) {
+      if (isUnmounted.value) return;
+      try {
+        await apiClient.refreshConsumerGroups(clusterName);
+      } catch (e) {
+        console.warn(`Failed to refresh consumer groups for cluster ${clusterName}:`, e);
+      }
+    }
+
+    // Wait for sync to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Reload consumer groups after refresh
+    if (!isUnmounted.value) {
+      await loadAllConsumerGroups();
+    }
+  } catch (e) {
+    if (!isUnmounted.value) {
+      console.error('Failed to refresh consumer groups:', e);
+    }
+  } finally {
+    if (!isUnmounted.value) {
+      refreshingGroups.value = false;
+    }
+  }
+}
+
+// Select consumer group and navigate to detail page
+function selectConsumerGroup(group: ConsumerGroupInfo) {
+  selectedConsumerGroup.value = group;
+  emit('navigate', {
+    path: '/consumer-groups',
+    query: { cluster: group.cluster, group: group.name }
+  });
+}
+// ==================== End Consumer Groups Functions ====================
+
 // Search input handler with debounce
 function onSearchInput() {
   // Reset hover index when search changes
-  const index = visibleTopics.value.findIndex(
-    t => selectedTopic.value && t.cluster === selectedTopic.value.cluster && t.name === selectedTopic.value.name
-  );
-  hoveredIndex.value = index >= 0 ? index : -1;
+  if (currentView.value === 'topics') {
+    const index = visibleTopics.value.findIndex(
+      t => selectedTopic.value && t.cluster === selectedTopic.value.cluster && t.name === selectedTopic.value.name
+    );
+    hoveredIndex.value = index >= 0 ? index : -1;
+  } else {
+    const index = visibleConsumerGroups.value.findIndex(
+      g => selectedConsumerGroup.value && g.cluster === selectedConsumerGroup.value.cluster && g.name === selectedConsumerGroup.value.name
+    );
+    hoveredIndex.value = index >= 0 ? index : -1;
+  }
 
   if (searchTimer) {
     clearTimeout(searchTimer);
   }
 
-  // 始终使用后端搜索（防抖 300ms）
+  // 根据当前视图使用不同的搜索逻辑（防抖 300ms）
   searchTimer = window.setTimeout(() => {
-    // 重置 offset，重新加载（会传递搜索词给后端）
+    // 重置 offset，重新加载
     offset.value = 0;
-    loadAllTopics();
+    if (currentView.value === 'topics') {
+      loadAllTopics();
+    } else {
+      loadAllConsumerGroups();
+    }
   }, 300);
 }
 
@@ -1004,8 +1238,12 @@ function clearSearch() {
   searchQuery.value = '';
   // Reset pagination
   offset.value = 0;
-  // Reload topics list
-  loadAllTopics();
+  // Reload list based on current view
+  if (currentView.value === 'topics') {
+    loadAllTopics();
+  } else {
+    loadAllConsumerGroups();
+  }
 }
 
 // Select topic

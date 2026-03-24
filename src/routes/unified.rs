@@ -588,6 +588,15 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "favorite.check" => handle_favorite_check(state, body).await,
         "favorite.delete_by_topic" => handle_favorite_delete_by_topic(state, body).await,
 
+        // Consumer Group
+        "consumer_group.list" => handle_consumer_group_list(state, body).await,
+        "consumer_group.get" => handle_consumer_group_get(state, body).await,
+        "consumer_group.offsets" => handle_consumer_group_offsets(state, body).await,
+        "consumer_group.refresh" => handle_consumer_group_refresh(state, body).await,
+        "consumer_group.saved" => handle_consumer_group_saved(state, body).await,
+        "consumer_group.reset_offset" => handle_consumer_group_reset_offset(state, body).await,
+        "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
+
         _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
     }
 }
@@ -4306,6 +4315,238 @@ async fn handle_cluster_group_assign_cluster(state: AppState, body: Value) -> Re
     let group_id = get_i64_param(&body, "group_id")?;
 
     ClusterGroupStore::assign_cluster_to_group(state.db.inner(), cluster_id, group_id).await?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Consumer Group ====================
+
+use crate::db::consumer_group::ConsumerGroupStore;
+use crate::kafka::consumer_group::KafkaConsumerGroupManager;
+
+/// 刷新 Consumer Group 列表（从 Kafka 集群同步到数据库）
+async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+
+    // 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 先获取数据库中已保存的 Consumer Groups 及 topics
+    let existing_groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    let mut topics_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for g in &existing_groups {
+        let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
+        topics_map.insert(g.group_name.clone(), topics);
+    }
+
+    // 在阻塞线程中执行 Kafka 操作
+    let (current_groups, group_details) = tokio::task::spawn_blocking(move || -> std::result::Result<(Vec<String>, Vec<(String, Vec<String>)>), AppError> {
+        // 从 Kafka 集群获取当前 Consumer Group 列表
+        let current_groups = cg_manager.list_consumer_groups()?;
+
+        // 获取每个 group 的 topic 信息（使用数据库中已保存的 topics）
+        let mut group_details = Vec::new();
+        for group in &current_groups {
+            let topics = topics_map.get(group).cloned().unwrap_or_default();
+
+            if let Ok(info) = cg_manager.get_consumer_group_info(group, &topics) {
+                group_details.push((group.clone(), info.topics));
+            } else {
+                // 如果 Kafka 查询失败，使用数据库中的 topics
+                group_details.push((group.clone(), topics));
+            }
+        }
+
+        Ok((current_groups, group_details))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    // 同步到数据库
+    let sync_result = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &current_groups).await?;
+
+    // 更新新增 group 的详细信息
+    for (group_name, topics) in group_details {
+        let _ = ConsumerGroupStore::upsert(state.db.inner(), &cluster_id, &group_name, &topics).await;
+    }
+
+    // 获取更新后的总数
+    let all_groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "added": sync_result.added,
+        "removed": sync_result.removed,
+        "total": all_groups.len(),
+    }))
+}
+
+/// 获取已保存的 Consumer Groups（从数据库）
+async fn handle_consumer_group_saved(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+
+    let groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    let group_names: Vec<String> = groups.into_iter().map(|g| g.group_name).collect();
+
+    Ok(serde_json::json!({ "groups": group_names }))
+}
+
+/// 列出 Consumer Groups
+async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+
+    let groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+
+    let groups_json: Vec<Value> = groups
+        .into_iter()
+        .map(|g| {
+            let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
+            serde_json::json!({
+                "id": g.id,
+                "cluster_id": g.cluster_id,
+                "group_name": g.group_name,
+                "topics": topics,
+                "fetched_at": g.fetched_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!(groups_json))
+}
+
+/// 获取 Consumer Group 详情
+async fn handle_consumer_group_get(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let group_name = get_string_param(&body, "group_name")?;
+
+    // 从数据库获取 group 信息（包含 topics）
+    let group = ConsumerGroupStore::get_by_name(state.db.inner(), &cluster_id, &group_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Consumer group '{}' not found", group_name)))?;
+
+    let topics: Vec<String> = serde_json::from_str(&group.topics).unwrap_or_default();
+
+    // 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 在阻塞线程中执行 Kafka 操作
+    let group_info = tokio::task::spawn_blocking(move || {
+        cg_manager.get_consumer_group_info(&group_name, &topics)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    Ok(serde_json::json!({
+        "group_id": group_info.group_id,
+        "cluster_id": cluster_id,
+        "state": group_info.state,
+        "topics": group_info.topics,
+    }))
+}
+
+/// 获取 Consumer Group 的 offset 和 lag 信息
+async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let group_name = get_string_param(&body, "group_name")?;
+
+    // 从数据库获取 group 信息（包含 topics）
+    let group = ConsumerGroupStore::get_by_name(state.db.inner(), &cluster_id, &group_name)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Consumer group '{}' not found", group_name)))?;
+
+    let topics: Vec<String> = serde_json::from_str(&group.topics).unwrap_or_default();
+
+    // 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 在阻塞线程中执行 Kafka 操作
+    let offsets = tokio::task::spawn_blocking(move || {
+        cg_manager.get_consumer_group_offsets(&group_name, &topics)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    let offsets_json: Vec<Value> = offsets
+        .into_iter()
+        .map(|o| {
+            serde_json::json!({
+                "topic": o.topic,
+                "partition": o.partition,
+                "start_offset": o.start_offset,
+                "end_offset": o.end_offset,
+                "committed_offset": o.committed_offset,
+                "lag": o.lag,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "offsets": offsets_json }))
+}
+
+/// 重置 Consumer Group 的 offset
+async fn handle_consumer_group_reset_offset(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let group_name = get_string_param(&body, "group_name")?;
+    let topic = get_string_param(&body, "topic")?;
+    let partition = get_i32_param(&body, "partition")?;
+    let reset_to = get_string_param(&body, "reset_to")?;  // "earliest", "latest", or "timestamp"
+    let timestamp = get_optional_i64_param(&body, "timestamp");
+
+    // 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 在阻塞线程中执行 Kafka 操作
+    let new_offset = tokio::task::spawn_blocking(move || -> Result<i64> {
+        match reset_to.as_str() {
+            "earliest" => cg_manager.reset_consumer_group_offset_to_earliest(&group_name, &topic, partition),
+            "latest" => cg_manager.reset_consumer_group_offset_to_latest(&group_name, &topic, partition),
+            "timestamp" => {
+                let ts = timestamp.ok_or_else(|| AppError::BadRequest("timestamp is required when reset_to is 'timestamp'".to_string()))?;
+                cg_manager.reset_consumer_group_offset_to_timestamp(&group_name, &topic, partition, ts)
+            }
+            _ => Err(AppError::BadRequest(format!("Invalid reset_to value: {}. Must be 'earliest', 'latest', or 'timestamp'", reset_to))),
+        }
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "new_offset": new_offset,
+    }))
+}
+
+/// 删除 Consumer Group
+async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let group_name = get_string_param(&body, "group_name")?;
+
+    // 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 克隆 group_name 用于闭包和后续使用
+    let group_name_clone = group_name.clone();
+
+    // 在阻塞线程中执行 Kafka 操作
+    tokio::task::spawn_blocking(move || {
+        cg_manager.delete_empty_consumer_group(&group_name_clone)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    // 从数据库中删除
+    ConsumerGroupStore::delete(state.db.inner(), &cluster_id, &group_name).await?;
+    ConsumerGroupStore::delete_offsets(state.db.inner(), &cluster_id, &group_name).await?;
 
     Ok(serde_json::json!({ "success": true }))
 }
