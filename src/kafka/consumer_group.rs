@@ -376,6 +376,52 @@ impl KafkaConsumerGroupManager {
         Ok(())
     }
 
+    /// Kafka 使用的 Murmur2 hash 算法
+    /// 用于计算 consumer group 在 __consumer_offsets 中的分区位置
+    fn murmur2(data: &[u8]) -> i32 {
+        const M: i32 = 0x5bd1e995i32;
+        const R: i32 = 24;
+        // 使用 u32 常量然后转换为 i32，避免字面量溢出
+        const SEED: i32 = 0x9747b28cu32 as i32;
+
+        let length = data.len() as i32;
+        let mut h = SEED ^ length;
+
+        let mut i = 0;
+        while i + 4 <= data.len() {
+            let k = i32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+
+            let mut k = k;
+            k = k.wrapping_mul(M);
+            k ^= k >> R;
+            k = k.wrapping_mul(M);
+
+            h = h.wrapping_mul(M);
+            h ^= k;
+
+            i += 4;
+        }
+
+        // 处理剩余字节
+        let remaining = data.len() - i;
+        if remaining >= 3 {
+            h ^= (data[i + 2] as i32) << 16;
+        }
+        if remaining >= 2 {
+            h ^= (data[i + 1] as i32) << 8;
+        }
+        if remaining >= 1 {
+            h ^= data[i] as i32;
+            h = h.wrapping_mul(M);
+        }
+
+        h ^= h >> 13;
+        h = h.wrapping_mul(M);
+        h ^= h >> 15;
+
+        h
+    }
+
     /// 从 __consumer_offsets topic 获取最后提交时间
     /// 通过读取 __consumer_offsets topic 中对应 key 的最新记录来获取提交时间戳
     pub fn get_last_commit_time_from_offsets_topic(
@@ -407,11 +453,24 @@ impl KafkaConsumerGroupManager {
             .collect();
 
         tracing::info!("[get_last_commit_time] __consumer_offsets has {} partitions: {:?}", partitions.len(), partitions);
+        tracing::info!("[get_last_commit_time] Looking for group_id='{}', topic='{}', partition={}", group_id, topic, partition);
 
         let mut last_commit_time: Option<i64> = None;
 
-        // 遍历所有 __consumer_offsets 分区
-        for &offsets_partition in &partitions {
+        // 计算目标分区（使用 Kafka 的默认分区算法）
+        // 算法: murmur2(group_id) % num_partitions
+        let target_partition = (Self::murmur2(group_id.as_bytes()) as i32).wrapping_abs() % (partitions.len() as i32);
+        tracing::info!("[get_last_commit_time] Target partition for group '{}': {}", group_id, target_partition);
+
+        // 优先检查目标分区，如果不存在再遍历所有分区
+        let partitions_to_check: Vec<i32> = if partitions.contains(&target_partition) {
+            vec![target_partition]
+        } else {
+            partitions.clone()
+        };
+
+        // 遍历目标分区或所有分区
+        for &offsets_partition in &partitions_to_check {
             // 获取该分区的水位
             let (start_offset, end_offset) = consumer
                 .fetch_watermarks("__consumer_offsets", offsets_partition, self.timeout)
@@ -431,27 +490,55 @@ impl KafkaConsumerGroupManager {
             while search_start < end_offset && checked_count < 100 {
                 // 订阅分区并从指定位置开始消费
                 let mut tpl = TopicPartitionList::new();
-                tpl.add_partition_offset("__consumer_offsets", offsets_partition, Offset::Offset(search_start))?;
+                tpl.add_partition("__consumer_offsets", offsets_partition);
                 consumer.assign(&tpl)?;
 
-                // 消费消息
-                match consumer.poll(Duration::from_millis(50)) {
-                    Some(Ok(msg)) => {
-                        // 同时使用 key 和 value 来匹配
-                        if let Some(timestamp) = parse_consumer_offset_message(&msg, group_id, topic, partition) {
-                            tracing::info!("[get_last_commit_time] Found commit time for {}/{}/{}: {}", group_id, topic, partition, timestamp);
-                            last_commit_time = Some(timestamp);
-                            consumer.unassign()?;
-                            return Ok(last_commit_time);
+                // 使用 seek 确保从指定 offset 开始消费
+                consumer.seek(
+                    "__consumer_offsets",
+                    offsets_partition,
+                    Offset::Offset(search_start),
+                    self.timeout,
+                )?;
+
+                tracing::debug!("[get_last_commit_time] Seek to offset {} in partition {}", search_start, offsets_partition);
+
+                // 消费消息 - 增加重试次数以确保能获取到消息
+                let mut poll_attempts = 0;
+                let max_poll_attempts = 5;
+                let mut found_message = false;
+
+                while poll_attempts < max_poll_attempts {
+                    match consumer.poll(Duration::from_millis(200)) {
+                        Some(Ok(msg)) => {
+                            // 同时使用 key 和 value 来匹配
+                            if let Some(timestamp) = parse_consumer_offset_message(&msg, group_id, topic, partition) {
+                                tracing::info!("[get_last_commit_time] Found commit time for {}/{}/{}: {}", group_id, topic, partition, timestamp);
+                                last_commit_time = Some(timestamp);
+                                consumer.unassign()?;
+                                return Ok(last_commit_time);
+                            }
+                            found_message = true;
+                            break; // 找到了消息但不匹配，跳出 poll 循环
+                        }
+                        Some(Err(e)) => {
+                            tracing::debug!("Poll error: {}", e);
+                            poll_attempts += 1;
+                        }
+                        None => {
+                            // 没有消息，稍后重试
+                            poll_attempts += 1;
+                            std::thread::sleep(Duration::from_millis(50));
                         }
                     }
-                    Some(Err(e)) => {
-                        tracing::debug!("Poll error: {}", e);
-                    }
-                    None => {
-                        // 没有更多消息
-                    }
                 }
+
+                if !found_message {
+                    tracing::debug!("[get_last_commit_time] No message fetched after {} attempts at offset {}", max_poll_attempts, search_start);
+                } else {
+                    tracing::debug!("[get_last_commit_time] Fetched message at offset {} but didn't match target {}/{}/{}", search_start, group_id, topic, partition);
+                }
+
                 search_start += 1;
                 checked_count += 1;
             }
