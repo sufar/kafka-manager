@@ -1,5 +1,5 @@
 <template>
-  <div class="message-query-tool h-full flex flex-col">
+  <div class="message-query-tool flex-1 flex flex-col min-h-0">
     <!-- 简洁搜索栏 -->
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 分区选择 -->

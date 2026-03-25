@@ -5,6 +5,7 @@ use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use rdkafka::consumer::{BaseConsumer, Consumer, CommitMode};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
+use rdkafka::Message;
 use std::time::Duration;
 
 /// Consumer Group 详情
@@ -24,10 +25,11 @@ pub struct PartitionOffsetDetail {
     pub end_offset: i64,
     pub committed_offset: i64,
     pub lag: i64,
-    pub last_commit_time: Option<i64>,  // 最后提交时间（毫秒时间戳），暂无数据
+    pub last_commit_time: Option<i64>,  // 最后提交时间（毫秒时间戳）
 }
 
 /// Consumer Group 管理器
+#[derive(Clone)]
 pub struct KafkaConsumerGroupManager {
     consumer_config: KafkaConfig,
     timeout: Duration,
@@ -196,9 +198,9 @@ impl KafkaConsumerGroupManager {
 
                     let committed = consumer.committed_offsets(tpl, self.timeout)?;
                     // 处理 Offset 类型，将 Invalid 转换为 -1
-                    let committed_offset = committed
-                        .elements()
-                        .first()
+                    let elements = committed.elements();
+                    let element = elements.first();
+                    let committed_offset = element
                         .map(|e| {
                             match e.offset() {
                                 Offset::Offset(n) => n,
@@ -207,6 +209,19 @@ impl KafkaConsumerGroupManager {
                             }
                         })
                         .unwrap_or(-1);
+
+                    // 尝试从 metadata 中获取最后提交时间
+                    // Kafka 的 committed offset metadata 格式不标准，通常是空的或自定义格式
+                    // 这里我们尝试解析 metadata 字符串（这个值通常为空，后续会从__consumer_offsets 获取）
+                    let _last_commit_time_from_metadata: Option<i64> = element
+                        .and_then(|e| {
+                            let metadata = e.metadata();
+                            if metadata.is_empty() {
+                                None
+                            } else {
+                                metadata.parse::<i64>().ok()
+                            }
+                        });
 
                     // 获取 start offset (earliest) 和 end offset (latest)
                     let (start_offset, end_offset) = consumer
@@ -227,13 +242,24 @@ impl KafkaConsumerGroupManager {
                         end_offset,
                         committed_offset,
                         lag,
-                        last_commit_time: None,
+                        last_commit_time: None,  // 默认不查__consumer_offsets，由详情页按需调用
                     });
                 }
             }
         }
 
         Ok(result)
+    }
+
+    /// 获取单个分区的最后提交时间（从__consumer_offsets topic 读取）
+    /// 用于详情页单个 consumer group 的详细查询
+    pub fn get_partition_last_commit_time(
+        &self,
+        group_id: &str,
+        topic: &str,
+        partition: i32,
+    ) -> Result<Option<i64>> {
+        self.get_last_commit_time_from_offsets_topic(group_id, topic, partition)
     }
 
     /// 重置 Consumer Group 的 offset
@@ -348,6 +374,186 @@ impl KafkaConsumerGroupManager {
         // 实际上，consumer group 会在没有 active consumer 且所有 offset 过期后自动删除
         // 这里我们只是从数据库中删除记录
         Ok(())
+    }
+
+    /// 从 __consumer_offsets topic 获取最后提交时间
+    /// 通过读取 __consumer_offsets topic 中对应 key 的最新记录来获取提交时间戳
+    pub fn get_last_commit_time_from_offsets_topic(
+        &self,
+        group_id: &str,
+        topic: &str,
+        partition: i32,
+    ) -> Result<Option<i64>> {
+        // 创建一个不带 group.id 的消费者来读取 __consumer_offsets topic
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("enable.auto.commit", "false");
+        client_config.set("isolation.level", "read_committed");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        // __consumer_offsets topic 的 key 格式：[version][groupIdLength][groupId][topicLength][topic][partition]
+        // 我们需要找到对应这个 group/topic/partition 的 offset 在 __consumer_offsets 中的位置
+
+        // 简化方法：直接获取 __consumer_offsets topic 的 metadata，然后读取最新的消息
+        // 但由于 __consumer_offsets 有很多分区，我们需要知道具体哪个分区存储了这个 group 的数据
+
+        // 使用 group hash 来确定 __consumer_offsets 的分区
+        let offsets_partition = partition_for_consumer_group_offset(group_id);
+
+        // 获取 __consumer_offsets 的水位
+        let (start_offset, end_offset) = consumer
+            .fetch_watermarks("__consumer_offsets", offsets_partition, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))?;
+
+        if end_offset <= start_offset {
+            return Ok(None);
+        }
+
+        // 从最新的 offset 开始向前查找，找到匹配的记录
+        // 由于性能考虑，最多检查最近的 100 条记录
+        let mut search_start = start_offset.max(end_offset - 100);
+        let mut last_commit_time: Option<i64> = None;
+
+        while search_start < end_offset {
+            // 订阅分区并从指定位置开始消费
+            let mut tpl = TopicPartitionList::new();
+            tpl.add_partition_offset("__consumer_offsets", offsets_partition, Offset::Offset(search_start))?;
+            consumer.assign(&tpl)?;
+
+            // 消费消息
+            match consumer.poll(Duration::from_millis(100)) {
+                Some(Ok(msg)) => {
+                    if let Some(payload) = msg.payload() {
+                        // 检查是否是目标 group 的记录
+                        if let Some(timestamp) = parse_consumer_offset_record(payload, group_id, topic, partition) {
+                            last_commit_time = Some(timestamp);
+                            break;
+                        }
+                    }
+                }
+                Some(Err(e)) => {
+                    // 跳过错误
+                    eprintln!("Poll error: {}", e);
+                }
+                None => {}
+            }
+            search_start += 1;
+        }
+
+        // 重置消费位置
+        consumer.unassign()?;
+
+        Ok(last_commit_time)
+    }
+}
+
+/// 计算 consumer group offset 在 __consumer_offsets 中的分区
+fn partition_for_consumer_group_offset(group_id: &str) -> i32 {
+    // Kafka 使用 group.id 的 hash 值来确定存储 offset 的分区
+    // 默认 __consumer_offsets topic 有 50 个分区
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    group_id.hash(&mut hasher);
+    let hash = hasher.finish() as i32;
+    (hash & 0x7fffffff) % 50
+}
+
+/// 解析 __consumer_offsets topic 中的记录
+/// 返回最后提交时间（毫秒时间戳）
+fn parse_consumer_offset_record(
+    payload: &[u8],
+    target_group: &str,
+    target_topic: &str,
+    target_partition: i32,
+) -> Option<i64> {
+    if payload.is_empty() {
+        return None;
+    }
+
+    // __consumer_offsets 记录格式（版本 1-3）:
+    // [version][key schema][value schema]
+    // 简化解析：尝试从 payload 中提取时间戳
+
+    // 注意：这是一个简化的实现，完整的解析需要处理所有版本格式
+    // 参考：https://cwiki.apache.org/confluence/display/KAFKA/Offset+Commit+and+Fetch+API
+
+    let mut pos = 0;
+
+    // 读取 version (2 bytes, big endian)
+    if payload.len() < 2 {
+        return None;
+    }
+    let version = i16::from_be_bytes([payload[0], payload[1]]);
+    pos += 2;
+
+    // 不同版本格式不同，这里处理常见的版本 1-3
+    match version {
+        0..=3 => {
+            // 尝试解析 group id
+            if payload.len() < pos + 2 {
+                return None;
+            }
+            let group_id_len = i16::from_be_bytes([payload[pos], payload[pos + 1]]) as usize;
+            pos += 2;
+
+            if payload.len() < pos + group_id_len {
+                return None;
+            }
+            let group_id = String::from_utf8_lossy(&payload[pos..pos + group_id_len]);
+            pos += group_id_len;
+
+            if group_id != target_group {
+                return None;
+            }
+
+            // 读取 topic
+            if payload.len() < pos + 2 {
+                return None;
+            }
+            let topic_len = i16::from_be_bytes([payload[pos], payload[pos + 1]]) as usize;
+            pos += 2;
+
+            if payload.len() < pos + topic_len {
+                return None;
+            }
+            let topic = String::from_utf8_lossy(&payload[pos..pos + topic_len]);
+            pos += topic_len;
+
+            if topic != target_topic {
+                return None;
+            }
+
+            // 读取 partition
+            if payload.len() < pos + 4 {
+                return None;
+            }
+            let partition = i32::from_be_bytes([payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3]]);
+            pos += 4;
+
+            if partition != target_partition {
+                return None;
+            }
+
+            // 读取 offset (8 bytes)
+            pos += 8;
+
+            // 读取 timestamp (8 bytes, big endian) - 这是我们要的
+            if payload.len() < pos + 8 {
+                return None;
+            }
+            let timestamp = i64::from_be_bytes([
+                payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
+                payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
+            ]);
+
+            Some(timestamp)
+        }
+        _ => {
+            // 其他版本暂时不支持
+            None
+        }
     }
 }
 

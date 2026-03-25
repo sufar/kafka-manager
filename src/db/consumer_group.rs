@@ -24,6 +24,7 @@ pub struct ConsumerGroupOffset {
     pub partition_id: i32,
     pub offset_value: i64,
     pub lag: i64,
+    pub last_commit_time: Option<i64>,
     pub fetched_at: String,
 }
 
@@ -210,16 +211,18 @@ impl ConsumerGroupStore {
         partition_id: i32,
         offset_value: i64,
         lag: i64,
+        last_commit_time: Option<i64>,
     ) -> Result<i64> {
         let now = chrono::Utc::now().to_rfc3339();
 
         let id = sqlx::query_scalar(
             r#"
-            INSERT INTO consumer_group_offsets (cluster_id, group_name, topic_name, partition_id, offset_value, lag, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO consumer_group_offsets (cluster_id, group_name, topic_name, partition_id, offset_value, lag, last_commit_time, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cluster_id, group_name, topic_name, partition_id) DO UPDATE SET
                 offset_value = excluded.offset_value,
                 lag = excluded.lag,
+                last_commit_time = excluded.last_commit_time,
                 fetched_at = excluded.fetched_at
             RETURNING id
             "#,
@@ -230,6 +233,7 @@ impl ConsumerGroupStore {
         .bind(partition_id)
         .bind(offset_value)
         .bind(lag)
+        .bind(last_commit_time)
         .bind(&now)
         .fetch_one(pool)
         .await?;

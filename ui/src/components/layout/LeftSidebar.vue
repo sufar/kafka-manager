@@ -4,10 +4,10 @@
     <aside
       v-if="!isMobile"
       ref="leftSidebarRef"
-      class="glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
+      class="h-full glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
       :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
     >
-      <div class="flex-1 overflow-y-auto p-2">
+      <div class="flex-1 flex flex-col min-h-0">
         <!-- Tree Mode -->
         <ClusterTreeNavigator
           v-if="sidebarMode === 'tree'"
@@ -30,10 +30,10 @@
     <!-- Mobile Sidebar Drawer -->
     <aside
       v-if="isMobile && sidebarOpen"
-      class="h-full w-72 glass gradient-border overflow-hidden flex flex-col rounded-l-xl flex-shrink-0"
+      class="fixed left-0 top-10 h-[calc(100dvh-2.5rem)] w-72 overflow-hidden flex flex-col z-50"
     >
       <!-- Mobile Sidebar Header -->
-      <div class="flex items-center justify-between p-3 border-b border-base-200">
+      <div class="flex items-center justify-between p-3 border-b border-base-200 flex-shrink-0">
         <span class="font-bold">Menu</span>
         <button
           class="btn btn-ghost btn-circle btn-sm"
@@ -45,7 +45,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-2">
+      <div class="flex-1 flex flex-col min-h-0">
         <!-- Tree Mode -->
         <ClusterTreeNavigator
           v-if="sidebarMode === 'tree'"

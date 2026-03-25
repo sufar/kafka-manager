@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3">
+  <div class="p-3 overflow-auto min-h-full">
     <!-- Page Header -->
     <div class="mb-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">

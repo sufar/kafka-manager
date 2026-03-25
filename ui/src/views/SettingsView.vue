@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3 relative overflow-hidden">
+  <div class="p-3 relative overflow-auto min-h-full">
     <!-- Animated background -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="particle particle-1"></div>

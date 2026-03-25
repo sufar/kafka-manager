@@ -1,5 +1,5 @@
 <template>
-  <div class="messages-view h-full flex flex-col">
+  <div class="messages-view flex-1 flex flex-col min-h-0">
     <MessageQueryTool
       :key="`${currentCluster}-${currentTopic}`"
       :cluster="currentCluster"
@@ -32,6 +32,7 @@ const currentTopic = computed(() => {
 .messages-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 </style>

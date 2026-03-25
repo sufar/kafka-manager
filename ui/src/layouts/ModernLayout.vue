@@ -1,5 +1,5 @@
 <template>
-  <div class="h-[100dvh] bg-base-100 overflow-hidden pt-10">
+  <div class="h-[100dvh] bg-base-100 flex flex-col pt-10">
     <!-- Top Navigation Bar -->
     <TopNavBar
       :is-mobile="isMobile"
@@ -35,11 +35,9 @@
       />
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl ml-2">
-      <div class="flex-1 overflow-auto p-2">
+      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl ml-2">
         <router-view />
-      </div>
-    </main>
+      </main>
     </div>
 
     <!-- Context Menus -->

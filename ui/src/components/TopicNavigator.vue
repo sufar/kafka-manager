@@ -1,5 +1,5 @@
 <template>
-  <div class="topic-navigator h-full flex flex-col">
+  <div class="topic-navigator flex-1 flex flex-col min-h-0">
     <!-- Header -->
     <div class="flex items-center justify-between p-1.5 flex-shrink-0 border-b border-base-200">
       <div class="flex items-center gap-1.5">
@@ -69,7 +69,7 @@
     </div>
 
     <!-- Topic List with Virtual Scroll -->
-    <div class="flex-1 overflow-hidden px-2">
+    <div class="flex-1 overflow-y-auto px-2 relative">
       <!-- Loading -->
       <div v-if="loading" class="flex items-center justify-center py-8">
         <span class="loading loading-spinner loading-sm"></span>
@@ -94,7 +94,7 @@
       <!-- Virtual Scroll Topic Items -->
       <RecycleScroller
         v-else-if="currentView === 'topics'"
-        class="h-full overflow-auto"
+        class="overflow-visible"
         :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
         :item-size="28"
         key-field="uid"
@@ -137,7 +137,7 @@
       <!-- Virtual Scroll Consumer Group Items -->
       <RecycleScroller
         v-else-if="currentView === 'consumer-groups'"
-        class="h-full overflow-auto"
+        class="overflow-visible"
         :items="filteredConsumerGroupsWithUid"
         :item-size="28"
         key-field="uid"

@@ -337,6 +337,7 @@ impl DbPool {
                 partition_id INTEGER NOT NULL,
                 offset_value INTEGER NOT NULL,
                 lag INTEGER NOT NULL,
+                last_commit_time INTEGER,
                 fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(cluster_id, group_name, topic_name, partition_id)
             )

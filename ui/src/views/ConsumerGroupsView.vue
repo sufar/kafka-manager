@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3">
+  <div class="p-3 overflow-auto min-h-full">
     <!-- Detail View -->
     <div v-if="detailView" class="space-y-4">
       <!-- Header with group name and actions -->
@@ -64,7 +64,7 @@
           <h3 class="font-semibold">{{ t.consumerGroups.offsets }}</h3>
           <span class="text-xs text-base-content/60">{{ offsets.length }} {{ t.consumerGroups.partitions }}</span>
         </div>
-        <div class="overflow-x-auto">
+        <div class="overflow-auto max-h-[600px]">
           <table class="table w-full">
             <thead>
               <tr>
@@ -83,7 +83,7 @@
                 <td><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
                 <td class="text-right font-mono text-sm">{{ item.start_offset }}</td>
                 <td class="text-right font-mono text-sm">{{ item.end_offset }}</td>
-                <td class="text-right font-mono text-sm">{{ formatNumber(item.committed_offset) }}</td>
+                <td class="text-right font-mono text-sm">{{ item.committed_offset }}</td>
                 <td class="text-right">
                   <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
                 </td>
@@ -406,13 +406,6 @@ function getLagClass(lag: number): string {
   if (lag === 0) return 'text-success';
   if (lag < 1000) return 'text-warning';
   return 'text-error';
-}
-
-function formatNumber(num: number): string {
-  if (num < 0) return '-';
-  if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
-  return num.toString();
 }
 
 function formatLastCommitTime(timestamp?: number | null): string {

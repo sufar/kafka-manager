@@ -4570,13 +4570,23 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
     let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+    let group_name_clone = group_name.clone();
+    let cg_manager_clone = cg_manager.clone();
 
     // 在阻塞线程中执行 Kafka 操作 - 自动从 Kafka 获取 topics
-    let offsets = tokio::task::spawn_blocking(move || {
-        cg_manager.get_consumer_group_offsets_auto(&group_name)
+    let mut offsets = tokio::task::spawn_blocking(move || {
+        cg_manager_clone.get_consumer_group_offsets_auto(&group_name_clone)
     })
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+
+    // 为每个分区获取最后提交时间（从__consumer_offsets topic 读取）
+    // 由于这是详情页调用，可以接受较慢的速度
+    for offset in offsets.iter_mut() {
+        if let Ok(time) = cg_manager.get_partition_last_commit_time(&group_name, &offset.topic, offset.partition) {
+            offset.last_commit_time = time;
+        }
+    }
 
     let offsets_json: Vec<Value> = offsets
         .into_iter()
