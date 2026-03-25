@@ -1,10 +1,10 @@
 <template>
-  <div class="flex h-[100dvh] flex-shrink-0">
+  <div class="flex h-[100dvh] flex-shrink-0 mb-2">
     <!-- Left Sidebar - Navigator - Desktop Only -->
     <aside
       v-if="!isMobile"
       ref="leftSidebarRef"
-      class="flex flex-col h-full glass gradient-border overflow-hidden relative rounded-xl"
+      class="flex flex-col h-full glass gradient-border relative rounded-xl"
       :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
     >
       <div class="flex-1 flex flex-col min-h-0">
