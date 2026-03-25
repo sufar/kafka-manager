@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-[100dvh] flex-shrink-0">
+  <div class="flex h-[100dvh] flex-shrink-0 ml-2">
     <!-- Left Sidebar - Navigator - Desktop Only -->
     <aside
       v-if="!isMobile"

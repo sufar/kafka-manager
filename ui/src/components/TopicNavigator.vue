@@ -69,14 +69,14 @@
     </div>
 
     <!-- Topic List with Virtual Scroll -->
-    <div class="flex-1 overflow-y-auto px-2 relative">
+    <div class="flex-1 overflow-hidden px-2 relative">
       <!-- Loading -->
-      <div v-if="loading" class="flex items-center justify-center py-8">
+      <div v-if="loading" class="absolute inset-0 flex items-center justify-center">
         <span class="loading loading-spinner loading-sm"></span>
       </div>
 
       <!-- Empty - Topics -->
-      <div v-else-if="currentView === 'topics' && filteredTopics.length === 0" class="text-center py-8 text-base-content/50">
+      <div v-else-if="currentView === 'topics' && filteredTopics.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
@@ -84,7 +84,7 @@
       </div>
 
       <!-- Empty - Consumer Groups -->
-      <div v-else-if="currentView === 'consumer-groups' && filteredConsumerGroups.length === 0" class="text-center py-8 text-base-content/50">
+      <div v-else-if="currentView === 'consumer-groups' && filteredConsumerGroups.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
         </svg>
@@ -94,7 +94,7 @@
       <!-- Virtual Scroll Topic Items -->
       <RecycleScroller
         v-else-if="currentView === 'topics'"
-        class="overflow-visible"
+        class="h-full overflow-y-auto"
         :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
         :item-size="28"
         key-field="uid"
@@ -137,7 +137,7 @@
       <!-- Virtual Scroll Consumer Group Items -->
       <RecycleScroller
         v-else-if="currentView === 'consumer-groups'"
-        class="overflow-visible"
+        class="h-full overflow-y-auto"
         :items="filteredConsumerGroupsWithUid"
         :item-size="28"
         key-field="uid"
