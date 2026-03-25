@@ -22,7 +22,7 @@
     />
 
     <!-- Main Layout Container -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden pt-10">
       <LeftSidebar
         :is-mobile="isMobile"
         :sidebar-mode="sidebarMode"
