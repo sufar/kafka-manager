@@ -35,7 +35,7 @@
       />
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2 mb-2">
+      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2 h-[calc(100dvh-0.5rem)]">
         <router-view />
       </main>
     </div>

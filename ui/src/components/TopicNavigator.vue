@@ -1,5 +1,5 @@
 <template>
-  <div class="topic-navigator flex-1 flex flex-col min-h-0">
+  <div class="topic-navigator flex-1 flex flex-col min-h-0 relative">
     <!-- Header -->
     <div class="flex items-center justify-between p-1.5 flex-shrink-0 border-b border-base-200">
       <div class="flex items-center gap-1.5">
@@ -69,7 +69,7 @@
     </div>
 
     <!-- Topic List with Virtual Scroll -->
-    <div class="flex-1 overflow-hidden px-2 relative">
+    <div class="flex-1 overflow-y-auto px-2 relative pb-10">
       <!-- Loading -->
       <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10">
         <span class="loading loading-spinner loading-sm"></span>
@@ -179,7 +179,7 @@
     </div>
 
     <!-- Status Bar - Fixed at bottom -->
-    <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0 bg-base-100/90 backdrop-blur-sm">
+    <div class="absolute bottom-0 left-0 right-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100/90 backdrop-blur-sm">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Load More Button (Topics only) -->

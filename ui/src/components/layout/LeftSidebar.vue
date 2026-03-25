@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-[100dvh] flex-shrink-0 mb-2">
+  <div class="flex h-[calc(100dvh-0.5rem)] flex-shrink-0">
     <!-- Left Sidebar - Navigator - Desktop Only -->
     <aside
       v-if="!isMobile"
