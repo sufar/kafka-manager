@@ -69,14 +69,14 @@
     </div>
 
     <!-- Topic List with Virtual Scroll -->
-    <div class="flex-1 overflow-y-auto px-2 relative pb-10">
+    <div class="flex-1 flex flex-col min-h-0 px-2 relative">
       <!-- Loading -->
-      <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10">
+      <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10 bg-base-100">
         <span class="loading loading-spinner loading-sm"></span>
       </div>
 
       <!-- Empty - Topics -->
-      <div v-else-if="currentView === 'topics' && filteredTopics.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 z-10">
+      <div v-else-if="currentView === 'topics' && filteredTopics.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 z-10 bg-base-100">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
@@ -84,24 +84,28 @@
       </div>
 
       <!-- Empty - Consumer Groups -->
-      <div v-else-if="currentView === 'consumer-groups' && filteredConsumerGroups.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 z-10">
+      <div v-else-if="currentView === 'consumer-groups' && filteredConsumerGroups.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 z-10 bg-base-100">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
         </svg>
         <p class="text-xs">{{ searchQuery ? '无匹配结果' : '暂无 Consumer Groups' }}</p>
       </div>
 
-      <!-- Virtual Scroll Topic Items -->
-      <RecycleScroller
-        v-else-if="currentView === 'topics'"
-        class="w-full overflow-y-auto"
-        :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
-        :item-size="28"
-        key-field="uid"
-        v-slot="{ item, index }"
-        @scroll="handleScroll"
-      >
-        <div
+      <!-- Virtual Scroll Container -->
+      <div class="flex-1 min-h-0 relative">
+        <!-- Virtual Scroll Topic Items -->
+        <RecycleScroller
+          v-if="currentView === 'topics' && !loading && (searchQuery ? filteredTopicsWithUid.length : displayedTopicsWithUid.length) > 0"
+          :key="'topics-' + currentView"
+          class="w-full h-full"
+          :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
+          :item-size="28"
+          key-field="uid"
+          :buffer-size="10"
+          v-slot="{ item, index }"
+          @scroll="handleScroll"
+        >
+          <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
           :class="{ 'bg-primary/10': hoveredIndex === index }"
           @click="selectTopic((item as TopicItem).topic)"
@@ -136,11 +140,13 @@
 
       <!-- Virtual Scroll Consumer Group Items -->
       <RecycleScroller
-        v-else-if="currentView === 'consumer-groups'"
-        class="w-full overflow-y-auto"
+        v-if="currentView === 'consumer-groups' && !loading && filteredConsumerGroupsWithUid.length > 0"
+        :key="'consumer-groups-' + currentView"
+        class="w-full h-full"
         :items="filteredConsumerGroupsWithUid"
         :item-size="28"
         key-field="uid"
+        :buffer-size="10"
         v-slot="{ item, index }"
         @scroll="handleScroll"
       >
@@ -176,10 +182,11 @@
           </span>
         </div>
       </RecycleScroller>
+      </div>
     </div>
 
     <!-- Status Bar - Fixed at bottom -->
-    <div class="absolute bottom-0 left-0 right-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100/90 backdrop-blur-sm">
+    <div class="flex-shrink-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Load More Button (Topics only) -->
@@ -1393,10 +1400,11 @@ watch(
 /* Vue virtual scroller styles */
 .vue-recycle-scroller {
   position: relative;
+  overflow-y: auto;
 }
 
 .vue-recycle-scroller__item-wrapper {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .vue-recycle-scroller__item-view {

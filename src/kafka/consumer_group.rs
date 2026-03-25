@@ -391,93 +391,173 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        // __consumer_offsets topic 的 key 格式：[version][groupIdLength][groupId][topicLength][topic][partition]
-        // 我们需要找到对应这个 group/topic/partition 的 offset 在 __consumer_offsets 中的位置
+        // 首先获取 __consumer_offsets topic 的元数据，获取实际分区数
+        let metadata = consumer.fetch_metadata(Some("__consumer_offsets"), self.timeout)?;
+        let offsets_topic_meta = metadata.topics().iter()
+            .find(|t| t.name() == "__consumer_offsets");
 
-        // 简化方法：直接获取 __consumer_offsets topic 的 metadata，然后读取最新的消息
-        // 但由于 __consumer_offsets 有很多分区，我们需要知道具体哪个分区存储了这个 group 的数据
-
-        // 使用 group hash 来确定 __consumer_offsets 的分区
-        let offsets_partition = partition_for_consumer_group_offset(group_id);
-
-        // 获取 __consumer_offsets 的水位
-        let (start_offset, end_offset) = consumer
-            .fetch_watermarks("__consumer_offsets", offsets_partition, self.timeout)
-            .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))?;
-
-        if end_offset <= start_offset {
+        if offsets_topic_meta.is_none() {
             return Ok(None);
         }
 
-        // 从最新的 offset 开始向前查找，找到匹配的记录
-        // 由于性能考虑，最多检查最近的 100 条记录
-        let mut search_start = start_offset.max(end_offset - 100);
+        let offsets_topic_meta = offsets_topic_meta.unwrap();
+        let partitions: Vec<i32> = offsets_topic_meta.partitions()
+            .iter()
+            .map(|p| p.id())
+            .collect();
+
+        tracing::info!("[get_last_commit_time] __consumer_offsets has {} partitions: {:?}", partitions.len(), partitions);
+
         let mut last_commit_time: Option<i64> = None;
 
-        while search_start < end_offset {
-            // 订阅分区并从指定位置开始消费
-            let mut tpl = TopicPartitionList::new();
-            tpl.add_partition_offset("__consumer_offsets", offsets_partition, Offset::Offset(search_start))?;
-            consumer.assign(&tpl)?;
+        // 遍历所有 __consumer_offsets 分区
+        for &offsets_partition in &partitions {
+            // 获取该分区的水位
+            let (start_offset, end_offset) = consumer
+                .fetch_watermarks("__consumer_offsets", offsets_partition, self.timeout)
+                .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))?;
 
-            // 消费消息
-            match consumer.poll(Duration::from_millis(100)) {
-                Some(Ok(msg)) => {
-                    if let Some(payload) = msg.payload() {
-                        // 检查是否是目标 group 的记录
-                        if let Some(timestamp) = parse_consumer_offset_record(payload, group_id, topic, partition) {
+            if end_offset <= start_offset {
+                continue;
+            }
+
+            tracing::debug!("[get_last_commit_time] Checking partition {}, offsets: {}..{}", offsets_partition, start_offset, end_offset);
+
+            // 从最新的 offset 开始向前查找，找到匹配的记录
+            // 由于性能考虑，最多检查最近的 100 条记录
+            let mut search_start = start_offset.max(end_offset - 100);
+            let mut checked_count = 0;
+
+            while search_start < end_offset && checked_count < 100 {
+                // 订阅分区并从指定位置开始消费
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("__consumer_offsets", offsets_partition, Offset::Offset(search_start))?;
+                consumer.assign(&tpl)?;
+
+                // 消费消息
+                match consumer.poll(Duration::from_millis(50)) {
+                    Some(Ok(msg)) => {
+                        // 同时使用 key 和 value 来匹配
+                        if let Some(timestamp) = parse_consumer_offset_message(&msg, group_id, topic, partition) {
+                            tracing::info!("[get_last_commit_time] Found commit time for {}/{}/{}: {}", group_id, topic, partition, timestamp);
                             last_commit_time = Some(timestamp);
-                            break;
+                            consumer.unassign()?;
+                            return Ok(last_commit_time);
                         }
                     }
+                    Some(Err(e)) => {
+                        tracing::debug!("Poll error: {}", e);
+                    }
+                    None => {
+                        // 没有更多消息
+                    }
                 }
-                Some(Err(e)) => {
-                    // 跳过错误
-                    eprintln!("Poll error: {}", e);
-                }
-                None => {}
+                search_start += 1;
+                checked_count += 1;
             }
-            search_start += 1;
         }
 
         // 重置消费位置
         consumer.unassign()?;
 
+        tracing::info!("[get_last_commit_time] No commit time found for {}/{}/{}", group_id, topic, partition);
         Ok(last_commit_time)
     }
 }
 
-/// 计算 consumer group offset 在 __consumer_offsets 中的分区
-fn partition_for_consumer_group_offset(group_id: &str) -> i32 {
-    // Kafka 使用 group.id 的 hash 值来确定存储 offset 的分区
-    // 默认 __consumer_offsets topic 有 50 个分区
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    group_id.hash(&mut hasher);
-    let hash = hasher.finish() as i32;
-    (hash & 0x7fffffff) % 50
-}
-
-/// 解析 __consumer_offsets topic 中的记录
+/// 解析 __consumer_offsets topic 中的消息（使用 key 和 value）
 /// 返回最后提交时间（毫秒时间戳）
-fn parse_consumer_offset_record(
-    payload: &[u8],
+fn parse_consumer_offset_message(
+    msg: &rdkafka::message::BorrowedMessage,
     target_group: &str,
     target_topic: &str,
     target_partition: i32,
 ) -> Option<i64> {
+    // 首先从 key 中解析 group_id, topic, partition
+    let key = msg.key()?;
+    if key.is_empty() {
+        return None;
+    }
+
+    // 解析 key 获取 group_id, topic, partition
+    let (key_group, key_topic, key_partition) = parse_offset_key(key)?;
+
+    // 检查是否匹配目标
+    if key_group != target_group || key_topic != target_topic || key_partition != target_partition {
+        return None;
+    }
+
+    // 从 value 中解析时间戳
+    let payload = msg.payload()?;
     if payload.is_empty() {
         return None;
     }
 
-    // __consumer_offsets 记录格式（版本 1-3）:
-    // [version][key schema][value schema]
-    // 简化解析：尝试从 payload 中提取时间戳
+    parse_offset_value(payload)
+}
 
-    // 注意：这是一个简化的实现，完整的解析需要处理所有版本格式
-    // 参考：https://cwiki.apache.org/confluence/display/KAFKA/Offset+Commit+and+Fetch+API
+/// 解析 __consumer_offsets 的 key
+/// 返回 (group_id, topic, partition)
+fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
+    if key.len() < 2 {
+        return None;
+    }
+
+    let mut pos = 0;
+
+    // 读取 version (2 bytes, big endian)
+    let version = i16::from_be_bytes([key[0], key[1]]);
+    pos += 2;
+
+    match version {
+        0..=3 => {
+            // 读取 group_id
+            if key.len() < pos + 2 {
+                return None;
+            }
+            let group_id_len = i16::from_be_bytes([key[pos], key[pos + 1]]) as usize;
+            pos += 2;
+
+            if key.len() < pos + group_id_len {
+                return None;
+            }
+            let group_id = String::from_utf8_lossy(&key[pos..pos + group_id_len]).to_string();
+            pos += group_id_len;
+
+            // 读取 topic
+            if key.len() < pos + 2 {
+                return None;
+            }
+            let topic_len = i16::from_be_bytes([key[pos], key[pos + 1]]) as usize;
+            pos += 2;
+
+            if key.len() < pos + topic_len {
+                return None;
+            }
+            let topic = String::from_utf8_lossy(&key[pos..pos + topic_len]).to_string();
+            pos += topic_len;
+
+            // 读取 partition (4 bytes)
+            if key.len() < pos + 4 {
+                return None;
+            }
+            let partition = i32::from_be_bytes([key[pos], key[pos + 1], key[pos + 2], key[pos + 3]]);
+
+            Some((group_id, topic, partition))
+        }
+        _ => {
+            // 其他版本不支持
+            tracing::debug!("Unsupported key version: {}", version);
+            None
+        }
+    }
+}
+
+/// 从 __consumer_offsets value 中解析时间戳
+fn parse_offset_value(payload: &[u8]) -> Option<i64> {
+    if payload.is_empty() {
+        return None;
+    }
 
     let mut pos = 0;
 
@@ -488,58 +568,12 @@ fn parse_consumer_offset_record(
     let version = i16::from_be_bytes([payload[0], payload[1]]);
     pos += 2;
 
-    // 不同版本格式不同，这里处理常见的版本 1-3
+    // 不同版本格式不同，这里处理常见的版本 0-3
     match version {
-        0..=3 => {
-            // 尝试解析 group id
-            if payload.len() < pos + 2 {
-                return None;
-            }
-            let group_id_len = i16::from_be_bytes([payload[pos], payload[pos + 1]]) as usize;
-            pos += 2;
-
-            if payload.len() < pos + group_id_len {
-                return None;
-            }
-            let group_id = String::from_utf8_lossy(&payload[pos..pos + group_id_len]);
-            pos += group_id_len;
-
-            if group_id != target_group {
-                return None;
-            }
-
-            // 读取 topic
-            if payload.len() < pos + 2 {
-                return None;
-            }
-            let topic_len = i16::from_be_bytes([payload[pos], payload[pos + 1]]) as usize;
-            pos += 2;
-
-            if payload.len() < pos + topic_len {
-                return None;
-            }
-            let topic = String::from_utf8_lossy(&payload[pos..pos + topic_len]);
-            pos += topic_len;
-
-            if topic != target_topic {
-                return None;
-            }
-
-            // 读取 partition
-            if payload.len() < pos + 4 {
-                return None;
-            }
-            let partition = i32::from_be_bytes([payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3]]);
-            pos += 4;
-
-            if partition != target_partition {
-                return None;
-            }
-
-            // 读取 offset (8 bytes)
-            pos += 8;
-
-            // 读取 timestamp (8 bytes, big endian) - 这是我们要的
+        0 => {
+            // Version 0: [version][offset][timestamp]
+            // offset: 8 bytes, timestamp: 8 bytes
+            pos += 8; // skip offset
             if payload.len() < pos + 8 {
                 return None;
             }
@@ -547,11 +581,48 @@ fn parse_consumer_offset_record(
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
-
+            Some(timestamp)
+        }
+        1 => {
+            // Version 1: [version][offset][timestamp][expireTimestamp]
+            pos += 8; // skip offset
+            if payload.len() < pos + 8 {
+                return None;
+            }
+            let timestamp = i64::from_be_bytes([
+                payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
+                payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
+            ]);
+            Some(timestamp)
+        }
+        2 => {
+            // Version 2: [version][offset][timestamp][metadataLength][metadata]
+            pos += 8; // skip offset
+            if payload.len() < pos + 8 {
+                return None;
+            }
+            let timestamp = i64::from_be_bytes([
+                payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
+                payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
+            ]);
+            Some(timestamp)
+        }
+        3 => {
+            // Version 3: similar to version 2 but with leader epoch
+            // [version][offset][timestamp][metadataLength][metadata][leaderEpoch]
+            pos += 8; // skip offset
+            if payload.len() < pos + 8 {
+                return None;
+            }
+            let timestamp = i64::from_be_bytes([
+                payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
+                payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
+            ]);
             Some(timestamp)
         }
         _ => {
-            // 其他版本暂时不支持
+            // 其他版本不支持
+            tracing::debug!("Unsupported value version: {}", version);
             None
         }
     }
