@@ -6,6 +6,10 @@
   "permissions": [
     "core:default",
     "shell:allow-execute",
-    "http:default"
+    "http:default",
+    "dialog:default",
+    "dialog:allow-save",
+    "fs:default",
+    "fs:allow-write"
   ]
 }

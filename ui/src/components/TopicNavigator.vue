@@ -624,7 +624,14 @@ watch(() => route.path, (newPath) => {
     currentView.value = 'topics';
     loadAllTopics();
   }
-}, { immediate: true });
+});
+
+// Initialize view based on current route
+if (route.path === '/consumer-groups') {
+  currentView.value = 'consumer-groups';
+} else {
+  currentView.value = 'topics';
+}
 
 onMounted(() => {
   if (clusterStore.clusters.length > 0) {

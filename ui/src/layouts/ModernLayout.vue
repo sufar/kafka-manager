@@ -1,406 +1,89 @@
 <template>
-  <div class="h-[100dvh] bg-base-100 overflow-hidden">
+  <div class="h-[100dvh] bg-base-100 overflow-hidden pt-10">
     <!-- Top Navigation Bar -->
-    <header class="fixed top-0 left-0 right-0 h-10 bg-base-100/80 border-b border-base-200 z-50 px-2 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <!-- Mobile Menu Button -->
-        <button
-          v-if="isMobile"
-          class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0 md:hidden"
-          @click="sidebarOpen = true"
-          title="Open menu"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          </svg>
-        </button>
-
-        <!-- Logo and Brand -->
-        <div class="flex items-center gap-1.5">
-          <div class="w-6 h-6 rounded bg-primary flex items-center justify-center shadow-lg flex-shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-primary-content">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-            </svg>
-          </div>
-          <h1 class="text-base font-bold whitespace-nowrap">Kafka Manager</h1>
-        </div>
-
-        <!-- Topic Search - Desktop -->
-        <div class="relative ml-2 hidden md:block">
-          <input
-            ref="searchInputRef"
-            v-model="searchQuery"
-            type="text"
-            class="input input-bordered input-xs w-56 h-7"
-            :placeholder="t.layout.searchPlaceholder"
-            @focus="showSearchDropdown = true"
-            @keydown="handleSearchKeydown"
-          />
-
-          <!-- Search Results Dropdown -->
-          <div
-            v-if="showSearchDropdown && (searchQuery || searchResults.length > 0)"
-            class="absolute top-full left-0 mt-1 w-72 bg-base-100 border border-base-200 rounded-lg shadow-xl z-[100] max-h-96 overflow-y-auto"
-          >
-            <div v-if="searchLoading" class="p-4 text-center">
-              <span class="loading loading-spinner loading-sm"></span>
-            </div>
-            <div v-else-if="searchError" class="p-4 text-error text-sm">
-              {{ searchError }}
-            </div>
-            <div v-else-if="searchResults.length === 0 && searchQuery" class="p-4 text-sm text-base-content/60">
-              {{ t.layout.noTopicsFound }}
-            </div>
-            <div v-else>
-              <div
-                v-for="(result, index) in filteredSearchResults"
-                :key="`${result.cluster}-${result.topic}`"
-                class="flex items-center justify-between p-3 hover:bg-base-200 cursor-pointer border-b border-base-200 last:border-0"
-                :class="{ 'bg-base-200': selectedIndex === index }"
-                @click="selectSearchResult(result)"
-                @mouseenter="selectedIndex = index"
-              >
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                    </svg>
-                    <span class="font-mono text-sm truncate" :title="result.topic" v-html="highlightMatch(result.topic)"></span>
-                  </div>
-                </div>
-                <div class="badge badge-ghost badge-xs ml-2">
-                  {{ result.cluster }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Mobile Search Button -->
-        <button
-          v-if="isMobile"
-          class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0 md:hidden ml-1"
-          @click="showMobileSearch = true"
-          title="Search"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="flex items-center gap-0.5 flex-shrink-0">
-        <!-- Mobile More Menu -->
-        <div v-if="isMobile" class="dropdown dropdown-end md:hidden">
-          <button tabindex="0" class="btn btn-ghost btn-circle btn-xs h-7 w-7 min-h-0">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
-            </svg>
-          </button>
-          <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-xl z-50 w-32 mt-2">
-            <li>
-              <a @click="toggleLanguage">
-                <span class="text-xs">{{ currentLanguage === 'zh' ? 'English' : '中文' }}</span>
-              </a>
-            </li>
-            <li>
-              <a @click="toggleTheme">
-                <span class="text-xs">{{ isDark ? 'Light' : 'Dark' }}</span>
-              </a>
-            </li>
-            <li>
-              <router-link to="/settings">
-                <span class="text-xs">{{ t.layout.settings }}</span>
-              </router-link>
-            </li>
-          </ul>
-        </div>
-
-        <!-- Desktop Controls -->
-        <div class="hidden md:flex items-center gap-0.5">
-          <!-- Language Toggle -->
-          <button
-            class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
-            @click="toggleLanguage"
-            :title="`Toggle language (Current: ${currentLanguage === 'zh' ? '中文' : 'EN'})`"
-          >
-            <span class="text-[10px] font-bold">{{ currentLanguage === 'zh' ? 'EN' : '中' }}</span>
-          </button>
-
-          <!-- Theme Toggle -->
-          <button
-            class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
-            @click="toggleTheme"
-            title="Toggle theme"
-          >
-            <svg v-if="!isDark" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-            </svg>
-          </button>
-
-          <!-- Settings Button -->
-          <router-link to="/settings" class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0" :title="t.layout.settings">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-            </svg>
-          </router-link>
-        </div>
-      </div>
-    </header>
+    <TopNavBar
+      :is-mobile="isMobile"
+      :is-dark="isDark"
+      :sidebar-mode="sidebarMode"
+      @toggle-sidebar="sidebarOpen = true"
+      @toggle-language="toggleLanguage"
+      @toggle-theme="toggleTheme"
+      @open-mobile-search="showMobileSearch = true"
+      @select-topic="handleSelectTopicInTree"
+    />
 
     <!-- Mobile Search Drawer -->
-    <div
+    <MobileSearchDrawer
       v-if="isMobile && showMobileSearch"
-      class="fixed inset-0 bg-base-100 z-[60] md:hidden flex flex-col"
-    >
-      <div class="flex items-center gap-2 p-2 border-b border-base-200">
-        <button
-          class="btn btn-ghost btn-circle btn-sm"
-          @click="showMobileSearch = false"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <input
-          v-model="searchQuery"
-          type="text"
-          class="input input-bordered flex-1"
-          :placeholder="t.layout.searchPlaceholder"
-          @input="performSearch"
-        />
-      </div>
-      <div class="flex-1 overflow-y-auto">
-        <div v-if="searchLoading" class="p-4 text-center">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-        <div v-else-if="searchResults.length === 0 && searchQuery" class="p-4 text-center text-base-content/60">
-          {{ t.layout.noTopicsFound }}
-        </div>
-        <div v-else>
-          <div
-            v-for="result in searchResults"
-            :key="`${result.cluster}-${result.topic}`"
-            class="flex items-center justify-between p-4 hover:bg-base-200 cursor-pointer border-b border-base-200"
-            @click="selectSearchResult(result); showMobileSearch = false"
-          >
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-secondary flex-shrink-0">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                </svg>
-                <span class="font-mono">{{ result.topic }}</span>
-              </div>
-            </div>
-            <div class="badge badge-ghost badge-sm ml-2">
-              {{ result.cluster }}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      @close="showMobileSearch = false"
+      @select-topic="handleSearchTopicSelect"
+    />
 
     <!-- Main Layout Container -->
-    <div class="flex h-[100dvh] pt-12 overflow-hidden p-2">
-      <!-- Left Sidebar - Navigator - Desktop Only (shown in normal flow) -->
-      <aside
-        v-if="!isMobile"
-        ref="leftSidebarRef"
-        class="glass gradient-border overflow-hidden flex flex-col relative rounded-xl"
-        :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
-      >
-        <div class="flex-1 overflow-y-auto p-2">
-          <!-- Tree Mode -->
-          <ClusterTreeNavigator
-            v-if="sidebarMode === 'tree'"
-            ref="clusterTreeNavigatorRef"
-            @navigate="handleNavigate"
-            @cluster-context-menu="showClusterMenuFromTree"
-            @topic-context-menu="showTopicMenuFromTree"
-            @partition-context-menu="showPartitionMenuFromTree"
-            @topics-folder-context-menu="showTopicsFolderMenuFromTree"
-            @toast="handleToast"
-          />
-          <!-- Flat Mode -->
-          <TopicNavigator
-            v-else
-            @navigate="handleNavigate"
-          />
-        </div>
-      </aside>
-
-      <!-- Mobile Sidebar Drawer - Push mode (squeezes main content) -->
-      <aside
-        v-if="isMobile && sidebarOpen"
-        class="h-full w-72 glass gradient-border overflow-hidden flex flex-col rounded-l-xl flex-shrink-0"
-      >
-          <!-- Mobile Sidebar Header -->
-          <div class="flex items-center justify-between p-3 border-b border-base-200">
-            <span class="font-bold">Menu</span>
-            <button
-              class="btn btn-ghost btn-circle btn-sm"
-              @click="sidebarOpen = false"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div class="flex-1 overflow-y-auto p-2">
-            <!-- Tree Mode -->
-            <ClusterTreeNavigator
-              v-if="sidebarMode === 'tree'"
-              ref="clusterTreeNavigatorRef"
-              @navigate="handleNavigate"
-              @cluster-context-menu="showClusterMenuFromTree"
-              @topic-context-menu="showTopicMenuFromTree"
-              @partition-context-menu="showPartitionMenuFromTree"
-              @topics-folder-context-menu="showTopicsFolderMenuFromTree"
-              @toast="handleToast"
-            />
-            <!-- Flat Mode -->
-            <TopicNavigator
-              v-else
-              @navigate="handleNavigate"
-            />
-          </div>
-        </aside>
-
-      <!-- Resizer Handle - Desktop Only -->
-      <div
-        v-if="!isMobile"
-        ref="resizerRef"
-        class="resizer w-1 cursor-col-resize bg-base-content/5 hover:bg-base-content/10 transition-all z-50 flex-shrink-0 group flex items-center justify-center"
-        @mousedown="startResize"
-        :title="t.mainLayout.dragToResize || '拖动以调整侧边栏宽度'"
-      >
-        <!-- 拖动指示器 -->
-        <div class="w-px h-8 bg-base-content/20 group-hover:bg-primary/40 transition-all rounded"></div>
-      </div>
+    <div class="flex flex-1 overflow-hidden">
+      <LeftSidebar
+        :is-mobile="isMobile"
+        :sidebar-mode="sidebarMode"
+        :sidebar-open="sidebarOpen"
+        @navigate="handleNavigate"
+        @cluster-context-menu="showClusterMenuFromTree"
+        @topic-context-menu="showTopicMenuFromTree"
+        @partition-context-menu="showPartitionMenuFromTree"
+        @topics-folder-context-menu="showTopicsFolderMenuFromTree"
+        @toast="handleToast"
+        @close-sidebar="sidebarOpen = false"
+      />
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl">
-        <div class="flex-1 overflow-auto p-2">
-          <router-view />
-        </div>
-      </main>
-    </div>
-
-    <!-- Cluster Context Menu -->
-    <ClusterContextMenu
-      v-if="contextMenus.cluster.visible"
-      :visible="contextMenus.cluster.visible"
-      :cluster-name="contextMenus.cluster.clusterName"
-      :position="contextMenus.cluster.position"
-      :refreshing="refreshingCluster === contextMenus.cluster.clusterName"
-      :testing="testingCluster === contextMenus.cluster.clusterName"
-      :disconnecting="disconnectingCluster === contextMenus.cluster.clusterName"
-      :reconnecting="reconnectingCluster === contextMenus.cluster.clusterName"
-      @close="closeClusterMenu"
-      @action="handleClusterAction"
-    />
-
-    <!-- Topics Folder Context Menu -->
-    <TopicsFolderContextMenu
-      v-if="contextMenus.topicsFolder.visible"
-      :key="`topics-folder-${contextMenus.topicsFolder.clusterName}`"
-      :visible="contextMenus.topicsFolder.visible"
-      :cluster-name="contextMenus.topicsFolder.clusterName"
-      :position="contextMenus.topicsFolder.position"
-      @close="closeTopicsFolderMenu"
-      @action="handleTopicsFolderAction"
-    />
-
-    <!-- Topic Context Menu -->
-    <TopicContextMenu
-      v-if="contextMenus.topic.visible"
-      :visible="contextMenus.topic.visible"
-      :topic-name="contextMenus.topic.topicName"
-      :cluster-name="contextMenus.topic.clusterName"
-      :position="contextMenus.topic.position"
-      @close="closeTopicMenu"
-      @action="handleTopicAction"
-    />
-
-    <!-- Partition Context Menu -->
-    <PartitionContextMenu
-      v-if="contextMenus.partition.visible"
-      :visible="contextMenus.partition.visible"
-      :topic-name="contextMenus.partition.topicName"
-      :cluster-name="contextMenus.partition.clusterName"
-      :partition-id="contextMenus.partition.partitionId"
-      :position="contextMenus.partition.position"
-      @close="closePartitionMenu"
-      @action="handlePartitionAction"
-    />
-
-    <!-- Global Toast Notifications -->
-    <div class="toast toast-end z-50">
-      <div v-for="toast in toasts" :key="toast.id" class="alert" :class="getToastClass(toast.type)">
-        <svg v-if="toast.type === 'error'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <svg v-else-if="toast.type === 'success'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <svg v-else-if="toast.type === 'warning'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>{{ toast.message }}</span>
-        <button class="btn btn-ghost btn-xs" @click="removeToast(toast.id)">✕</button>
+      <main class="flex-1 glass gradient-border overflow-hidden flex flex-col min-w-0 rounded-xl ml-2">
+      <div class="flex-1 overflow-auto p-2">
+        <router-view />
       </div>
+    </main>
     </div>
 
-    <!-- Confirmation Dialog -->
-    <div v-show="confirmDialogVisible" class="fixed inset-0 z-[9999] flex items-center justify-center" style="background: rgba(0,0,0,0.5);">
-      <!-- Dialog Box -->
-      <div class="bg-base-100 text-base-content p-6 rounded-lg shadow-2xl" style="min-width: 300px; max-width: 90vw;">
-        <h3 class="text-lg font-bold mb-4">{{ t.common.confirm }}</h3>
-        <p class="mb-4">{{ confirmMessage }}</p>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-ghost btn-sm" @click="handleConfirmCancel">{{ t.common.cancel }}</button>
-          <button class="btn btn-primary btn-sm" @click="handleConfirmConfirm">{{ t.common.confirm }}</button>
-        </div>
-      </div>
-    </div>
+    <!-- Context Menus -->
+    <ContextMenus
+      ref="contextMenusRef"
+      @cluster-action="handleClusterAction"
+      @topics-folder-action="handleTopicsFolderAction"
+      @topic-action="handleTopicAction"
+      @partition-action="handlePartitionAction"
+    />
+
+    <!-- Toast Notifications and Confirm Dialog -->
+    <ToastAndConfirm ref="toastRef" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
-import ClusterTreeNavigator from '@/components/ClusterTreeNavigator.vue';
-import TopicNavigator from '@/components/TopicNavigator.vue';
-import ClusterContextMenu from '@/components/ContextMenus/ClusterContextMenu.vue';
-import TopicContextMenu from '@/components/ContextMenus/TopicContextMenu.vue';
-import TopicsFolderContextMenu from '@/components/ContextMenus/TopicsFolderContextMenu.vue';
-import PartitionContextMenu from '@/components/ContextMenus/PartitionContextMenu.vue';
+
+// Import layout components
+import TopNavBar from '@/components/layout/TopNavBar.vue';
+import MobileSearchDrawer from '@/components/layout/MobileSearchDrawer.vue';
+import LeftSidebar from '@/components/layout/LeftSidebar.vue';
+import ContextMenus from '@/components/layout/ContextMenus.vue';
+import ToastAndConfirm from '@/components/layout/ToastAndConfirm.vue';
 
 const router = useRouter();
+const route = useRoute();
 const clusterStore = useClusterStore();
 const connectionStore = useClusterConnectionStore();
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 
-const refreshing = ref(false);
-const refreshingCluster = ref<string | null>(null);
-const testingCluster = ref<string | null>(null);
-const disconnectingCluster = ref<string | null>(null);
-const reconnectingCluster = ref<string | null>(null);
+// Refs
+const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();
+const toastRef = ref<InstanceType<typeof ToastAndConfirm>>();
+const clusterTreeNavigatorRef = ref<InstanceType<typeof import('@/components/ClusterTreeNavigator.vue').default>>();
 
 // Sidebar mode: 'tree' | 'flat'
 const sidebarMode = ref<'tree' | 'flat'>('flat');
@@ -409,7 +92,7 @@ const sidebarMode = ref<'tree' | 'flat'>('flat');
 const isMobile = ref(false);
 const sidebarOpen = ref(false);
 const showMobileSearch = ref(false);
-const MOBILE_BREAKPOINT = 768; // md breakpoint
+const MOBILE_BREAKPOINT = 768;
 
 // Check if mobile
 function checkMobile() {
@@ -420,8 +103,10 @@ function checkMobile() {
   }
 }
 
-// Ref for ClusterTreeNavigator
-const clusterTreeNavigatorRef = ref<InstanceType<typeof ClusterTreeNavigator>>();
+// Theme and language
+const { isDark, toggleTheme } = themeStore;
+const toggleLanguage = languageStore.toggleLanguage;
+const currentLanguage = computed(() => languageStore.currentLanguage);
 
 // Load sidebar mode setting
 async function loadSidebarModeSetting() {
@@ -436,300 +121,31 @@ async function loadSidebarModeSetting() {
   }
 }
 
-// Set sidebar mode and save to backend
-// Note: Currently not used directly, but kept for future functionality
-// allowedUnused
-async function _setSidebarMode(mode: 'tree' | 'flat') {
-  sidebarMode.value = mode;
-  try {
-    await apiClient.updateSetting('ui.sidebar_mode', mode);
-  } catch (e) {
-    console.error('Failed to save sidebar mode setting:', e);
-  }
-}
-
-void _setSidebarMode; // Prevent unused warning
-
-const { isDark, toggleTheme } = themeStore;
-const toggleLanguage = languageStore.toggleLanguage;
-const currentLanguage = computed(() => languageStore.currentLanguage);
-
-// ==================== Topic Search ====================
-const searchQuery = ref('');
-const searchResults = ref<{ cluster: string; topic: string }[]>([]);
-const searchLoading = ref(false);
-const searchError = ref<string | null>(null);
-const showSearchDropdown = ref(false);
-const selectedIndex = ref(-1);
-const searchInputRef = ref<HTMLInputElement>();
-
-// 搜索时自动获取结果
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-watch(searchQuery, (newQuery) => {
-  const trimmed = newQuery.trim();
-  if (trimmed) {
-    // 显示下拉框
-    showSearchDropdown.value = true;
-    // 防抖 300ms（避免频繁请求）
-    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = setTimeout(() => {
-      performSearch();
-    }, 300);
-  } else {
-    searchResults.value = [];
-  }
-});
-
-// 监听路由变化，处理从 TopicFavorites 双击跳转的情况
-const route = useRoute();
-watch(() => route.query, (newQuery) => {
-  const cluster = newQuery.cluster as string;
-  const topic = newQuery.topic as string;
-
-  // 如果是跳转到 messages 页面且有 cluster 和 topic 参数，且是树形模式，则展开并高亮
-  if (route.path === '/messages' && cluster && topic && sidebarMode.value === 'tree') {
-    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
-  }
-}, { immediate: true });
-
-async function performSearch() {
-  const query = searchQuery.value.trim();
-  if (!query) return;
-
-  searchLoading.value = true;
-  searchError.value = null;
-  try {
-    searchResults.value = await apiClient.searchTopics(query);
-  } catch (e) {
-    console.error('[search] error:', e);
-    searchError.value = (e as { message: string }).message;
-  } finally {
-    searchLoading.value = false;
-  }
-}
-
-// 前端不再需要过滤，因为后端已经返回了匹配的结果
-const filteredSearchResults = computed(() => {
-  return searchResults.value;
-});
-
-function highlightMatch(topic: string) {
-  if (!searchQuery.value.trim()) return topic;
-  const query = searchQuery.value.toLowerCase();
-  const topicLower = topic.toLowerCase();
-  const index = topicLower.indexOf(query);
-  if (index === -1) return topic;
-  const before = topic.slice(0, index);
-  const match = topic.slice(index, index + query.length);
-  const after = topic.slice(index + query.length);
-  return `${before}<mark class="bg-warning text-warning-content rounded px-0.5">${match}</mark>${after}`;
-}
-
-function handleSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    selectedIndex.value = Math.min(selectedIndex.value + 1, filteredSearchResults.value.length - 1);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
-  } else if (e.key === 'Enter' && selectedIndex.value >= 0) {
-    e.preventDefault();
-    const result = filteredSearchResults.value[selectedIndex.value];
-    if (result) selectSearchResult(result);
-  } else if (e.key === 'Escape') {
-    showSearchDropdown.value = false;
-    searchInputRef.value?.blur();
-  }
-}
-
-async function selectSearchResult(result: { cluster: string; topic: string }) {
-  showSearchDropdown.value = false;
-  searchQuery.value = '';
-
-  // 统一跳转到 messages 页面，不管是 tree 还是 flat 模式
-  router.push({ path: '/messages', query: { cluster: result.cluster, topic: result.topic } });
-
-  if (sidebarMode.value === 'tree') {
-    // Tree mode: expand tree and highlight topic
-    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(result.topic, result.cluster);
-  } else {
-    // Flat mode: TopicNavigator 会通过路由监听自动高亮选中的 topic
-    // 不再传递 search 参数，TopicNavigator 的 cluster 下拉框保持不变
-  }
-}
-
-// Ctrl+K 快捷键聚焦搜索框
-function handleGlobalKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault();
-    searchInputRef.value?.focus();
-    showSearchDropdown.value = true;
-  }
-}
-
-// Context menu state
-const contextMenus = reactive({
-  cluster: {
-    visible: false,
-    clusterName: '',
-    position: { x: 0, y: 0 }
-  },
-  topicsFolder: {
-    visible: false,
-    clusterName: '',
-    position: { x: 0, y: 0 }
-  },
-  topic: {
-    visible: false,
-    topicName: '',
-    clusterName: '',
-    position: { x: 0, y: 0 }
-  },
-  partition: {
-    visible: false,
-    topicName: '',
-    clusterName: '',
-    partitionId: 0,
-    position: { x: 0, y: 0 }
-  }
-});
-
-// Toast notifications
-interface Toast {
-  id: number;
-  type: 'success' | 'error' | 'warning' | 'info';
-  message: string;
-}
-
-const toasts = ref<Toast[]>([]);
-let toastId = 0;
-
-function showToast(type: 'success' | 'error' | 'warning' | 'info', message: string, duration: number = 5000) {
-  const id = toastId++;
-  toasts.value.push({ id, type, message });
-  if (duration > 0) {
-    setTimeout(() => removeToast(id), duration);
-  }
-}
-
-function removeToast(id: number) {
-  const index = toasts.value.findIndex(t => t.id === id);
-  if (index > -1) {
-    toasts.value.splice(index, 1);
-  }
-}
-
-function getToastClass(type: string): string {
-  const classes = {
-    success: 'alert-success',
-    error: 'alert-error',
-    warning: 'alert-warning',
-    info: 'alert-info'
-  };
-  return classes[type as keyof typeof classes] || 'alert-info';
-}
-
-// 提供给所有子组件使用
-provide('showToast', showToast);
-
-// Confirmation dialog
-const confirmMessage = ref('');
-const confirmDialogVisible = ref(false);
-let confirmResolve: ((value: boolean) => void) | null = null;
-
-function showConfirm(message: string): Promise<boolean> {
-  confirmMessage.value = message;
-  confirmDialogVisible.value = true;
-  return new Promise((resolve) => {
-    confirmResolve = resolve;
-  });
-}
-
-function handleConfirmConfirm() {
-  confirmDialogVisible.value = false;
-  if (confirmResolve) {
-    confirmResolve(true);
-    confirmResolve = null;
-  }
-}
-
-function handleConfirmCancel() {
-  confirmDialogVisible.value = false;
-  if (confirmResolve) {
-    confirmResolve(false);
-    confirmResolve = null;
-  }
-}
-
-// 提供给所有子组件使用
-provide('showConfirm', showConfirm);
-
-// ==================== 状态持久化 ====================
-const STORAGE_KEY = 'kafka-manager-last-state';
-
-interface LastState {
-  path: string;
-  query?: Record<string, string>;
-  timestamp: number;
-}
-
-// 保存当前状态
-function saveCurrentState() {
-  try {
-    const state: LastState = {
-      path: router.currentRoute.value.path,
-      query: router.currentRoute.value.query as Record<string, string>,
-      timestamp: Date.now(),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.warn('[State] Failed to save state:', e);
-  }
-}
-
-// 恢复上次的状态
-function restorePreviousState() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return;
-
-    const state: LastState = JSON.parse(saved);
-    // 只恢复非默认路径（不是 / 或 /clusters）
-    if (state.path && state.path !== '/' && state.path !== '/clusters') {
-      router.replace({ path: state.path, query: state.query });
-    }
-  } catch (e) {
-    console.warn('[State] Failed to restore state:', e);
-  }
-}
-
-// 监听路由变化，保存状态
-router.afterEach(() => {
-  saveCurrentState();
-});
-
 // ==================== Navigation ====================
-
-function handleNavigate(route: { path: string; query?: Record<string, string> }) {
-  router.push({ path: route.path, query: route.query });
-  // Close mobile sidebar after navigation
+function handleNavigate(routeParam: { path: string; query?: Record<string, string> }) {
+  router.push({ path: routeParam.path, query: routeParam.query });
   if (isMobile.value) {
     sidebarOpen.value = false;
   }
 }
 
 function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: string) {
-  showToast(type, message);
+  toastRef.value?.showToast(type, message);
 }
 
-// 从 TopicsView 调用：展开并选中左侧树中的特定 Topic
+// Handle topic selection from search
+async function handleSearchTopicSelect(cluster: string, topic: string) {
+  router.push({ path: '/messages', query: { cluster, topic } });
+  if (sidebarMode.value === 'tree') {
+    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+  }
+}
+
+// Handle topic selection in tree mode
 function handleSelectTopicInTree(topicName: string, clusterName: string) {
   if (sidebarMode.value === 'tree') {
-    // 树形模式：展开树并选中 topic，然后跳转到 messages
     clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
   } else {
-    // 扁平模式：直接导航到 messages 页面，TopicNavigator 会根据 URL 参数过滤
     router.push({
       path: '/messages',
       query: { cluster: clusterName, topic: topicName },
@@ -737,13 +153,7 @@ function handleSelectTopicInTree(topicName: string, clusterName: string) {
   }
 }
 
-// 处理从 TopicFavorites 双击跳转的事件
-function handleNavigateFromFavoritesEvent(event: CustomEvent) {
-  const { clusterId, topicName } = event.detail;
-  handleNavigateFromFavorites(clusterId, topicName);
-}
-
-// 处理设置变化事件
+// Handle settings changes
 function handleSettingsChanged(event: CustomEvent) {
   const { key, value } = event.detail;
   if (key === 'ui.sidebar_mode' && (value === 'tree' || value === 'flat')) {
@@ -751,30 +161,25 @@ function handleSettingsChanged(event: CustomEvent) {
   }
 }
 
-// 处理 select-topic-in-tree 事件
-function handleSelectTopicInTreeEvent(event: CustomEvent) {
-  const { topicName, clusterName } = event.detail;
-  handleSelectTopicInTree(topicName, clusterName);
-}
-
-// 从 TopicFavorites 双击跳转：根据 sidebar mode 决定导航方式
+// Handle navigate from favorites
 function handleNavigateFromFavorites(clusterId: string, topicName: string) {
   if (sidebarMode.value === 'tree') {
-    // 树形模式：展开树并选中 topic，然后跳转到 messages
     clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterId);
-    // highlightAndSelectTopic 内部会处理导航到 messages
   } else {
-    // 扁平模式：导航到 messages 页面，TopicNavigator 会根据 URL 参数过滤
     router.push({
       path: '/messages',
       query: { cluster: clusterId, topic: topicName },
     });
-    // 关闭移动端侧边栏
     if (isMobile.value) {
       sidebarOpen.value = false;
     }
   }
 }
+
+// ==================== Cluster Actions ====================
+const refreshingCluster = ref<string | null>(null);
+const disconnectingCluster = ref<string | null>(null);
+const reconnectingCluster = ref<string | null>(null);
 
 async function handleClusterAction(action: string, cluster: string) {
   switch (action) {
@@ -803,13 +208,12 @@ async function handleClusterAction(action: string, cluster: string) {
       editCluster(cluster);
       break;
     case 'deleteCluster':
-      if (await showConfirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
-        // 通过集群名称找到对应的 ID
+      if (await toastRef.value?.showConfirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
         const clusterId = clusterStore.clusters.find((c) => c.name === cluster)?.id;
         if (clusterId) {
           clusterStore.deleteCluster(clusterId);
         } else {
-          showToast('error', t.value.layout.clusterNotFound);
+          toastRef.value?.showToast('error', t.value.layout.clusterNotFound);
         }
       }
       break;
@@ -820,23 +224,23 @@ async function testConnection(clusterName: string) {
   const cluster = clusterStore.clusters.find((c) => c.name === clusterName);
   if (!cluster) return;
 
-  testingCluster.value = clusterName;
+  contextMenusRef.value!.testingCluster = clusterName;
   try {
     const result = await clusterStore.testCluster(cluster.id);
     if (result.success) {
-      showToast('success', t.value.clusters.connected);
+      toastRef.value?.showToast('success', t.value.clusters.connected);
     } else {
-      showToast('error', t.value.clusters.connectionError);
+      toastRef.value?.showToast('error', t.value.clusters.connectionError);
     }
   } catch (e) {
-    showToast('error', `${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
+    toastRef.value?.showToast('error', `${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
   } finally {
-    testingCluster.value = null;
+    contextMenusRef.value!.testingCluster = null;
   }
 }
 
 async function refreshConnectionStatus(clusterName: string) {
-  refreshingCluster.value = clusterName;
+  contextMenusRef.value!.refreshingCluster = clusterName;
   try {
     const health = await apiClient.healthCheckCluster(clusterName);
     clusterStore.clusterHealth[clusterName] = {
@@ -846,23 +250,22 @@ async function refreshConnectionStatus(clusterName: string) {
       error: health.error_message,
     };
     if (health.healthy) {
-      showToast('success', 'Cluster status refreshed');
+      toastRef.value?.showToast('success', 'Cluster status refreshed');
     } else {
-      showToast('error', `Cluster connection issue: ${health.error_message || 'Unknown error'}`);
+      toastRef.value?.showToast('error', `Cluster connection issue: ${health.error_message || 'Unknown error'}`);
     }
   } catch (e) {
-    showToast('error', `Refresh failed: ${(e as { message: string }).message}`);
+    toastRef.value?.showToast('error', `Refresh failed: ${(e as { message: string }).message}`);
   } finally {
-    refreshingCluster.value = null;
+    contextMenusRef.value!.refreshingCluster = null;
   }
 }
 
 async function disconnectCluster(clusterName: string) {
-  if (await showConfirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
-    disconnectingCluster.value = clusterName;
+  if (await toastRef.value?.showConfirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
+    contextMenusRef.value!.disconnectingCluster = clusterName;
     try {
       await connectionStore.disconnectCluster(clusterName);
-      // 更新集群健康状态为断开 - 这样会同步更新左侧菜单的绿点状态
       clusterStore.clusterHealth[clusterName] = {
         clusterId: clusterName,
         healthy: false,
@@ -870,20 +273,19 @@ async function disconnectCluster(clusterName: string) {
         error: 'Disconnected',
       };
       await connectionStore.fetchAllConnections();
-      showToast('success', 'Cluster disconnected successfully');
+      toastRef.value?.showToast('success', 'Cluster disconnected successfully');
     } catch (e) {
-      showToast('error', `Disconnect failed: ${(e as { message: string }).message}`);
+      toastRef.value?.showToast('error', `Disconnect failed: ${(e as { message: string }).message}`);
     } finally {
-      disconnectingCluster.value = null;
+      contextMenusRef.value!.disconnectingCluster = null;
     }
   }
 }
 
 async function reconnectCluster(clusterName: string) {
-  reconnectingCluster.value = clusterName;
+  contextMenusRef.value!.reconnectingCluster = clusterName;
   try {
     await connectionStore.reconnectCluster(clusterName);
-    // 重新检查集群健康状态 - 这样会同步更新左侧菜单的绿点状态
     const health = await apiClient.healthCheckCluster(clusterName);
     clusterStore.clusterHealth[clusterName] = {
       clusterId: clusterName,
@@ -893,16 +295,15 @@ async function reconnectCluster(clusterName: string) {
     };
     await connectionStore.fetchAllConnections();
     await clusterStore.fetchClusters();
-    showToast('success', 'Cluster reconnected successfully');
+    toastRef.value?.showToast('success', 'Cluster reconnected successfully');
   } catch (e) {
-    showToast('error', `Reconnect failed: ${(e as { message: string }).message}`);
+    toastRef.value?.showToast('error', `Reconnect failed: ${(e as { message: string }).message}`);
   } finally {
-    reconnectingCluster.value = null;
+    contextMenusRef.value!.reconnectingCluster = null;
   }
 }
 
 function editCluster(clusterName: string) {
-  // 导航到 clusters 页面并打开编辑弹窗
   router.push({ path: '/clusters', query: { action: 'edit', cluster: clusterName } });
 }
 
@@ -921,35 +322,27 @@ function handleTopicsFolderAction(action: string, cluster: string) {
 }
 
 async function refreshClusterTopics(cluster: string) {
-  if (refreshing.value) {
-    // 如果正在刷新，点击则取消当前刷新
+  if (contextMenusRef.value!.refreshingCluster === cluster) {
     apiClient.cancelRequest();
-    refreshing.value = false;
-    refreshingCluster.value = null;
+    contextMenusRef.value!.refreshingCluster = null;
     return;
   }
 
-  refreshing.value = true;
-  refreshingCluster.value = cluster;
+  contextMenusRef.value!.refreshingCluster = cluster;
   try {
     await apiClient.refreshTopics(cluster);
-    // 通知 ClusterTreeNavigator 刷新
     window.dispatchEvent(new CustomEvent('cluster-topics-refreshed', { detail: { cluster } }));
   } catch (e) {
     const error = e as { message: string };
-    // 如果是取消请求，不显示错误
-    if (error.message === 'AbortError' || error.message.includes('aborted')) {
-    } else {
-      showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
+    if (!error.message.includes('aborted')) {
+      toastRef.value?.showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
     }
   } finally {
-    refreshing.value = false;
-    refreshingCluster.value = null;
+    contextMenusRef.value!.refreshingCluster = null;
   }
 }
 
 async function handleTopicAction(action: string, topic: string, cluster: string) {
-
   switch (action) {
     case 'viewMessages':
       router.push({ path: '/messages', query: { cluster, topic } });
@@ -967,15 +360,13 @@ async function handleTopicAction(action: string, topic: string, cluster: string)
       router.push({ path: '/messages', query: { cluster, topic, action: 'send' } });
       break;
     case 'deleteTopic':
-      // 删除操作由 ModernLayout 统一处理，显示确认对话框并调用 API
-      if (await showConfirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topic))) {
+      if (await toastRef.value?.showConfirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topic))) {
         try {
           await apiClient.deleteTopic(cluster, topic);
-          showToast('success', 'Topic deleted successfully');
-          // 通知刷新
+          toastRef.value?.showToast('success', 'Topic deleted successfully');
           window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster, topic } }));
         } catch (e) {
-          showToast('error', `${t.value.toast.operationFailed}: ${(e as { message: string }).message}`);
+          toastRef.value?.showToast('error', `${t.value.toast.operationFailed}: ${(e as { message: string }).message}`);
         }
       }
       break;
@@ -983,7 +374,6 @@ async function handleTopicAction(action: string, topic: string, cluster: string)
 }
 
 function handlePartitionAction(action: string, topic: string, cluster: string, partitionId: number) {
-
   switch (action) {
     case 'viewMessages':
       router.push({ path: '/messages', query: { cluster, topic, partition: String(partitionId) } });
@@ -994,223 +384,147 @@ function handlePartitionAction(action: string, topic: string, cluster: string, p
   }
 }
 
-function closeClusterMenu() {
-  contextMenus.cluster.visible = false;
-}
-
-function closeTopicsFolderMenu() {
-  contextMenus.topicsFolder.visible = false;
-}
-
-function closeTopicMenu() {
-  contextMenus.topic.visible = false;
-}
-
-function closePartitionMenu() {
-  contextMenus.partition.visible = false;
-}
-
+// Context menu handlers
 function showClusterMenuFromTree(event: MouseEvent, clusterName: string) {
-  contextMenus.cluster = {
-    visible: true,
-    clusterName,
-    position: { x: event.clientX, y: event.clientY }
-  };
+  contextMenusRef.value?.showClusterMenu(clusterName, event.clientX, event.clientY);
 }
 
 function showTopicsFolderMenuFromTree(event: MouseEvent, clusterName: string) {
-  contextMenus.topicsFolder = {
-    visible: true,
-    clusterName,
-    position: { x: event.clientX, y: event.clientY }
-  };
+  contextMenusRef.value?.showTopicsFolderMenu(clusterName, event.clientX, event.clientY);
 }
 
 function showTopicMenuFromTree(event: MouseEvent, topicName: string, clusterName: string) {
-  contextMenus.topic = {
-    visible: true,
-    topicName,
-    clusterName,
-    position: { x: event.clientX, y: event.clientY }
-  };
+  contextMenusRef.value?.showTopicMenu(topicName, clusterName, event.clientX, event.clientY);
 }
 
 function showPartitionMenuFromTree(event: MouseEvent, topicName: string, clusterName: string, partitionId: number) {
-  contextMenus.partition = {
-    visible: true,
-    topicName,
-    clusterName,
-    partitionId,
-    position: { x: event.clientX, y: event.clientY }
-  };
+  contextMenusRef.value?.showPartitionMenu(topicName, clusterName, partitionId, event.clientX, event.clientY);
 }
 
-onMounted(async () => {
-  themeStore.initTheme();
-  languageStore.initLanguage();
-  await clusterStore.fetchClusters();
+// ==================== State Persistence ====================
+const STORAGE_KEY = 'kafka-manager-last-state';
 
-  // 恢复上次浏览的状态
-  restorePreviousState();
+interface LastState {
+  path: string;
+  query?: Record<string, string>;
+  timestamp: number;
+}
 
-  // 初始化移动端检测
-  checkMobile();
-  window.addEventListener('resize', checkMobile);
+function saveCurrentState() {
+  try {
+    const state: LastState = {
+      path: router.currentRoute.value.path,
+      query: router.currentRoute.value.query as Record<string, string>,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn('[State] Failed to save state:', e);
+  }
+}
 
-  // 注册全局键盘事件
-  document.addEventListener('keydown', handleGlobalKeydown);
+function restorePreviousState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
 
-  // 监听点击外部关闭搜索下拉框
-  document.addEventListener('click', handleClickOutside);
+    const state: LastState = JSON.parse(saved);
+    if (state.path && state.path !== '/' && state.path !== '/clusters') {
+      router.replace({ path: state.path, query: state.query });
+    }
+  } catch (e) {
+    console.warn('[State] Failed to restore state:', e);
+  }
+}
 
-  // 监听 TopicsView 的双击 Topic 事件
-  window.addEventListener('select-topic-in-tree', handleSelectTopicInTreeEvent as EventListener);
-
-  // 监听打开创建集群弹窗事件
-  window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
-
-  // 监听设置变化事件
-  window.addEventListener('settings-changed', handleSettingsChanged as EventListener);
-
-  // 监听从 TopicFavorites 双击跳转的事件
-  window.addEventListener('navigate-to-topic-from-favorites', handleNavigateFromFavoritesEvent as EventListener);
+router.afterEach(() => {
+  saveCurrentState();
 });
 
+// Global keydown handler
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    // Focus search input in TopNavBar
+  }
+}
+
+// Handle open create cluster modal
 function handleOpenCreateClusterModal() {
-  // 导航到 clusters 页面并打开创建弹窗
-  // 添加时间戳避免路由参数相同时无法触发更新
   router.push({ path: '/clusters', query: { action: 'create', t: String(Date.now()) } });
 }
 
-// 清理事件监听
-onUnmounted(() => {
-  window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
-  window.removeEventListener('resize', checkMobile);
-  document.removeEventListener('keydown', handleGlobalKeydown);
-  document.removeEventListener('click', handleClickOutside);
-  document.removeEventListener('mousemove', resize);
-  document.removeEventListener('mouseup', stopResize);
-  window.removeEventListener('select-topic-in-tree', handleSelectTopicInTreeEvent as EventListener);
-  window.removeEventListener('settings-changed', handleSettingsChanged as EventListener);
-  window.removeEventListener('navigate-to-topic-from-favorites', handleNavigateFromFavoritesEvent as EventListener);
-});
-
-function handleClickOutside(e: MouseEvent) {
-  const target = e.target as HTMLElement;
-  // 检查是否点击在搜索框或下拉框外部
-  const searchInput = searchInputRef.value;
-  const isClickInsideSearch = searchInput && target.closest('input') === searchInput;
-  const isClickInsideDropdown = target.closest('.absolute') !== null;
-
-  if (!isClickInsideSearch && !isClickInsideDropdown) {
-    showSearchDropdown.value = false;
-  }
-}
-
-// ==================== 可调整宽度的侧边栏 ====================
-const leftSidebarRef = ref<HTMLElement | null>(null);
-const resizerRef = ref<HTMLElement | null>(null);
-void leftSidebarRef;
-void resizerRef;
-const leftSidebarWidth = ref(320); // 默认 320px
-let isResizing = false;
-let startX = 0;
-let startWidth = 0;
-
-// 从 localStorage 恢复宽度
-function restoreSidebarWidth() {
-  const saved = localStorage.getItem('sidebar-width');
-  if (saved) {
-    const width = parseInt(saved, 10);
-    if (width >= 200 && width <= 1200) {
-      leftSidebarWidth.value = width;
-    }
-  }
-}
-
-// 保存宽度到 localStorage
-function saveSidebarWidth(width: number) {
-  localStorage.setItem('sidebar-width', width.toString());
-}
-
-function startResize(e: MouseEvent) {
-  isResizing = true;
-  startX = e.clientX;
-  startWidth = leftSidebarWidth.value;
-  document.addEventListener('mousemove', resize);
-  document.addEventListener('mouseup', stopResize);
-  document.body.style.cursor = 'col-resize';
-  document.body.style.userSelect = 'none';
-}
-
-function resize(e: MouseEvent) {
-  if (!isResizing) return;
-  const diff = e.clientX - startX;
-  const newWidth = startWidth + diff;
-  // 限制最小和最大宽度
-  leftSidebarWidth.value = Math.min(Math.max(newWidth, 200), window.innerWidth * 0.8);
-}
-
-function stopResize() {
-  isResizing = false;
-  document.removeEventListener('mousemove', resize);
-  document.removeEventListener('mouseup', stopResize);
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
-  saveSidebarWidth(leftSidebarWidth.value);
-}
-
+// Lifecycle
 onMounted(async () => {
   themeStore.initTheme();
   languageStore.initLanguage();
   await clusterStore.fetchClusters();
 
-  // 恢复上次浏览的状态
   restorePreviousState();
-
-  // 恢复侧边栏宽度
-  restoreSidebarWidth();
-
-  // 加载侧边栏模式设置
-  await loadSidebarModeSetting();
-
-  // 初始化移动端检测
   checkMobile();
   window.addEventListener('resize', checkMobile);
-
-  // 注册全局键盘事件
   document.addEventListener('keydown', handleGlobalKeydown);
 
-  // 监听点击外部关闭搜索下拉框
-  document.addEventListener('click', handleClickOutside);
-
-  // 监听 TopicsView 的双击 Topic 事件
-  window.addEventListener('select-topic-in-tree', ((event: CustomEvent) => {
+  window.addEventListener('select-topic-in-tree', ((e: Event) => {
+    const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
     const { topicName, clusterName } = event.detail;
     handleSelectTopicInTree(topicName, clusterName);
   }) as EventListener);
 
-  // 监听打开创建集群弹窗事件
   window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  window.addEventListener('settings-changed', ((e: Event) => {
+    const event = e as CustomEvent<{ key: string; value: any }>;
+    handleSettingsChanged(event);
+  }) as EventListener);
+  window.addEventListener('navigate-to-topic-from-favorites', ((e: Event) => {
+    const event = e as CustomEvent<{ clusterId: string; topicName: string }>;
+    const { clusterId, topicName } = event.detail;
+    handleNavigateFromFavorites(clusterId, topicName);
+  }) as EventListener);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile);
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  window.removeEventListener('select-topic-in-tree', ((e: Event) => {
+    const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
+    const { topicName, clusterName } = event.detail;
+    handleSelectTopicInTree(topicName, clusterName);
+  }) as EventListener);
+  window.removeEventListener('settings-changed', ((e: Event) => {
+    const event = e as CustomEvent<{ key: string; value: any }>;
+    handleSettingsChanged(event);
+  }) as EventListener);
+  window.removeEventListener('navigate-to-topic-from-favorites', ((e: Event) => {
+    const event = e as CustomEvent<{ clusterId: string; topicName: string }>;
+    const { clusterId, topicName } = event.detail;
+    handleNavigateFromFavorites(clusterId, topicName);
+  }) as EventListener);
 });
 </script>
 
 <style scoped>
 /* Resizer 样式 */
-.resizer {
-  background-color: transparent;
-  transition: background-color 0.2s;
-  border-right: 1px solid transparent;
-}
-
 .resizer:hover {
-  background-color: rgba(100, 100, 255, 0.15);
-  border-right-color: rgba(100, 100, 255, 0.25);
+  background: rgba(128, 128, 128, 0.2);
 }
 
-/* 拖动时全局样式 */
-body.resizing {
-  cursor: col-resize !important;
-  user-select: none !important;
+/* Glass morphism effect */
+.glass {
+  background: rgba(var(--glass-bg, 255, 255, 255), 0.1);
+  backdrop-filter: blur(10px);
+}
+
+/* Gradient border */
+.gradient-border {
+  position: relative;
+  background: linear-gradient(135deg, var(--gradient-from, #667eea), var(--gradient-to, #764ba2));
+  padding: 1px;
+}
+
+.gradient-border > * {
+  background: var(--glass-bg, base-100);
+  height: 100%;
 }
 </style>

@@ -370,6 +370,8 @@ import { useLanguageStore } from '@/stores/language';
 import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
 
 // 键盘导航方向类型
 type NavigationDirection = 'up' | 'down';
@@ -736,24 +738,20 @@ function exportMessages() {
 
   if (isTauri()) {
     // Tauri 环境下使用原生文件保存对话框
-    const win = window as any;
-    const { save } = win.__TAURI__.plugin.dialog;
-    const { writeFile } = win.__TAURI__.plugin.fs;
-
     save({
       defaultPath: filename,
       filters: [{
         name: 'JSON Files',
         extensions: ['json']
       }]
-    }).then(async (filePath: string) => {
+    }).then(async (filePath) => {
       if (filePath) {
         const encoder = new TextEncoder();
         const bytes = encoder.encode(data);
         await writeFile(filePath, bytes);
         showSuccess(t.value.messages.exportSuccess);
       }
-    }).catch((err: Error) => {
+    }).catch((err) => {
       console.error('Failed to save file:', err);
       showError(t.value.messages.exportFailed);
     });
