@@ -3361,12 +3361,72 @@ async fn handle_connection_health_check(state: AppState, body: Value) -> Result<
             }))
         }
         None => {
-            // 连接池中不存在，返回未找到状态（不重连）
+            // 连接池中不存在，尝试自动重连 2 次
+            let max_retries = 2;
+            let mut last_error: Option<String> = None;
+
+            for attempt in 1..=max_retries {
+                tracing::warn!(
+                    "[HealthCheck] Cluster '{}' not found in connection pool, attempting reconnect {}/{}",
+                    cluster_id,
+                    attempt,
+                    max_retries
+                );
+
+                // 尝试从数据库获取集群配置并重新建立连接
+                match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+                    Ok(Some(cluster)) => {
+                        let config = crate::config::KafkaConfig {
+                            brokers: cluster.brokers,
+                            request_timeout_ms: cluster.request_timeout_ms as u32,
+                            operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                        };
+
+                        // 尝试重新添加集群到连接池
+                        match state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await {
+                            Ok(_) => {
+                                tracing::info!("[HealthCheck] Cluster '{}' reconnected successfully on attempt {}", cluster_id, attempt);
+                                // 重连成功，返回连接状态（需要等待连接建立）
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                return Ok(serde_json::json!({
+                                    "cluster_id": cluster_id,
+                                    "healthy": true,
+                                    "status": "reconnected",
+                                    "error_message": None::<String>,
+                                    "reconnected": true,
+                                    "attempt": attempt,
+                                }));
+                            }
+                            Err(e) => {
+                                tracing::warn!("[HealthCheck] Failed to reconnect cluster '{}' on attempt {}: {}", cluster_id, attempt, e);
+                                last_error = Some(format!("Reconnect attempt {} failed: {}", attempt, e));
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::error!("[HealthCheck] Cluster '{}' not found in database", cluster_id);
+                        last_error = Some(format!("Cluster '{}' not found in database", cluster_id));
+                        break; // 数据库中不存在，不再重试
+                    }
+                    Err(e) => {
+                        tracing::error!("[HealthCheck] Failed to get cluster '{}' from database: {}", cluster_id, e);
+                        last_error = Some(format!("Failed to get cluster config: {}", e));
+                    }
+                }
+
+                // 如果不是最后一次尝试，等待一段时间后继续
+                if attempt < max_retries {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                }
+            }
+
+            // 所有重连尝试都失败，返回错误状态
             Ok(serde_json::json!({
                 "cluster_id": cluster_id,
                 "healthy": false,
                 "status": "not_found",
-                "error_message": "Cluster not found in connection pool",
+                "error_message": last_error.or_else(|| Some("Cluster not found in connection pool".to_string())),
+                "reconnect_attempts": max_retries,
             }))
         }
     }

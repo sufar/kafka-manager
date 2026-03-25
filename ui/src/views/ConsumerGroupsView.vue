@@ -4,29 +4,22 @@
     <div v-if="detailView" class="space-y-4">
       <!-- Header with group name and actions -->
       <div class="card glass gradient-border shadow-xl">
-        <div class="flex items-center justify-between p-4">
-          <div class="flex items-center gap-3">
-            <button class="btn btn-ghost btn-sm" @click="goBack">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
+          <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-bold flex items-center gap-2 flex-wrap">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
               </svg>
-            </button>
-            <div>
-              <h2 class="text-xl font-bold flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
-                </svg>
-                {{ currentGroup }}
-              </h2>
-              <p class="text-base-content/60 text-sm mt-1">
-                {{ t.clusters.clusters }}: <span class="font-medium">{{ clusterParam }}</span>
-                <span v-if="groupState" class="ml-3 badge" :class="getStateBadgeClass(groupState)">{{ groupState }}</span>
-              </p>
-            </div>
+              <span class="truncate">{{ currentGroup }}</span>
+            </h2>
+            <p class="text-base-content/60 text-sm mt-1 flex flex-wrap items-center gap-2">
+              {{ t.clusters.clusters }}: <span class="font-medium">{{ clusterParam }}</span>
+              <span v-if="groupState" class="badge" :class="getStateBadgeClass(groupState)">{{ groupState }}</span>
+            </p>
           </div>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-shrink-0 w-full sm:w-auto">
             <button
-              class="btn btn-sm btn-outline"
+              class="btn btn-sm btn-outline flex-1 sm:flex-none"
               @click="refreshOffsets"
               :disabled="refreshing"
             >
@@ -35,8 +28,8 @@
               </svg>
               {{ t.common.refresh }}
             </button>
-            <div class="dropdown dropdown-end">
-              <label tabindex="0" class="btn btn-sm btn-primary">
+            <div class="dropdown dropdown-end dropdown-left sm:dropdown-left">
+              <label tabindex="0" class="btn btn-sm btn-primary whitespace-nowrap">
                 {{ t.common.actions }}
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 ml-1">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />

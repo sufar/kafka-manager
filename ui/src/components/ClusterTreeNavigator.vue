@@ -100,10 +100,10 @@
               <div
                 class="w-2 h-2 rounded-full transition-colors duration-300"
                 :class="{
-                  'bg-success shadow-[0_0_4px_rgba(16,185,129,0.4)]': getClusterHealth(cluster.name)?.healthy === true && !refreshingClusters.has(cluster.name),
-                  'bg-error shadow-[0_0_4px_rgba(239,68,68,0.4)]': getClusterHealth(cluster.name)?.healthy === false && !refreshingClusters.has(cluster.name),
-                  'bg-warning shadow-[0_0_4px_rgba(245,158,11,0.4)]': getClusterHealth(cluster.name)?.healthy === undefined && !refreshingClusters.has(cluster.name),
-                  'bg-warning animate-pulse': refreshingClusters.has(cluster.name)
+                  'bg-success shadow-[0_0_4px_rgba(16,185,129,0.4)]': getClusterHealth(cluster.name)?.healthy === true && !refreshingTopics.has(cluster.name) && !refreshingConsumerGroups.has(cluster.name),
+                  'bg-error shadow-[0_0_4px_rgba(239,68,68,0.4)]': getClusterHealth(cluster.name)?.healthy === false && !refreshingTopics.has(cluster.name) && !refreshingConsumerGroups.has(cluster.name),
+                  'bg-warning shadow-[0_0_4px_rgba(245,158,11,0.4)]': getClusterHealth(cluster.name)?.healthy === undefined && !refreshingTopics.has(cluster.name) && !refreshingConsumerGroups.has(cluster.name),
+                  'bg-warning animate-pulse': refreshingTopics.has(cluster.name) || refreshingConsumerGroups.has(cluster.name)
                 }"
               ></div>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary flex-shrink-0">
@@ -142,10 +142,10 @@
               </div>
               <!-- Topics Refresh Button -->
               <button
-                class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-0 hover:opacity-100 transition-opacity"
-                :class="{ 'opacity-100': refreshingClusters.has(cluster.name) }"
+                class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-100 hover:opacity-80 transition-opacity"
+                :class="{ 'opacity-100': refreshingTopics.has(cluster.name) }"
                 @click.stop="refreshClusterTopics(cluster.name)"
-                :disabled="refreshingClusters.has(cluster.name)"
+                :disabled="refreshingTopics.has(cluster.name)"
                 title="Refresh Topics"
               >
                 <svg
@@ -155,7 +155,7 @@
                   stroke-width="1.5"
                   stroke="currentColor"
                   class="w-3 h-3"
-                  :class="{ 'animate-spin': refreshingClusters.has(cluster.name) }"
+                  :class="{ 'animate-spin': refreshingTopics.has(cluster.name) }"
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
@@ -296,10 +296,10 @@
                 </div>
                 <!-- Consumer Groups Refresh Button -->
                 <button
-                  class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-0 hover:opacity-100 transition-opacity"
-                  :class="{ 'opacity-100': refreshingClusters.has(cluster.name) }"
+                  class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-100 hover:opacity-80 transition-opacity"
+                  :class="{ 'opacity-100': refreshingConsumerGroups.has(cluster.name) }"
                   @click.stop="refreshClusterConsumerGroups(cluster.name)"
-                  :disabled="refreshingClusters.has(cluster.name)"
+                  :disabled="refreshingConsumerGroups.has(cluster.name)"
                   title="Refresh Consumer Groups"
                 >
                   <svg
@@ -309,7 +309,7 @@
                     stroke-width="1.5"
                     stroke="currentColor"
                     class="w-3 h-3"
-                    :class="{ 'animate-spin': refreshingClusters.has(cluster.name) }"
+                    :class="{ 'animate-spin': refreshingConsumerGroups.has(cluster.name) }"
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
@@ -500,7 +500,8 @@ function handleHorizontalScroll(event: WheelEvent) {
 
 const expandedClusters = ref(new Set<string>());
 const expandedTopics = ref(new Set<string>());
-const refreshingClusters = ref(new Set<string>()); // 正在刷新的集群
+const refreshingTopics = ref(new Set<string>()); // 正在刷新 topics 的集群
+const refreshingConsumerGroups = ref(new Set<string>()); // 正在刷新 consumer groups 的集群
 const loadingClusters = ref(new Set<string>()); // 正在加载 topics 的集群
 const expandedTopicsFolders = ref(new Set<string>()); // Topics 文件夹展开状态
 const expandedConsumerGroupsFolders = ref(new Set<string>()); // Consumer Groups 文件夹展开状态
@@ -772,9 +773,9 @@ async function loadClusterTopics(clusterName: string) {
 }
 
 async function refreshClusterTopics(clusterName: string) {
-  if (refreshingClusters.value.has(clusterName)) return;
+  if (refreshingTopics.value.has(clusterName)) return;
 
-  refreshingClusters.value = new Set(refreshingClusters.value.add(clusterName));
+  refreshingTopics.value = new Set(refreshingTopics.value.add(clusterName));
   try {
     // 调用后端 API 刷新 topics（从 Kafka 集群同步到数据库）
     // 后端现在异步执行，立即返回
@@ -800,8 +801,8 @@ async function refreshClusterTopics(clusterName: string) {
   } catch (error) {
     console.error('Failed to refresh topics:', error);
   } finally {
-    refreshingClusters.value.delete(clusterName);
-    refreshingClusters.value = new Set(refreshingClusters.value);
+    refreshingTopics.value.delete(clusterName);
+    refreshingTopics.value = new Set(refreshingTopics.value);
   }
 }
 
@@ -946,9 +947,9 @@ async function loadClusterConsumerGroups(clusterName: string) {
 }
 
 async function refreshClusterConsumerGroups(clusterName: string) {
-  if (refreshingClusters.value.has(clusterName)) return;
+  if (refreshingConsumerGroups.value.has(clusterName)) return;
 
-  refreshingClusters.value = new Set(refreshingClusters.value.add(clusterName));
+  refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value.add(clusterName));
   try {
     // 调用后端 API 刷新 consumer groups（从 Kafka 集群同步到数据库）
     await apiClient.refreshConsumerGroups(clusterName);
@@ -965,8 +966,8 @@ async function refreshClusterConsumerGroups(clusterName: string) {
   } catch (error) {
     console.error('Failed to refresh consumer groups:', error);
   } finally {
-    refreshingClusters.value.delete(clusterName);
-    refreshingClusters.value = new Set(refreshingClusters.value);
+    refreshingConsumerGroups.value.delete(clusterName);
+    refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value);
   }
 }
 

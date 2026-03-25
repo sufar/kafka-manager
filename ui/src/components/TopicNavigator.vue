@@ -220,7 +220,7 @@
             <div
               v-show="showClusterSelector && !isMobile"
               ref="clusterSelectorRef"
-              class="absolute bottom-full right-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
+              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
             >
               <div class="flex flex-col sm:flex-row h-[300px]">
                 <!-- Left: Groups List -->
@@ -546,19 +546,10 @@ const hasMoreGroups = ref(false);
 const currentView = ref<'topics' | 'consumer-groups'>('topics');
 
 async function switchView() {
-  const query = route.query.cluster ? { cluster: route.query.cluster as string } : undefined;
-  const newPath = currentView.value === 'topics' ? '/topics' : '/consumer-groups';
-
   // 切换视图时重置搜索
   searchQuery.value = '';
 
-  emit('navigate', {
-    path: newPath,
-    query
-  });
-
-  // 加载对应视图的数据
-  await nextTick();
+  // 只切换视图，不触发路由导航
   if (currentView.value === 'consumer-groups') {
     await loadAllConsumerGroups();
   } else {
