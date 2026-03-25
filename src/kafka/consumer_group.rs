@@ -474,13 +474,22 @@ fn parse_consumer_offset_message(
     target_partition: i32,
 ) -> Option<i64> {
     // 首先从 key 中解析 group_id, topic, partition
-    let key = msg.key()?;
-    if key.is_empty() {
+    let key = msg.key();
+    if key.is_none() || key.unwrap().is_empty() {
+        tracing::debug!("[parse_consumer_offset_message] No key or empty key");
         return None;
     }
+    let key = key.unwrap();
 
     // 解析 key 获取 group_id, topic, partition
-    let (key_group, key_topic, key_partition) = parse_offset_key(key)?;
+    let parse_result = parse_offset_key(key);
+    if parse_result.is_none() {
+        tracing::debug!("[parse_consumer_offset_message] Failed to parse key, len={}", key.len());
+        return None;
+    }
+    let (key_group, key_topic, key_partition) = parse_result?;
+
+    tracing::debug!("[parse_consumer_offset_message] Parsed key: group={}, topic={}, partition={}", key_group, key_topic, key_partition);
 
     // 检查是否匹配目标
     if key_group != target_group || key_topic != target_topic || key_partition != target_partition {
@@ -488,18 +497,29 @@ fn parse_consumer_offset_message(
     }
 
     // 从 value 中解析时间戳
-    let payload = msg.payload()?;
-    if payload.is_empty() {
+    let payload = msg.payload();
+    if payload.is_none() || payload.unwrap().is_empty() {
+        tracing::debug!("[parse_consumer_offset_message] No payload or empty payload");
         return None;
     }
+    let payload = payload.unwrap();
 
-    parse_offset_value(payload)
+    tracing::debug!("[parse_consumer_offset_message] Payload len={}", payload.len());
+
+    let result = parse_offset_value(payload);
+    if result.is_some() {
+        tracing::info!("[parse_consumer_offset_message] Found timestamp: {:?}", result);
+    } else {
+        tracing::debug!("[parse_consumer_offset_message] Failed to parse timestamp from payload");
+    }
+    result
 }
 
 /// 解析 __consumer_offsets 的 key
 /// 返回 (group_id, topic, partition)
 fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
     if key.len() < 2 {
+        tracing::debug!("[parse_offset_key] Key too short: {}", key.len());
         return None;
     }
 
@@ -509,16 +529,20 @@ fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
     let version = i16::from_be_bytes([key[0], key[1]]);
     pos += 2;
 
+    tracing::debug!("[parse_offset_key] Key version: {}", version);
+
     match version {
         0..=3 => {
             // 读取 group_id
             if key.len() < pos + 2 {
+                tracing::debug!("[parse_offset_key] Key too short for group_id_len");
                 return None;
             }
             let group_id_len = i16::from_be_bytes([key[pos], key[pos + 1]]) as usize;
             pos += 2;
 
             if key.len() < pos + group_id_len {
+                tracing::debug!("[parse_offset_key] Key too short for group_id: len={}, pos={}, group_id_len={}", key.len(), pos, group_id_len);
                 return None;
             }
             let group_id = String::from_utf8_lossy(&key[pos..pos + group_id_len]).to_string();
@@ -526,12 +550,14 @@ fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
 
             // 读取 topic
             if key.len() < pos + 2 {
+                tracing::debug!("[parse_offset_key] Key too short for topic_len");
                 return None;
             }
             let topic_len = i16::from_be_bytes([key[pos], key[pos + 1]]) as usize;
             pos += 2;
 
             if key.len() < pos + topic_len {
+                tracing::debug!("[parse_offset_key] Key too short for topic: len={}, pos={}, topic_len={}", key.len(), pos, topic_len);
                 return None;
             }
             let topic = String::from_utf8_lossy(&key[pos..pos + topic_len]).to_string();
@@ -539,10 +565,12 @@ fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
 
             // 读取 partition (4 bytes)
             if key.len() < pos + 4 {
+                tracing::debug!("[parse_offset_key] Key too short for partition");
                 return None;
             }
             let partition = i32::from_be_bytes([key[pos], key[pos + 1], key[pos + 2], key[pos + 3]]);
 
+            tracing::debug!("[parse_offset_key] Parsed: group_id={}, topic={}, partition={}", group_id, topic, partition);
             Some((group_id, topic, partition))
         }
         _ => {
@@ -556,6 +584,7 @@ fn parse_offset_key(key: &[u8]) -> Option<(String, String, i32)> {
 /// 从 __consumer_offsets value 中解析时间戳
 fn parse_offset_value(payload: &[u8]) -> Option<i64> {
     if payload.is_empty() {
+        tracing::debug!("[parse_offset_value] Empty payload");
         return None;
     }
 
@@ -563,10 +592,13 @@ fn parse_offset_value(payload: &[u8]) -> Option<i64> {
 
     // 读取 version (2 bytes, big endian)
     if payload.len() < 2 {
+        tracing::debug!("[parse_offset_value] Payload too short: {}", payload.len());
         return None;
     }
     let version = i16::from_be_bytes([payload[0], payload[1]]);
     pos += 2;
+
+    tracing::info!("[parse_offset_value] Version: {}, payload len: {}", version, payload.len());
 
     // 不同版本格式不同，这里处理常见的版本 0-3
     match version {
@@ -575,36 +607,42 @@ fn parse_offset_value(payload: &[u8]) -> Option<i64> {
             // offset: 8 bytes, timestamp: 8 bytes
             pos += 8; // skip offset
             if payload.len() < pos + 8 {
+                tracing::debug!("[parse_offset_value] v0 payload too short: {} < {}", payload.len(), pos + 8);
                 return None;
             }
             let timestamp = i64::from_be_bytes([
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
+            tracing::info!("[parse_offset_value] v0 timestamp: {}", timestamp);
             Some(timestamp)
         }
         1 => {
             // Version 1: [version][offset][timestamp][expireTimestamp]
             pos += 8; // skip offset
             if payload.len() < pos + 8 {
+                tracing::debug!("[parse_offset_value] v1 payload too short");
                 return None;
             }
             let timestamp = i64::from_be_bytes([
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
+            tracing::info!("[parse_offset_value] v1 timestamp: {}", timestamp);
             Some(timestamp)
         }
         2 => {
             // Version 2: [version][offset][timestamp][metadataLength][metadata]
             pos += 8; // skip offset
             if payload.len() < pos + 8 {
+                tracing::debug!("[parse_offset_value] v2 payload too short");
                 return None;
             }
             let timestamp = i64::from_be_bytes([
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
+            tracing::info!("[parse_offset_value] v2 timestamp: {}", timestamp);
             Some(timestamp)
         }
         3 => {
@@ -612,17 +650,19 @@ fn parse_offset_value(payload: &[u8]) -> Option<i64> {
             // [version][offset][timestamp][metadataLength][metadata][leaderEpoch]
             pos += 8; // skip offset
             if payload.len() < pos + 8 {
+                tracing::debug!("[parse_offset_value] v3 payload too short");
                 return None;
             }
             let timestamp = i64::from_be_bytes([
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
+            tracing::info!("[parse_offset_value] v3 timestamp: {}", timestamp);
             Some(timestamp)
         }
         _ => {
             // 其他版本不支持
-            tracing::debug!("Unsupported value version: {}", version);
+            tracing::debug!("[parse_offset_value] Unsupported value version: {}", version);
             None
         }
     }

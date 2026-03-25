@@ -4566,6 +4566,8 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
     let cluster_id = get_cluster_id_param(&body)?;
     let group_name = get_string_param(&body, "group_name")?;
 
+    tracing::info!("[handle_consumer_group_offsets] cluster_id={}, group_name={}", cluster_id, group_name);
+
     // 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
 
@@ -4573,18 +4575,40 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
     let group_name_clone = group_name.clone();
     let cg_manager_clone = cg_manager.clone();
 
-    // 在阻塞线程中执行 Kafka 操作 - 自动从 Kafka 获取 topics
+    // 首先尝试从数据库获取保存的 topics
+    let db_topics = ConsumerGroupStore::get_by_name(state.db.inner(), &cluster_id, &group_name)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|g| serde_json::from_str::<Vec<String>>(&g.topics).ok())
+        .unwrap_or_default();
+
+    tracing::info!("[handle_consumer_group_offsets] DB topics: {:?}", db_topics);
+
+    // 在阻塞线程中执行 Kafka 操作 - 使用数据库中的 topics
     let mut offsets = tokio::task::spawn_blocking(move || {
-        cg_manager_clone.get_consumer_group_offsets_auto(&group_name_clone)
+        if db_topics.is_empty() {
+            // 如果数据库中没有 topics，尝试从 Kafka 自动获取
+            cg_manager_clone.get_consumer_group_offsets_auto(&group_name_clone)
+        } else {
+            // 使用数据库中的 topics 获取 offsets
+            cg_manager_clone.get_consumer_group_offsets(&group_name_clone, &db_topics)
+        }
     })
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
+    tracing::info!("[handle_consumer_group_offsets] Got {} offsets", offsets.len());
+
     // 为每个分区获取最后提交时间（从__consumer_offsets topic 读取）
     // 由于这是详情页调用，可以接受较慢的速度
     for offset in offsets.iter_mut() {
+        tracing::info!("[handle_consumer_group_offsets] Fetching last_commit_time for topic={}, partition={}", offset.topic, offset.partition);
         if let Ok(time) = cg_manager.get_partition_last_commit_time(&group_name, &offset.topic, offset.partition) {
+            tracing::info!("[handle_consumer_group_offsets] Got last_commit_time: {:?}", time);
             offset.last_commit_time = time;
+        } else {
+            tracing::warn!("[handle_consumer_group_offsets] Failed to get last_commit_time for topic={}, partition={}", offset.topic, offset.partition);
         }
     }
 
