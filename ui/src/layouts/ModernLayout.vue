@@ -1,16 +1,18 @@
 <template>
-  <div class="h-[100dvh] bg-base-100 flex flex-col pt-10">
+  <div class="h-[100dvh] bg-base-100 flex flex-col overflow-hidden">
     <!-- Top Navigation Bar -->
-    <TopNavBar
-      :is-mobile="isMobile"
-      :is-dark="isDark"
-      :sidebar-mode="sidebarMode"
-      @toggle-sidebar="sidebarOpen = true"
-      @toggle-language="toggleLanguage"
-      @toggle-theme="toggleTheme"
-      @open-mobile-search="showMobileSearch = true"
-      @select-topic="handleSelectTopicInTree"
-    />
+    <div class="flex-shrink-0">
+      <TopNavBar
+        :is-mobile="isMobile"
+        :is-dark="isDark"
+        :sidebar-mode="sidebarMode"
+        @toggle-sidebar="sidebarOpen = true"
+        @toggle-language="toggleLanguage"
+        @toggle-theme="toggleTheme"
+        @open-mobile-search="showMobileSearch = true"
+        @select-topic="handleSelectTopicInTree"
+      />
+    </div>
 
     <!-- Mobile Search Drawer -->
     <MobileSearchDrawer
@@ -35,7 +37,7 @@
       />
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2 h-[calc(100dvh-0.5rem)]">
+      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2">
         <router-view />
       </main>
     </div>
