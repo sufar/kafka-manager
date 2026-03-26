@@ -376,24 +376,22 @@ impl KafkaConsumerGroupManager {
         Ok(())
     }
 
-    /// Kafka 使用的 Murmur2 hash 算法（unsigned 版本）
-    /// 参考 Kafka 的 Utils.murmur2 实现
-    fn murmur2(data: &[u8]) -> u32 {
-        const M: u32 = 0x5bd1e995;
-        const R: u32 = 24;
-        const SEED: u32 = 0x9747b28c;
+    /// Kafka 使用的 Murmur2 hash 算法
+    /// 与 Kafka 的 Utils.murmur2() 完全一致
+    fn murmur2(data: &[u8]) -> i32 {
+        const M: i32 = 0x5bd1e995;
+        const R: i32 = 24;
+        const SEED: i32 = 0x9747b28cu32 as i32;
 
-        let length = data.len() as u32;
-        let mut h: u32 = SEED ^ length;
+        let len = data.len() as i32;
+        let mut h = SEED ^ len;
 
-        let len4 = data.len() / 4;
-
-        for i in 0..len4 {
-            let i4 = i * 4;
-            let mut k: u32 = (data[i4] as u32)
-                | ((data[i4 + 1] as u32) << 8)
-                | ((data[i4 + 2] as u32) << 16)
-                | ((data[i4 + 3] as u32) << 24);
+        let mut i: usize = 0;
+        while (len as usize) - i >= 4 {
+            let mut k = (data[i] as i32) & 0xff
+                | (((data[i + 1] as i32) & 0xff) << 8)
+                | (((data[i + 2] as i32) & 0xff) << 16)
+                | (((data[i + 3] as i32) & 0xff) << 24);
 
             k = k.wrapping_mul(M);
             k ^= k >> R;
@@ -401,20 +399,19 @@ impl KafkaConsumerGroupManager {
 
             h = h.wrapping_mul(M);
             h ^= k;
+
+            i += 4;
         }
 
         // 处理剩余字节
-        let rem = data.len() & 3;
-        let offset = len4 * 4;
-
-        if rem >= 3 {
-            h ^= (data[offset + 2] as u32) << 16;
-        }
-        if rem >= 2 {
-            h ^= (data[offset + 1] as u32) << 8;
-        }
-        if rem >= 1 {
-            h ^= data[offset] as u32;
+        if (len as usize) - i >= 1 {
+            if (len as usize) - i >= 3 {
+                h ^= ((data[i + 2] as i32) & 0xff) << 16;
+            }
+            if (len as usize) - i >= 2 {
+                h ^= ((data[i + 1] as i32) & 0xff) << 8;
+            }
+            h ^= (data[i] as i32) & 0xff;
             h = h.wrapping_mul(M);
         }
 
@@ -466,9 +463,9 @@ impl KafkaConsumerGroupManager {
         tracing::info!("[get_last_commit_time] __consumer_offsets has {} partitions", num_partitions);
 
         // 计算目标分区（使用 Kafka 的默认分区算法）
-        // 算法: murmur2(group_id) % num_partitions
+        // 算法: abs(murmur2(group_id)) % num_partitions
         let hash = Self::murmur2(group_id.as_bytes());
-        let target_partition = (hash % (num_partitions as u32)) as i32;
+        let target_partition = hash.wrapping_abs() % num_partitions;
 
         tracing::info!("[get_last_commit_time] Hash for group '{}': {} -> target partition: {}",
             group_id, hash, target_partition);
