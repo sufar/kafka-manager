@@ -4,7 +4,7 @@
     <aside
       v-if="!isMobile"
       ref="leftSidebarRef"
-      class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl m-2"
+      class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl ml-2 mt-2 mb-2"
       :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
     >
       <div class="flex-1 flex flex-col min-h-0">

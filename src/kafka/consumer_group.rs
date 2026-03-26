@@ -451,6 +451,7 @@ impl KafkaConsumerGroupManager {
     }
 
     /// 重置 Consumer Group 的 offset
+    /// 通过先 assign 分区再 commit 的方式，可以在消费者组没有活跃成员时重置 offset
     pub fn reset_consumer_group_offset(
         &self,
         group_id: &str,
@@ -464,9 +465,13 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
+        // 先 assign 分区，这是 commit 前必需的步骤
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, Offset::Offset(offset))
             .map_err(|e| AppError::Internal(format!("Failed to add partition offset: {}", e)))?;
+
+        consumer.assign(&tpl)
+            .map_err(|e| AppError::Internal(format!("Failed to assign partition: {}", e)))?;
 
         // 提交 offset
         consumer.commit(&tpl, CommitMode::Sync)?;

@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3 relative overflow-hidden">
+  <div class="p-3 relative overflow-y-auto h-full">
     <!-- Animated background particles -->
     <div class="absolute inset-0 overflow-hidden pointer-events-none">
       <div class="particle particle-1"></div>
@@ -130,18 +130,18 @@
         class="card glass gradient-border hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
       >
         <div class="flex items-center justify-between p-3 border-b border-base-content/10">
-          <div class="flex items-center gap-2">
-            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 glow-primary text-primary">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 glow-primary text-primary flex-shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
             </div>
-            <div>
-              <h3 class="font-semibold text-sm">{{ cluster.name }}</h3>
-              <p class="text-[10px] text-base-content/60">{{ t.clusters.createdDate }} {{ formatDate(cluster.created_at) }}</p>
+            <div class="min-w-0">
+              <h3 class="font-semibold text-sm truncate" :title="cluster.name">{{ cluster.name }}</h3>
+              <p class="text-[10px] text-base-content/60 whitespace-nowrap">{{ t.clusters.createdDate }} {{ formatDate(cluster.created_at) }}</p>
             </div>
           </div>
-          <div class="flex items-center gap-1">
+          <div class="flex items-center gap-1 flex-shrink-0">
             <button
               class="btn btn-xs btn-ghost h-auto p-1 min-h-0"
               @click="editCluster(cluster)"

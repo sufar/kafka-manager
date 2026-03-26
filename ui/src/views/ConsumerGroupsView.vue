@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3 overflow-auto min-h-full">
+  <div class="p-3 overflow-y-auto min-h-full relative">
     <!-- Detail View -->
     <div v-if="detailView" class="space-y-4">
       <!-- Header with group name and actions -->
@@ -28,21 +28,25 @@
               </svg>
               {{ t.common.refresh }}
             </button>
-            <div class="dropdown dropdown-end dropdown-left sm:dropdown-left">
-              <label tabindex="0" class="btn btn-sm btn-primary whitespace-nowrap flex-shrink-0">
+            <div class="relative" ref="actionsMenuRef">
+              <button @click="toggleActionsMenu" class="btn btn-sm btn-primary whitespace-nowrap flex-shrink-0">
                 {{ t.common.actions }}
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 ml-1">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 ml-1 transition-transform" :class="{ 'rotate-180': actionsMenuOpen }">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
-              </label>
-              <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
-                <li><a @click="openResetOffsetDialog">{{ t.consumerGroups.resetOffset }}</a></li>
-                <li><a @click="deleteConsumerGroup" class="text-error">{{ t.consumerGroups.deleteGroup }}</a></li>
-              </ul>
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- Actions Menu - Teleported to body -->
+      <Teleport to="body">
+        <ul v-if="actionsMenuOpen" ref="actionsMenuDropdown" :style="[menuStyle, { zIndex: 9999 }]" class="menu p-2 shadow-2xl bg-base-100 rounded-box w-52">
+          <li><a @click.stop="handleResetOffset">{{ t.consumerGroups.resetOffset }}</a></li>
+          <li><a @click.stop="handleDeleteGroup" class="text-error">{{ t.consumerGroups.deleteGroup }}</a></li>
+        </ul>
+      </Teleport>
 
       <!-- Loading state -->
       <div v-if="loadingDetail" class="flex justify-center py-8">
@@ -176,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -232,6 +236,55 @@ const resetOffsetForm = ref<{
   resetTo: 'earliest',
   offsetValue: 0,
   timestampValue: '',
+});
+
+// Actions menu
+const actionsMenuOpen = ref(false);
+const actionsMenuRef = ref<HTMLElement | null>(null);
+const actionsMenuDropdown = ref<HTMLElement | null>(null);
+const menuStyle = ref({});
+
+// Toggle menu and calculate position
+function toggleActionsMenu() {
+  actionsMenuOpen.value = !actionsMenuOpen.value;
+  if (actionsMenuOpen.value && actionsMenuRef.value) {
+    updateMenuPosition();
+  }
+}
+
+// Update menu position
+function updateMenuPosition() {
+  if (actionsMenuRef.value) {
+    const rect = actionsMenuRef.value.getBoundingClientRect();
+    menuStyle.value = {
+      position: 'fixed',
+      top: `${rect.bottom + 8}px`,
+      right: `${window.innerWidth - rect.right}px`,
+    };
+  }
+}
+
+// Close menu when clicking outside
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (actionsMenuOpen.value && actionsMenuRef.value && !actionsMenuRef.value.contains(target)) {
+    actionsMenuOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+  window.addEventListener('scroll', updateMenuPosition, true);
+  window.addEventListener('resize', updateMenuPosition);
+  if (detailView.value) {
+    loadConsumerGroupDetail();
+  }
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('scroll', updateMenuPosition, true);
+  window.removeEventListener('resize', updateMenuPosition);
 });
 
 // Unique topics from offsets
@@ -312,6 +365,17 @@ function openResetOffsetDialog() {
   resetOffsetDialog.value?.showModal();
 }
 
+function handleResetOffset() {
+  actionsMenuOpen.value = false;
+  // 使用 groupParam 而不是 currentGroup，确保获取最新的值
+  if (!groupParam.value) {
+    showError('Consumer group name is missing');
+    return;
+  }
+  currentGroup.value = groupParam.value;
+  openResetOffsetDialog();
+}
+
 function closeResetOffsetDialog() {
   resetOffsetDialog.value?.close();
 }
@@ -370,7 +434,17 @@ async function confirmResetOffset() {
     await loadOffsets();
   } catch (e) {
     console.error('[ConsumerGroupsView] Reset offset error:', e);
-    showError(`Reset failed: ${(e as { message: string }).message}`);
+    const errorMsg = (e as { message: string }).message;
+    let userMessage = `Reset failed: ${errorMsg}`;
+
+    // 处理特定的错误消息
+    if (errorMsg.includes('UnknownMemberId') || errorMsg.includes('Unknown member')) {
+      userMessage = '重置失败：当前消费者组没有活跃成员。请确保有消费者连接到该组后再尝试重置偏移量。';
+    } else if (errorMsg.includes('group_name')) {
+      userMessage = '重置失败：消费者组名称无效或不存在。';
+    }
+
+    showError(userMessage);
   } finally {
     resettingOffset.value = false;
   }
@@ -391,6 +465,13 @@ async function deleteConsumerGroup() {
     console.error('[ConsumerGroupsView] Delete error:', e);
     showError(`Delete failed: ${(e as { message: string }).message}`);
   }
+}
+
+function handleDeleteGroup() {
+  actionsMenuOpen.value = false;
+  setTimeout(() => {
+    deleteConsumerGroup();
+  }, 100);
 }
 
 // Utility functions

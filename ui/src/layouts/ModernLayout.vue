@@ -37,7 +37,7 @@
       />
 
       <!-- Main Content -->
-      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2">
+      <main class="flex-1 glass gradient-border overflow-auto flex flex-col min-w-0 rounded-xl mr-2 mt-2 mb-2">
         <router-view />
       </main>
     </div>
@@ -57,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
@@ -132,6 +132,18 @@ function handleNavigate(routeParam: { path: string; query?: Record<string, strin
 function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: string) {
   toastRef.value?.showToast(type, message);
 }
+
+// Provide global toast and confirm methods
+function showToastWrapper(type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) {
+  toastRef.value?.showToast(type, message, duration);
+}
+
+function showConfirmWrapper(message: string): Promise<boolean> {
+  return toastRef.value?.showConfirm(message) || Promise.resolve(false);
+}
+
+provide('showToast', showToastWrapper);
+provide('showConfirm', showConfirmWrapper);
 
 // Handle topic selection from search
 async function handleSearchTopicSelect(cluster: string, topic: string) {

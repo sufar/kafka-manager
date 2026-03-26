@@ -524,7 +524,7 @@ class ApiClient {
   ): Promise<void> {
     return this.request('consumer_group.reset_offset', {
       cluster_id: clusterId,
-      group: groupName,
+      group_name: groupName,
       topic,
       partition,
       reset_to: resetTo,
