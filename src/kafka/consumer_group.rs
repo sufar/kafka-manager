@@ -326,8 +326,8 @@ impl KafkaConsumerGroupManager {
                     return None;
                 }
 
-                // Poll 消息获取时间戳（使用较短超时）
-                let timeout = Duration::from_millis(500);
+                // Poll 消息获取时间戳（增加超时以适应服务器环境）
+                let timeout = Duration::from_millis(2000);
                 let start = std::time::Instant::now();
 
                 while start.elapsed() < timeout {
