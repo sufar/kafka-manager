@@ -16,8 +16,8 @@
         <!-- Cluster Selector -->
         <slot name="cluster-selector"></slot>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-base-content/50 truncate max-w-[150px]">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-xs text-base-content/50 truncate flex-1 min-w-0">
           <template v-if="view === 'topics'">
             {{ itemCount }} / {{ total }} topics
           </template>
@@ -27,7 +27,7 @@
         </span>
         <!-- Refresh Button -->
         <button
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-xs flex-shrink-0"
           :disabled="refreshing"
           @click="$emit('refresh')"
           :title="refreshTitle"

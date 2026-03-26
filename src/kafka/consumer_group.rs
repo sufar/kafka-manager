@@ -376,42 +376,45 @@ impl KafkaConsumerGroupManager {
         Ok(())
     }
 
-    /// Kafka 使用的 Murmur2 hash 算法
-    /// 用于计算 consumer group 在 __consumer_offsets 中的分区位置
-    fn murmur2(data: &[u8]) -> i32 {
-        const M: i32 = 0x5bd1e995i32;
-        const R: i32 = 24;
-        // 使用 u32 常量然后转换为 i32，避免字面量溢出
-        const SEED: i32 = 0x9747b28cu32 as i32;
+    /// Kafka 使用的 Murmur2 hash 算法（unsigned 版本）
+    /// 参考 Kafka 的 Utils.murmur2 实现
+    fn murmur2(data: &[u8]) -> u32 {
+        const M: u32 = 0x5bd1e995;
+        const R: u32 = 24;
+        const SEED: u32 = 0x9747b28c;
 
-        let length = data.len() as i32;
-        let mut h = SEED ^ length;
+        let length = data.len() as u32;
+        let mut h: u32 = SEED ^ length;
 
-        let mut i = 0;
-        while i + 4 <= data.len() {
-            let k = i32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+        let len4 = data.len() / 4;
 
-            let mut k = k;
+        for i in 0..len4 {
+            let i4 = i * 4;
+            let mut k: u32 = (data[i4] as u32)
+                | ((data[i4 + 1] as u32) << 8)
+                | ((data[i4 + 2] as u32) << 16)
+                | ((data[i4 + 3] as u32) << 24);
+
             k = k.wrapping_mul(M);
             k ^= k >> R;
             k = k.wrapping_mul(M);
 
             h = h.wrapping_mul(M);
             h ^= k;
-
-            i += 4;
         }
 
         // 处理剩余字节
-        let remaining = data.len() - i;
-        if remaining >= 3 {
-            h ^= (data[i + 2] as i32) << 16;
+        let rem = data.len() & 3;
+        let offset = len4 * 4;
+
+        if rem >= 3 {
+            h ^= (data[offset + 2] as u32) << 16;
         }
-        if remaining >= 2 {
-            h ^= (data[i + 1] as i32) << 8;
+        if rem >= 2 {
+            h ^= (data[offset + 1] as u32) << 8;
         }
-        if remaining >= 1 {
-            h ^= data[i] as i32;
+        if rem >= 1 {
+            h ^= data[offset] as u32;
             h = h.wrapping_mul(M);
         }
 
@@ -430,125 +433,307 @@ impl KafkaConsumerGroupManager {
         topic: &str,
         partition: i32,
     ) -> Result<Option<i64>> {
-        // 创建一个不带 group.id 的消费者来读取 __consumer_offsets topic
+        // 创建一个独立的消费者来读取 __consumer_offsets topic
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", "kafka-manager-reader");
         client_config.set("enable.auto.commit", "false");
-        client_config.set("isolation.level", "read_committed");
+        client_config.set("auto.offset.reset", "earliest");
+        client_config.set("isolation.level", "read_uncommitted");
+        client_config.set("enable.partition.eof", "true");
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        // 首先获取 __consumer_offsets topic 的元数据，获取实际分区数
+        // 等待 consumer 准备好
+        std::thread::sleep(Duration::from_millis(100));
+
+        // 首先获取 __consumer_offsets topic 的元数据
         let metadata = consumer.fetch_metadata(Some("__consumer_offsets"), self.timeout)?;
         let offsets_topic_meta = metadata.topics().iter()
             .find(|t| t.name() == "__consumer_offsets");
 
         if offsets_topic_meta.is_none() {
+            tracing::warn!("__consumer_offsets topic not found");
             return Ok(None);
         }
 
         let offsets_topic_meta = offsets_topic_meta.unwrap();
-        let partitions: Vec<i32> = offsets_topic_meta.partitions()
-            .iter()
-            .map(|p| p.id())
-            .collect();
+        let num_partitions = offsets_topic_meta.partitions().len() as i32;
 
-        tracing::info!("[get_last_commit_time] __consumer_offsets has {} partitions: {:?}", partitions.len(), partitions);
-        tracing::info!("[get_last_commit_time] Looking for group_id='{}', topic='{}', partition={}", group_id, topic, partition);
-
-        let mut last_commit_time: Option<i64> = None;
+        tracing::info!(
+            "[get_last_commit_time] Looking for group_id='{}', topic='{}', partition={}",
+            group_id, topic, partition
+        );
+        tracing::info!("[get_last_commit_time] __consumer_offsets has {} partitions", num_partitions);
 
         // 计算目标分区（使用 Kafka 的默认分区算法）
         // 算法: murmur2(group_id) % num_partitions
-        let target_partition = (Self::murmur2(group_id.as_bytes()) as i32).wrapping_abs() % (partitions.len() as i32);
-        tracing::info!("[get_last_commit_time] Target partition for group '{}': {}", group_id, target_partition);
+        let hash = Self::murmur2(group_id.as_bytes());
+        let target_partition = (hash % (num_partitions as u32)) as i32;
 
-        // 优先检查目标分区，如果不存在再遍历所有分区
-        let partitions_to_check: Vec<i32> = if partitions.contains(&target_partition) {
-            vec![target_partition]
-        } else {
-            partitions.clone()
-        };
+        tracing::info!("[get_last_commit_time] Hash for group '{}': {} -> target partition: {}",
+            group_id, hash, target_partition);
 
-        // 遍历目标分区或所有分区
-        for &offsets_partition in &partitions_to_check {
-            // 获取该分区的水位
-            let (start_offset, end_offset) = consumer
-                .fetch_watermarks("__consumer_offsets", offsets_partition, self.timeout)
-                .map_err(|e| AppError::Internal(format!("Failed to fetch watermarks: {}", e)))?;
+        // 检查目标分区是否存在
+        let partition_exists = offsets_topic_meta.partitions()
+            .iter()
+            .any(|p| p.id() == target_partition);
 
-            if end_offset <= start_offset {
-                continue;
+        if !partition_exists {
+            tracing::warn!("[get_last_commit_time] Target partition {} does not exist", target_partition);
+            return Ok(None);
+        }
+
+        // 获取该分区的水位
+        let (start_offset, end_offset) = consumer
+            .fetch_watermarks("__consumer_offsets", target_partition, self.timeout)
+            .map_err(|e| {
+                tracing::error!("Failed to fetch watermarks for partition {}: {}", target_partition, e);
+                AppError::Internal(format!("Failed to fetch watermarks: {}", e))
+            })?;
+
+        tracing::info!("[get_last_commit_time] Partition {} offsets: {} to {}",
+            target_partition, start_offset, end_offset);
+
+        if end_offset <= start_offset {
+            tracing::warn!("[get_last_commit_time] Partition {} is empty", target_partition);
+            return Ok(None);
+        }
+
+        let target_key = Self::build_offset_key(group_id, topic, partition);
+        tracing::info!("[get_last_commit_time] Target key bytes (hex): {:02x?}", target_key);
+
+        // 从后向前搜索
+        // 如果目标分区没找到，搜索所有分区（用于调试）
+        let result = self.search_partition_for_commit(
+            &consumer,
+            target_partition,
+            start_offset,
+            end_offset,
+            &target_key,
+            group_id,
+            topic,
+            partition,
+        )?;
+
+        // 如果目标分区没找到，尝试搜索附近的分区（murmur2可能有实现差异）
+        if result.is_none() {
+            tracing::warn!("[get_last_commit_time] Not found in target partition {}, checking nearby partitions", target_partition);
+            // 只检查目标分区前后5个分区
+            let nearby_partitions: Vec<i32> = ((-5..=5)
+                .map(|i| target_partition + i)
+                .filter(|&p| p >= 0 && p < num_partitions && p != target_partition))
+                .collect();
+
+            for p in nearby_partitions {
+                let (start, end) = match consumer.fetch_watermarks("__consumer_offsets", p, self.timeout) {
+                    Ok((s, e)) if e > s => (s, e),
+                    _ => continue,
+                };
+                tracing::info!("[get_last_commit_time] Checking partition {} offsets {}..{}", p, start, end);
+                if let Ok(Some(ts)) = self.search_partition_for_commit(
+                    &consumer, p, start, end, &target_key, group_id, topic, partition
+                ) {
+                    tracing::info!("[get_last_commit_time] Found in partition {}!", p);
+                    return Ok(Some(ts));
+                }
             }
 
-            tracing::debug!("[get_last_commit_time] Checking partition {}, offsets: {}..{}", offsets_partition, start_offset, end_offset);
+            // 如果附近分区也没找到，可能这个 group 没有 offset 提交记录
+            tracing::warn!("[get_last_commit_time] Group '{}' has no offset commit record for {}/{}",
+                group_id, topic, partition);
+        }
 
-            // 从最新的 offset 开始向前查找，找到匹配的记录
-            // 由于性能考虑，最多检查最近的 100 条记录
-            let mut search_start = start_offset.max(end_offset - 100);
-            let mut checked_count = 0;
+        Ok(result)
+    }
 
-            while search_start < end_offset && checked_count < 100 {
-                // 订阅分区并从指定位置开始消费
-                let mut tpl = TopicPartitionList::new();
-                tpl.add_partition("__consumer_offsets", offsets_partition);
-                consumer.assign(&tpl)?;
+    /// 在指定分区中搜索提交记录
+    fn search_partition_for_commit(
+        &self,
+        consumer: &BaseConsumer,
+        partition: i32,
+        start_offset: i64,
+        end_offset: i64,
+        _target_key: &[u8],
+        group_id: &str,
+        topic: &str,
+        target_partition: i32,
+    ) -> Result<Option<i64>> {
+        // 限制最多检查 5000 条消息，避免性能问题
+        let max_check = 5000i64;
+        let check_start = (end_offset - max_check).max(start_offset);
+        let mut last_found_timestamp: Option<i64> = None;
 
-                // 使用 seek 确保从指定 offset 开始消费
-                consumer.seek(
-                    "__consumer_offsets",
-                    offsets_partition,
-                    Offset::Offset(search_start),
-                    self.timeout,
-                )?;
+        tracing::info!("[search_partition] Searching partition {} from offset {} to {}",
+            partition, check_start, end_offset);
 
-                tracing::debug!("[get_last_commit_time] Seek to offset {} in partition {}", search_start, offsets_partition);
+        // 使用批量消费提高效率
+        let batch_size = 100i64;
+        let mut current_batch_start = check_start;
 
-                // 消费消息 - 增加重试次数以确保能获取到消息
-                let mut poll_attempts = 0;
-                let max_poll_attempts = 5;
-                let mut found_message = false;
+        while current_batch_start < end_offset {
+            let batch_end = (current_batch_start + batch_size).min(end_offset);
 
-                while poll_attempts < max_poll_attempts {
-                    match consumer.poll(Duration::from_millis(200)) {
-                        Some(Ok(msg)) => {
-                            // 同时使用 key 和 value 来匹配
-                            if let Some(timestamp) = parse_consumer_offset_message(&msg, group_id, topic, partition) {
-                                tracing::info!("[get_last_commit_time] Found commit time for {}/{}/{}: {}", group_id, topic, partition, timestamp);
-                                last_commit_time = Some(timestamp);
-                                consumer.unassign()?;
-                                return Ok(last_commit_time);
-                            }
-                            found_message = true;
-                            break; // 找到了消息但不匹配，跳出 poll 循环
-                        }
-                        Some(Err(e)) => {
-                            tracing::debug!("Poll error: {}", e);
-                            poll_attempts += 1;
-                        }
-                        None => {
-                            // 没有消息，稍后重试
-                            poll_attempts += 1;
-                            std::thread::sleep(Duration::from_millis(50));
+            // 尝试读取这一批消息
+            match self.read_batch(
+                consumer,
+                partition,
+                current_batch_start,
+                batch_end,
+                group_id,
+                topic,
+                target_partition,
+            ) {
+                Ok(Some(timestamp)) => {
+                    last_found_timestamp = Some(timestamp);
+                    // 继续向前查找，看是否有更新的记录
+                }
+                Ok(None) => {
+                    // 这批没找到，继续
+                }
+                Err(e) => {
+                    tracing::warn!("[search_partition] Error reading batch: {}", e);
+                }
+            }
+
+            current_batch_start = batch_end;
+        }
+
+        if last_found_timestamp.is_none() {
+            tracing::warn!("[search_partition] No commit record found for {}/{}/{}",
+                group_id, topic, target_partition);
+        }
+
+        Ok(last_found_timestamp)
+    }
+
+    /// 读取一批消息并查找匹配的记录
+    fn read_batch(
+        &self,
+        consumer: &BaseConsumer,
+        partition: i32,
+        start: i64,
+        end: i64,
+        target_group: &str,
+        target_topic: &str,
+        target_partition: i32,
+    ) -> Result<Option<i64>> {
+        tracing::info!("[read_batch] Reading partition {} from offset {} to {}", partition, start, end);
+
+        // 首先 assign 分区
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("__consumer_offsets", partition);
+
+        if let Err(e) = consumer.assign(&tpl) {
+            tracing::error!("[read_batch] Failed to assign: {}", e);
+            return Err(AppError::Internal(format!("Failed to assign: {}", e)));
+        }
+
+        // 等待一下确保 assign 生效
+        std::thread::sleep(Duration::from_millis(50));
+
+        // 然后 seek 到起始位置
+        tracing::info!("[read_batch] Seeking to offset {}", start);
+        if let Err(e) = consumer.seek("__consumer_offsets", partition, Offset::Offset(start), self.timeout) {
+            tracing::error!("[read_batch] Failed to seek: {}", e);
+            let _ = consumer.unassign();
+            return Err(AppError::Internal(format!("Failed to seek: {}", e)));
+        }
+
+        // seek 后再等一下
+        std::thread::sleep(Duration::from_millis(50));
+
+        let mut last_match: Option<i64> = None;
+        let mut messages_read = 0;
+        let max_messages = ((end - start) as usize).max(1);
+
+        // 循环读取消息
+        let start_time = std::time::Instant::now();
+        let max_poll_time = Duration::from_millis(10000);
+
+        loop {
+            if start_time.elapsed() > max_poll_time {
+                tracing::warn!("[read_batch] Timeout after reading {} messages", messages_read);
+                break;
+            }
+
+            match consumer.poll(Duration::from_millis(500)) {
+                Some(Ok(msg)) => {
+                    messages_read += 1;
+                    let msg_offset = msg.offset();
+
+                    // 打印前几条消息的 key 用于调试
+                    if messages_read <= 10 {
+                        if let Some(key) = msg.key() {
+                            tracing::info!("[read_batch] Message {} at offset {}: key_len={}, first_bytes={:02x?}",
+                                messages_read, msg_offset, key.len(), &key[..key.len().min(20)]);
+                        } else {
+                            tracing::info!("[read_batch] Message {} at offset {}: no key", messages_read, msg_offset);
                         }
                     }
-                }
 
-                if !found_message {
-                    tracing::debug!("[get_last_commit_time] No message fetched after {} attempts at offset {}", max_poll_attempts, search_start);
-                } else {
-                    tracing::debug!("[get_last_commit_time] Fetched message at offset {} but didn't match target {}/{}/{}", search_start, group_id, topic, partition);
-                }
+                    // 检查 offset 是否超出范围
+                    if msg_offset >= end {
+                        tracing::info!("[read_batch] Reached end offset {}", msg_offset);
+                        break;
+                    }
 
-                search_start += 1;
-                checked_count += 1;
+                    // 解析并检查是否匹配
+                    if let Some(timestamp) = parse_consumer_offset_message(
+                        &msg, target_group, target_topic, target_partition
+                    ) {
+                        tracing::info!(
+                            "[read_batch] Found commit at offset {}: timestamp={} for {}/{}/{}",
+                            msg_offset, timestamp, target_group, target_topic, target_partition
+                        );
+                        last_match = Some(timestamp);
+                    }
+
+                    // 读取足够消息后退出
+                    if messages_read >= max_messages {
+                        break;
+                    }
+                }
+                Some(Err(e)) => {
+                    tracing::warn!("[read_batch] Poll error: {}", e);
+                    break;
+                }
+                None => {
+                    tracing::debug!("[read_batch] No more messages after reading {}", messages_read);
+                    break;
+                }
             }
         }
 
-        // 重置消费位置
-        consumer.unassign()?;
+        // 清理 assign
+        let _ = consumer.unassign();
 
-        tracing::info!("[get_last_commit_time] No commit time found for {}/{}/{}", group_id, topic, partition);
-        Ok(last_commit_time)
+        tracing::info!("[read_batch] Finished reading {} messages, found match: {:?}",
+            messages_read, last_match.is_some());
+
+        Ok(last_match)
+    }
+
+    /// 构建 __consumer_offsets 的 key（用于调试和验证）
+    fn build_offset_key(group_id: &str, topic: &str, partition: i32) -> Vec<u8> {
+        let mut key = Vec::new();
+
+        // version (2 bytes, big endian) - 使用版本 0
+        key.extend_from_slice(&0i16.to_be_bytes());
+
+        // group_id length (2 bytes) + group_id
+        let group_id_bytes = group_id.as_bytes();
+        key.extend_from_slice(&(group_id_bytes.len() as i16).to_be_bytes());
+        key.extend_from_slice(group_id_bytes);
+
+        // topic length (2 bytes) + topic
+        let topic_bytes = topic.as_bytes();
+        key.extend_from_slice(&(topic_bytes.len() as i16).to_be_bytes());
+        key.extend_from_slice(topic_bytes);
+
+        // partition (4 bytes)
+        key.extend_from_slice(&partition.to_be_bytes());
+
+        key
     }
 }
 
@@ -697,12 +882,27 @@ fn parse_offset_value(payload: &[u8]) -> Option<i64> {
                 tracing::debug!("[parse_offset_value] v0 payload too short: {} < {}", payload.len(), pos + 8);
                 return None;
             }
-            let timestamp = i64::from_be_bytes([
+            // 尝试大端序
+            let timestamp_be = i64::from_be_bytes([
                 payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
                 payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
             ]);
-            tracing::info!("[parse_offset_value] v0 timestamp: {}", timestamp);
-            Some(timestamp)
+            // 尝试小端序
+            let timestamp_le = i64::from_le_bytes([
+                payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3],
+                payload[pos + 4], payload[pos + 5], payload[pos + 6], payload[pos + 7],
+            ]);
+            tracing::info!("[parse_offset_value] v0 raw bytes: {:02x?}", &payload[pos..pos+8]);
+            tracing::info!("[parse_offset_value] v0 timestamp_be: {}, timestamp_le: {}", timestamp_be, timestamp_le);
+            // 使用合理的时间戳（毫秒时间戳应该在 2020-2030 年之间，即 1600000000000 - 1900000000000）
+            if timestamp_be > 1600000000000 && timestamp_be < 1900000000000 {
+                Some(timestamp_be)
+            } else if timestamp_le > 1600000000000 && timestamp_le < 1900000000000 {
+                Some(timestamp_le)
+            } else {
+                // 如果都不合理，返回大端序的值
+                Some(timestamp_be)
+            }
         }
         1 => {
             // Version 1: [version][offset][timestamp][expireTimestamp]

@@ -459,8 +459,8 @@
           </div>
         </div>
         <!-- Count and Refresh Button -->
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-base-content/50 truncate max-w-[150px]">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xs text-base-content/50 truncate flex-1 min-w-0">
             <template v-if="currentView === 'topics'">
               {{ allTopics.length }} / {{ total }} topics
             </template>
@@ -470,7 +470,7 @@
           </span>
           <!-- Refresh Button -->
           <button
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs flex-shrink-0"
             :disabled="currentView === 'topics' ? refreshing : refreshingGroups"
             @click="currentView === 'topics' ? refreshTopics() : refreshConsumerGroups()"
             :title="currentView === 'topics' ? '刷新 Topics' : '刷新 Consumer Groups'"
