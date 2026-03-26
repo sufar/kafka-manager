@@ -459,7 +459,7 @@
           </div>
         </div>
         <!-- Count and Refresh Button -->
-        <div class="flex items-center gap-2 min-w-0">
+        <div class="flex items-center gap-2 min-w-0 pb-2">
           <span class="text-xs text-base-content/50 truncate flex-1 min-w-0">
             <template v-if="currentView === 'topics'">
               {{ allTopics.length }} / {{ total }} topics

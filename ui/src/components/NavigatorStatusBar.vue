@@ -1,5 +1,5 @@
 <template>
-  <div class="p-1.5 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
+  <div class="p-1.5 pb-2 text-xs text-base-content/50 border-t border-base-200 flex-shrink-0">
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-1 flex-shrink-0">
         <!-- Load More Button (Topics only) -->

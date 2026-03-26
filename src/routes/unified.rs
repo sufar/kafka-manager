@@ -2811,7 +2811,7 @@ async fn fetch_partition_messages_streaming(
                     timestamp: ts,
                 };
 
-                if tx.try_send(kafka_msg).is_err() {
+                if tx.send(kafka_msg).await.is_err() {
                     tracing::warn!("[Streaming] Channel closed for partition {}", partition);
                     return;
                 }

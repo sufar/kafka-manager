@@ -4,7 +4,7 @@
     <aside
       v-if="!isMobile"
       ref="leftSidebarRef"
-      class="flex flex-col h-full glass gradient-border relative rounded-xl"
+      class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl m-2"
       :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
     >
       <div class="flex-1 flex flex-col min-h-0">
@@ -30,7 +30,7 @@
     <!-- Mobile Sidebar Drawer -->
     <aside
       v-if="isMobile && sidebarOpen"
-      class="fixed left-0 top-10 h-[calc(100dvh-2.5rem)] w-72 overflow-hidden flex flex-col z-50"
+      class="fixed left-2 bottom-2 top-12 h-[calc(100dvh-3.5rem)] w-72 overflow-hidden flex flex-col z-50 rounded-xl shadow-2xl"
     >
       <!-- Mobile Sidebar Header -->
       <div class="flex items-center justify-between p-3 border-b border-base-200 flex-shrink-0">
