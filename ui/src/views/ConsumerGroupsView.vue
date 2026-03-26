@@ -17,9 +17,9 @@
               <span v-if="groupState" class="badge" :class="getStateBadgeClass(groupState)">{{ groupState }}</span>
             </p>
           </div>
-          <div class="flex gap-2 flex-shrink-0 w-full sm:w-auto">
+          <div class="flex gap-2 flex-shrink-0 w-full sm:w-auto min-w-0">
             <button
-              class="btn btn-sm btn-outline flex-1 sm:flex-none"
+              class="btn btn-sm btn-outline flex-1 sm:flex-none flex-shrink-0"
               @click="refreshOffsets"
               :disabled="refreshing"
             >
@@ -29,7 +29,7 @@
               {{ t.common.refresh }}
             </button>
             <div class="dropdown dropdown-end dropdown-left sm:dropdown-left">
-              <label tabindex="0" class="btn btn-sm btn-primary whitespace-nowrap">
+              <label tabindex="0" class="btn btn-sm btn-primary whitespace-nowrap flex-shrink-0">
                 {{ t.common.actions }}
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 ml-1">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
