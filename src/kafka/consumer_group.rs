@@ -251,15 +251,89 @@ impl KafkaConsumerGroupManager {
         Ok(result)
     }
 
-    /// 获取单个分区的最后提交时间（从__consumer_offsets topic 读取）
-    /// 用于详情页单个 consumer group 的详细查询
+    /// 获取单个分区的最后提交时间
+    /// 使用 committed_offsets API 获取 committed offset，然后读取消息时间戳
     pub fn get_partition_last_commit_time(
         &self,
         group_id: &str,
         topic: &str,
         partition: i32,
     ) -> Result<Option<i64>> {
-        self.get_last_commit_time_from_offsets_topic(group_id, topic, partition)
+        // 创建一个临时 consumer 来获取 committed offset
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        // 构建 TopicPartitionList
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(topic, partition);
+
+        // 获取 committed offset
+        let committed = consumer.committed_offsets(tpl, self.timeout)?;
+
+        // 解析 committed offset
+        let committed_offset = committed.elements()
+            .iter()
+            .find(|e| e.topic() == topic && e.partition() == partition)
+            .and_then(|e| match e.offset() {
+                Offset::Offset(o) => Some(o),
+                _ => None,
+            });
+
+        let offset = match committed_offset {
+            Some(o) => o,
+            None => {
+                tracing::debug!("[get_last_commit_time] No committed offset for {}/{}/{}", group_id, topic, partition);
+                return Ok(None);
+            }
+        };
+
+        tracing::info!("[get_last_commit_time] Committed offset for {}/{}/{}: {}", group_id, topic, partition, offset);
+
+        // 读取该 offset 的消息来获取时间戳
+        // 如果 offset 是 0 或负数，无法读取消息
+        if offset <= 0 {
+            return Ok(None);
+        }
+
+        // 创建临时 consumer 读取消息时间戳
+        let mut read_config = crate::kafka::create_client_config(&self.consumer_config);
+        read_config.set("group.id", &format!("kafka-manager-time-reader-{}-{}-{}",
+            group_id, topic, partition));
+        read_config.set("enable.auto.commit", "false");
+
+        let read_consumer: BaseConsumer = read_config.create()?;
+
+        // Assign 到指定的 offset
+        let mut read_tpl = TopicPartitionList::new();
+        read_tpl.add_partition_offset(topic, partition, Offset::Offset(offset - 1))?;
+        read_consumer.assign(&read_tpl)?;
+
+        // Poll 消息获取时间戳
+        let timeout = Duration::from_millis(5000);
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            match read_consumer.poll(Duration::from_millis(100)) {
+                Some(Ok(msg)) => {
+                    if let Some(ts) = msg.timestamp().to_millis() {
+                        tracing::info!("[get_last_commit_time] Found timestamp: {} for {}/{}/{}",
+                            ts, group_id, topic, partition);
+                        return Ok(Some(ts));
+                    }
+                }
+                Some(Err(e)) => {
+                    tracing::warn!("[get_last_commit_time] Error polling message: {}", e);
+                    break;
+                }
+                None => continue,
+            }
+        }
+
+        tracing::warn!("[get_last_commit_time] Could not get timestamp for {}/{}/{}", group_id, topic, partition);
+        Ok(None)
     }
 
     /// 重置 Consumer Group 的 offset
