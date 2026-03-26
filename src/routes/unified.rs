@@ -4600,15 +4600,26 @@ async fn handle_consumer_group_offsets(state: AppState, body: Value) -> Result<V
 
     tracing::info!("[handle_consumer_group_offsets] Got {} offsets", offsets.len());
 
-    // 为每个分区获取最后提交时间（从__consumer_offsets topic 读取）
-    // 由于这是详情页调用，可以接受较慢的速度
-    for offset in offsets.iter_mut() {
-        tracing::info!("[handle_consumer_group_offsets] Fetching last_commit_time for topic={}, partition={}", offset.topic, offset.partition);
-        if let Ok(time) = cg_manager.get_partition_last_commit_time(&group_name, &offset.topic, offset.partition) {
-            tracing::info!("[handle_consumer_group_offsets] Got last_commit_time: {:?}", time);
-            offset.last_commit_time = time;
-        } else {
-            tracing::warn!("[handle_consumer_group_offsets] Failed to get last_commit_time for topic={}, partition={}", offset.topic, offset.partition);
+    // 批量获取所有分区的最后提交时间
+    let partitions: Vec<(String, i32)> = offsets
+        .iter()
+        .map(|o| (o.topic.clone(), o.partition))
+        .collect();
+
+    if !partitions.is_empty() {
+        match cg_manager.get_partitions_last_commit_time(&group_name, &partitions) {
+            Ok(times) => {
+                for (i, offset) in offsets.iter_mut().enumerate() {
+                    if i < times.len() {
+                        offset.last_commit_time = times[i];
+                        tracing::info!("[handle_consumer_group_offsets] Got last_commit_time for {}/{}: {:?}",
+                            offset.topic, offset.partition, times[i]);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("[handle_consumer_group_offsets] Failed to get last_commit_time: {}", e);
+            }
         }
     }
 

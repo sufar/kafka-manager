@@ -251,6 +251,115 @@ impl KafkaConsumerGroupManager {
         Ok(result)
     }
 
+    /// 批量获取多个分区的最后提交时间
+    /// 使用并行处理提高效率
+    pub fn get_partitions_last_commit_time(
+        &self,
+        group_id: &str,
+        partitions: &[(String, i32)],
+    ) -> Result<Vec<Option<i64>>> {
+        if partitions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // 创建一个 consumer 获取所有 committed offsets
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        // 构建 TopicPartitionList 包含所有分区
+        let mut tpl = TopicPartitionList::new();
+        for (topic, partition) in partitions {
+            tpl.add_partition(topic, *partition);
+        }
+
+        // 批量获取 committed offsets
+        let committed = consumer.committed_offsets(tpl, self.timeout)?;
+
+        // 解析 committed offsets
+        let mut offsets_map: std::collections::HashMap<(String, i32), i64> = std::collections::HashMap::new();
+        for elem in committed.elements() {
+            if let Offset::Offset(o) = elem.offset() {
+                offsets_map.insert((elem.topic().to_string(), elem.partition()), o);
+            }
+        }
+
+        // 使用标准库线程并行处理
+        let mut handles = vec![];
+
+        for (topic, partition) in partitions.iter().cloned() {
+            let offset = match offsets_map.get(&(topic.clone(), partition)) {
+                Some(&o) if o > 0 => o,
+                _ => {
+                    handles.push(None);
+                    continue;
+                }
+            };
+
+            let config = self.consumer_config.clone();
+            let _timeout = self.timeout;
+
+            let handle = std::thread::spawn(move || {
+                // 为每个分区创建独立的 consumer
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("SystemTime before UNIX epoch")
+                    .as_millis();
+                let mut read_config = crate::kafka::create_client_config(&config);
+                read_config.set("group.id", &format!("kafka-manager-time-reader-{}-{}-{}-{}",
+                    std::process::id(), topic, partition, timestamp));
+                read_config.set("enable.auto.commit", "false");
+
+                let read_consumer: BaseConsumer = match read_config.create() {
+                    Ok(c) => c,
+                    Err(_) => return None,
+                };
+
+                // Assign 到指定的 offset
+                let mut read_tpl = TopicPartitionList::new();
+                if read_tpl.add_partition_offset(&topic, partition, Offset::Offset(offset - 1)).is_err() {
+                    return None;
+                }
+                if read_consumer.assign(&read_tpl).is_err() {
+                    return None;
+                }
+
+                // Poll 消息获取时间戳（使用较短超时）
+                let timeout = Duration::from_millis(500);
+                let start = std::time::Instant::now();
+
+                while start.elapsed() < timeout {
+                    match read_consumer.poll(Duration::from_millis(50)) {
+                        Some(Ok(msg)) => {
+                            if let Some(ts) = msg.timestamp().to_millis() {
+                                return Some(ts);
+                            }
+                        }
+                        Some(Err(_)) => break,
+                        None => continue,
+                    }
+                }
+
+                None
+            });
+
+            handles.push(Some(handle));
+        }
+
+        // 收集结果
+        let mut results = vec![];
+        for handle in handles {
+            match handle {
+                Some(h) => results.push(h.join().unwrap_or(None)),
+                None => results.push(None),
+            }
+        }
+
+        Ok(results)
+    }
+
     /// 获取单个分区的最后提交时间
     /// 使用 committed_offsets API 获取 committed offset，然后读取消息时间戳
     pub fn get_partition_last_commit_time(
@@ -299,9 +408,14 @@ impl KafkaConsumerGroupManager {
         }
 
         // 创建临时 consumer 读取消息时间戳
+        // 使用唯一的 group.id 避免与现有 consumer group 冲突
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("SystemTime before UNIX epoch")
+            .as_millis();
         let mut read_config = crate::kafka::create_client_config(&self.consumer_config);
-        read_config.set("group.id", &format!("kafka-manager-time-reader-{}-{}-{}",
-            group_id, topic, partition));
+        read_config.set("group.id", &format!("kafka-manager-time-reader-{}-{}-{}-{}",
+            std::process::id(), group_id, topic, timestamp));
         read_config.set("enable.auto.commit", "false");
 
         let read_consumer: BaseConsumer = read_config.create()?;
