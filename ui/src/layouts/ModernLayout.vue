@@ -57,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useClusterConnectionStore } from '@/stores/clusterConnection';
@@ -84,6 +84,14 @@ const t = computed(() => languageStore.t);
 const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();
 const toastRef = ref<InstanceType<typeof ToastAndConfirm>>();
 const clusterTreeNavigatorRef = ref<InstanceType<typeof import('@/components/ClusterTreeNavigator.vue').default>>();
+
+// Provide showToast globally for layout children (including router-view components)
+provide('showToast', (type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => {
+  toastRef.value?.showToast(type, message, duration);
+});
+provide('showConfirm', (message: string) => {
+  return toastRef.value?.showConfirm(message) || Promise.resolve(false);
+});
 
 // Sidebar mode: 'tree' | 'flat'
 const sidebarMode = ref<'tree' | 'flat'>('flat');

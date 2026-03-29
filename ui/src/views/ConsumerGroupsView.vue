@@ -156,8 +156,8 @@
             <button class="btn btn-primary" @click="confirmResetOffset" :disabled="resettingOffset">{{ t.common.confirm }}</button>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
+        <form method="dialog" class="modal-backdrop" @click="closeResetOffsetDialog">
+          <button class="hidden">close</button>
         </form>
       </dialog>
     </div>
@@ -324,9 +324,14 @@ function getPartitionsForTopic(topic: string): number[] {
 }
 
 async function confirmResetOffset() {
-  if (!clusterParam.value || !currentGroup.value) return;
+  if (!clusterParam.value || !currentGroup.value) {
+    console.error('[confirmResetOffset] Missing clusterParam or currentGroup');
+    return;
+  }
 
   const { topic, partition, resetTo, offsetValue, timestampValue } = resetOffsetForm.value;
+  console.log('[confirmResetOffset] Form data:', { topic, partition, resetTo, offsetValue, timestampValue });
+  console.log('[confirmResetOffset] Cluster:', clusterParam.value, 'Group:', currentGroup.value);
 
   if (partition < 0) {
     showError('Please select a partition');
@@ -355,6 +360,16 @@ async function confirmResetOffset() {
       timestampParam = new Date(timestampValue).getTime();
     }
 
+    console.log('[confirmResetOffset] Calling API with params:', {
+      clusterId: clusterParam.value,
+      groupName: currentGroup.value,
+      topic,
+      partition,
+      resetTo: resetToParam,
+      timestamp: timestampParam,
+      offset: offsetParam
+    });
+
     await apiClient.resetConsumerGroupOffset(
       clusterParam.value,
       currentGroup.value,
@@ -365,6 +380,7 @@ async function confirmResetOffset() {
       offsetParam
     );
 
+    console.log('[confirmResetOffset] API call succeeded');
     showSuccess(t.value.consumerGroups.offsetResetSuccess);
     closeResetOffsetDialog();
     await loadOffsets();

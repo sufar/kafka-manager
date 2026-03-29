@@ -145,19 +145,23 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        // 获取 committed offsets 来判断状态
-        let mut tpl = TopicPartitionList::new();
-        for topic in topics {
-            // 这里简化处理，假设每个 topic 只有一个分区
-            tpl.add_partition(topic, 0);
-        }
+        // 使用 fetch_group_list API 获取消费者组的真实状态
+        let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)?;
 
-        let committed = consumer.committed_offsets(tpl, self.timeout)?;
-
-        let state = if committed.elements().is_empty() {
-            "Empty".to_string()
+        // 获取消费者组状态
+        let state = if let Some(group) = group_list.groups().first() {
+            // 获取组的状态（Stable, PreparingRebalance, CompletingRebalance, Dead, Empty 等）
+            let group_state = group.state();
+            match group_state {
+                "Stable" => "Stable".to_string(),
+                "PreparingRebalance" => "PreparingRebalance".to_string(),
+                "CompletingRebalance" => "CompletingRebalance".to_string(),
+                "Dead" => "Dead".to_string(),
+                "Empty" => "Empty".to_string(),
+                _ => group_state.to_string(),
+            }
         } else {
-            "Stable".to_string()
+            "Unknown".to_string()
         };
 
         Ok(ConsumerGroupInfo {
@@ -464,12 +468,36 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
+        // 创建 TopicPartitionList 用于提交
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, Offset::Offset(offset))
             .map_err(|e| AppError::Internal(format!("Failed to add partition offset: {}", e)))?;
 
-        // 提交 offset
-        consumer.commit(&tpl, CommitMode::Sync)?;
+        // 尝试使用 assign + commit 方式
+        // 首先 assign 分区
+        if let Err(e) = consumer.assign(&tpl) {
+            tracing::warn!("Failed to assign partition: {}", e);
+        }
+
+        // 然后提交 offset
+        let commit_result = consumer.commit(&tpl, CommitMode::Sync);
+
+        // 无论 assign 是否成功，都尝试提交
+        commit_result
+            .map_err(|e| {
+                let msg = format!("Failed to commit offset: {}", e);
+                tracing::warn!("Commit error: {}", msg);
+
+                // UnknownMemberId 通常表示消费者组正在 rebalance 或有活跃消费者
+                // 在有活跃消费者的情况下，这是预期行为
+                if msg.contains("UnknownMemberId") || msg.contains("Unknown") {
+                    AppError::BadRequest(
+                        "无法重置 offset：消费者组当前有活跃的消费者连接。请先停止所有消费者，等待消费者组稳定后再试。".to_string()
+                    )
+                } else {
+                    AppError::Internal(msg)
+                }
+            })?;
 
         Ok(offset)
     }

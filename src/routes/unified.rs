@@ -4651,14 +4651,20 @@ async fn handle_consumer_group_reset_offset(state: AppState, body: Value) -> Res
     let timestamp = get_optional_i64_param(&body, "timestamp");
     let offset = get_optional_i64_param(&body, "offset");
 
+    tracing::info!("Reset offset request: cluster={}, group={}, topic={}, partition={}, reset_to={}",
+                   cluster_id, group_name, topic, partition, reset_to);
+
     // 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
+    tracing::info!("Got config for cluster: {}", cluster_id);
 
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+    tracing::info!("Created ConsumerGroupManager");
 
     // 在阻塞线程中执行 Kafka 操作
     let new_offset = tokio::task::spawn_blocking(move || -> Result<i64> {
-        match reset_to.as_str() {
+        tracing::info!("Spawn blocking task for reset offset");
+        let result = match reset_to.as_str() {
             "earliest" => cg_manager.reset_consumer_group_offset_to_earliest(&group_name, &topic, partition),
             "latest" => cg_manager.reset_consumer_group_offset_to_latest(&group_name, &topic, partition),
             "offset" => {
@@ -4670,10 +4676,17 @@ async fn handle_consumer_group_reset_offset(state: AppState, body: Value) -> Res
                 cg_manager.reset_consumer_group_offset_to_timestamp(&group_name, &topic, partition, ts)
             }
             _ => Err(AppError::BadRequest(format!("Invalid reset_to value: {}. Must be 'earliest', 'latest', 'offset', or 'timestamp'", reset_to))),
-        }
+        };
+        tracing::info!("Spawn blocking task completed: {:?}", result.as_ref().map(|o| o.to_string()).unwrap_or_else(|e| format!("Error: {}", e)));
+        result
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
+    .map_err(|e| {
+        tracing::error!("Task join error: {}", e);
+        AppError::Internal(format!("Task failed: {}", e))
+    })??;
+
+    tracing::info!("Reset offset successful: new_offset={}", new_offset);
 
     Ok(serde_json::json!({
         "success": true,
