@@ -85,6 +85,14 @@ const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();
 const toastRef = ref<InstanceType<typeof ToastAndConfirm>>();
 const clusterTreeNavigatorRef = ref<InstanceType<typeof import('@/components/ClusterTreeNavigator.vue').default>>();
 
+// Provide showToast globally for layout children (including router-view components)
+provide('showToast', (type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => {
+  toastRef.value?.showToast(type, message, duration);
+});
+provide('showConfirm', (message: string) => {
+  return toastRef.value?.showConfirm(message) || Promise.resolve(false);
+});
+
 // Sidebar mode: 'tree' | 'flat'
 const sidebarMode = ref<'tree' | 'flat'>('flat');
 

@@ -1,14 +1,14 @@
 <template>
-  <div class="p-3 relative overflow-y-auto h-full">
+  <div class="p-3 relative">
     <!-- Animated background particles -->
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute inset-0 pointer-events-none">
       <div class="particle particle-1"></div>
       <div class="particle particle-2"></div>
     </div>
 
     <!-- Page Header -->
     <div class="mb-4 relative">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 class="text-xl font-bold text-gradient flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 animate-float">
@@ -18,7 +18,7 @@
           </h1>
           <p class="text-base-content/60 mt-1 text-sm">{{ t.clusters.description }}</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-shrink-0">
           <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal">
             {{ t.clusters.addGroup }}
           </button>
