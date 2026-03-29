@@ -648,6 +648,12 @@ onMounted(() => {
   if (clusterStore.groups.length === 0) {
     clusterStore.fetchGroups();
   }
+  // Load data based on current view
+  if (currentView.value === 'consumer-groups') {
+    loadAllConsumerGroups();
+  } else {
+    loadAllTopics();
+  }
   document.addEventListener('click', handleOutsideClick);
   window.addEventListener('resize', updateMobileState);
   document.addEventListener('keydown', handleKeydown);
@@ -770,6 +776,13 @@ function deselectAllInCurrentView() {
 function getAllSelectedClusterNames(): string[] {
   // Empty selection = all clusters
   if (selectedClusters.value.size === 0) {
+    // If activeGroupId is set, return clusters for that group
+    if (activeGroupId.value !== null && activeGroupId.value !== 0) {
+      const groupClusters = getClustersByGroup(activeGroupId.value);
+      if (groupClusters.length > 0) {
+        return groupClusters.map(c => c.name);
+      }
+    }
     return clusterStore.clusters.map(c => c.name);
   }
   return [...selectedClusters.value];
@@ -1120,16 +1133,20 @@ async function loadAllConsumerGroups() {
   offsetGroups.value = 0;
   try {
     const selectedClustersList = getAllSelectedClusterNames();
+    console.log('[loadAllConsumerGroups] activeGroupId:', activeGroupId.value);
+    console.log('[loadAllConsumerGroups] selectedClustersList:', selectedClustersList);
     const searchQueryValue = searchQuery.value.trim();
 
     // Use multi-cluster API with pagination
     // Pass cluster_ids only if there are selected clusters, otherwise let backend use all clusters
     const clusterIdsParam = selectedClustersList.length > 0 ? selectedClustersList : undefined;
+    console.log('[loadAllConsumerGroups] clusterIdsParam:', clusterIdsParam);
     const result = await apiClient.getConsumerGroupsList(
       clusterIdsParam,
       offsetGroups.value,
       limitGroups.value
     );
+    console.log('[loadAllConsumerGroups] API result:', result);
 
     if (isUnmounted.value) return;
 
@@ -1151,6 +1168,7 @@ async function loadAllConsumerGroups() {
     } else {
       allConsumerGroups.value = groups;
     }
+    console.log('[loadAllConsumerGroups] allConsumerGroups:', allConsumerGroups.value.length);
   } catch (e) {
     if (!isUnmounted.value) {
       console.error('Failed to load consumer groups:', e);
@@ -1351,6 +1369,13 @@ function handleScroll(event: Event) {
 watch([() => clusterStore.clusters.length, selectedClusters], () => {
   loadAllTopics();
 }, { immediate: true });
+
+// Watch for activeGroupId changes in consumer-groups view
+watch(activeGroupId, () => {
+  if (currentView.value === 'consumer-groups') {
+    loadAllConsumerGroups();
+  }
+});
 
 // Watch for route changes to handle cluster and topic query params
 watch(
