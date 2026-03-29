@@ -16,6 +16,8 @@ mod tests;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::collections::HashSet;
+use std::sync::Mutex;
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -37,6 +39,17 @@ pub struct AppState {
     pub pools: ClusterPools,
     /// 元数据缓存
     pub cache: MetadataCache,
+    /// 刷新状态跟踪（用于防止重复刷新）
+    pub refresh_state: Arc<Mutex<RefreshState>>,
+}
+
+/// 刷新状态跟踪结构
+#[derive(Debug, Default)]
+pub struct RefreshState {
+    /// 正在刷新 topic 的集群
+    pub refreshing_topics: HashSet<String>,
+    /// 正在刷新 consumer group 的集群
+    pub refreshing_consumer_groups: HashSet<String>,
 }
 
 impl AppState {
@@ -97,6 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = MetadataCache::new();
     tracing::info!("Metadata cache initialized");
 
+    // 初始化刷新状态跟踪
+    let refresh_state = Arc::new(Mutex::new(RefreshState::default()));
+    tracing::info!("Refresh state tracking initialized");
+
     // 应用状态
     let state = AppState {
         db: db.clone(),
@@ -104,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: config.clone(),
         pools: pools.clone(),
         cache: cache.clone(),
+        refresh_state,
     };
 
     // 构建路由

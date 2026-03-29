@@ -14,6 +14,8 @@ pub mod routes;
 pub mod cache;
 
 use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::Mutex;
 use arc_swap::ArcSwap;
 
 pub use config::Config;
@@ -30,6 +32,17 @@ pub struct AppState {
     pub config: Config,
     pub pools: ClusterPools,
     pub cache: MetadataCache,
+    /// 刷新状态跟踪（用于防止重复刷新）
+    pub refresh_state: Arc<Mutex<RefreshState>>,
+}
+
+/// 刷新状态跟踪结构
+#[derive(Debug, Default)]
+pub struct RefreshState {
+    /// 正在刷新 topic 的集群
+    pub refreshing_topics: HashSet<String>,
+    /// 正在刷新 consumer group 的集群
+    pub refreshing_consumer_groups: HashSet<String>,
 }
 
 impl AppState {

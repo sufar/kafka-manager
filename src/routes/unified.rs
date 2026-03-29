@@ -21,6 +21,7 @@ use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
 use crate::kafka::throughput::KafkaThroughputCalculator;
 use crate::AppState;
+use crate::RefreshState;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -32,7 +33,7 @@ use axum::response::sse::Event;
 use tokio_stream::wrappers::ReceiverStream;
 use serde_json::Value;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use std::cmp::Reverse;
 
@@ -41,6 +42,24 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", post(handle_unified_request))
         .route("/stream", post(handle_stream_request))
+}
+
+/// RefreshGuard - RAII guard to automatically clear refresh state when refresh completes
+struct RefreshGuard {
+    cluster_id: String,
+    refresh_state: Arc<Mutex<RefreshState>>,
+    is_consumer_group: bool,
+}
+
+impl Drop for RefreshGuard {
+    fn drop(&mut self) {
+        let mut state = self.refresh_state.lock().unwrap();
+        if self.is_consumer_group {
+            state.refreshing_consumer_groups.remove(&self.cluster_id);
+        } else {
+            state.refreshing_topics.remove(&self.cluster_id);
+        }
+    }
 }
 
 // Helper functions for parameter extraction
@@ -1565,6 +1584,17 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
+    // 检查是否正在刷新
+    if let Some(ref cluster) = cluster_id {
+        let refresh_state = state.refresh_state.lock().unwrap();
+        if refresh_state.refreshing_topics.contains(cluster) {
+            return Err(AppError::BadRequest(format!(
+                "Cluster '{}' is already being refreshed, please wait",
+                cluster
+            )));
+        }
+    }
+
     // 立即返回成功，后台异步同步
     // 这样不会阻塞后续的 topic.list 请求
     tokio::spawn(async move {
@@ -1588,6 +1618,19 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
 async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     use crate::db::cluster::ClusterStore;
     use crate::db::topic::TopicStore;
+
+    // 标记为正在刷新
+    {
+        let mut refresh_state = state.refresh_state.lock().unwrap();
+        refresh_state.refreshing_topics.insert(cluster_id.clone());
+    }
+
+    // 确保退出时清除标记
+    let _guard = RefreshGuard {
+        cluster_id: cluster_id.clone(),
+        refresh_state: state.refresh_state.clone(),
+        is_consumer_group: false,
+    };
 
     // 首先尝试从内存中获取 admin 客户端
     let clients = state.get_clients();
@@ -4388,10 +4431,34 @@ use crate::kafka::consumer_group::KafkaConsumerGroupManager;
 async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_cluster_id_param(&body)?;
 
+    // 检查是否正在刷新
+    {
+        let refresh_state = state.refresh_state.lock().unwrap();
+        if refresh_state.refreshing_consumer_groups.contains(&cluster_id) {
+            return Err(AppError::BadRequest(format!(
+                "Cluster '{}' consumer groups are already being refreshed, please wait",
+                cluster_id
+            )));
+        }
+    }
+
     // 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
 
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 标记为正在刷新
+    {
+        let mut refresh_state = state.refresh_state.lock().unwrap();
+        refresh_state.refreshing_consumer_groups.insert(cluster_id.clone());
+    }
+
+    // 确保退出时清除标记
+    let _guard = RefreshGuard {
+        cluster_id: cluster_id.clone(),
+        refresh_state: state.refresh_state.clone(),
+        is_consumer_group: true,
+    };
 
     // 先获取数据库中已保存的 Consumer Groups 及 topics
     let existing_groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
