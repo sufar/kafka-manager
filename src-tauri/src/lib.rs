@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, comp
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
     Config, DbPool, KafkaClients, ClusterPools,
-    MetadataCache,
+    MetadataCache, RefreshState,
     AppState, create_router,
 };
 use tauri::Manager;
@@ -195,6 +195,9 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     // 创建其他组件
     let cache = MetadataCache::new();
 
+    // 初始化刷新状态跟踪
+    let refresh_state = Arc::new(Mutex::new(RefreshState::default()));
+
     // 构建应用状态
     let state = AppState {
         db: pool,
@@ -202,6 +205,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         config: config.clone(),
         pools: kafka_pools,
         cache,
+        refresh_state,
     };
 
     // 创建路由

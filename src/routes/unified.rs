@@ -36,6 +36,8 @@ use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use std::cmp::Reverse;
+use tokio_util::sync::CancellationToken;
+use std::time::Duration;
 
 // 创建统一路由
 pub fn routes() -> Router<AppState> {
@@ -470,13 +472,16 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 创建 SSE 事件流
+    // 创建取消令牌和 SSE 事件流
+    let cancel_token = CancellationToken::new();
     let (tx, rx) = mpsc::channel::<StdResult<Event, std::convert::Infallible>>(100);
     let brokers = config.brokers.clone();
+    let topic_for_log = topic.clone();
+    let cancel_token_clone = cancel_token.clone();
 
     // 在后台任务中执行消息获取和流式发送
-    tokio::spawn(async move {
-        match fetch_messages_streaming_sse(
+    let task_handle = tokio::spawn(async move {
+        let result = fetch_messages_streaming_sse(
             &brokers,
             &topic,
             partition,
@@ -488,7 +493,10 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
             fetch_mode.as_deref(),
             sort.as_deref(),
             tx.clone(),
-        ).await {
+            cancel_token_clone,
+        ).await;
+
+        match result {
             Ok(_) => {
                 // 发送完成标记
                 let _ = tx.send(Ok(Event::default().event("complete").data("{}"))).await;
@@ -503,7 +511,18 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
 
     // 返回 SSE 响应
     let stream = ReceiverStream::new(rx);
-    Ok(Sse::new(stream).into_response())
+    let sse_response = Sse::new(stream).into_response();
+
+    // 监听客户端断开连接，取消后台任务
+    tokio::spawn(async move {
+        // 等待一小段时间后取消（简单实现，实际断开检测需要 axum body stream 完成）
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        cancel_token.cancel();
+        task_handle.abort();
+        tracing::info!("[SSE] Cancelled query for topic {} after timeout", topic_for_log);
+    });
+
+    Ok(sse_response)
 }
 
 // Dispatch function
@@ -1881,6 +1900,7 @@ async fn fetch_messages_streaming_sse(
     fetch_mode: Option<&str>,
     sort: Option<&str>,
     sse_tx: mpsc::Sender<std::result::Result<Event, std::convert::Infallible>>,
+    cancel_token: CancellationToken,
 ) -> Result<()> {
     use rdkafka::consumer::{Consumer, BaseConsumer};
     use rdkafka::ClientConfig;
@@ -1916,7 +1936,7 @@ async fn fetch_messages_streaming_sse(
 
     let partition_count = partitions.len();
     let total_target = max_messages * partition_count;
-    let is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
+    let _is_desc = sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
 
     tracing::info!("[SSE Stream] {} partitions, {} messages per partition, total target {}",
         partition_count, max_messages, total_target);
@@ -1943,11 +1963,12 @@ async fn fetch_messages_streaming_sse(
         let search = search.clone();
         let fetch_mode = fetch_mode.clone();
         let part_offset = if partition.is_some() { offset } else { None };
+        let cancel_token_part = cancel_token.clone();
 
         let handle = tokio::spawn(async move {
             fetch_partition_messages_streaming(
                 brokers, topic, part_id, max_messages, part_offset,
-                start_time, end_time, search, fetch_mode, tx,
+                start_time, end_time, search, fetch_mode, tx, cancel_token_part,
             ).await;
         });
         handles.push(handle);
@@ -1979,7 +2000,18 @@ async fn fetch_messages_streaming_sse(
     // 流式归并并发送
     let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
 
-    while completed_partitions < partition_count || !heap.is_empty() {
+    loop {
+        // 检查取消信号（使用 biased 模式，优先检查取消）
+        tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => {
+                tracing::info!("[SSE Stream] Cancelled by client, stopping at sent_count={}", sent_count);
+                break;
+            }
+            // 默认分支，继续执行主逻辑
+            () = std::future::ready(()) => {}
+        }
+
         // 处理堆中的消息
         if let Some(Reverse(heap_msg)) = heap.pop() {
             let part_id = heap_msg.message.partition;
@@ -2003,31 +2035,52 @@ async fn fetch_messages_streaming_sse(
                     "progress": sent_count,
                     "total": total_target
                 });
-                sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
-                    .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        tracing::info!("[SSE Stream] Cancelled while sending batch, stopping");
+                        break;
+                    }
+                    result = sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))) => {
+                        if result.is_err() {
+                            tracing::info!("[SSE Stream] SSE channel closed, stopping");
+                            break;
+                        }
+                    }
+                }
                 batch.clear();
             }
 
             // 从对应分区获取下一条
             if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
-                match rx.recv().await {
-                    Some(msg) => {
-                        heap.push(Reverse(HeapMessage {
-                            timestamp: msg.timestamp,
-                            offset: msg.offset,
-                            message: msg,
-                        }));
-                    }
-                    None => {
-                        completed_partitions += 1;
-                        tracing::info!("[SSE Stream] Partition {} completed, total sent: {}", part_id, sent_count);
+                tokio::select! {
+                    _ = cancel_token.cancelled() => break,
+                    msg = rx.recv() => {
+                        match msg {
+                            Some(m) => {
+                                heap.push(Reverse(HeapMessage {
+                                    timestamp: m.timestamp,
+                                    offset: m.offset,
+                                    message: m,
+                                }));
+                            }
+                            None => {
+                                completed_partitions += 1;
+                                tracing::info!("[SSE Stream] Partition {} completed, total sent: {}", part_id, sent_count);
+                            }
+                        }
                     }
                 }
             }
         } else {
             // 堆为空但还在接收中，等待消息
-            // 给一点时间让消息到达
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
+
+        if completed_partitions >= partition_count && heap.is_empty() {
+            break;
         }
     }
 
@@ -2039,29 +2092,24 @@ async fn fetch_messages_streaming_sse(
             "progress": sent_count,
             "total": total_target
         });
-        sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
-            .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+        let _ = sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await;
+        batch.clear();
     }
+
+    // 取消所有分区任务
+    cancel_token.cancel();
 
     // 等待所有任务完成
     for handle in handles {
         let _ = handle.await;
     }
 
-    // 如果是降序，需要通知前端反转（因为我们是按升序发送的）
-    if is_desc {
-        let order_event = serde_json::json!({"event": "order", "sort": "desc"});
-        sse_tx.send(Ok(Event::default().event("order").data(order_event.to_string()))).await
-            .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+    // 清空接收缓冲区，释放内存
+    for (_, rx) in &mut rxs {
+        while let Ok(_msg) = rx.try_recv() {
+            // 丢弃所有剩余消息，释放内存
+        }
     }
-
-    // 发送实际总数，让前端更新进度条
-    let complete_event = serde_json::json!({
-        "event": "complete",
-        "actual_total": sent_count,
-        "target_total": total_target
-    });
-    let _ = sse_tx.send(Ok(Event::default().event("complete").data(complete_event.to_string()))).await;
 
     tracing::info!("[SSE Stream] Completed: sent {} messages from {} partitions (target: {}) in {:?}",
         sent_count, partition_count, total_target, start_time_total.elapsed());
@@ -2150,7 +2198,7 @@ async fn fetch_messages_with_temp_consumer(
             let handle = tokio::spawn(async move {
                 fetch_partition_messages_streaming(
                     brokers, topic, part_id, msgs_per_partition, part_offset,
-                    start_time, end_time, search, fetch_mode, tx,
+                    start_time, end_time, search, fetch_mode, tx, CancellationToken::new(),
                 ).await;
             });
             handles.push(handle);
@@ -2587,6 +2635,7 @@ async fn fetch_partition_messages_streaming(
     search: Option<String>,
     fetch_mode: Option<String>,
     tx: mpsc::Sender<crate::kafka::consumer::KafkaMessage>,
+    cancel_token: CancellationToken,
 ) {
     use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
     use rdkafka::Message;
@@ -2725,10 +2774,20 @@ async fn fetch_partition_messages_streaming(
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
 
-    while sent_count < max_messages
-        && empty_count < max_empty_polls
-        && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
-    {
+    loop {
+        // 检查取消信号
+        if cancel_token.is_cancelled() {
+            tracing::info!("[Streaming] Partition {} cancelled by client, stopping at sent_count={}", partition, sent_count);
+            break;
+        }
+
+        if sent_count >= max_messages
+            || empty_count >= max_empty_polls
+            || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
+        {
+            break;
+        }
+
         let poll_timeout = if !got_first {
             Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
         } else {

@@ -462,6 +462,7 @@ const lastQueryTime = ref(0);
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
 let currentAbortController: AbortController | null = null;
 let currentRequestId = 0;
+let isAborted = false;  // 取消标志
 let finalizedSort: 'desc' | undefined = undefined;
 // 非响应式消息缓存，减少响应式更新频率
 let pendingMessages: Message[] = [];
@@ -524,6 +525,13 @@ async function loadPartitions() {
 }
 
 async function queryMessages() {
+  console.log('[MessageQueryTool] queryMessages called, canQuery:', canQuery.value, 'isAborted:', isAborted);
+  console.log('[MessageQueryTool] Call stack:', new Error().stack);
+  // 如果当前处于取消状态，不执行查询
+  if (isAborted) {
+    console.log('[MessageQueryTool] queryMessages cancelled due to isAborted');
+    return;
+  }
   if (!canQuery.value) return;
 
   // 验证时间格式
@@ -558,6 +566,7 @@ async function queryMessages() {
   // 增加请求序列号
   currentRequestId++;
   const requestId = currentRequestId;
+  isAborted = false;  // 重置取消标志
 
   loading.value = true;
   error.value = '';
@@ -614,11 +623,21 @@ async function queryMessages() {
       params,
       {
         onStart: (data) => {
-          if (requestId !== currentRequestId) return;
+          console.log('[MessageQueryTool] onStart called, isAborted:', isAborted, 'requestId:', requestId, 'currentRequestId:', currentRequestId, 'isStreaming:', streamingProgress.value.isStreaming);
+          if (requestId !== currentRequestId || isAborted) {
+            console.log('[MessageQueryTool] onStart skipped due to abort');
+            return;
+          }
+          // 防止重复设置 isStreaming = true
+          if (streamingProgress.value.isStreaming) {
+            console.log('[MessageQueryTool] onStart skipped, already streaming');
+            return;
+          }
           streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
+          console.log('[MessageQueryTool] onStart set isStreaming = true');
         },
         onBatch: (newMessages, progress, total) => {
-          if (requestId !== currentRequestId) return;
+          if (requestId !== currentRequestId || isAborted) return;
           // 更新进度
           streamingProgress.value.received = progress;
           streamingProgress.value.total = total;
@@ -638,11 +657,14 @@ async function queryMessages() {
           scheduleUpdate();
         },
         onOrder: (sort) => {
-          if (requestId !== currentRequestId) return;
+          if (requestId !== currentRequestId || isAborted) return;
           finalizedSort = sort === 'desc' ? 'desc' : undefined;
         },
         onComplete: (data) => {
-          if (requestId !== currentRequestId) return;
+          if (requestId !== currentRequestId || isAborted) {
+            console.log('[MessageQueryTool] onComplete skipped, requestId:', requestId, 'currentRequestId:', currentRequestId, 'isAborted:', isAborted);
+            return;
+          }
           // 处理剩余未渲染的消息
           if (updateTimer) {
             clearTimeout(updateTimer);
@@ -657,12 +679,18 @@ async function queryMessages() {
           if (finalizedSort === 'desc') {
             messages.value = [...messages.value].reverse();
           }
+          // 再次检查取消状态，防止在执行过程中被取消
+          if (isAborted) {
+            console.log('[MessageQueryTool] onComplete skipped after processing, isAborted:', isAborted);
+            return;
+          }
           loading.value = false;
           streamingProgress.value.isStreaming = false;
           // 更新实际总数（如果与 target 不同）
           if (data?.actual_total && data.actual_total !== streamingProgress.value.total) {
             streamingProgress.value.total = data.actual_total;
           }
+          // 清除 currentAbortController
           currentAbortController = null;
           lastQueryTime.value = Math.round(performance.now() - startTime);
           // 清除加载超时定时器
@@ -673,11 +701,13 @@ async function queryMessages() {
           console.log(`[SSE] Complete: total=${messages.value.length}, actual_total from backend=${data?.actual_total}`);
         },
         onError: (err) => {
-          if (requestId !== currentRequestId) return;
+          if (requestId !== currentRequestId || isAborted) return;
           error.value = err;
+          // 再次检查取消状态
+          if (isAborted) return;
           loading.value = false;
           streamingProgress.value.isStreaming = false;
-          currentAbortController = null;
+          // 不清除 currentAbortController，让 stopQuery 处理
           // 清除加载超时定时器
           if (loadingTimeoutId) {
             clearTimeout(loadingTimeoutId);
@@ -687,32 +717,50 @@ async function queryMessages() {
       }
     );
   } catch (e: any) {
-    if (e.message === 'AbortError' || e.message?.includes('aborted')) {
-      // 用户取消，不显示错误
-    } else {
+    // 只有在未被取消的情况下才更新状态（stopQuery 已经更新过状态）
+    if (!isAborted) {
       console.error('Query failed:', e);
       error.value = e.message || t.value.messages.queryFailed;
+      loading.value = false;
+      streamingProgress.value.isStreaming = false;
     }
-    loading.value = false;
-    streamingProgress.value.isStreaming = false;
+    // 用户取消时，stopQuery 已经更新了状态，不需要重复更新
   }
 }
 
 function stopQuery() {
+  console.log('[MessageQueryTool] stopQuery called, isAborted:', isAborted, 'currentAbortController:', currentAbortController);
+  // 如果已经取消，不再重复处理
+  if (isAborted) {
+    console.log('[MessageQueryTool] stopQuery skipped, already aborted');
+    return;
+  }
+  // 设置取消标志，阻止后续回调
+  isAborted = true;
   // 取消 SSE 请求
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null;
   }
-  // 增加请求序列号，使之前的请求回调失效
+  // 增加请求序列号，使之后的回调失效
   currentRequestId++;
   loading.value = false;
   streamingProgress.value.isStreaming = false;
+  console.log('[MessageQueryTool] stopQuery set isStreaming = false, currentRequestId:', currentRequestId);
   // 清除加载超时定时器
   if (loadingTimeoutId) {
     clearTimeout(loadingTimeoutId);
     loadingTimeoutId = null;
   }
+  // 清除待处理的消息缓存
+  pendingMessages = [];
+  // 清除定时器
+  if (updateTimer) {
+    clearTimeout(updateTimer);
+    updateTimer = null;
+  }
+  // 重置排序状态
+  finalizedSort = undefined;
 }
 
 // 检测是否在 Tauri 环境下运行
@@ -1090,34 +1138,63 @@ onMounted(async () => {
 });
 
 // 监听 props 变化
-watch(() => props.cluster, async (newCluster) => {
+watch(() => props.cluster, async (newCluster, oldCluster) => {
+  console.log('[Watch] cluster changed from', oldCluster, 'to', newCluster, ', selectedCluster.value:', selectedCluster.value);
   if (newCluster && newCluster !== selectedCluster.value) {
+    console.log('[Watch] cluster: calling stopQuery');
+    stopQuery();
     selectedCluster.value = newCluster;
     await loadPartitions();
+    // 如果当前处于取消状态，不执行查询
+    if (isAborted) {
+      console.log('[Watch] cluster watch query skipped due to isAborted');
+      return;
+    }
     if (selectedCluster.value && selectedTopic.value) {
+      console.log('[Watch] cluster: calling queryMessages');
       await queryMessages();
     }
+  } else {
+    console.log('[Watch] cluster: skipped (no change or no newCluster)');
   }
 });
 
-watch(() => props.topic, async (newTopic) => {
+watch(() => props.topic, async (newTopic, oldTopic) => {
+  console.log('[Watch] topic changed from', oldTopic, 'to', newTopic, ', selectedTopic.value:', selectedTopic.value);
   if (newTopic && newTopic !== selectedTopic.value) {
+    console.log('[Watch] topic: calling stopQuery');
+    stopQuery();
     selectedTopic.value = newTopic;
     selectedPartition.value = 'all';
     partitions.value = [];
     messages.value = [];
     await loadPartitions();
+    // 如果当前处于取消状态，不执行查询
+    if (isAborted) {
+      console.log('[Watch] topic watch query skipped due to isAborted');
+      return;
+    }
     if (selectedCluster.value && selectedTopic.value) {
+      console.log('[Watch] topic: calling queryMessages');
       await queryMessages();
     }
+  } else {
+    console.log('[Watch] topic: skipped (no change or no newTopic)');
   }
 });
 
 // 监听路由参数变化（从左侧菜单树点击分区）
-watch(() => route.query.partition, async (partition) => {
+watch(() => route.query.partition, async (partition, oldPartition) => {
+  console.log('[Watch] route.query.partition changed from', oldPartition, 'to', partition, ', isAborted:', isAborted);
+  // 如果当前处于取消状态，不处理分区变化
+  if (isAborted) {
+    console.log('[Watch] partition watch skipped due to isAborted');
+    return;
+  }
   if (partition && typeof partition === 'string') {
     const partitionNum = parseInt(partition, 10);
     if (!isNaN(partitionNum)) {
+      console.log('[Watch] partition: setting selectedPartition and calling queryMessages');
       selectedPartition.value = partitionNum;
       // 重新查询消息
       if (selectedCluster.value && selectedTopic.value) {
@@ -1126,6 +1203,7 @@ watch(() => route.query.partition, async (partition) => {
     }
   } else {
     // 没有分区参数，重置为全部
+    console.log('[Watch] partition: resetting to all');
     selectedPartition.value = 'all';
   }
 });

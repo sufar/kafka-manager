@@ -668,8 +668,16 @@ class ApiClient {
       let buffer = '';
       let batchCount = 0;
       let totalMessagesReceived = 0;
+      let aborted = false;
 
       while (true) {
+        // 检查是否被取消
+        if (signal.aborted) {
+          console.log('[SSE Client] Aborted by user, stopping read loop');
+          aborted = true;
+          break;
+        }
+
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -682,6 +690,13 @@ class ApiClient {
         for (const part of parts) {
           const trimmed = part.trim();
           if (!trimmed) continue;
+
+          // 再次检查是否被取消
+          if (signal.aborted) {
+            console.log('[SSE Client] Aborted during parsing, stopping');
+            aborted = true;
+            break;
+          }
 
           // 解析 event 和 data 行
           const lines = trimmed.split('\n');
@@ -700,9 +715,16 @@ class ApiClient {
 
           try {
             const parsed = JSON.parse(data);
+            // 检查取消状态
+            if (signal.aborted) {
+              console.log('[SSE Client] Aborted, skipping callback');
+              continue;
+            }
             switch (event) {
               case 'start':
                 console.log(`[SSE Client] Start: partitions=${parsed.partitions}, total_target=${parsed.total_target}`);
+                // 再次检查取消状态
+                if (signal.aborted) break;
                 callbacks?.onStart?.(parsed);
                 break;
               case 'batch':
@@ -710,28 +732,40 @@ class ApiClient {
                 const msgCount = parsed.messages?.length || 0;
                 totalMessagesReceived += msgCount;
                 console.log(`[SSE Client] Batch #${batchCount}: ${msgCount} messages, total received: ${totalMessagesReceived}, progress=${parsed.progress}/${parsed.total}`);
+                // 再次检查取消状态
+                if (signal.aborted) break;
                 callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
                 break;
               case 'order':
                 console.log(`[SSE Client] Order: sort=${parsed.sort}`);
+                // 再次检查取消状态
+                if (signal.aborted) break;
                 callbacks?.onOrder?.(parsed.sort);
                 break;
               case 'complete':
                 console.log(`[SSE Client] Complete event received: actual_total=${parsed.actual_total}, target_total=${parsed.target_total}`);
-                callbacks?.onComplete?.(parsed);
+                // 检查取消状态
+                if (!signal.aborted) {
+                  callbacks?.onComplete?.(parsed);
+                }
                 break;
               case 'error':
-                callbacks?.onError?.(parsed.error);
+                // 检查取消状态
+                if (!signal.aborted) {
+                  callbacks?.onError?.(parsed.error);
+                }
                 break;
             }
           } catch (e) {
             console.error('[SSE Client] Failed to parse event:', trimmed, e);
           }
         }
+
+        if (aborted) break;
       }
 
       // 处理流结束后剩余的 buffer 数据
-      if (buffer.trim()) {
+      if (buffer.trim() && !aborted && !signal.aborted) {
         const trimmed = buffer.trim();
         const lines = trimmed.split('\n');
         let event = '';
@@ -748,23 +782,26 @@ class ApiClient {
         if (event && data) {
           try {
             const parsed = JSON.parse(data);
-            switch (event) {
-              case 'start':
-                callbacks?.onStart?.(parsed);
-                break;
-              case 'batch': {
-                const msgCount = parsed.messages?.length || 0;
-                totalMessagesReceived += msgCount;
-                console.log(`[SSE Client] Final buffer batch: ${msgCount} messages, total: ${totalMessagesReceived}`);
-                callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
-                break;
+            // 再次检查是否被取消
+            if (!signal.aborted) {
+              switch (event) {
+                case 'start':
+                  callbacks?.onStart?.(parsed);
+                  break;
+                case 'batch': {
+                  const msgCount = parsed.messages?.length || 0;
+                  totalMessagesReceived += msgCount;
+                  console.log(`[SSE Client] Final buffer batch: ${msgCount} messages, total: ${totalMessagesReceived}`);
+                  callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
+                  break;
+                }
+                case 'order':
+                  callbacks?.onOrder?.(parsed.sort);
+                  break;
+                case 'error':
+                  callbacks?.onError?.(parsed.error);
+                  break;
               }
-              case 'order':
-                callbacks?.onOrder?.(parsed.sort);
-                break;
-              case 'error':
-                callbacks?.onError?.(parsed.error);
-                break;
             }
           } catch (e) {
             console.error('[SSE Client] Failed to parse final buffer:', buffer, e);
@@ -774,7 +811,10 @@ class ApiClient {
 
       console.log(`[SSE Client] Stream complete. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
       // 传递 complete 事件数据（包括 actual_total）
-      callbacks?.onComplete?.({ actual_total: totalMessagesReceived });
+      // 如果是被取消的，不调用 onComplete
+      if (!aborted && !signal.aborted) {
+        callbacks?.onComplete?.({ actual_total: totalMessagesReceived });
+      }
     }).catch((error) => {
       if (error.name !== 'AbortError') {
         callbacks?.onError?.(error.message || 'Network error');
