@@ -526,12 +526,6 @@ async function loadPartitions() {
 
 async function queryMessages() {
   console.log('[MessageQueryTool] queryMessages called, canQuery:', canQuery.value, 'isAborted:', isAborted);
-  console.log('[MessageQueryTool] Call stack:', new Error().stack);
-  // 如果当前处于取消状态，不执行查询
-  if (isAborted) {
-    console.log('[MessageQueryTool] queryMessages cancelled due to isAborted');
-    return;
-  }
   if (!canQuery.value) return;
 
   // 验证时间格式
@@ -562,11 +556,12 @@ async function queryMessages() {
 
   // 取消上一次的请求
   stopQuery();
+  // 重置取消标志，允许新的查询
+  isAborted = false;
 
   // 增加请求序列号
   currentRequestId++;
   const requestId = currentRequestId;
-  isAborted = false;  // 重置取消标志
 
   loading.value = true;
   error.value = '';
@@ -730,13 +725,6 @@ async function queryMessages() {
 
 function stopQuery() {
   console.log('[MessageQueryTool] stopQuery called, isAborted:', isAborted, 'currentAbortController:', currentAbortController);
-  // 如果已经取消，不再重复处理
-  if (isAborted) {
-    console.log('[MessageQueryTool] stopQuery skipped, already aborted');
-    return;
-  }
-  // 设置取消标志，阻止后续回调
-  isAborted = true;
   // 取消 SSE 请求
   if (currentAbortController) {
     currentAbortController.abort();
@@ -761,6 +749,10 @@ function stopQuery() {
   }
   // 重置排序状态
   finalizedSort = undefined;
+  // 重置流式进度
+  streamingProgress.value = { received: 0, total: 0, isStreaming: false };
+  // 设置取消标志（放在最后，阻止后续回调）
+  isAborted = true;
 }
 
 // 检测是否在 Tauri 环境下运行
@@ -1139,62 +1131,50 @@ onMounted(async () => {
 
 // 监听 props 变化
 watch(() => props.cluster, async (newCluster, oldCluster) => {
-  console.log('[Watch] cluster changed from', oldCluster, 'to', newCluster, ', selectedCluster.value:', selectedCluster.value);
   if (newCluster && newCluster !== selectedCluster.value) {
-    console.log('[Watch] cluster: calling stopQuery');
+    // 如果当前处于取消状态，不执行查询
+    if (isAborted) {
+      console.log('[Watch] cluster: skipped due to isAborted');
+      return;
+    }
     stopQuery();
     selectedCluster.value = newCluster;
     await loadPartitions();
-    // 如果当前处于取消状态，不执行查询
-    if (isAborted) {
-      console.log('[Watch] cluster watch query skipped due to isAborted');
-      return;
-    }
     if (selectedCluster.value && selectedTopic.value) {
-      console.log('[Watch] cluster: calling queryMessages');
       await queryMessages();
     }
-  } else {
-    console.log('[Watch] cluster: skipped (no change or no newCluster)');
   }
 });
 
 watch(() => props.topic, async (newTopic, oldTopic) => {
-  console.log('[Watch] topic changed from', oldTopic, 'to', newTopic, ', selectedTopic.value:', selectedTopic.value);
   if (newTopic && newTopic !== selectedTopic.value) {
-    console.log('[Watch] topic: calling stopQuery');
+    // 如果当前处于取消状态，不执行查询
+    if (isAborted) {
+      console.log('[Watch] topic: skipped due to isAborted');
+      return;
+    }
     stopQuery();
     selectedTopic.value = newTopic;
     selectedPartition.value = 'all';
     partitions.value = [];
     messages.value = [];
     await loadPartitions();
-    // 如果当前处于取消状态，不执行查询
-    if (isAborted) {
-      console.log('[Watch] topic watch query skipped due to isAborted');
-      return;
-    }
     if (selectedCluster.value && selectedTopic.value) {
-      console.log('[Watch] topic: calling queryMessages');
       await queryMessages();
     }
-  } else {
-    console.log('[Watch] topic: skipped (no change or no newTopic)');
   }
 });
 
 // 监听路由参数变化（从左侧菜单树点击分区）
 watch(() => route.query.partition, async (partition, oldPartition) => {
-  console.log('[Watch] route.query.partition changed from', oldPartition, 'to', partition, ', isAborted:', isAborted);
   // 如果当前处于取消状态，不处理分区变化
   if (isAborted) {
-    console.log('[Watch] partition watch skipped due to isAborted');
+    console.log('[Watch] partition: skipped due to isAborted');
     return;
   }
   if (partition && typeof partition === 'string') {
     const partitionNum = parseInt(partition, 10);
     if (!isNaN(partitionNum)) {
-      console.log('[Watch] partition: setting selectedPartition and calling queryMessages');
       selectedPartition.value = partitionNum;
       // 重新查询消息
       if (selectedCluster.value && selectedTopic.value) {
@@ -1203,7 +1183,6 @@ watch(() => route.query.partition, async (partition, oldPartition) => {
     }
   } else {
     // 没有分区参数，重置为全部
-    console.log('[Watch] partition: resetting to all');
     selectedPartition.value = 'all';
   }
 });
