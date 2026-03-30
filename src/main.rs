@@ -117,15 +117,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 应用状态
     let state = AppState {
         db: db.clone(),
-        clients,
+        clients: clients.clone(),
         config: config.clone(),
         pools: pools.clone(),
         cache: cache.clone(),
-        refresh_state,
+        refresh_state: refresh_state.clone(),
+    };
+
+    // 启动后台 Lag 数据采集任务
+    let lag_collection_state = state.clone();
+    tokio::spawn(async move {
+        collect_lag_history_task(lag_collection_state).await;
+    });
+    tracing::info!("Consumer Group Lag collection task started (interval: 5s)");
+
+    // 应用状态（用于 HTTP 服务）
+    let http_state = AppState {
+        db: db.clone(),
+        clients: clients.clone(),
+        config: config.clone(),
+        pools: pools.clone(),
+        cache: cache.clone(),
+        refresh_state: refresh_state.clone(),
     };
 
     // 构建路由
-    let app = routes::create_router(state.clone())
+    let app = routes::create_router(http_state.clone())
         .layer(axum::middleware::from_fn(audit_middleware))
         .layer(TimeoutLayer::new(Duration::from_secs(300)))
         .layer(CompressionLayer::new()
@@ -169,4 +186,102 @@ async fn load_clusters_from_db(
     }
 
     Ok(clusters)
+}
+
+/// Consumer Group Lag 数据采集任务
+/// 每 5 秒采集一次所有 Consumer Group 的 lag 数据并存储到数据库
+async fn collect_lag_history_task(state: AppState) {
+    use crate::db::cluster::ClusterStore;
+    use crate::db::consumer_group::ConsumerGroupStore;
+    use crate::kafka::consumer_group::KafkaConsumerGroupManager;
+    use tokio::time::{interval, Duration};
+
+    let mut interval_timer = interval(Duration::from_secs(5));
+
+    loop {
+        interval_timer.tick().await;
+
+        // 获取所有集群
+        let clusters = match ClusterStore::list(state.db.inner()).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("[LagCollector] Failed to list clusters: {}", e);
+                continue;
+            }
+        };
+
+        for cluster in clusters {
+            // 获取该集群的所有 Consumer Groups
+            let groups = match ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster.name).await {
+                Ok(g) => g,
+                Err(e) => {
+                    tracing::warn!("[LagCollector] Failed to list consumer groups for cluster {}: {}", cluster.name, e);
+                    continue;
+                }
+            };
+
+            for group in groups {
+                // 构建 Kafka 配置
+                let kafka_config = crate::config::KafkaConfig {
+                    brokers: cluster.brokers.clone(),
+                    request_timeout_ms: cluster.request_timeout_ms as u32,
+                    operation_timeout_ms: cluster.operation_timeout_ms as u32,
+                };
+
+                // 创建 Consumer Group 管理器
+                let cg_manager = match KafkaConsumerGroupManager::new(&kafka_config) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!("[LagCollector] Failed to create consumer group manager for cluster {}: {}", cluster.name, e);
+                        continue;
+                    }
+                };
+
+                // 获取 lag 数据
+                let offsets = match cg_manager.get_consumer_group_offsets_auto(&group.group_name) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        tracing::warn!("[LagCollector] Failed to get consumer group offsets for cluster {}/group {}: {}",
+                            cluster.name, group.group_name, e);
+                        continue;
+                    }
+                };
+
+                if offsets.is_empty() {
+                    continue;
+                }
+
+                // 计算总 lag
+                let total_lag: i64 = offsets.iter().map(|o| o.lag).sum();
+                let timestamp = chrono::Utc::now().timestamp_millis();
+
+                // 保存每个分区的 lag
+                for offset in offsets {
+                    let _ = sqlx::query(
+                        r#"
+                        INSERT INTO consumer_group_lag_history
+                        (cluster_id, group_name, timestamp, total_lag, topic, partition, partition_lag)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        "#,
+                    )
+                    .bind(&cluster.name)
+                    .bind(&group.group_name)
+                    .bind(timestamp)
+                    .bind(total_lag)
+                    .bind(&offset.topic)
+                    .bind(offset.partition)
+                    .bind(offset.lag)
+                    .execute(state.db.inner())
+                    .await;
+                }
+            }
+        }
+
+        // 清理旧数据（保留 24 小时）
+        let cutoff = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        let _ = sqlx::query("DELETE FROM consumer_group_lag_history WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(state.db.inner())
+            .await;
+    }
 }

@@ -634,6 +634,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "consumer_group.saved" => handle_consumer_group_saved(state, body).await,
         "consumer_group.reset_offset" => handle_consumer_group_reset_offset(state, body).await,
         "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
+        "consumer_group.lag_history" => handle_consumer_group_lag_history(state, body).await,
 
         _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
     }
@@ -4845,4 +4846,103 @@ async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Va
     ConsumerGroupStore::delete_offsets(state.db.inner(), &cluster_id, &group_name).await?;
 
     Ok(serde_json::json!({ "success": true }))
+}
+
+/// 获取 Consumer Group 的 Lag 历史数据
+/// 支持按时间范围查询，返回按时间聚合的数据
+async fn handle_consumer_group_lag_history(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let group_name = get_string_param(&body, "group_name")?;
+
+    // 获取时间范围参数（可选）
+    let start_time = body.get("start_time").and_then(|v| v.as_i64());
+    let end_time = body.get("end_time").and_then(|v| v.as_i64());
+
+    // 构建查询
+    let mut query = r#"
+        SELECT
+            timestamp,
+            total_lag,
+            topic,
+            partition,
+            partition_lag
+        FROM consumer_group_lag_history
+        WHERE cluster_id = ? AND group_name = ?
+    "#.to_string();
+
+    if start_time.is_some() {
+        query.push_str(" AND timestamp >= ?");
+    }
+    if end_time.is_some() {
+        query.push_str(" AND timestamp <= ?");
+    }
+
+    query.push_str(" ORDER BY timestamp ASC");
+
+    // 执行查询
+    let rows: Vec<(i64, i64, String, i32, i64)> = sqlx::query_as(&query)
+        .bind(&cluster_id)
+        .bind(&group_name)
+        .bind(start_time.unwrap_or(0))
+        .bind(end_time.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()))
+        .fetch_all(state.db.inner())
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("no such table") {
+                AppError::BadRequest("Lag history table not found. Please run database migration.".to_string())
+            } else {
+                AppError::Internal(format!("Failed to query lag history: {}", e))
+            }
+        })?;
+
+    // 按时间聚合数据
+    let mut time_series: std::collections::HashMap<i64, serde_json::Value> = std::collections::HashMap::new();
+
+    for (timestamp, total_lag, topic, partition, partition_lag) in rows {
+        let entry = time_series.entry(timestamp).or_insert_with(|| {
+            serde_json::json!({
+                "timestamp": timestamp,
+                "total_lag": total_lag,
+                "partitions": []
+            })
+        });
+
+        // 更新 total_lag（使用最新的值）
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert("total_lag".to_string(), serde_json::json!(total_lag));
+
+            // 添加分区详情
+            if let Some(partitions) = obj.get_mut("partitions").and_then(|v| v.as_array_mut()) {
+                partitions.push(serde_json::json!({
+                    "topic": topic,
+                    "partition": partition,
+                    "lag": partition_lag
+                }));
+            }
+        }
+    }
+
+    // 转换为有序数组
+    let mut results: Vec<serde_json::Value> = time_series.into_values().collect();
+    results.sort_by(|a, b| {
+        let ts_a = a.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        let ts_b = b.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        ts_a.cmp(&ts_b)
+    });
+
+    // 如果数据点超过 100 个，进行降采样
+    if results.len() > 100 {
+        let step = (results.len() + 99) / 100;
+        let sampled: Vec<serde_json::Value> = results.into_iter().step_by(step).collect();
+        results = sampled;
+    }
+
+    Ok(serde_json::json!({
+        "cluster_id": cluster_id,
+        "group_name": group_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "data_points": results.len(),
+        "history": results
+    }))
 }

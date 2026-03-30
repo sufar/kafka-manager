@@ -38,6 +38,10 @@ export interface Translation {
     cannotBeGreaterThan: string;
     unknown: string;
     copy: string;
+    seconds: string;
+    minutes: string;
+    pause: string;
+    resume: string;
   };
   clusters: {
     title: string;
@@ -286,6 +290,13 @@ export interface Translation {
     timestampValue: string;
     noOffsets: string;
     selectFromNav: string;
+    // Lag 图表相关
+    lagTrend: string;
+    noLagData: string;
+    waitingForData: string;
+    totalLag: string;
+    lastUpdate: string;
+    noDataYet: string;
   };
   settings: {
     title: string;
@@ -457,6 +468,10 @@ export const translations: Record<Language, Translation> = {
       cannotBeGreaterThan: '不能大于',
       unknown: '未知',
       copy: '复制',
+      seconds: '秒',
+      minutes: '分钟',
+      pause: '暂停',
+      resume: '继续',
     },
     clusters: {
       title: '集群',
@@ -705,6 +720,13 @@ export const translations: Record<Language, Translation> = {
       timestampValue: '时间戳',
       noOffsets: '暂无偏移量数据',
       selectFromNav: '请从左侧导航栏选择一个消费者组查看详情',
+      // Lag 图表相关
+      lagTrend: 'Lag 趋势图',
+      noLagData: '暂无 Lag 数据',
+      waitingForData: '等待数据采集...',
+      totalLag: '总 Lag',
+      lastUpdate: '最后更新',
+      noDataYet: '暂无数据',
     },
     settings: {
       title: '设置',
@@ -874,6 +896,10 @@ export const translations: Record<Language, Translation> = {
       cannotBeGreaterThan: 'cannot be greater than',
       unknown: 'Unknown',
       copy: 'Copy',
+      seconds: 'sec',
+      minutes: 'min',
+      pause: 'Pause',
+      resume: 'Resume',
     },
     clusters: {
       title: 'Clusters',
@@ -1122,6 +1148,13 @@ export const translations: Record<Language, Translation> = {
       timestampValue: 'Timestamp',
       noOffsets: 'No offset data available',
       selectFromNav: 'Please select a consumer group from the left navigation to view details',
+      // Lag chart related
+      lagTrend: 'Lag Trend',
+      noLagData: 'No Lag Data',
+      waitingForData: 'Waiting for data...',
+      totalLag: 'Total Lag',
+      lastUpdate: 'Last Update',
+      noDataYet: 'No data yet',
     },
     settings: {
       title: 'Settings',

@@ -574,6 +574,38 @@ class ApiClient {
     return data.results || [];
   }
 
+  // ==================== Consumer Group Lag 监控 ====================
+  /**
+   * 获取 Consumer Group 的 Lag 历史数据
+   * @param clusterId 集群 ID
+   * @param groupName Consumer Group 名称
+   * @param startTime 开始时间（毫秒时间戳）
+   * @param endTime 结束时间（毫秒时间戳）
+   * @returns Lag 历史数据
+   */
+  async getConsumerGroupLagHistory(
+    clusterId: string,
+    groupName: string,
+    startTime?: number,
+    endTime?: number
+  ): Promise<import('@/types/api').LagHistoryDataPoint[]> {
+    const params: Record<string, any> = {
+      cluster_id: clusterId,
+      group_name: groupName,
+    };
+    if (startTime !== undefined) {
+      params.start_time = startTime;
+    }
+    if (endTime !== undefined) {
+      params.end_time = endTime;
+    }
+    const data = await this.request<{ history: import('@/types/api').LagHistoryDataPoint[] }>(
+      'consumer_group.lag_history',
+      params
+    );
+    return data.history || [];
+  }
+
   // ==================== 消息管理 ====================
   async getMessages(clusterId: string, topic: string, params?: {
     partition?: number;

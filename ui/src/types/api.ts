@@ -157,3 +157,37 @@ export interface SendMessageResponse {
   partition: number;
   offset: number;
 }
+
+// ==================== Consumer Group Lag 监控 ====================
+
+/** Lag 历史数据点（单个时间点） */
+export interface LagHistoryDataPoint {
+  timestamp: number;
+  total_lag: number;
+  partitions: Array<{
+    topic: string;
+    partition: number;
+    lag: number;
+  }>;
+}
+
+/** Lag 历史 API 响应 */
+export interface LagHistoryResponse {
+  cluster_id: string;
+  group_name: string;
+  start_time?: number;
+  end_time?: number;
+  data_points: number;
+  history: LagHistoryDataPoint[];
+}
+
+/** Consumer Group 偏移量和 lag 详情 */
+export interface ConsumerGroupOffsetDetail {
+  topic: string;
+  partition: number;
+  start_offset: number;
+  end_offset: number;
+  committed_offset: number;
+  lag: number;
+  last_commit_time?: number | null;
+}

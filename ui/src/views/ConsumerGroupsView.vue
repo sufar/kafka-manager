@@ -40,6 +40,13 @@
         </div>
       </div>
 
+      <!-- Lag Trend Chart -->
+      <ConsumerLagChart
+        v-if="currentGroup && clusterParam"
+        :cluster-id="clusterParam"
+        :group-name="currentGroup"
+      />
+
       <!-- Actions Menu - Teleported to body -->
       <Teleport to="body">
         <ul v-if="actionsMenuOpen" ref="actionsMenuDropdown" :style="[menuStyle, { zIndex: 9999 }]" class="menu p-2 shadow-2xl bg-base-100 rounded-box w-52">
@@ -185,6 +192,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
+import ConsumerLagChart from '@/components/ConsumerLagChart.vue';
 
 interface OffsetItem {
   topic: string;
