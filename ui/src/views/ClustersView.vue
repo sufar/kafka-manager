@@ -968,8 +968,13 @@ async function refreshClusterTopics(clusterName: string) {
     if (result.success) {
       showSuccess(t.value.clusters.refreshed);
     }
-  } catch (e) {
-    showError(`${t.value.clusters.refreshFailed}: ${(e as { message: string }).message}`);
+  } catch (e: any) {
+    // 检查是否是"正在刷新中"错误
+    if (e.message?.includes('already being refreshed')) {
+      showError('Topic refresh is already in progress, please wait');
+    } else {
+      showError(`${t.value.clusters.refreshFailed}: ${e.message}`);
+    }
   } finally {
     refreshingTopics.value.delete(clusterName);
   }

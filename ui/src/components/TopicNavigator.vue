@@ -1087,8 +1087,14 @@ async function refreshTopics() {
       if (isUnmounted.value) return;
       try {
         await apiClient.refreshTopics(clusterName);
-      } catch (e) {
+      } catch (e: any) {
         if (isUnmounted.value) return;
+        // 检查是否是"正在刷新中"错误
+        if (e.message?.includes('already being refreshed')) {
+          console.warn(`Topic refresh already in progress for cluster ${clusterName}`);
+          // 显示提示但不中断其他集群的刷新
+          continue;
+        }
         // Silent failure - wait 5 seconds then continue to next cluster
         console.warn(`Failed to refresh topics for cluster ${clusterName}, waiting 5s before continuing...`);
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -1231,7 +1237,14 @@ async function refreshConsumerGroups() {
       if (isUnmounted.value) return;
       try {
         await apiClient.refreshConsumerGroups(clusterName);
-      } catch (e) {
+      } catch (e: any) {
+        if (isUnmounted.value) return;
+        // 检查是否是"正在刷新中"错误
+        if (e.message?.includes('already being refreshed')) {
+          console.warn(`Consumer group refresh already in progress for cluster ${clusterName}`);
+          // 显示提示但不中断其他集群的刷新
+          continue;
+        }
         console.warn(`Failed to refresh consumer groups for cluster ${clusterName}:`, e);
       }
     }

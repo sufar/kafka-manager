@@ -352,9 +352,15 @@ async function refreshClusterTopics(cluster: string) {
   try {
     await apiClient.refreshTopics(cluster);
     window.dispatchEvent(new CustomEvent('cluster-topics-refreshed', { detail: { cluster } }));
-  } catch (e) {
+  } catch (e: any) {
     const error = e as { message: string };
-    if (!error.message.includes('aborted')) {
+    if (error.message.includes('aborted')) {
+      return;
+    }
+    // 检查是否是"正在刷新中"错误
+    if (error.message.includes('already being refreshed')) {
+      toastRef.value?.showToast('warning', 'Topic refresh is already in progress, please wait');
+    } else {
       toastRef.value?.showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
     }
   } finally {

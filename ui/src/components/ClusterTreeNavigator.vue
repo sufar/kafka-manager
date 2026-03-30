@@ -798,8 +798,13 @@ async function refreshClusterTopics(clusterName: string) {
 
     // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
     expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
-  } catch (error) {
-    console.error('Failed to refresh topics:', error);
+  } catch (error: any) {
+    // 检查是否是"正在刷新中"错误
+    if (error.message?.includes('already being refreshed')) {
+      console.warn('Topic refresh is already in progress, please wait');
+    } else {
+      console.error('Failed to refresh topics:', error);
+    }
   } finally {
     refreshingTopics.value.delete(clusterName);
     refreshingTopics.value = new Set(refreshingTopics.value);
@@ -963,8 +968,13 @@ async function refreshClusterConsumerGroups(clusterName: string) {
       name
     }));
     consumerGroupCounts[clusterName] = savedGroups?.length || 0;
-  } catch (error) {
-    console.error('Failed to refresh consumer groups:', error);
+  } catch (error: any) {
+    // 检查是否是"正在刷新中"错误
+    if (error.message?.includes('already being refreshed')) {
+      console.warn('Consumer group refresh is already in progress, please wait');
+    } else {
+      console.error('Failed to refresh consumer groups:', error);
+    }
   } finally {
     refreshingConsumerGroups.value.delete(clusterName);
     refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value);

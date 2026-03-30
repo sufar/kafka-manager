@@ -679,15 +679,20 @@ async function refreshAllTopics() {
 
   refreshing.value = true;
   try {
-    await apiClient.refreshTopics(clusterParam.value).catch(() => {});
+    await apiClient.refreshTopics(clusterParam.value);
 
     // 等待后台同步完成
     await new Promise(resolve => setTimeout(resolve, 500));
 
     await fetchTopics();
     showSuccess(t.value.topics.refreshed);
-  } catch (e) {
-    showError(`Refresh failed: ${(e as { message: string }).message}`);
+  } catch (e: any) {
+    // 检查是否是"正在刷新中"错误
+    if (e.message?.includes('already being refreshed')) {
+      showError('Topic refresh is already in progress, please wait');
+    } else {
+      showError(`Refresh failed: ${e.message}`);
+    }
   } finally {
     refreshing.value = false;
   }
