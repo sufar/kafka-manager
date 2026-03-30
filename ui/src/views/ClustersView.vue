@@ -1,5 +1,6 @@
 <template>
-  <div class="p-3 relative h-full overflow-auto">
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="p-3 relative flex-1 flex flex-col min-h-0">
     <!-- Animated background particles -->
     <div class="absolute inset-0 pointer-events-none">
       <div class="particle particle-1"></div>
@@ -72,8 +73,10 @@
       </div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="loading" class="flex justify-center items-center py-8">
+    <!-- Content Area (scrollable) -->
+    <div class="flex-1 overflow-auto min-h-0">
+      <!-- Loading State -->
+      <div v-if="loading" class="flex justify-center items-center py-8">
       <div class="flex flex-col items-center">
         <span class="loading loading-spinner loading-md text-primary"></span>
         <p class="mt-2 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
@@ -257,6 +260,8 @@
           </button>
         </div>
       </div>
+    </div>
+    </div>
     </div>
 
     <!-- Create/Edit Modal using Teleport and DaisyUI modal -->
