@@ -163,7 +163,7 @@ const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
 // App version
-const appVersion = ref('1.0.3');
+const appVersion = ref('1.0.4');
 
 // Sidebar mode state
 const sidebarMode = ref<'tree' | 'flat'>('flat');
