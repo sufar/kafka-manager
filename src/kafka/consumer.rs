@@ -742,8 +742,9 @@ impl KafkaConsumer {
         Ok(messages)
     }
 
-    /// 使用 Pool 获取消息（支持流式过滤）- 性能优化版
+    /// 使用 Pool 获取消息（支持流式过滤）- 批量获取优化版
     /// 从 Consumer Pool 复用连接，避免频繁创建/销毁
+    /// 增加超时时间以获取更多消息
     pub async fn fetch_messages_filtered_from_pool<M>(
         pool: &crate::pool::KafkaConsumerPool,
         _config: &KafkaConfig,
@@ -762,6 +763,8 @@ impl KafkaConsumer {
         tracing::info!("[fetch_messages_filtered_from_pool] topic={}, partition={:?} (using {}), offset={:?}, max_messages={}",
                        topic, partition, target_partition, offset, max_messages);
 
+        let fetch_start = std::time::Instant::now();
+
         // 从 Pool 获取 Consumer
         let consumer = pool.get().await
             .map_err(|e| {
@@ -769,36 +772,41 @@ impl KafkaConsumer {
                 AppError::Internal(format!("Failed to get consumer from pool: {}", e))
             })?;
 
+        tracing::debug!("[fetch_messages_filtered_from_pool] Got consumer from pool in {:?}", fetch_start.elapsed());
+
         // 手动分配 partition，而不是使用 subscribe
         let mut tpl = rdkafka::TopicPartitionList::new();
-        let target_partition = partition.unwrap_or(0);
 
         // 如果指定了 offset，直接使用；否则需要查询 watermarks 来确定开始位置
         let target_offset = if let Some(off) = offset {
+            tracing::debug!("[fetch_messages_filtered_from_pool] Using specified offset: {}", off);
             rdkafka::Offset::Offset(off)
         } else {
-            // 查询 low watermark 作为开始 offset
-            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(1000))) {
-                Ok((low, _high)) => rdkafka::Offset::Offset(low),
-                Err(_) => rdkafka::Offset::Beginning
+            // 查询 watermarks 时使用更短的 timeout
+            let wm_start = std::time::Instant::now();
+            match consumer.fetch_watermarks(topic, target_partition, Some(Duration::from_millis(500))) {
+                Ok((low, high)) => {
+                    tracing::debug!("[fetch_messages_filtered_from_pool] Watermarks: low={}, high={}, elapsed={:?}",
+                        low, high, wm_start.elapsed());
+                    rdkafka::Offset::Offset(low)
+                }
+                Err(e) => {
+                    tracing::warn!("[fetch_messages_filtered_from_pool] Failed to fetch watermarks: {}, using Beginning", e);
+                    rdkafka::Offset::Beginning
+                }
             }
         };
         tpl.add_partition_offset(topic, target_partition, target_offset)?;
         consumer.assign(&tpl)?;
 
         let mut messages = Vec::new();
-        // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
-        let base_timeout = if max_messages > 5000 {
-            Duration::from_millis(100)
-        } else if max_messages > 1000 {
-            Duration::from_millis(50)
-        } else {
-            Duration::from_millis(30)
-        };
+        // 优化：增加超时时间，让 Kafka 有机会批量返回消息
+        // fetch.wait.max.ms=100ms + fetch.min.bytes=10KB，设置为 300ms 可以获取更多消息
+        let base_timeout = Duration::from_millis(300);
         let mut consecutive_timeouts = 0;
-        // 优化：根据请求数量调整最大连续超时次数
-        // 大数据量时需要更多时间等待 Kafka 返回数据
-        let max_consecutive_timeouts = if max_messages > 5000 { 10 } else if max_messages > 1000 { 5 } else { 3 };
+        let max_consecutive_timeouts = 3;
+
+        tracing::debug!("[fetch_messages_filtered_from_pool] Starting to fetch messages, max_messages={}", max_messages);
 
         while messages.len() < max_messages {
             match tokio::time::timeout(base_timeout, consumer.recv()).await {
@@ -830,14 +838,26 @@ impl KafkaConsumer {
                         messages.push(kafka_msg);
                     }
                 }
-                Ok(Err(_)) | Err(_) => {
+                Ok(Err(e)) => {
+                    tracing::debug!("[fetch_messages_filtered_from_pool] Consumer recv error: {}", e);
                     consecutive_timeouts += 1;
+                    if consecutive_timeouts >= max_consecutive_timeouts {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    consecutive_timeouts += 1;
+                    tracing::debug!("[fetch_messages_filtered_from_pool] Timeout waiting for message (count={})", consecutive_timeouts);
                     if consecutive_timeouts >= max_consecutive_timeouts {
                         break;
                     }
                 }
             }
         }
+
+        let total_elapsed = fetch_start.elapsed();
+        tracing::info!("[fetch_messages_filtered_from_pool] Fetched {} messages in {:?} ({:.2} ms)",
+            messages.len(), total_elapsed, total_elapsed.as_secs_f64() * 1000.0);
 
         // 清理 consumer 的 partition assignment，避免影响下次复用
         let empty_tpl = rdkafka::TopicPartitionList::new();

@@ -472,17 +472,21 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
+    // 从连接池获取 Consumer Pool
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotConnected(format!("Consumer pool not available for cluster '{}'", cluster_id)))?;
+
     // 创建取消令牌和 SSE 事件流
     let cancel_token = CancellationToken::new();
     let (tx, rx) = mpsc::channel::<StdResult<Event, std::convert::Infallible>>(100);
-    let brokers = config.brokers.clone();
     let topic_for_log = topic.clone();
     let cancel_token_clone = cancel_token.clone();
 
     // 在后台任务中执行消息获取和流式发送
     let task_handle = tokio::spawn(async move {
-        let result = fetch_messages_streaming_sse(
-            &brokers,
+        let result = fetch_messages_streaming_sse_from_pool(
+            &consumer_pool,
+            &config,
             &topic,
             partition,
             offset,
@@ -1855,22 +1859,87 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
 
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 直接使用临时 consumer 获取消息（避免连接池状态问题）
-    let messages = fetch_messages_with_temp_consumer(
-        &config.brokers,
+    // 从连接池获取 Consumer 来查询消息
+    let consumer_pool = state.pools.get_consumer_pool(&cluster_id).await
+        .ok_or_else(|| AppError::NotConnected(format!("Consumer pool not available for cluster '{}'", cluster_id)))?;
+
+    // 构建搜索匹配器
+    let matcher = move |msg: &crate::kafka::consumer::KafkaMessage| -> bool {
+        if let Some(ref term) = search {
+            let key_match = msg.key.as_ref().map(|k| k.to_lowercase()).unwrap_or_default().contains(term);
+            let value_match = msg.value.as_ref().map(|v| v.to_lowercase()).unwrap_or_default().contains(term);
+            key_match || value_match
+        } else {
+            true
+        }
+    };
+
+    // 计算起始 offset
+    let start_offset = if let Some(off) = offset {
+        Some(off)
+    } else if fetch_mode.as_deref() == Some("oldest") {
+        Some(0)
+    } else {
+        None  // newest 模式，从 watermarks 计算
+    };
+
+    // 使用连接池查询消息
+    let messages = crate::kafka::consumer::KafkaConsumer::fetch_messages_filtered_from_pool(
+        &consumer_pool,
+        &config,
         &topic,
         partition,
-        offset,
+        start_offset,
         max_msgs,
-        start_time,
-        end_time,
-        search,
-        fetch_mode.as_deref(),
-        sort.as_deref(),
+        &matcher,
     )
     .await?;
 
-    let records: Vec<Value> = messages
+    // 时间范围过滤
+    let filtered_messages: Vec<_> = messages
+        .into_iter()
+        .filter(|msg| {
+            if let Some(start) = start_time {
+                if let Some(ts) = msg.timestamp {
+                    if ts < start {
+                        return false;
+                    }
+                }
+            }
+            if let Some(end) = end_time {
+                if let Some(ts) = msg.timestamp {
+                    if ts > end {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .collect();
+
+    // 排序
+    let mut sorted_messages = filtered_messages;
+    if sort.as_deref() == Some("desc") || (sort.is_none() && fetch_mode.as_deref() != Some("oldest")) {
+        sorted_messages.sort_by(|a, b| {
+            match (a.timestamp, b.timestamp) {
+                (Some(at), Some(bt)) => bt.cmp(&at).then_with(|| b.offset.cmp(&a.offset)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => b.offset.cmp(&a.offset),
+            }
+        });
+    } else {
+        sorted_messages.sort_by(|a, b| {
+            match (a.timestamp, b.timestamp) {
+                (Some(at), Some(bt)) => at.cmp(&bt).then_with(|| a.offset.cmp(&b.offset)),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (None, None) => a.offset.cmp(&b.offset),
+            }
+        });
+    }
+
+    let records: Vec<Value> = sorted_messages
         .into_iter()
         .map(|msg| {
             serde_json::json!({
@@ -2928,6 +2997,16 @@ async fn fetch_partition_messages_streaming(
             }
         }
     }
+
+    // 清理 consumer 的分区分配，确保连接干净释放
+    let empty_tpl = TopicPartitionList::new();
+    if let Err(e) = consumer.assign(&empty_tpl) {
+        tracing::warn!("[Streaming] Failed to clear partition assignment for partition {}: {}", partition, e);
+    }
+    if let Err(e) = consumer.unassign() {
+        tracing::warn!("[Streaming] Failed to unassign partition {}: {}", partition, e);
+    }
+    // BaseConsumer 会在 Drop 时自动关闭连接
 
     tracing::info!("[Streaming] Partition {} completed: sent {} messages, empty_count={}, elapsed={:?}",
         partition, sent_count, empty_count, poll_start.elapsed());
@@ -4845,4 +4924,289 @@ async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Va
     ConsumerGroupStore::delete_offsets(state.db.inner(), &cluster_id, &group_name).await?;
 
     Ok(serde_json::json!({ "success": true }))
+}
+
+/// 使用连接池进行 SSE 流式消息获取
+/// 并行读取 + 最小堆归并 + 实时 SSE 发送
+async fn fetch_messages_streaming_sse_from_pool(
+    consumer_pool: &crate::pool::KafkaConsumerPool,
+    config: &crate::config::KafkaConfig,
+    topic: &str,
+    partition: Option<i32>,
+    offset: Option<i64>,
+    max_messages: usize,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<&str>,
+    sort: Option<&str>,
+    sse_tx: mpsc::Sender<std::result::Result<Event, std::convert::Infallible>>,
+    cancel_token: CancellationToken,
+) -> Result<()> {
+    use rdkafka::consumer::{Consumer, BaseConsumer};
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
+
+    let start_time_total = std::time::Instant::now();
+    let topic = topic.to_string();
+    let search = search.clone();
+    let fetch_mode = fetch_mode.map(|s| s.to_string());
+    let _sort = sort.map(|s| s.to_string());
+
+    tracing::info!("[SSE Stream from Pool] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
+                   topic, partition, max_messages, fetch_mode);
+
+    // 获取分区列表（使用临时 consumer）
+    let partitions: Vec<i32> = {
+        let cfg = ClientConfig::new()
+            .set("bootstrap.servers", &config.brokers)
+            .set("broker.address.family", "v4")
+            .create::<BaseConsumer>()?;
+        if partition.is_none() {
+            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
+                Ok(metadata) => metadata.topics().first()
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_else(|| vec![0]),
+                Err(_) => vec![0],
+            }
+        } else {
+            vec![partition.unwrap_or(0)]
+        }
+    };
+
+    let partition_count = partitions.len();
+    let total_target = max_messages * partition_count;
+
+    tracing::info!("[SSE Stream from Pool] {} partitions, {} messages per partition, total target {}",
+        partition_count, max_messages, total_target);
+
+    // 发送开始事件
+    let start_event = serde_json::json!({
+        "event": "start",
+        "partitions": partition_count,
+        "total_target": total_target
+    });
+    sse_tx.send(Ok(Event::default().event("start").data(start_event.to_string()))).await
+        .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+
+    // 为每个分区创建 channel
+    let mut rxs = Vec::new();
+    let mut handles = vec![];
+
+    for &part_id in &partitions {
+        let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(max_messages);
+        rxs.push((part_id, rx));
+
+        let topic = topic.clone();
+        let search = search.clone();
+        let fetch_mode = fetch_mode.clone();
+        let part_offset = if partition.is_some() { offset } else { None };
+        let cancel_token_part = cancel_token.clone();
+        let pool = consumer_pool.clone();
+        let config = config.clone();
+
+        let handle = tokio::spawn(async move {
+            fetch_partition_messages_streaming_from_pool(
+                &pool, &config, &topic, part_id, max_messages, part_offset,
+                start_time, end_time, search, fetch_mode, tx, cancel_token_part,
+            ).await;
+        });
+        handles.push(handle);
+    }
+
+    // 使用最小堆进行流式归并
+    let mut heap = BinaryHeap::new();
+    let mut completed_partitions = 0;
+    let mut sent_count = 0usize;
+    const BATCH_SIZE: usize = 500;
+
+    // 从每个分区先取一条消息放入堆
+    for (part_id, rx) in &mut rxs {
+        match rx.recv().await {
+            Some(msg) => {
+                heap.push(Reverse(HeapMessage {
+                    timestamp: msg.timestamp,
+                    offset: msg.offset,
+                    message: msg,
+                }));
+            }
+            None => {
+                completed_partitions += 1;
+                tracing::info!("[SSE Stream from Pool] Partition {} completed immediately", part_id);
+            }
+        }
+    }
+
+    // 流式归并并发送
+    let mut batch: Vec<Value> = Vec::with_capacity(BATCH_SIZE);
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => {
+                tracing::info!("[SSE Stream from Pool] Cancelled by client, stopping at sent_count={}", sent_count);
+                break;
+            }
+            () = std::future::ready(()) => {}
+        }
+
+        if let Some(Reverse(heap_msg)) = heap.pop() {
+            let part_id = heap_msg.message.partition;
+
+            let msg_json = serde_json::json!({
+                "partition": heap_msg.message.partition,
+                "offset": heap_msg.message.offset,
+                "key": heap_msg.message.key,
+                "value": heap_msg.message.value,
+                "timestamp": heap_msg.message.timestamp,
+            });
+            batch.push(msg_json);
+            sent_count += 1;
+
+            if batch.len() >= BATCH_SIZE {
+                let batch_event = serde_json::json!({
+                    "event": "batch",
+                    "messages": batch,
+                });
+                sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
+                    .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+                batch.clear();
+            }
+
+            // 从对应分区获取下一条消息
+            if let Some((_, rx)) = rxs.iter_mut().find(|(p, _)| *p == part_id) {
+                match rx.recv().await {
+                    Some(msg) => {
+                        heap.push(Reverse(HeapMessage {
+                            timestamp: msg.timestamp,
+                            offset: msg.offset,
+                            message: msg,
+                        }));
+                    }
+                    None => {
+                        completed_partitions += 1;
+                        tracing::info!("[SSE Stream from Pool] Partition {} completed, total completed: {}", part_id, completed_partitions);
+                    }
+                }
+            }
+        } else if completed_partitions >= partition_count {
+            break;
+        }
+    }
+
+    // 发送剩余批次
+    if !batch.is_empty() {
+        let batch_event = serde_json::json!({
+            "event": "batch",
+            "messages": batch,
+        });
+        sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await
+            .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+    }
+
+    // 等待所有分区任务完成
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    tracing::info!("[SSE Stream from Pool] Completed: sent {} messages from {} partitions in {:?}",
+        sent_count, partition_count, start_time_total.elapsed());
+
+    Ok(())
+}
+
+/// 使用连接池进行流式分区消息获取
+async fn fetch_partition_messages_streaming_from_pool(
+    pool: &crate::pool::KafkaConsumerPool,
+    config: &crate::config::KafkaConfig,
+    topic: &str,
+    partition: i32,
+    max_messages: usize,
+    offset: Option<i64>,
+    start_time: Option<i64>,
+    end_time: Option<i64>,
+    search: Option<String>,
+    fetch_mode: Option<String>,
+    tx: mpsc::Sender<crate::kafka::consumer::KafkaMessage>,
+    cancel_token: CancellationToken,
+) {
+    tracing::info!("[Streaming from Pool] Starting fetch for partition {} of topic {} (max_messages: {})", partition, topic, max_messages);
+
+    // 构建搜索匹配器
+    let search_lower = search.as_ref().map(|s| s.to_lowercase());
+    let need_search = search_lower.is_some();
+    let start_time_val = start_time;
+    let end_time_val = end_time;
+
+    let matcher = move |msg: &crate::kafka::consumer::KafkaMessage| -> bool {
+        // 时间范围过滤
+        if let Some(start) = start_time_val {
+            if let Some(ts) = msg.timestamp {
+                if ts < start {
+                    return false;
+                }
+            }
+        }
+        if let Some(end) = end_time_val {
+            if let Some(ts) = msg.timestamp {
+                if ts > end {
+                    return false;
+                }
+            }
+        }
+
+        // 搜索过滤
+        if need_search {
+            if let Some(term) = search_lower.as_ref() {
+                let key_match = msg.key.as_ref().map(|k| k.to_lowercase()).unwrap_or_default().contains(term);
+                let value_match = msg.value.as_ref().map(|v| v.to_lowercase()).unwrap_or_default().contains(term);
+                if !key_match && !value_match {
+                    return false;
+                }
+            }
+        }
+        true
+    };
+
+    // 使用连接池获取消息
+    let result = crate::kafka::consumer::KafkaConsumer::fetch_messages_filtered_from_pool(
+        pool,
+        config,
+        topic,
+        Some(partition),
+        offset,
+        max_messages,
+        &matcher,
+    ).await;
+
+    match result {
+        Ok(messages) => {
+            // 根据 fetch_mode 决定是否反转
+            let final_messages = if fetch_mode.as_deref() == Some("oldest") {
+                messages
+            } else {
+                // newest 模式，反转结果
+                let mut reversed = messages;
+                reversed.reverse();
+                reversed
+            };
+
+            // 通过 channel 发送消息
+            for msg in final_messages {
+                if cancel_token.is_cancelled() {
+                    tracing::info!("[Streaming from Pool] Partition {} cancelled, stopping at {} messages", partition, msg.offset);
+                    break;
+                }
+                if tx.send(msg).await.is_err() {
+                    tracing::warn!("[Streaming from Pool] Channel closed for partition {}", partition);
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("[Streaming from Pool] Failed to fetch messages for partition {}: {}", partition, e);
+        }
+    }
+
+    tracing::info!("[Streaming from Pool] Partition {} completed", partition);
 }

@@ -51,12 +51,12 @@ impl KafkaConsumerManager {
         // - 这样虽然增加了 RTT 次数，但对于 max_messages=100 的查询场景，总体延迟更低
 
         // fetch.wait.max.ms: broker 等待数据的最大时间
-        // 设置为 100ms，平衡延迟和吞吐量（从 50ms 增加以提高稳定性）
+        // 设置为 100ms，让 broker 有时间积累更多数据后批量返回
         client_config.set("fetch.wait.max.ms", "100");
 
         // fetch.min.bytes: 最小返回数据量
-        // 设置为 1 字节，避免等待积累大量数据（对查询场景很重要）
-        client_config.set("fetch.min.bytes", "1");
+        // 设置为 10KB，让 broker 积累更多数据（减少 RTT 次数）
+        client_config.set("fetch.min.bytes", "10240");
 
         // fetch.max.bytes: 单次 fetch 最大数据量 (50MB)
         // 提高吞吐量，一次性获取更多消息
@@ -90,21 +90,24 @@ impl KafkaConsumerManager {
         client_config.set("reconnect.backoff.max.ms", "1000");
 
         // retry.backoff.ms: 重试间隔
-        client_config.set("retry.backoff.ms", "100");
+        client_config.set("retry.backoff.ms", "50");
 
         // ========== 稳定性配置 ==========
 
         // socket 连接超时
-        client_config.set("socket.connection.setup.timeout.ms", "10000");
+        client_config.set("socket.connection.setup.timeout.ms", "5000");
 
         // session timeout
-        client_config.set("session.timeout.ms", "30000");
+        client_config.set("session.timeout.ms", "10000");
 
         // heartbeat 间隔
-        client_config.set("heartbeat.interval.ms", "3000");
+        client_config.set("heartbeat.interval.ms", "2000");
 
         // max.poll.interval.ms: 两次 poll 之间的最大间隔
         client_config.set("max.poll.interval.ms", "300000");
+
+        // metadata 刷新间隔
+        client_config.set("metadata.max.age.ms", "30000");
 
         client_config
     }
