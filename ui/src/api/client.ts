@@ -949,6 +949,35 @@ class ApiClient {
     return this.request('json_highlight.delete', { id });
   }
 
+  // ==================== Topic History ====================
+  async getTopicHistory(limit?: number, offset?: number): Promise<Array<{ id: number; cluster_id: string; topic_name: string; viewed_at: string }>> {
+    const params: any = {};
+    if (limit !== undefined) {
+      params.limit = limit;
+    }
+    if (offset !== undefined) {
+      params.offset = offset;
+    }
+    const data = await this.request<{ histories: Array<{ id: number; cluster_id: string; topic_name: string; viewed_at: string }> }>('topic_history.list', params);
+    return data.histories || [];
+  }
+
+  async recordTopicHistory(clusterId: string, topicName: string): Promise<{ id: number; cluster_id: string; topic_name: string; viewed_at: string }> {
+    return this.request('topic_history.record', { cluster_id: clusterId, topic_name: topicName });
+  }
+
+  async deleteTopicHistory(id: number): Promise<void> {
+    return this.request('topic_history.delete', { id });
+  }
+
+  async deleteTopicHistoryByTopic(clusterId: string, topicName: string): Promise<void> {
+    return this.request('topic_history.delete_by_topic', { cluster_id: clusterId, topic_name: topicName });
+  }
+
+  async clearTopicHistory(): Promise<{ count: number; message: string }> {
+    return this.request('topic_history.clear', {});
+  }
+
   // ==================== Schema Registry ====================
   async getSchemaRegistryConfig(clusterId: string): Promise<import('@/types/api').SchemaRegistryConfig | null> {
     return this.request('schema_registry.config.get', { cluster_id: clusterId });

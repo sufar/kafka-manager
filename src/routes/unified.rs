@@ -11,6 +11,10 @@ use crate::db::favorite::{
     get_group_by_id, is_topic_favorite, update_favorite, update_group,
     CreateFavoriteRequest, CreateGroupRequest, UpdateFavoriteRequest, UpdateGroupRequest,
 };
+use crate::db::topic_history::{
+    clear_history, delete_history, delete_history_by_topic, get_history_list,
+    record_history,
+};
 use crate::db::settings::SettingStore;
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
@@ -628,6 +632,13 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "favorite.delete" => handle_favorite_delete(state, body).await,
         "favorite.check" => handle_favorite_check(state, body).await,
         "favorite.delete_by_topic" => handle_favorite_delete_by_topic(state, body).await,
+
+        // Topic History
+        "topic_history.list" => handle_topic_history_list(state, body).await,
+        "topic_history.record" => handle_topic_history_record(state, body).await,
+        "topic_history.delete" => handle_topic_history_delete(state, body).await,
+        "topic_history.delete_by_topic" => handle_topic_history_delete_by_topic(state, body).await,
+        "topic_history.clear" => handle_topic_history_clear(state).await,
 
         // Consumer Group
         "consumer_group.list" => handle_consumer_group_list(state, body).await,
@@ -4433,6 +4444,71 @@ async fn handle_favorite_delete_by_topic(state: AppState, body: Value) -> Result
     } else {
         Err(AppError::NotFound("Favorite not found".to_string()))
     }
+}
+
+// ==================== Topic History ====================
+
+async fn handle_topic_history_list(state: AppState, body: Value) -> Result<Value> {
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+    let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let histories = get_history_list(&state.db, Some(limit), Some(offset)).await?;
+
+    let histories_json: Vec<Value> = histories
+        .into_iter()
+        .map(|h| {
+            serde_json::json!({
+                "id": h.id,
+                "cluster_id": h.cluster_id,
+                "topic_name": h.topic_name,
+                "viewed_at": h.viewed_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "histories": histories_json }))
+}
+
+async fn handle_topic_history_record(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic_name = get_string_param(&body, "topic_name")?;
+
+    let history = record_history(&state.db, &cluster_id, &topic_name).await?;
+
+    Ok(serde_json::json!({
+        "id": history.id,
+        "cluster_id": history.cluster_id,
+        "topic_name": history.topic_name,
+        "viewed_at": history.viewed_at,
+    }))
+}
+
+async fn handle_topic_history_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let deleted = delete_history(&state.db, id).await?;
+    if deleted {
+        Ok(serde_json::json!({ "message": "History deleted successfully" }))
+    } else {
+        Err(AppError::NotFound("History not found".to_string()))
+    }
+}
+
+async fn handle_topic_history_delete_by_topic(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic_name = get_string_param(&body, "topic_name")?;
+
+    let deleted = delete_history_by_topic(&state.db, &cluster_id, &topic_name).await?;
+    if deleted {
+        Ok(serde_json::json!({ "message": "History deleted successfully" }))
+    } else {
+        Err(AppError::NotFound("History not found".to_string()))
+    }
+}
+
+async fn handle_topic_history_clear(state: AppState) -> Result<Value> {
+    let count = clear_history(&state.db).await?;
+    Ok(serde_json::json!({ "count": count, "message": "History cleared successfully" }))
 }
 
 // ==================== Cluster Group ====================

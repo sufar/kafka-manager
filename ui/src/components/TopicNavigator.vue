@@ -8,6 +8,7 @@
           v-model="currentView"
           class="select select-bordered select-xs h-7 text-xs"
           @change="switchView"
+          :disabled="showHistory"
         >
           <option value="topics">Topics</option>
           <option value="consumer-groups">Consumer Groups</option>
@@ -34,6 +35,16 @@
         </button>
         <button
           class="btn btn-ghost btn-xs"
+          :class="{ 'btn-active': showHistory }"
+          @click="toggleHistory"
+          :title="t.history?.title || 'Browsing History'"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
+          </svg>
+        </button>
+        <button
+          class="btn btn-ghost btn-xs"
           @click="goToClusters"
           title="Manage Clusters"
         >
@@ -45,7 +56,7 @@
     </div>
 
     <!-- Search Box -->
-    <div class="px-1.5 py-1 flex-shrink-0">
+    <div v-show="!showHistory" class="px-1.5 py-1 flex-shrink-0">
       <div class="relative">
         <input
           v-model="searchQuery"
@@ -78,7 +89,7 @@
     </div>
 
     <!-- Topic List with Virtual Scroll -->
-    <div class="flex-1 flex flex-col min-h-0 px-2 relative">
+    <div v-show="!showHistory" class="flex-1 flex flex-col min-h-0 px-2 relative">
       <!-- Loading -->
       <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10 bg-base-100">
         <span class="loading loading-spinner loading-sm"></span>
@@ -101,7 +112,7 @@
       </div>
 
       <!-- Virtual Scroll Container -->
-      <div class="flex-1 min-h-0 relative">
+      <div v-show="!showHistory" class="flex-1 min-h-0 relative">
         <!-- Virtual Scroll Topic Items -->
         <RecycleScroller
           v-if="currentView === 'topics' && !loading && (searchQuery ? filteredTopicsWithUid.length : displayedTopicsWithUid.length) > 0"
@@ -191,11 +202,16 @@
           </span>
         </div>
       </RecycleScroller>
-      </div>
+    </div>
+  </div>
+
+    <!-- Topic History Panel -->
+    <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2">
+      <TopicHistory :t="t" />
     </div>
 
     <!-- Status Bar - Fixed at bottom -->
-    <div class="flex-shrink-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
+    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Load More Button (Topics only) -->
@@ -501,6 +517,7 @@ import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import TopicHistory from '@/components/TopicHistory.vue';
 
 interface TopicInfo {
   name: string;
@@ -560,6 +577,13 @@ const hasMoreGroups = ref(false);
 
 // View switcher (topics vs consumer-groups)
 const currentView = ref<'topics' | 'consumer-groups'>('topics');
+
+// History panel state
+const showHistory = ref(false);
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
+}
 
 async function switchView() {
   // 切换视图时重置搜索
@@ -667,6 +691,8 @@ onMounted(() => {
   window.addEventListener('resize', updateMobileState);
   document.addEventListener('keydown', handleKeydown);
   updateMobileState();
+  // Listen for navigation from history
+  window.addEventListener('navigate-to-topic-from-history', handleNavigateFromHistory);
 });
 
 onUnmounted(() => {
@@ -678,6 +704,7 @@ onUnmounted(() => {
   document.removeEventListener('click', handleOutsideClick);
   document.removeEventListener('keydown', handleKeydown);
   window.removeEventListener('resize', updateMobileState);
+  window.removeEventListener('navigate-to-topic-from-history', handleNavigateFromHistory);
 });
 
 function handleOutsideClick(event: MouseEvent) {
@@ -1381,6 +1408,19 @@ function goToSchemaRegistry() {
   } else {
     emit('navigate', {
       path: '/schema-registry'
+    });
+  }
+}
+
+// Handle navigation from history
+function handleNavigateFromHistory(event: Event) {
+  const customEvent = event as CustomEvent<{ clusterId: string; topicName: string }>;
+  const { clusterId, topicName } = customEvent.detail;
+  if (clusterId && topicName) {
+    showHistory.value = false;
+    emit('navigate', {
+      path: '/messages',
+      query: { cluster: clusterId, topic: topicName }
     });
   }
 }

@@ -416,6 +416,21 @@ export interface Translation {
     remark: string;
     remarkPlaceholder: string;
   };
+  history: {
+    title: string;
+    description: string;
+    empty: string;
+    emptyHint: string;
+    noSearchResults: string;
+    searchPlaceholder: string;
+    delete: string;
+    clearAll: string;
+    confirmClear: string;
+    justNow: string;
+    minutesAgo: string;
+    hoursAgo: string;
+    daysAgo: string;
+  };
   schemaRegistry: {
     title: string;
     description: string;
@@ -876,6 +891,21 @@ export const translations: Record<Language, Translation> = {
       remark: '备注',
       remarkPlaceholder: '添加备注（可选）',
     },
+    history: {
+      title: '浏览历史',
+      description: '自动记录您浏览过的 Topic',
+      empty: '暂无浏览历史',
+      emptyHint: '浏览 Topic 时会自动记录到这里',
+      noSearchResults: '无匹配的历史记录',
+      searchPlaceholder: '搜索 Topic...',
+      delete: '删除记录',
+      clearAll: '清空历史',
+      confirmClear: '确定要清空所有历史记录吗？',
+      justNow: '刚刚',
+      minutesAgo: '分钟前',
+      hoursAgo: '小时前',
+      daysAgo: '天前',
+    },
     schemaRegistry: {
       title: 'Schema Registry',
       description: '管理 Schema Registry 配置和 Schema',
@@ -1333,6 +1363,21 @@ export const translations: Record<Language, Translation> = {
       groupCreated: 'Group created successfully',
       remark: 'Remark',
       remarkPlaceholder: 'Add remark (optional)',
+    },
+    history: {
+      title: 'Browsing History',
+      description: 'Automatically record Topics you have viewed',
+      empty: 'No browsing history yet',
+      emptyHint: 'Topics will be automatically recorded here when viewed',
+      noSearchResults: 'No matching history records',
+      searchPlaceholder: 'Search Topic...',
+      delete: 'Delete record',
+      clearAll: 'Clear all history',
+      confirmClear: 'Are you sure you want to clear all history records?',
+      justNow: 'Just now',
+      minutesAgo: 'm ago',
+      hoursAgo: 'h ago',
+      daysAgo: 'd ago',
     },
     schemaRegistry: {
       title: 'Schema Registry',
