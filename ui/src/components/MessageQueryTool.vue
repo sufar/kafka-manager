@@ -524,6 +524,16 @@ async function loadPartitions() {
   }
 }
 
+// 记录浏览历史
+async function recordHistory() {
+  if (!selectedCluster.value || !selectedTopic.value) return;
+  try {
+    await apiClient.recordTopicHistory(selectedCluster.value, selectedTopic.value);
+  } catch (e) {
+    console.error('[MessageQueryTool] Failed to record history:', e);
+  }
+}
+
 async function queryMessages() {
   console.log('[MessageQueryTool] queryMessages called, canQuery:', canQuery.value, 'isAborted:', isAborted);
   if (!canQuery.value) return;
@@ -1119,6 +1129,8 @@ onMounted(async () => {
   // 加载分区信息并自动查询
   if (selectedCluster.value && selectedTopic.value) {
     await loadPartitions();
+    // 记录浏览历史
+    recordHistory();
     await queryMessages();
   }
 
@@ -1141,6 +1153,8 @@ watch(() => props.cluster, async (newCluster, oldCluster) => {
     selectedCluster.value = newCluster;
     await loadPartitions();
     if (selectedCluster.value && selectedTopic.value) {
+      // 记录浏览历史
+      recordHistory();
       await queryMessages();
     }
   }
@@ -1160,6 +1174,8 @@ watch(() => props.topic, async (newTopic, oldTopic) => {
     messages.value = [];
     await loadPartitions();
     if (selectedCluster.value && selectedTopic.value) {
+      // 记录浏览历史
+      recordHistory();
       await queryMessages();
     }
   }

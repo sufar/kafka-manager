@@ -9,22 +9,32 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
             </svg>
           </div>
-          <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">Clusters</span>
+          <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider">{{ showHistory ? (t.history?.title || '浏览历史') : 'Clusters' }}</span>
         </div>
         <div class="flex gap-0.5">
-          <button class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all">
+          <button v-if="showHistory" class="btn btn-ghost btn-xs" @click="showHistory = false" title="Back to clusters">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+            </svg>
+          </button>
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
             </svg>
           </button>
-          <button class="btn btn-ghost btn-xs" @click="goToClusters" title="Clusters">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToClusters" title="Clusters">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
             </svg>
           </button>
-          <button class="btn btn-ghost btn-xs" @click="goToFavorites" title="Topic Favorites">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToFavorites" title="Topic Favorites">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+            </svg>
+          </button>
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="toggleHistory" :title="t.history?.title || 'Browsing History'">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
             </svg>
           </button>
         </div>
@@ -71,8 +81,13 @@
       </div>
     </div>
 
+    <!-- Topic History Panel -->
+    <div v-if="showHistory" class="flex-1 overflow-y-auto p-2 relative">
+      <TopicHistory :t="t" />
+    </div>
+
     <!-- Tree Content - Scrollable Area -->
-    <div class="flex-1 overflow-y-auto p-2 relative">
+    <div v-else class="flex-1 overflow-y-auto p-2 relative">
       <div v-for="cluster in filteredClusters" :key="cluster.name" class="mb-1">
         <!-- Cluster Node -->
         <div
@@ -423,6 +438,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
+import TopicHistory from '@/components/TopicHistory.vue';
 
 interface Topic {
   name: string;
@@ -450,6 +466,13 @@ const t = computed(() => languageStore.t);
 // 当前选中的分组（0 表示所有分组）
 const selectedGroupId = ref<number | null>(null);
 const hasLoadedGroupSelection = ref(false);
+
+// Show history panel
+const showHistory = ref(false);
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
+}
 
 // 从数据库加载选中的分组
 async function loadGroupSelection() {

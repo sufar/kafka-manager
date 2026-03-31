@@ -8,6 +8,7 @@ pub mod settings;
 pub mod tag;
 pub mod topic;
 pub mod topic_template;
+pub mod topic_history;
 pub mod user;
 pub mod json_highlight;
 
@@ -398,6 +399,9 @@ impl DbPool {
 
         // 创建收藏表
         favorite::init_tables(self.inner()).await?;
+
+        // 创建 Topic 历史表
+        topic_history::init_tables(self.inner()).await?;
 
         // 创建集群分组表
         self.init_cluster_groups_table().await?;
