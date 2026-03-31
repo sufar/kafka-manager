@@ -42,6 +42,11 @@ const router = createRouter({
           name: 'Favorites',
           component: () => import('@/views/FavoritesView.vue'),
         },
+        {
+          path: 'schema-registry',
+          name: 'SchemaRegistry',
+          component: () => import('@/views/SchemaRegistryView.vue'),
+        },
       ],
     },
   ],

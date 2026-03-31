@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod schema_registry;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTopicRequest {
     pub name: String,

@@ -55,6 +55,11 @@ impl AppState {
     pub fn set_clients(&self, clients: KafkaClients) {
         self.clients.store(clients.into());
     }
+
+    /// 获取数据库连接池
+    pub fn get_pool(&self) -> sqlx::Pool<sqlx::Sqlite> {
+        self.db.inner().clone()
+    }
 }
 
 pub use routes::create_router;

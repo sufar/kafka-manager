@@ -10,6 +10,7 @@ pub mod topic;
 pub mod topic_template;
 pub mod user;
 pub mod json_highlight;
+pub mod schema_registry;
 
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::sync::Arc;
@@ -410,6 +411,9 @@ impl DbPool {
 
         // 初始化内置 JSON 高亮模板
         json_highlight::JsonHighlightTemplate::init_builtin_templates(self.inner()).await?;
+
+        // 初始化 Schema Registry 表
+        schema_registry::init_tables(self.inner()).await?;
 
         tracing::info!("[KAFKA-MANAGER] Database tables initialized successfully");
 

@@ -8,6 +8,7 @@ pub mod topic;
 pub mod topic_template;
 pub mod unified;
 pub mod user;
+pub mod schema_registry;
 
 use crate::AppState;
 use axum::Router;

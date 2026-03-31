@@ -948,6 +948,66 @@ class ApiClient {
   async deleteJsonHighlightTemplate(id: number): Promise<{ success: boolean }> {
     return this.request('json_highlight.delete', { id });
   }
+
+  // ==================== Schema Registry ====================
+  async getSchemaRegistryConfig(clusterId: string): Promise<import('@/types/api').SchemaRegistryConfig | null> {
+    return this.request('schema_registry.config.get', { cluster_id: clusterId });
+  }
+
+  async saveSchemaRegistryConfig(clusterId: string, registryUrl: string, username?: string, password?: string): Promise<{ id: number; success: boolean }> {
+    return this.request('schema_registry.config.save', { cluster_id: clusterId, registry_url: registryUrl, username, password });
+  }
+
+  async deleteSchemaRegistryConfig(clusterId: string): Promise<{ success: boolean }> {
+    return this.request('schema_registry.config.delete', { cluster_id: clusterId });
+  }
+
+  async testSchemaRegistryConnection(registryUrl: string, username?: string, password?: string): Promise<{ success: boolean; message: string }> {
+    return this.request('schema_registry.config.test', { registry_url: registryUrl, username, password });
+  }
+
+  async getSchemaSubjects(clusterId: string): Promise<string[]> {
+    const data = await this.request<{ subjects: string[] }>('schema_registry.subject.list', { cluster_id: clusterId });
+    return data.subjects || [];
+  }
+
+  async getSchemaVersions(clusterId: string, subject: string): Promise<number[]> {
+    const data = await this.request<{ versions: number[] }>('schema_registry.version.list', { cluster_id: clusterId, subject });
+    return data.versions || [];
+  }
+
+  async getSchema(clusterId: string, subject: string, version: number): Promise<import('@/types/api').SchemaInfo> {
+    return this.request('schema_registry.get', { cluster_id: clusterId, subject, version });
+  }
+
+  async getLatestSchema(clusterId: string, subject: string): Promise<import('@/types/api').SchemaInfo> {
+    return this.request('schema_registry.get_latest', { cluster_id: clusterId, subject });
+  }
+
+  async registerSchema(clusterId: string, subject: string, schemaJson: string, schemaType: string): Promise<{ id: number; subject: string; version: number; success: boolean }> {
+    return this.request('schema_registry.register', { cluster_id: clusterId, subject, schema_json: schemaJson, schema_type: schemaType });
+  }
+
+  async testSchemaCompatibility(clusterId: string, subject: string, schemaJson: string, version: number): Promise<import('@/types/api').CompatibilityResult> {
+    return this.request('schema_registry.compatibility.test', { cluster_id: clusterId, subject, schema_json: schemaJson, version });
+  }
+
+  async getCompatibilityLevel(clusterId: string, subject: string): Promise<{ compatibility_level: string }> {
+    return this.request('schema_registry.compatibility.get', { cluster_id: clusterId, subject });
+  }
+
+  async setCompatibilityLevel(clusterId: string, subject: string, level: string): Promise<{ success: boolean; compatibility_level: string }> {
+    return this.request('schema_registry.compatibility.set', { cluster_id: clusterId, subject, compatibility_level: level });
+  }
+
+  async getSchemasList(clusterId: string): Promise<import('@/types/api').SchemaSummary[]> {
+    const data = await this.request<{ schemas: import('@/types/api').SchemaSummary[] }>('schema_registry.list', { cluster_id: clusterId });
+    return data.schemas || [];
+  }
+
+  async deleteSchema(clusterId: string, subject: string): Promise<{ success: boolean; deleted_versions: number[] }> {
+    return this.request('schema_registry.delete', { cluster_id: clusterId, subject });
+  }
 }
 
 // 导出单例

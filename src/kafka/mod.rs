@@ -5,7 +5,10 @@ pub mod import_export;
 pub mod offset;
 pub mod throughput;
 pub mod transaction;
+pub mod avro;
+pub mod protobuf;
 mod producer;
+pub mod schema_registry_client;
 
 pub use admin::KafkaAdmin;
 pub use consumer::KafkaConsumer;

@@ -20,6 +20,13 @@ rdkafka = { version = "0.39", features = ["cmake-build"] }
 # HTTP client for Schema Registry
 reqwest = { version = "0.11", features = ["json"] }
 
+# Avro 编解码
+apache-avro = "0.17"
+
+# Protobuf 编解码
+prost = "0.12"
+prost-types = "0.12"
+
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

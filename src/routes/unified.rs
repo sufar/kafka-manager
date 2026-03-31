@@ -20,6 +20,9 @@ use crate::db::topic_template::{
 use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
 use crate::kafka::throughput::KafkaThroughputCalculator;
+use crate::db::schema_registry::{SchemaRegistryStore, SchemaStore};
+use crate::kafka::avro::AvroCodec;
+use crate::kafka::protobuf::ProtobufCodec;
 use crate::AppState;
 use crate::RefreshState;
 use axum::{
@@ -634,6 +637,22 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "consumer_group.saved" => handle_consumer_group_saved(state, body).await,
         "consumer_group.reset_offset" => handle_consumer_group_reset_offset(state, body).await,
         "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
+
+        // Schema Registry
+        "schema_registry.config.get" => crate::routes::schema_registry::handle_config_get(state, body).await,
+        "schema_registry.config.save" => crate::routes::schema_registry::handle_config_save(state, body).await,
+        "schema_registry.config.delete" => crate::routes::schema_registry::handle_config_delete(state, body).await,
+        "schema_registry.config.test" => crate::routes::schema_registry::handle_config_test(state, body).await,
+        "schema_registry.subject.list" => crate::routes::schema_registry::handle_subject_list(state, body).await,
+        "schema_registry.version.list" => crate::routes::schema_registry::handle_version_list(state, body).await,
+        "schema_registry.get" => crate::routes::schema_registry::handle_schema_get(state, body).await,
+        "schema_registry.get_latest" => crate::routes::schema_registry::handle_schema_get_latest(state, body).await,
+        "schema_registry.register" => crate::routes::schema_registry::handle_schema_register(state, body).await,
+        "schema_registry.compatibility.test" => crate::routes::schema_registry::handle_compatibility_test(state, body).await,
+        "schema_registry.compatibility.get" => crate::routes::schema_registry::handle_compatibility_get(state, body).await,
+        "schema_registry.compatibility.set" => crate::routes::schema_registry::handle_compatibility_set(state, body).await,
+        "schema_registry.list" => crate::routes::schema_registry::handle_schema_list(state, body).await,
+        "schema_registry.delete" => crate::routes::schema_registry::handle_schema_delete(state, body).await,
 
         _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
     }
@@ -1870,14 +1889,48 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     )
     .await?;
 
+    // 获取 Schema Registry 配置，用于消息解码
+    let schema_info = {
+        let pool = state.get_pool();
+        let cfg = SchemaRegistryStore::get_config(&pool, &cluster_id).await.ok().flatten();
+        let schema = if cfg.is_some() {
+            SchemaStore::get_latest_schema(&pool, &cluster_id, &topic).await.ok().flatten()
+        } else {
+            None
+        };
+        cfg.zip(schema)
+    };
+
     let records: Vec<Value> = messages
         .into_iter()
         .map(|msg| {
+            let mut value = msg.value.clone().unwrap_or_default();
+
+            // 尝试使用 Schema 解码消息
+            if let Some((ref _config, ref schema)) = schema_info {
+                // 检查是否是 base64 编码的二进制数据（Avro/Protobuf）
+                if let Ok(decoded_bytes) = base64::decode(&value) {
+                    match schema.schema_type.as_str() {
+                        "AVRO" => {
+                            if let Ok(json_value) = AvroCodec::decode(&schema.schema_json, &decoded_bytes) {
+                                value = serde_json::to_string(&json_value).unwrap_or(value);
+                            }
+                        }
+                        "PROTOBUF" => {
+                            if let Ok(json_value) = ProtobufCodec::decode_simple(&schema.schema_json, &decoded_bytes) {
+                                value = serde_json::to_string(&json_value).unwrap_or(value);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             serde_json::json!({
                 "partition": msg.partition,
                 "offset": msg.offset,
                 "key": msg.key,
-                "value": msg.value,
+                "value": value,
                 "timestamp": msg.timestamp,
             })
         })
@@ -3253,9 +3306,53 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
     let key = get_optional_string_param(&body, "key");
-    let value = get_string_param(&body, "value")?;
+    let mut value = get_string_param(&body, "value")?;
     let partition = get_optional_i32_param(&body, "partition");
     let headers = get_hashmap_param(&body, "headers");
+
+    // 检查是否有 Schema Registry 配置，尝试自动序列化消息
+    let pool = state.get_pool();
+    if let Ok(_config) = SchemaRegistryStore::get_config(&pool, &cluster_id).await {
+        if let Some(schema) = SchemaStore::get_latest_schema(&pool, &cluster_id, &topic).await.ok().flatten() {
+            // 根据 schema 类型进行编码
+            match schema.schema_type.as_str() {
+                "AVRO" => {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&value) {
+                        match AvroCodec::encode(&schema.schema_json, &json_value) {
+                            Ok(encoded_bytes) => {
+                                // 使用 base64 编码二进制数据
+                                value = base64::encode(&encoded_bytes);
+                                tracing::info!("Message encoded with Avro schema for topic: {}", topic);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to encode message with Avro: {}", e);
+                                // 编码失败时保持原始值
+                            }
+                        }
+                    }
+                }
+                "PROTOBUF" => {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&value) {
+                        // 尝试从 schema_json 中提取 descriptor 信息
+                        // 这里假设 schema_json 包含必要的 protobuf 描述符
+                        match ProtobufCodec::encode_simple(&schema.schema_json, &json_value) {
+                            Ok(encoded_bytes) => {
+                                value = base64::encode(&encoded_bytes);
+                                tracing::info!("Message encoded with Protobuf schema for topic: {}", topic);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to encode message with Protobuf: {}", e);
+                            }
+                        }
+                    }
+                }
+                "JSON" => {
+                    // JSON Schema 不需要编码，保持原样
+                }
+                _ => {}
+            }
+        }
+    }
 
     let clients = state.get_clients();
     let producer = clients

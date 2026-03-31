@@ -20,6 +20,12 @@ pub enum AppError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Bcrypt error: {0}")]
+    Bcrypt(#[from] bcrypt::BcryptError),
+
+    #[error("Avro error: {0}")]
+    Avro(#[from] apache_avro::Error),
+
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
@@ -76,6 +82,20 @@ impl axum::response::IntoResponse for AppError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "IO error".to_string(),
+                )
+            }
+            AppError::Bcrypt(e) => {
+                tracing::error!("Bcrypt error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Encryption error".to_string(),
+                )
+            }
+            AppError::Avro(e) => {
+                tracing::error!("Avro error: {}", e);
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Avro error: {}", e),
                 )
             }
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),

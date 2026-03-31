@@ -416,6 +416,47 @@ export interface Translation {
     remark: string;
     remarkPlaceholder: string;
   };
+  schemaRegistry: {
+    title: string;
+    description: string;
+    configTitle: string;
+    registryUrl: string;
+    registryUrlPlaceholder: string;
+    authentication: string;
+    username: string;
+    password: string;
+    testConnection: string;
+    save: string;
+    delete: string;
+    subjects: string;
+    noSubjects: string;
+    versions: string;
+    schemaType: string;
+    compatibilityLevel: string;
+    backward: string;
+    forward: string;
+    full: string;
+    none: string;
+    testCompatibility: string;
+    compatible: string;
+    incompatible: string;
+    registerSchema: string;
+    schemaContent: string;
+    schemaContentPlaceholder: string;
+    registerSuccess: string;
+    compatibilityTestSuccess: string;
+    compatibilityTestFailed: string;
+    configNotSet: string;
+    fetchFailed: string;
+    deleteConfirm: string;
+    version: string;
+    latestVersion: string;
+    viewSchema: string;
+    deleteSchema: string;
+    connectionSuccess: string;
+    connectionFailed: string;
+    selectCluster: string;
+  };
 }
 
 export const translations: Record<Language, Translation> = {
@@ -835,6 +876,47 @@ export const translations: Record<Language, Translation> = {
       remark: '备注',
       remarkPlaceholder: '添加备注（可选）',
     },
+    schemaRegistry: {
+      title: 'Schema Registry',
+      description: '管理 Schema Registry 配置和 Schema',
+      configTitle: 'Schema Registry 配置',
+      registryUrl: 'Registry URL',
+      registryUrlPlaceholder: 'http://localhost:8081',
+      authentication: '认证信息',
+      username: '用户名',
+      password: '密码',
+      testConnection: '测试连接',
+      save: '保存配置',
+      delete: '删除配置',
+      subjects: 'Subjects',
+      noSubjects: '暂无 Subjects',
+      versions: '版本',
+      schemaType: 'Schema 类型',
+      compatibilityLevel: '兼容性级别',
+      backward: '向后兼容',
+      forward: '向前兼容',
+      full: '完全兼容',
+      none: '无兼容',
+      testCompatibility: '测试兼容性',
+      compatible: '兼容',
+      incompatible: '不兼容',
+      registerSchema: '注册 Schema',
+      schemaContent: 'Schema 内容',
+      schemaContentPlaceholder: '粘贴 Schema JSON 内容...',
+      registerSuccess: 'Schema 注册成功',
+      compatibilityTestSuccess: '兼容性测试成功',
+      compatibilityTestFailed: '兼容性测试失败',
+      configNotSet: '未配置 Schema Registry',
+      fetchFailed: '获取失败',
+      deleteConfirm: '确定要删除此 Subject 及其所有版本？',
+      version: '版本',
+      latestVersion: '最新版本',
+      viewSchema: '查看 Schema',
+      deleteSchema: '删除 Subject',
+      connectionSuccess: '连接成功',
+      connectionFailed: '连接失败',
+      selectCluster: '选择集群',
+    },
   },
   en: {
     nav: {
@@ -1251,6 +1333,47 @@ export const translations: Record<Language, Translation> = {
       groupCreated: 'Group created successfully',
       remark: 'Remark',
       remarkPlaceholder: 'Add remark (optional)',
+    },
+    schemaRegistry: {
+      title: 'Schema Registry',
+      description: 'Manage Schema Registry configuration and schemas',
+      configTitle: 'Schema Registry Configuration',
+      registryUrl: 'Registry URL',
+      registryUrlPlaceholder: 'http://localhost:8081',
+      authentication: 'Authentication',
+      username: 'Username',
+      password: 'Password',
+      testConnection: 'Test Connection',
+      save: 'Save Configuration',
+      delete: 'Delete Configuration',
+      subjects: 'Subjects',
+      noSubjects: 'No subjects yet',
+      versions: 'Versions',
+      schemaType: 'Schema Type',
+      compatibilityLevel: 'Compatibility Level',
+      backward: 'Backward',
+      forward: 'Forward',
+      full: 'Full',
+      none: 'None',
+      testCompatibility: 'Test Compatibility',
+      compatible: 'Compatible',
+      incompatible: 'Incompatible',
+      registerSchema: 'Register Schema',
+      schemaContent: 'Schema Content',
+      schemaContentPlaceholder: 'Paste schema JSON content...',
+      registerSuccess: 'Schema registered successfully',
+      compatibilityTestSuccess: 'Compatibility test successful',
+      compatibilityTestFailed: 'Compatibility test failed',
+      configNotSet: 'Schema Registry not configured',
+      fetchFailed: 'Fetch failed',
+      deleteConfirm: 'Are you sure you want to delete this subject and all its versions?',
+      version: 'Version',
+      latestVersion: 'Latest Version',
+      viewSchema: 'View Schema',
+      deleteSchema: 'Delete Subject',
+      connectionSuccess: 'Connection successful',
+      connectionFailed: 'Connection failed',
+      selectCluster: 'Select Cluster',
     },
   },
 };

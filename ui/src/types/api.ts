@@ -157,3 +157,37 @@ export interface SendMessageResponse {
   partition: number;
   offset: number;
 }
+
+// ==================== Schema Registry ====================
+
+export interface SchemaRegistryConfig {
+  id: number;
+  cluster_id: string;
+  registry_url: string;
+  username?: string | null;
+  has_password: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchemaInfo {
+  subject: string;
+  version: number;
+  schema_type: 'AVRO' | 'PROTOBUF' | 'JSON';
+  schema_json: string;
+  compatibility_level?: string | null;
+}
+
+export interface SchemaSummary {
+  subject: string;
+  latest_version: number;
+  schema_type: 'AVRO' | 'PROTOBUF' | 'JSON';
+  compatibility_level?: string | null;
+  version_count: number;
+}
+
+export interface CompatibilityResult {
+  compatible: boolean;
+  errors: string[];
+  messages: string[];
+}
