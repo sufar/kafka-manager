@@ -26,7 +26,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           target: aarch64-apple-darwin,x86_64-apple-darwin
@@ -76,7 +76,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
@@ -141,7 +141,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
