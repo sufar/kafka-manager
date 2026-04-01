@@ -60,6 +60,18 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
         </svg>
       </button>
+
+      <!-- 发送历史 -->
+      <button
+        class="btn btn-ghost btn-sm"
+        :class="{ 'btn-active': showHistory }"
+        @click="toggleHistory"
+        :title="t.sentMessageHistory?.title || '发送历史'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
+        </svg>
+      </button>
     </div>
 
     <!-- 时间范围筛选面板 -->
@@ -357,6 +369,11 @@
       :initial-value="messageFormValue"
       @submit="handleSubmit"
     />
+
+    <!-- Sent Message History Panel -->
+    <div v-show="showHistory" class="absolute inset-0 top-[41px] overflow-y-auto bg-base-100 z-20">
+      <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" />
+    </div>
   </div>
 </template>
 
@@ -370,6 +387,7 @@ import { useLanguageStore } from '@/stores/language';
 import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
+import SentMessageHistory from '@/components/SentMessageHistory.vue';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 
@@ -506,6 +524,25 @@ const showSendModal = ref(false);
 const messageFormPartition = ref(0);
 const messageFormKey = ref('');
 const messageFormValue = ref('');
+
+// 发送历史状态
+const showHistory = ref(false);
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
+}
+
+// 处理选择历史消息
+function handleSelectHistory(message: { cluster_id: string; topic_name: string; partition: number; message_key: string | null; message_value: string; headers?: any }) {
+  // 填充表单
+  messageFormPartition.value = message.partition;
+  messageFormKey.value = message.message_key || '';
+  messageFormValue.value = message.message_value;
+  // 关闭历史面板
+  showHistory.value = false;
+  // 打开弹窗
+  showSendModal.value = true;
+}
 
 // 计算属性
 const canQuery = computed(() => {
@@ -837,11 +874,20 @@ function openSendModal() {
 async function handleSubmit(data: { partition: number; key: string | undefined; value: string; headers: { key: string; value: string }[] }, keepOpen: boolean) {
   if (!selectedCluster.value || !selectedTopic.value) return;
 
+  // 转换 headers 从数组到对象
+  const headersObj: Record<string, string> = {};
+  data.headers.forEach(h => {
+    if (h.key && h.value) {
+      headersObj[h.key] = h.value;
+    }
+  });
+
   try {
     const result = await apiClient.sendMessage(selectedCluster.value, selectedTopic.value, {
       partition: data.partition,
       key: data.key,
       value: data.value,
+      headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
     });
 
     // 设置 offset 到弹窗

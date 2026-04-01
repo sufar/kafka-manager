@@ -15,6 +15,9 @@ use crate::db::topic_history::{
     clear_history, delete_history, delete_history_by_topic, get_history_list,
     record_history,
 };
+use crate::db::sent_message::{
+    clear_sent_message_history, delete_sent_message, get_sent_message_list, record_sent_message,
+};
 use crate::db::settings::SettingStore;
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
@@ -639,6 +642,12 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic_history.delete" => handle_topic_history_delete(state, body).await,
         "topic_history.delete_by_topic" => handle_topic_history_delete_by_topic(state, body).await,
         "topic_history.clear" => handle_topic_history_clear(state).await,
+
+        // Sent Message History
+        "sent_message.list" => handle_sent_message_list(state, body).await,
+        "sent_message.record" => handle_sent_message_record(state, body).await,
+        "sent_message.delete" => handle_sent_message_delete(state, body).await,
+        "sent_message.clear" => handle_sent_message_clear(state).await,
 
         // Consumer Group
         "consumer_group.list" => handle_consumer_group_list(state, body).await,
@@ -3375,6 +3384,23 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
         .send_to_partition(&topic, partition, key.as_deref(), &value, headers_opt)
         .await?;
 
+    // 记录发送消息历史
+    let headers_json = if headers.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&headers).ok()
+    };
+    let _ = record_sent_message(
+        &state.db,
+        &cluster_id,
+        &topic,
+        partition_result,
+        key.as_deref(),
+        &value,
+        headers_json.as_deref(),
+        Some(offset),
+    ).await;
+
     Ok(serde_json::json!({
         "partition": partition_result,
         "offset": offset,
@@ -4509,6 +4535,90 @@ async fn handle_topic_history_delete_by_topic(state: AppState, body: Value) -> R
 async fn handle_topic_history_clear(state: AppState) -> Result<Value> {
     let count = clear_history(&state.db).await?;
     Ok(serde_json::json!({ "count": count, "message": "History cleared successfully" }))
+}
+
+// ==================== Sent Message History ====================
+
+async fn handle_sent_message_list(state: AppState, body: Value) -> Result<Value> {
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+    let offset = body.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
+    let topic_name = body.get("topic_name").and_then(|v| v.as_str()).map(String::from);
+
+    let messages = get_sent_message_list(
+        &state.db,
+        cluster_id.as_deref(),
+        topic_name.as_deref(),
+        Some(limit),
+        Some(offset),
+    ).await?;
+
+    let messages_json: Vec<Value> = messages
+        .into_iter()
+        .map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "cluster_id": m.cluster_id,
+                "topic_name": m.topic_name,
+                "partition": m.partition,
+                "message_key": m.message_key,
+                "message_value": m.message_value,
+                "headers": m.headers.and_then(|h| serde_json::from_str::<Value>(&h).ok()),
+                "offset": m.offset,
+                "sent_at": m.sent_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "messages": messages_json }))
+}
+
+async fn handle_sent_message_record(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_string_param(&body, "cluster_id")?;
+    let topic_name = get_string_param(&body, "topic_name")?;
+    let partition = body.get("partition").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    let message_key = body.get("key").and_then(|v| v.as_str()).map(String::from);
+    let message_value = get_string_param(&body, "value")?;
+    let headers = body.get("headers").and_then(|v| serde_json::to_string(v).ok());
+    let offset = body.get("offset").and_then(|v| v.as_i64());
+
+    let message = record_sent_message(
+        &state.db,
+        &cluster_id,
+        &topic_name,
+        partition,
+        message_key.as_deref(),
+        &message_value,
+        headers.as_deref(),
+        offset,
+    ).await?;
+
+    Ok(serde_json::json!({
+        "id": message.id,
+        "cluster_id": message.cluster_id,
+        "topic_name": message.topic_name,
+        "partition": message.partition,
+        "message_key": message.message_key,
+        "message_value": message.message_value,
+        "offset": message.offset,
+        "sent_at": message.sent_at,
+    }))
+}
+
+async fn handle_sent_message_delete(state: AppState, body: Value) -> Result<Value> {
+    let id = get_i64_param(&body, "id")?;
+
+    let deleted = delete_sent_message(&state.db, id).await?;
+    if deleted {
+        Ok(serde_json::json!({ "message": "Message history deleted successfully" }))
+    } else {
+        Err(AppError::NotFound("Message history not found".to_string()))
+    }
+}
+
+async fn handle_sent_message_clear(state: AppState) -> Result<Value> {
+    let count = clear_sent_message_history(&state.db).await?;
+    Ok(serde_json::json!({ "count": count, "message": "Message history cleared successfully" }))
 }
 
 // ==================== Cluster Group ====================

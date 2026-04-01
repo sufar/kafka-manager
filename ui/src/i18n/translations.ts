@@ -431,6 +431,21 @@ export interface Translation {
     hoursAgo: string;
     daysAgo: string;
   };
+  sentMessageHistory: {
+    title: string;
+    description: string;
+    empty: string;
+    emptyHint: string;
+    noSearchResults: string;
+    searchPlaceholder: string;
+    delete: string;
+    clearAll: string;
+    confirmClear: string;
+    justNow: string;
+    minutesAgo: string;
+    hoursAgo: string;
+    daysAgo: string;
+  };
   schemaRegistry: {
     title: string;
     description: string;
@@ -906,6 +921,21 @@ export const translations: Record<Language, Translation> = {
       hoursAgo: '小时前',
       daysAgo: '天前',
     },
+    sentMessageHistory: {
+      title: '发送历史',
+      description: '自动记录您发送过的消息',
+      empty: '暂无发送历史',
+      emptyHint: '发送消息时会自动记录到这里',
+      noSearchResults: '无匹配的历史记录',
+      searchPlaceholder: '搜索 Topic...',
+      delete: '删除记录',
+      clearAll: '清空历史',
+      confirmClear: '确定要清空所有发送历史吗？',
+      justNow: '刚刚',
+      minutesAgo: '分钟前',
+      hoursAgo: '小时前',
+      daysAgo: '天前',
+    },
     schemaRegistry: {
       title: 'Schema Registry',
       description: '管理 Schema Registry 配置和 Schema',
@@ -1374,6 +1404,21 @@ export const translations: Record<Language, Translation> = {
       delete: 'Delete record',
       clearAll: 'Clear all history',
       confirmClear: 'Are you sure you want to clear all history records?',
+      justNow: 'Just now',
+      minutesAgo: 'm ago',
+      hoursAgo: 'h ago',
+      daysAgo: 'd ago',
+    },
+    sentMessageHistory: {
+      title: 'Sent Messages',
+      description: 'Automatically record messages you have sent',
+      empty: 'No sent message history yet',
+      emptyHint: 'Messages will be automatically recorded here when sent',
+      noSearchResults: 'No matching history records',
+      searchPlaceholder: 'Search Topic...',
+      delete: 'Delete record',
+      clearAll: 'Clear all history',
+      confirmClear: 'Are you sure you want to clear all sent message history?',
       justNow: 'Just now',
       minutesAgo: 'm ago',
       hoursAgo: 'h ago',

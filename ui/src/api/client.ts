@@ -978,6 +978,30 @@ class ApiClient {
     return this.request('topic_history.clear', {});
   }
 
+  // ==================== Sent Message History ====================
+  async getSentMessageHistory(limit?: number, offset?: number): Promise<{ messages: Array<{ id: number; cluster_id: string; topic_name: string; partition: number; message_key: string | null; message_value: string; headers?: any; offset?: number; sent_at: string }> }> {
+    const params: any = {};
+    if (limit !== undefined) {
+      params.limit = limit;
+    }
+    if (offset !== undefined) {
+      params.offset = offset;
+    }
+    return this.request('sent_message.list', params);
+  }
+
+  async recordSentMessageHistory(clusterId: string, topicName: string, partition: number, key: string | null, value: string, headers?: any, offset?: number): Promise<{ id: number; cluster_id: string; topic_name: string; partition: number; message_key: string | null; message_value: string; offset?: number; sent_at: string }> {
+    return this.request('sent_message.record', { cluster_id: clusterId, topic_name: topicName, partition, key, value, headers, offset });
+  }
+
+  async deleteSentMessageHistory(id: number): Promise<void> {
+    return this.request('sent_message.delete', { id });
+  }
+
+  async clearSentMessageHistory(): Promise<{ count: number; message: string }> {
+    return this.request('sent_message.clear', {});
+  }
+
   // ==================== Schema Registry ====================
   async getSchemaRegistryConfig(clusterId: string): Promise<import('@/types/api').SchemaRegistryConfig | null> {
     return this.request('schema_registry.config.get', { cluster_id: clusterId });

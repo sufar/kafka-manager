@@ -9,6 +9,7 @@ pub mod tag;
 pub mod topic;
 pub mod topic_template;
 pub mod topic_history;
+pub mod sent_message;
 pub mod user;
 pub mod json_highlight;
 pub mod schema_registry;
@@ -403,6 +404,9 @@ impl DbPool {
 
         // 创建 Topic 历史表
         topic_history::init_tables(self.inner()).await?;
+
+        // 创建发送消息历史表
+        sent_message::init_tables(self.inner()).await?;
 
         // 创建集群分组表
         self.init_cluster_groups_table().await?;
