@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Kafka Manager",
+  "productName": "KafkaManager",
   "version": "1.0.6",
   "identifier": "com.kafka-manager",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Kafka Manager",
+        "title": "KafkaManager",
         "width": 1400,
         "height": 900,
         "resizable": true,
