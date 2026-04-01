@@ -328,12 +328,25 @@ export interface Translation {
     searchPlaceholder: string;
     noTopicsFound: string;
     settings: string;
+    checkForUpdates: string;
     confirmDeleteCluster: string;
     confirmDeleteTopic: string;
     clusterNotFound: string;
     topicNotFound: string;
     refreshFailed: string;
     refreshCancelled: string;
+  };
+  update: {
+    available: string;
+    currentVersion: string;
+    newVersion: string;
+    releaseNotes: string;
+    downloading: string;
+    installing: string;
+    updateAndRestart: string;
+    checkCompleteNoUpdate: string;
+    checkFailed: string;
+    installFailed: string;
   };
   toast: {
     error: string;
@@ -818,12 +831,25 @@ export const translations: Record<Language, Translation> = {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
       noTopicsFound: '未找到主题',
       settings: '设置',
+      checkForUpdates: '检查更新',
       confirmDeleteCluster: '确定要删除集群 "{cluster}" 吗？',
       confirmDeleteTopic: '确定要删除主题 "{topic}" 吗？',
       clusterNotFound: '集群不存在',
       topicNotFound: '主题不存在',
       refreshFailed: '刷新失败',
       refreshCancelled: '刷新已取消',
+    },
+    update: {
+      available: '发现新版本',
+      currentVersion: '当前版本',
+      newVersion: '新版本',
+      releaseNotes: '更新说明',
+      downloading: '正在下载...',
+      installing: '正在安装...',
+      updateAndRestart: '更新并重启',
+      checkCompleteNoUpdate: '已是最新版本',
+      checkFailed: '检查更新失败',
+      installFailed: '安装更新失败',
     },
     toast: {
       error: '错误',
@@ -1306,12 +1332,25 @@ export const translations: Record<Language, Translation> = {
       searchPlaceholder: 'Search topics... (Ctrl+K)',
       noTopicsFound: 'No topics found',
       settings: 'Settings',
+      checkForUpdates: 'Check for Updates',
       confirmDeleteCluster: 'Are you sure you want to remove cluster "{cluster}"?',
       confirmDeleteTopic: 'Are you sure you want to delete topic "{topic}"?',
       clusterNotFound: 'Cluster not found',
       topicNotFound: 'Topic not found',
       refreshFailed: 'Refresh failed',
       refreshCancelled: 'Refresh cancelled',
+    },
+    update: {
+      available: 'New Version Available',
+      currentVersion: 'Current Version',
+      newVersion: 'New Version',
+      releaseNotes: 'Release Notes',
+      downloading: 'Downloading...',
+      installing: 'Installing...',
+      updateAndRestart: 'Update and Restart',
+      checkCompleteNoUpdate: 'Already up to date',
+      checkFailed: 'Failed to check for updates',
+      installFailed: 'Failed to install update',
     },
     toast: {
       error: 'Error',

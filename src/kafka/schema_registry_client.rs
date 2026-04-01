@@ -5,6 +5,7 @@ use crate::error::{AppError, Result};
 use crate::models::schema_registry::{
     CompatibilityLevel, CompatibilityResult, SchemaId, SchemaInfo, SchemaType,
 };
+use base64::Engine;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -33,8 +34,8 @@ struct SchemaResponse {
     subject: String,
     version: i32,
     schema: String,
-    #[serde(default)]
-    schemaType: Option<String>,  // AVRO, PROTOBUF, JSON
+    #[serde(default, rename = "schemaType")]
+    schema_type: Option<String>,  // AVRO, PROTOBUF, JSON
     #[serde(default)]
     references: Option<Vec<SchemaReference>>,
 }
@@ -61,8 +62,8 @@ struct CompatibilityResponse {
 #[derive(Debug, Serialize)]
 struct RegisterSchemaBody {
     schema: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    schemaType: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "schemaType")]
+    schema_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<Vec<SchemaReference>>,
 }
@@ -95,7 +96,7 @@ impl SchemaRegistryClient {
         let auth_header = match (username, password) {
             (Some(user), Some(pass)) => {
                 let credentials = format!("{}:{}", user, pass);
-                let encoded = base64::encode(&credentials);
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&credentials);
                 Some(format!("Basic {}", encoded))
             }
             _ => None,
@@ -162,7 +163,7 @@ impl SchemaRegistryClient {
 
                 // 解析 schema 类型
                 let schema_type = schema_resp
-                    .schemaType
+                    .schema_type
                     .as_deref()
                     .and_then(SchemaType::from_str)
                     .unwrap_or(SchemaType::Avro);
@@ -205,7 +206,7 @@ impl SchemaRegistryClient {
 
         let body = RegisterSchemaBody {
             schema: schema_json.to_string(),
-            schemaType: Some(schema_type.to_string()),
+            schema_type: Some(schema_type.to_string()),
             references: None,
         };
 
@@ -294,10 +295,11 @@ impl SchemaRegistryClient {
         if response.status().is_success() {
             #[derive(Debug, Deserialize)]
             struct ConfigResponse {
-                compatibilityLevel: String,
+                #[serde(rename = "compatibilityLevel")]
+                compatibility_level: String,
             }
             let result: ConfigResponse = response.json().await?;
-            return CompatibilityLevel::from_str(&result.compatibilityLevel)
+            return CompatibilityLevel::from_str(&result.compatibility_level)
                 .ok_or_else(|| AppError::Internal("Invalid compatibility level".to_string()));
         }
 
@@ -309,10 +311,11 @@ impl SchemaRegistryClient {
             StatusCode::OK => {
                 #[derive(Debug, Deserialize)]
                 struct GlobalConfigResponse {
-                    compatibilityLevel: String,
+                    #[serde(rename = "compatibilityLevel")]
+                    compatibility_level: String,
                 }
                 let result: GlobalConfigResponse = response.json().await?;
-                CompatibilityLevel::from_str(&result.compatibilityLevel)
+                CompatibilityLevel::from_str(&result.compatibility_level)
                     .ok_or_else(|| AppError::Internal("Invalid compatibility level".to_string()))
             }
             _ => Ok(CompatibilityLevel::Backward),  // 默认兼容性级别

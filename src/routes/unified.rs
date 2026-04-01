@@ -28,6 +28,7 @@ use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
 use crate::kafka::throughput::KafkaThroughputCalculator;
 use crate::db::schema_registry::{SchemaRegistryStore, SchemaStore};
+use base64::Engine;
 use crate::kafka::avro::AvroCodec;
 use crate::kafka::protobuf::ProtobufCodec;
 use crate::AppState;
@@ -1929,7 +1930,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
             // 尝试使用 Schema 解码消息
             if let Some((ref _config, ref schema)) = schema_info {
                 // 检查是否是 base64 编码的二进制数据（Avro/Protobuf）
-                if let Ok(decoded_bytes) = base64::decode(&value) {
+                if let Ok(decoded_bytes) = base64::engine::general_purpose::STANDARD.decode(&value) {
                     match schema.schema_type.as_str() {
                         "AVRO" => {
                             if let Ok(json_value) = AvroCodec::decode(&schema.schema_json, &decoded_bytes) {
@@ -3341,7 +3342,7 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
                         match AvroCodec::encode(&schema.schema_json, &json_value) {
                             Ok(encoded_bytes) => {
                                 // 使用 base64 编码二进制数据
-                                value = base64::encode(&encoded_bytes);
+                                value = base64::engine::general_purpose::STANDARD.encode(&encoded_bytes);
                                 tracing::info!("Message encoded with Avro schema for topic: {}", topic);
                             }
                             Err(e) => {
@@ -3357,7 +3358,7 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
                         // 这里假设 schema_json 包含必要的 protobuf 描述符
                         match ProtobufCodec::encode_simple(&schema.schema_json, &json_value) {
                             Ok(encoded_bytes) => {
-                                value = base64::encode(&encoded_bytes);
+                                value = base64::engine::general_purpose::STANDARD.encode(&encoded_bytes);
                                 tracing::info!("Message encoded with Protobuf schema for topic: {}", topic);
                             }
                             Err(e) => {

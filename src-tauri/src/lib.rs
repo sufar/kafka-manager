@@ -265,6 +265,120 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// 更新检查结果
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct UpdateResult {
+    pub available: bool,
+    pub version: String,
+    pub notes: Option<String>,
+    pub date: Option<String>,
+}
+
+/// 检查更新
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateResult, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    log("Checking for updates...");
+
+    // 在开发模式下跳过更新检查
+    if cfg!(debug_assertions) {
+        log("Skipping update check in debug mode");
+        return Ok(UpdateResult {
+            available: false,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            notes: None,
+            date: None,
+        });
+    }
+
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            log(&format!("Failed to get updater: {}", e));
+            // 更新插件未配置时，返回无更新
+            return Ok(UpdateResult {
+                available: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                notes: None,
+                date: None,
+            });
+        }
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            log(&format!("Update available: {} -> {}",
+                env!("CARGO_PKG_VERSION"),
+                update.version));
+
+            Ok(UpdateResult {
+                available: true,
+                version: update.version.to_string(),
+                notes: update.body.map(|s| s.to_string()),
+                date: update.date.map(|d| format!("{}", d)),
+            })
+        }
+        Ok(None) => {
+            log("No updates available");
+            Ok(UpdateResult {
+                available: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                notes: None,
+                date: None,
+            })
+        }
+        Err(e) => {
+            // 检查更新失败（如网络错误、404 等），不视为错误，只是没有更新
+            log(&format!("Failed to check for updates (treated as no update): {}", e));
+            Ok(UpdateResult {
+                available: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                notes: None,
+                date: None,
+            })
+        }
+    }
+}
+
+/// 下载并安装更新
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    log("Downloading and installing update...");
+
+    let updater = app.updater().map_err(|e| e.to_string())?;
+
+    let update = updater.check().await.map_err(|e| e.to_string())?
+        .ok_or_else(|| "No update available".to_string())?;
+
+    match update
+        .download_and_install(
+            |_progress, _total| {
+                // 下载进度回调
+                log(&format!("Download progress: {}/{}", _progress, _total.unwrap_or(0)));
+            },
+            || {
+                // 下载完成回调
+                log("Download finished");
+            }
+        )
+        .await
+    {
+        Ok(_) => {
+            log("Update installed successfully, restarting...");
+
+            // 安装完成后重启应用（这不会返回）
+            app.restart()
+        }
+        Err(e) => {
+            log(&format!("Failed to install update: {}", e));
+            Err(format!("安装更新失败：{}", e))
+        }
+    }
+}
+
 pub fn run() {
     log("Tauri application starting...");
 
@@ -318,7 +432,8 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update])
         .setup(|app| {
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;

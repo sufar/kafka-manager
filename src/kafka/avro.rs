@@ -3,6 +3,7 @@
 
 use crate::error::{AppError, Result};
 use apache_avro::{types::Value, Reader, Schema, Writer};
+use base64::Engine;
 use serde_json;
 
 pub struct AvroCodec;
@@ -151,11 +152,11 @@ fn avro_to_json(avro: Value) -> serde_json::Value {
         Value::Float(f) => serde_json::json!(f),
         Value::Double(d) => serde_json::json!(d),
         Value::Bytes(bytes) => {
-            serde_json::Value::String(base64::encode(&bytes))
+            serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes))
         }
         Value::String(s) => serde_json::Value::String(s),
         Value::Fixed(_, bytes) => {
-            serde_json::Value::String(base64::encode(&bytes))
+            serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes))
         }
         Value::Enum(_index, symbol) => serde_json::Value::String(symbol),
         Value::Union(_index, inner) => avro_to_json(*inner),
@@ -199,8 +200,6 @@ fn avro_to_json(avro: Value) -> serde_json::Value {
         Value::BigDecimal(val) => {
             serde_json::Value::String(val.to_string())
         }
-        // 处理其他未覆盖的类型，返回 null
-        _ => serde_json::Value::Null,
     }
 }
 

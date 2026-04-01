@@ -359,12 +359,14 @@ import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
 import type { SchemaRegistryConfig, SchemaSummary, SchemaInfo } from '@/types/api';
 
 const route = useRoute();
 const clusterStore = useClusterStore();
 const languageStore = useLanguageStore();
+const toast = useToast();
 const t = computed(() => languageStore.t);
 const router = useRouter();
 
@@ -478,12 +480,16 @@ async function testConnection(silent: boolean = false) {
     );
     connected.value = result.success;
     if (!silent) {
-      alert(result.success ? t.value.schemaRegistry.connectionSuccess : t.value.schemaRegistry.connectionFailed);
+      if (result.success) {
+        toast.showSuccess(t.value.schemaRegistry.connectionSuccess);
+      } else {
+        toast.showError(t.value.schemaRegistry.connectionFailed);
+      }
     }
   } catch (e) {
     connected.value = false;
     if (!silent) {
-      alert(t.value.schemaRegistry.connectionFailed);
+      toast.showError(t.value.schemaRegistry.connectionFailed);
     }
   }
 }
@@ -502,23 +508,27 @@ async function saveConfig() {
     await loadConfig();
     await loadSubjects();
     closeConfigDialog();
+    toast.showSuccess('Configuration saved');
   } catch (e) {
     console.error('[SchemaRegistry] Failed to save config:', e);
-    alert('Failed to save configuration');
+    toast.showError('Failed to save configuration');
   } finally {
     savingConfig.value = false;
   }
 }
 
 async function confirmDeleteConfig() {
-  if (!confirm(t.value.schemaRegistry.deleteConfirm)) return;
+  const confirmed = await toast.confirm(t.value.schemaRegistry.deleteConfirm);
+  if (!confirmed) return;
 
   try {
     await apiClient.deleteSchemaRegistryConfig(selectedCluster.value!);
     config.value = null;
     subjects.value = [];
+    toast.showSuccess('Configuration deleted');
   } catch (e) {
     console.error('[SchemaRegistry] Failed to delete config:', e);
+    toast.showError('Failed to delete configuration');
   }
 }
 
@@ -537,13 +547,16 @@ function closeSchemaDialog() {
 }
 
 async function confirmDeleteSchema(subject: string) {
-  if (!confirm(`${t.value.schemaRegistry.deleteConfirm}\n\n${subject}`)) return;
+  const confirmed = await toast.confirm(`${t.value.schemaRegistry.deleteConfirm}\n\n${subject}`);
+  if (!confirmed) return;
 
   try {
     await apiClient.deleteSchema(selectedCluster.value!, subject);
     await loadSubjects();
+    toast.showSuccess('Schema deleted successfully');
   } catch (e) {
     console.error('[SchemaRegistry] Failed to delete schema:', e);
+    toast.showError('Failed to delete schema');
   }
 }
 
@@ -568,7 +581,11 @@ async function testRegisterCompatibility() {
       registerForm.schemaJson,
       -1
     );
-    alert(result.compatible ? t.value.schemaRegistry.compatible : t.value.schemaRegistry.incompatible);
+    if (result.compatible) {
+      toast.showSuccess(t.value.schemaRegistry.compatible);
+    } else {
+      toast.showWarning(t.value.schemaRegistry.incompatible);
+    }
   } catch (e) {
     console.error('[SchemaRegistry] Failed to test compatibility:', e);
   }
@@ -587,9 +604,10 @@ async function registerSchema() {
     );
     await loadSubjects();
     closeRegisterSchemaDialog();
+    toast.showSuccess('Schema registered successfully');
   } catch (e) {
     console.error('[SchemaRegistry] Failed to register schema:', e);
-    alert('Failed to register schema');
+    toast.showError('Failed to register schema');
   } finally {
     registeringSchema.value = false;
   }

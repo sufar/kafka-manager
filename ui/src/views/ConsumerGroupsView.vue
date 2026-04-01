@@ -200,7 +200,7 @@ const route = useRoute();
 const router = useRouter();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
-const { showError, showSuccess } = useToast();
+const { showError, showSuccess, confirm } = useToast();
 
 const clusterParam = computed(() => {
   const val = route.query.cluster;
@@ -469,7 +469,8 @@ async function confirmResetOffset() {
 async function deleteConsumerGroup() {
   if (!clusterParam.value || !currentGroup.value) return;
 
-  if (!confirm(`Are you sure you want to delete consumer group "${currentGroup.value}"?`)) {
+  const confirmed = await confirm(`Are you sure you want to delete consumer group "${currentGroup.value}"?`);
+  if (!confirmed) {
     return;
   }
 

@@ -126,18 +126,104 @@
           </div>
           <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between">
             <span class="text-sm font-medium">{{ t.settings.currentVersion }}</span>
-            <span class="badge badge-primary font-mono">{{ appVersion }}</span>
+            <div class="flex items-center gap-2">
+              <span class="badge badge-primary font-mono">{{ appVersion }}</span>
+              <button
+                v-if="updateAvailable"
+                class="btn btn-xs btn-warning text-white"
+                @click="showUpdateModal = true"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 20A2.653 2.653 0 0 0 21 17.25l-4.662-4.662a7.467 7.467 0 0 0-.75-5.933m-6.75 5.511L12 15m0 0V3.75m0 11.25-2.822-2.822m0 0a7.467 7.467 0 0 1 5.933-.75m-5.933.75L5.25 15m0 0V3.75m0 11.25a2.653 2.653 0 0 1-3.75-3.75L6.127 6.375" />
+                </svg>
+                新版本
+              </button>
+            </div>
           </div>
           <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
             <span class="text-sm font-medium">{{ t.settings.author }}</span>
             <span class="text-sm font-medium">朱占全</span>
           </div>
           <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
-            <span class="text-sm font-medium">{{ t.settings.help }}</span>
-            <span class="text-sm">有问题请跨声联系</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium">检查更新</span>
+              <span v-if="checking" class="loading loading-spinner loading-xs"></span>
+              <span v-if="updateAvailable" class="text-warning text-xs">有新版本</span>
+            </div>
+            <button class="btn btn-sm" @click="checkForUpdates(true)">
+              {{ checking ? '检查中...' : '立即检查' }}
+            </button>
           </div>
         </div>
       </div>
+
+      <!-- Update Modal -->
+      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': showUpdateModal }">
+        <div class="modal-box">
+          <h3 class="font-bold text-lg mb-4">
+            {{ t.update.available }}
+          </h3>
+
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center flex-shrink-0 glow-primary">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-primary">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 0 1-5.84 7.38c-4.38 0-7.21-4.79-5.43-8.96a7.46 7.46 0 0 1 3.43-3.69l.12-.06a6 6 0 1 1 7.72 5.33Zm-5.84-5.12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm6.54 6.04a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="m15 12-3.5-3.5m0 0L8 12m3.5-3.5v9" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm text-base-content/60">{{ t.update.currentVersion }}</div>
+              <div class="font-mono font-bold">{{ appVersion }}</div>
+            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-base-content/40">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 8.25 21 12m0 0-4 3.75M21 12H3" />
+            </svg>
+            <div>
+              <div class="text-sm text-base-content/60">{{ t.update.newVersion }}</div>
+              <div class="font-mono font-bold text-primary">{{ updateInfo?.version }}</div>
+            </div>
+          </div>
+
+          <div v-if="updateInfo?.notes" class="mb-4 p-3 bg-base-200 rounded-lg">
+            <h4 class="font-semibold text-sm mb-2">{{ t.update.releaseNotes }}</h4>
+            <div class="text-sm whitespace-pre-wrap">{{ updateInfo.notes }}</div>
+          </div>
+
+          <div v-if="downloading" class="mb-4">
+            <div class="flex justify-between text-xs mb-1">
+              <span>{{ t.update.downloading }}</span>
+              <span>{{ downloadProgress }}%</span>
+            </div>
+            <progress class="progress progress-primary w-full" :value="downloadProgress" max="100"></progress>
+          </div>
+
+          <div class="modal-action">
+            <form method="dialog" class="flex gap-2 w-full">
+              <button
+                type="button"
+                class="btn btn-ghost flex-1"
+                :disabled="downloading || installing"
+                @click="showUpdateModal = false"
+              >
+                {{ t.common.cancel }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary flex-1"
+                :disabled="downloading || installing"
+                @click="installUpdate"
+              >
+                <span v-if="installing" class="loading loading-spinner loading-sm"></span>
+                {{ downloading ? t.update.downloading : installing ? t.update.installing : t.update.updateAndRestart }}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <form method="dialog" class="modal-backdrop">
+          <button @click="showUpdateModal = false">close</button>
+        </form>
+      </dialog>
 
       <!-- JSON Highlight Setting -->
       <div class="md:col-span-2">
@@ -148,22 +234,124 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
+import { invoke } from '@tauri-apps/api/core';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
+const toast = useToast();
 
 const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
 // App version
 const appVersion = ref('1.0.5');
+
+// 更新相关状态
+const updateAvailable = ref(false);
+const updateInfo = ref<{ version: string; notes: string } | null>(null);
+const showUpdateModal = ref(false);
+const checking = ref(false);
+const downloading = ref(false);
+const installing = ref(false);
+const downloadProgress = ref(0);
+
+// Modal ref
+const modalRef = ref<HTMLDialogElement>();
+
+// 监听 modal 打开/关闭
+watch(showUpdateModal, (newVal) => {
+  if (modalRef.value) {
+    if (newVal) {
+      modalRef.value.showModal();
+    } else {
+      modalRef.value.close();
+    }
+  }
+});
+
+// 获取当前版本
+async function getCurrentVersion() {
+  try {
+    appVersion.value = await invoke<string>('get_app_version');
+  } catch (e) {
+    console.error('Failed to get current version:', e);
+  }
+}
+
+// 检查更新
+async function checkForUpdates(manual = false) {
+  if (checking.value) return;
+
+  checking.value = true;
+  try {
+    const result = await invoke<{
+      available: boolean;
+      version: string;
+      notes: string;
+      date: string;
+    }>('check_for_updates');
+
+    if (result.available) {
+      updateAvailable.value = true;
+      updateInfo.value = {
+        version: result.version,
+        notes: result.notes || ''
+      };
+      if (manual) {
+        showUpdateModal.value = true;
+      }
+    } else {
+      if (manual) {
+        // 使用 Toast 显示成功提示，替代系统 alert
+        toast.showInfo(t.value.update.checkCompleteNoUpdate || '已是最新版本', 3000);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to check for updates:', e);
+    // 只在手动检查时显示错误提示
+    if (manual) {
+      toast.showError((t.value.update.checkFailed || '检查更新失败') + ': ' + (e as Error).message);
+    }
+    // 自动检查时静默失败，不弹出提示
+  } finally {
+    checking.value = false;
+  }
+}
+
+// 安装更新
+async function installUpdate() {
+  if (downloading.value || installing.value) return;
+
+  downloading.value = true;
+  installing.value = false;
+  downloadProgress.value = 0;
+
+  try {
+    // 模拟下载进度（实际进度会在 Rust 端处理）
+    const progressInterval = setInterval(() => {
+      downloadProgress.value = Math.min(downloadProgress.value + 10, 90);
+    }, 500);
+
+    await invoke('install_update');
+
+    clearInterval(progressInterval);
+    downloadProgress.value = 100;
+
+    // 应用会重启，这里不会执行到
+  } catch (e) {
+    downloading.value = false;
+    console.error('Failed to install update:', e);
+    toast.showError((t.value.update.installFailed || '安装更新失败') + ': ' + (e as Error).message);
+  }
+}
 
 // Sidebar mode state
 const sidebarMode = ref<'tree' | 'flat'>('flat');
@@ -200,7 +388,10 @@ function handleToggleTheme() {
 }
 
 onMounted(() => {
+  getCurrentVersion();
   loadSidebarModeSetting();
+  // 延迟检查更新
+  setTimeout(() => checkForUpdates(false), 2000);
 });
 </script>
 

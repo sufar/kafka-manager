@@ -91,7 +91,7 @@ import { useToast } from '@/composables/useToast';
 
 const languageStore = useLanguageStore();
 const themeStore = useThemeStore();
-const { showSuccess, showError } = useToast();
+const { showSuccess, showError, confirm } = useToast();
 const t = computed(() => languageStore.t);
 const { isDark } = themeStore;
 
@@ -385,10 +385,12 @@ function cancelEdit() {
 }
 
 // 确认删除
-function confirmDelete() {
-  if (confirm(t.value.settings.confirmDeleteTemplate)) {
-    deleteTemplate();
+async function confirmDelete() {
+  const confirmed = await confirm(t.value.settings.confirmDeleteTemplate);
+  if (!confirmed) {
+    return;
   }
+  deleteTemplate();
 }
 
 // 删除模板

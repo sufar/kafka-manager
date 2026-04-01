@@ -40,5 +40,14 @@
       "icons/icon.png",
       "icons/icon.icns"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/sufar/kafka-manager/releases/download/v{{ curr_version }}/latest.json"
+      ],
+      "pubkey": ""
+    }
   }
 }
