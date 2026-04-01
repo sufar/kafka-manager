@@ -58,11 +58,17 @@ jobs:
         run: |
           cargo tauri build --target universal-apple-darwin
 
+      - name: Find DMG file
+        working-directory: src-tauri
+        run: |
+          DMG_PATH=$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
+
       - name: Upload macOS Bundle
         uses: actions/upload-artifact@v4
         with:
           name: macos-bundle
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: ${{ env.DMG_PATH }}
           if-no-files-found: error
 
   build-linux:
@@ -113,18 +119,26 @@ jobs:
         working-directory: src-tauri
         run: cargo tauri build
 
+      - name: Find Linux artifacts
+        working-directory: src-tauri
+        run: |
+          APPIMAGE_PATH=$(find target/release/bundle/appimage -name '*.AppImage' | head -1)
+          DEB_PATH=$(find target/release/bundle/deb -name '*.deb' | head -1)
+          echo "APPIMAGE_PATH=$APPIMAGE_PATH" >> $GITHUB_ENV
+          echo "DEB_PATH=$DEB_PATH" >> $GITHUB_ENV
+
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          path: ${{ env.APPIMAGE_PATH }}
           if-no-files-found: error
 
       - name: Upload Linux deb
         uses: actions/upload-artifact@v4
         with:
           name: linux-deb
-          path: src-tauri/target/release/bundle/deb/*.deb
+          path: ${{ env.DEB_PATH }}
           if-no-files-found: error
 
   build-windows:
@@ -163,18 +177,27 @@ jobs:
         working-directory: src-tauri
         run: cargo tauri build
 
+      - name: Find Windows artifacts
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          MSI_PATH=$(find target/release/bundle/msi -name '*.msi' | head -1)
+          EXE_PATH=$(find target/release/bundle/nsis -name '*.exe' | head -1)
+          echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
+          echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
+
       - name: Upload Windows MSI
         uses: actions/upload-artifact@v4
         with:
           name: windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: ${{ env.MSI_PATH }}
           if-no-files-found: error
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          path: ${{ env.EXE_PATH }}
           if-no-files-found: error
 
   create-release:
