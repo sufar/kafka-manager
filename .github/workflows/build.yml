@@ -49,6 +49,10 @@ jobs:
           cd ui
           npm run build
 
+      - name: Verify frontend build
+        run: |
+          ls -la ui/dist
+
       - name: Build Tauri app (universal)
         working-directory: src-tauri
         run: |
