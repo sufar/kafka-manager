@@ -1216,14 +1216,12 @@ function handleEditClusterFromMenu(event: Event) {
   }));
 }
 
-function handleNavigateFromHistory(event: Event) {
+async function handleNavigateFromHistory(event: Event) {
   const customEvent = event as CustomEvent<{ clusterId: string; topicName: string }>;
   const { clusterId, topicName } = customEvent.detail;
   if (clusterId && topicName) {
     showHistory.value = false;
-    window.dispatchEvent(new CustomEvent('navigate-to-topic', {
-      detail: { cluster: clusterId, topic: topicName }
-    }));
+    await highlightAndSelectTopic(topicName, clusterId);
   }
 }
 </script>
