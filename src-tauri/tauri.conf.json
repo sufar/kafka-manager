@@ -31,14 +31,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": [],
+    "targets": ["dmg", "appimage", "deb", "msi", "nsis"],
     "resources": [
       "../config.toml",
       "../migrations"
     ],
     "icon": [
       "icons/icon.png",
-      "icons/icon.icns"
+      "icons/icon.icns",
+      "icons/icon.ico"
     ]
   },
   "plugins": {
