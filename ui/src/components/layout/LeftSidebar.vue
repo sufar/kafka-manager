@@ -105,7 +105,7 @@ const emit = defineEmits<{
 }>();
 
 // Sidebar width management
-const leftSidebarWidth = ref(280);
+const leftSidebarWidth = ref(460);
 const leftSidebarRef = ref<HTMLElement>();
 const resizerRef = ref<HTMLElement>();
 const isResizing = ref(false);
@@ -123,7 +123,7 @@ function startResize(e: MouseEvent) {
 
 function handleResize(e: MouseEvent) {
   const delta = e.pageX - startX.value;
-  leftSidebarWidth.value = Math.max(200, Math.min(startWidth.value + delta, window.innerWidth * 0.8));
+  leftSidebarWidth.value = Math.max(380, Math.min(startWidth.value + delta, window.innerWidth * 0.8));
 }
 
 function stopResize() {

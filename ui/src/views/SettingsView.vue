@@ -1,5 +1,6 @@
 <template>
-  <div class="p-3 relative overflow-auto min-h-full">
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="p-3 relative flex-1 flex flex-col min-h-0">
     <!-- Animated background -->
     <div class="absolute inset-0 pointer-events-none">
       <div class="particle particle-1"></div>
@@ -7,7 +8,7 @@
     </div>
 
     <!-- Page Header -->
-    <div class="mb-4 relative">
+    <div class="mb-4 relative flex-shrink-0">
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold text-gradient flex items-center gap-2">
@@ -22,8 +23,10 @@
       </div>
     </div>
 
-    <!-- Settings Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20 md:pb-4">
+    <!-- Content Area (scrollable) -->
+    <div class="flex-1 overflow-auto min-h-0">
+      <!-- Settings Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
       <!-- Language Setting -->
       <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
         <div class="card-body p-3">
@@ -229,6 +232,8 @@
       <div class="md:col-span-2">
         <JsonHighlightSelector />
       </div>
+    </div>
+    </div>
     </div>
   </div>
 </template>
