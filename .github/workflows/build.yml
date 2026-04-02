@@ -136,22 +136,17 @@ jobs:
         working-directory: src-tauri
         run: |
           echo "=== Bundle directory contents ==="
-          find target/release/bundle -type f 2>/dev/null | head -20 || echo "bundle dir not found"
-          echo "=== Trying alternate paths ==="
-          ls -la target/release/bundle/ 2>/dev/null || echo "bundle not found"
-          ls -la target/release/ 2>/dev/null | head -20
+          ls -laR target/release/bundle/ 2>/dev/null || echo "bundle dir not found"
+          echo "=== Full target/release structure ==="
+          find target/release -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' 2>/dev/null
 
       - name: Find Linux artifacts
         working-directory: src-tauri
         run: |
-          APPIMAGE_PATH=$(find target/release/bundle -name '*.AppImage' 2>/dev/null | head -1)
-          if [ -z "$APPIMAGE_PATH" ]; then
-            APPIMAGE_PATH=$(find . -name '*.AppImage' 2>/dev/null | head -1)
-          fi
-          DEB_PATH=$(find target/release/bundle -name '*.deb' 2>/dev/null | head -1)
-          if [ -z "$DEB_PATH" ]; then
-            DEB_PATH=$(find . -name '*.deb' 2>/dev/null | head -1)
-          fi
+          # 使用绝对路径
+          BUNDLE_DIR="$(pwd)/target/release/bundle"
+          APPIMAGE_PATH=$(find "$BUNDLE_DIR" -name '*.AppImage' 2>/dev/null | head -1)
+          DEB_PATH=$(find "$BUNDLE_DIR" -name '*.deb' 2>/dev/null | head -1)
           echo "APPIMAGE_PATH=$APPIMAGE_PATH" >> $GITHUB_ENV
           echo "DEB_PATH=$DEB_PATH" >> $GITHUB_ENV
           echo "Found AppImage: $APPIMAGE_PATH"
