@@ -62,8 +62,7 @@ jobs:
         working-directory: src-tauri
         run: |
           echo "=== Searching for DMG files ==="
-          find . -name '*.dmg' -type f 2>/dev/null
-          DMG_PATH=$(find . -name '*.dmg' -type f 2>/dev/null | head -1)
+          DMG_PATH=$(find ../target/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
           if [ -z "$DMG_PATH" ]; then
             echo "Error: No DMG file found!"
             exit 1
@@ -126,13 +125,23 @@ jobs:
         working-directory: src-tauri
         run: cargo tauri build
 
+      - name: Debug bundle output
+        working-directory: src-tauri
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Full directory tree ==="
+          find target/release/bundle -type f 2>/dev/null || echo "bundle dir not found"
+          echo "=== List all .AppImage and .deb files ==="
+          find . -type f \( -name "*.AppImage" -o -name "*.deb" \) 2>/dev/null
+
       - name: Find Linux artifacts
         working-directory: src-tauri
         run: |
           echo "=== Searching for Linux artifacts ==="
-          find . -name '*.AppImage' -o -name '*.deb' -type f 2>/dev/null
-          APPIMAGE_PATH=$(find . -name '*.AppImage' -type f 2>/dev/null | head -1)
-          DEB_PATH=$(find . -name '*.deb' -type f 2>/dev/null | head -1)
+          find ../target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' \) 2>/dev/null
+          APPIMAGE_PATH=$(find ../target/release/bundle -type f -name '*.AppImage' 2>/dev/null | head -1)
+          DEB_PATH=$(find ../target/release/bundle -type f -name '*.deb' 2>/dev/null | head -1)
           if [ -z "$APPIMAGE_PATH" ]; then
             echo "Error: No AppImage file found!"
             exit 1
@@ -201,9 +210,9 @@ jobs:
         shell: bash
         run: |
           echo "=== Searching for Windows artifacts ==="
-          find . -name '*.msi' -o -name '*.exe' -type f 2>/dev/null
-          MSI_PATH=$(find . -name '*.msi' -type f 2>/dev/null | head -1)
-          EXE_PATH=$(find . -name '*.exe' -type f 2>/dev/null | head -1)
+          find ../target/release/bundle -type f \( -name '*.msi' -o -name '*.exe' \) 2>/dev/null
+          MSI_PATH=$(find ../target/release/bundle -type f -name '*.msi' 2>/dev/null | head -1)
+          EXE_PATH=$(find ../target/release/bundle -type f -name '*.exe' 2>/dev/null | head -1)
           if [ -z "$MSI_PATH" ]; then
             echo "Error: No MSI file found!"
             exit 1
@@ -214,6 +223,8 @@ jobs:
           fi
           echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
           echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
+          echo "Found MSI: $MSI_PATH"
+          echo "Found EXE: $EXE_PATH"
           echo "Found MSI: $MSI_PATH"
           echo "Found EXE: $EXE_PATH"
 
