@@ -62,7 +62,7 @@ jobs:
         working-directory: src-tauri
         run: |
           echo "=== Searching for DMG files ==="
-          DMG_PATH=$(find ../target/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
+          DMG_PATH=$(find ../target/universal-apple-darwin/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
           if [ -z "$DMG_PATH" ]; then
             echo "Error: No DMG file found!"
             exit 1
