@@ -67,6 +67,8 @@ jobs:
             echo "Error: No DMG file found!"
             exit 1
           fi
+          # 转换为绝对路径 (target 在仓库根目录)
+          DMG_PATH="${{ github.workspace }}/${DMG_PATH#../}"
           echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
           echo "Found DMG: $DMG_PATH"
 
@@ -150,6 +152,9 @@ jobs:
             echo "Error: No deb file found!"
             exit 1
           fi
+          # 转换为绝对路径 (target 在仓库根目录)
+          APPIMAGE_PATH="${{ github.workspace }}/${APPIMAGE_PATH#../}"
+          DEB_PATH="${{ github.workspace }}/${DEB_PATH#../}"
           echo "APPIMAGE_PATH=$APPIMAGE_PATH" >> $GITHUB_ENV
           echo "DEB_PATH=$DEB_PATH" >> $GITHUB_ENV
           echo "Found AppImage: $APPIMAGE_PATH"
@@ -221,6 +226,9 @@ jobs:
             echo "Error: No EXE file found!"
             exit 1
           fi
+          # 转换为绝对路径 (target 在仓库根目录)
+          MSI_PATH="${{ github.workspace }}/${MSI_PATH#../}"
+          EXE_PATH="${{ github.workspace }}/${EXE_PATH#../}"
           echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
           echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
           echo "Found MSI: $MSI_PATH"
