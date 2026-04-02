@@ -1,7 +1,7 @@
 [package]
 name = "kafka-manager"
 version = "1.0.6"
-description = "A Kafka management tool built with Tauri 2"
+description = "A Kafka Manager tool built with Tauri 2"
 authors = ["your name"]
 edition = "2021"
 
