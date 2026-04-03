@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
@@ -22,6 +24,22 @@ use tauri::tray::TrayIconBuilder;
 /// 简单的日志函数，确保在 Windows 上也能看到输出
 fn log(msg: &str) {
     eprintln!("[KAFKA-MANAGER] {}", msg);
+    write_log(msg);
+}
+
+/// 写入日志到文件
+fn write_log(msg: &str) {
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+    }
 }
 
 /// 启动后端服务器
@@ -260,6 +278,28 @@ fn greet(name: &str) -> String {
     format!("Hello, {}!", name)
 }
 
+/// 获取日志内容
+#[tauri::command]
+fn get_app_logs() -> Result<String, String> {
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    std::fs::read_to_string(&log_path)
+        .or_else(|_| Ok(String::new()))
+}
+
+/// 清除日志
+#[tauri::command]
+fn clear_app_logs() -> Result<(), String> {
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    std::fs::write(&log_path, "")
+        .map_err(|e| format!("清除日志失败：{}", e))
+}
+
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -349,8 +389,16 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     let remote_version = tag_name.strip_prefix('v').unwrap_or(tag_name);
     log(&format!("Remote version (normalized): {}", remote_version));
 
-    // 比较版本
-    let has_update = remote_version != current_version;
+    // 使用语义化版本比较
+    let has_update = if let (Ok(remote_ver), Ok(current_ver)) = (
+        semver::Version::parse(remote_version),
+        semver::Version::parse(current_version),
+    ) {
+        remote_ver > current_ver
+    } else {
+        // 如果版本解析失败，回退到字符串比较
+        remote_version != current_version
+    };
     log(&format!("Has update: {}", has_update));
 
     if has_update {
@@ -831,7 +879,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs])
         .setup(|app| {
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;

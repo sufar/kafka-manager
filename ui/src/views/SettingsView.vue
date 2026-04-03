@@ -153,12 +153,54 @@
               <span v-if="checking" class="loading loading-spinner loading-xs"></span>
               <span v-if="updateAvailable" class="text-warning text-xs">新版本 {{ updateInfo?.version }}</span>
             </div>
-            <button class="btn btn-sm" @click="checkForUpdates(true)">
-              {{ checking ? '检查中...' : '立即检查' }}
-            </button>
+            <div class="flex gap-2">
+              <button class="btn btn-sm" @click="viewLogs">
+                查看日志
+              </button>
+              <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)">
+                {{ checking ? '检查中...' : '立即检查' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Logs Modal -->
+      <dialog ref="logsModalRef" class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': showLogsModal }">
+        <div class="modal-box max-w-5xl">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-lg">应用日志</h3>
+            <div class="flex gap-2">
+              <button class="btn btn-xs" @click="refreshLogs" title="刷新日志">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+              </button>
+              <button class="btn btn-xs" @click="copyLogs" title="复制日志">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                </svg>
+              </button>
+              <button class="btn btn-xs btn-ghost" @click="clearLogs" title="清除日志">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="bg-base-200 rounded-lg p-3 max-h-[60vh] overflow-auto">
+            <pre class="text-xs font-mono whitespace-pre-wrap">{{ logs }}</pre>
+          </div>
+          <div class="modal-action">
+            <form method="dialog">
+              <button class="btn" @click="showLogsModal = false">关闭</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button @click="showLogsModal = false">close</button>
+        </form>
+      </dialog>
 
       <!-- Update Modal -->
       <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': showUpdateModal }">
@@ -244,9 +286,50 @@ import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
-import { invoke, Channel } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
+
+// 检测是否在 Tauri 环境下运行
+function isTauri(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const win = window as any;
+  return !!(
+    win.__TAURI__ ||
+    win.__TAURI_INTERNALS__ ||
+    win.__TAURI_IPC__
+  );
+}
+
+// 安全的 invoke 调用（Tauri 环境）
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  // 在调用时检测 Tauri 环境，使用 @tauri-apps/api 的 invoke 函数
+  const win = window as any;
+  if (win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke) {
+    // Tauri 环境，使用 Tauri invoke
+    if (win.__TAURI__.core?.invoke) {
+      return win.__TAURI__.core.invoke(cmd, args);
+    } else {
+      return win.__TAURI__.invoke(cmd, args);
+    }
+  }
+  // 非 Tauri 环境，通过 HTTP 调用后端 API
+  const response = await fetch('http://localhost:9732/api', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Method': cmd,
+    },
+    body: JSON.stringify(args || {}),
+  });
+  const data = await response.json();
+  if (!data.success) {
+    throw new Error(data.error || 'API call failed');
+  }
+  return data.data as T;
+}
 
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
@@ -255,8 +338,16 @@ const toast = useToast();
 const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
+// Tauri 环境检测
+const isTauriEnv = ref(isTauri());
+
 // App version
-const appVersion = ref('1.0.14');
+const appVersion = ref('1.0.15');
+
+// 日志相关
+const logs = ref('');
+const showLogsModal = ref(false);
+const logsModalRef = ref<HTMLDialogElement>();
 
 // 更新相关状态
 const updateAvailable = ref(false);
@@ -281,22 +372,100 @@ watch(showUpdateModal, (newVal) => {
   }
 });
 
+// 监听日志 modal 打开/关闭
+watch(showLogsModal, (newVal) => {
+  if (logsModalRef.value) {
+    if (newVal) {
+      logsModalRef.value.showModal();
+    } else {
+      logsModalRef.value.close();
+    }
+  }
+});
+
 // 获取当前版本
 async function getCurrentVersion() {
   try {
-    appVersion.value = await invoke<string>('get_app_version');
+    const win = window as any;
+    // Tauri 环境使用 get_app_version（返回字符串），浏览器环境使用 app.version（返回{version}）
+    const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
+    const result = await tauriInvoke<any>(cmd);
+    // Tauri 返回纯字符串，HTTP API 返回{version}对象
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.15');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
 }
 
-// 检查更新
+// 查看日志
+async function viewLogs() {
+  try {
+    const win = window as any;
+    // Tauri 环境使用 get_app_logs（返回字符串），浏览器环境使用 app.logs（返回{logs}）
+    const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
+    const result = await tauriInvoke<any>(cmd);
+    // Tauri 返回纯字符串，HTTP API 返回{logs}对象
+    logs.value = typeof result === 'string' ? result : (result.logs || '暂无日志');
+    showLogsModal.value = true;
+  } catch (e) {
+    console.error('Failed to get logs:', e);
+    logs.value = '获取日志失败';
+    showLogsModal.value = true;
+  }
+}
+
+// 复制日志
+async function copyLogs() {
+  try {
+    await navigator.clipboard.writeText(logs.value);
+    toast.showSuccess('已复制到剪贴板');
+  } catch (e) {
+    toast.showError('复制失败');
+  }
+}
+
+// 刷新日志
+async function refreshLogs() {
+  try {
+    const win = window as any;
+    const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
+    const result = await tauriInvoke<any>(cmd);
+    logs.value = typeof result === 'string' ? result : (result.logs || '暂无日志');
+  } catch (e) {
+    console.error('Failed to refresh logs:', e);
+    toast.showError('刷新日志失败');
+  }
+}
+
+// 清除日志
+async function clearLogs() {
+  try {
+    const win = window as any;
+    // Tauri 环境使用 clear_app_logs，浏览器环境使用 app.logs.clear
+    const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'clear_app_logs' : 'app.logs.clear';
+    await tauriInvoke(cmd);
+    logs.value = '日志已清除';
+    toast.showSuccess('日志已清除');
+  } catch (e) {
+    toast.showError('清除日志失败');
+  }
+}
+
+// 检查更新（仅 Tauri 环境）
 async function checkForUpdates(manual = false) {
   if (checking.value) return;
 
+  // 非 Tauri 环境不支持检查更新
+  if (!isTauri()) {
+    if (manual) {
+      toast.showInfo('浏览器环境不支持检查更新');
+    }
+    return;
+  }
+
   checking.value = true;
   try {
-    const result = await invoke<{
+    const result = await tauriInvoke<{
       available: boolean;
       version: string;
       notes: string;
@@ -322,18 +491,13 @@ async function checkForUpdates(manual = false) {
     console.error('Failed to check for updates:', e);
     console.error('Error type:', typeof e);
     console.error('Error keys:', e ? Object.keys(e) : 'N/A');
-    // 只在手动检查时显示错误提示
-    if (manual) {
-      const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || '未知错误';
-      toast.showError((t.value.update.checkFailed || '检查更新失败') + ': ' + errorMsg);
-    }
-    // 自动检查时静默失败，不弹出提示
+    // 静默失败，不显示错误提示（网络问题等）
   } finally {
     checking.value = false;
   }
 }
 
-// 安装更新
+// 安装更新（仅 Tauri 环境）
 async function installUpdate() {
   if (downloading.value) return;
 
@@ -350,7 +514,7 @@ async function installUpdate() {
       }
     };
 
-    await invoke('install_update', {
+    await tauriInvoke('install_update', {
       onProgress,
     });
 

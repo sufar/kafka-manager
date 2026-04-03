@@ -603,6 +603,11 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "settings.get" => handle_settings_get(state, body).await,
         "settings.update" => handle_settings_update(state, body).await,
 
+        // App
+        "app.version" => handle_app_version().await,
+        "app.logs" => handle_app_logs().await,
+        "app.logs.clear" => handle_app_logs_clear().await,
+
         // JSON Highlight Templates
         "json_highlight.list" => handle_json_highlight_list(state).await,
         "json_highlight.get_current" => handle_json_highlight_get_current(state).await,
@@ -685,6 +690,48 @@ async fn handle_health() -> Result<Value> {
     Ok(serde_json::json!({
         "status": "healthy",
         "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+// ==================== App ====================
+
+async fn handle_app_version() -> Result<Value> {
+    Ok(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+async fn handle_app_logs() -> Result<Value> {
+    use std::fs;
+    use dirs::cache_dir;
+    use std::path::PathBuf;
+
+    let log_path = cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    let logs = fs::read_to_string(&log_path)
+        .unwrap_or_default();
+
+    Ok(serde_json::json!({
+        "logs": logs
+    }))
+}
+
+async fn handle_app_logs_clear() -> Result<Value> {
+    use std::fs;
+    use dirs::cache_dir;
+    use std::path::PathBuf;
+
+    let log_path = cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    fs::write(&log_path, "")
+        .map_err(|e| crate::error::AppError::Internal(format!("清除日志失败：{}", e)))?;
+
+    Ok(serde_json::json!({
+        "success": true
     }))
 }
 

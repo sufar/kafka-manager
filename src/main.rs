@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::path::PathBuf;
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -71,18 +72,51 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化日志
+    // 初始化日志文件
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    // 确保日志目录存在
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // 启动时清空旧日志
+    let _ = std::fs::write(&log_path, "");
+
+    // 使用 OpenOptions 以追加模式打开日志文件
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("Failed to open log file");
+
+    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file);
+
+    // 初始化日志（同时输出到控制台和文件）
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "kafka_manager_api=info,tower_http=info,rdkafka=warn".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        // 控制台输出带颜色
+        .with(tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_ansi(true))
+        // 文件输出不带颜色（纯文本），使用自定义时间格式
+        .with(tracing_subscriber::fmt::layer()
+            .with_writer(non_blocking_file)
+            .with_ansi(false)
+            .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
+                "%Y-%m-%d %H:%M:%S".to_string()
+            )))
         .init();
 
     // 测试日志是否正常工作
     tracing::info!("=== Kafka Manager API starting ===");
     tracing::debug!("Debug logging enabled");
+    tracing::info!("Log file: {:?}", log_path);
 
     // 加载配置
     let config = Config::load("config.toml")?;

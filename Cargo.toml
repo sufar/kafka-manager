@@ -1,6 +1,6 @@
 [package]
 name = "kafka-manager-api"
-version = "1.0.14"
+version = "1.0.15"
 edition = "2021"
 description = "A Kafka management tool with RESTful API"
 
@@ -36,7 +36,8 @@ config = "0.14"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+tracing-appender = "0.2"
 
 # Error handling
 thiserror = "1"
@@ -63,6 +64,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 
 # Lock-free Arc for AppState
 arc-swap = "1.7"
+dirs = "6.0.0"
 
 # Testing
 [dev-dependencies]
