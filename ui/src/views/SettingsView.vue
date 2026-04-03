@@ -139,7 +139,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 20A2.653 2.653 0 0 0 21 17.25l-4.662-4.662a7.467 7.467 0 0 0-.75-5.933m-6.75 5.511L12 15m0 0V3.75m0 11.25-2.822-2.822m0 0a7.467 7.467 0 0 1 5.933-.75m-5.933.75L5.25 15m0 0V3.75m0 11.25a2.653 2.653 0 0 1-3.75-3.75L6.127 6.375" />
                 </svg>
-                新版本
+                新版本 {{ updateInfo?.version }}
               </button>
             </div>
           </div>
@@ -151,7 +151,7 @@
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">检查更新</span>
               <span v-if="checking" class="loading loading-spinner loading-xs"></span>
-              <span v-if="updateAvailable" class="text-warning text-xs">有新版本</span>
+              <span v-if="updateAvailable" class="text-warning text-xs">新版本 {{ updateInfo?.version }}</span>
             </div>
             <button class="btn btn-sm" @click="checkForUpdates(true)">
               {{ checking ? '检查中...' : '立即检查' }}
@@ -205,7 +205,7 @@
               <button
                 type="button"
                 class="btn btn-ghost flex-1"
-                :disabled="downloading || installing"
+                :disabled="downloading"
                 @click="showUpdateModal = false"
               >
                 {{ t.common.cancel }}
@@ -213,11 +213,10 @@
               <button
                 type="button"
                 class="btn btn-primary flex-1"
-                :disabled="downloading || installing"
+                :disabled="downloading"
                 @click="installUpdate"
               >
-                <span v-if="installing" class="loading loading-spinner loading-sm"></span>
-                {{ downloading ? t.update.downloading : installing ? t.update.installing : t.update.updateAndRestart }}
+                {{ downloading ? t.update.downloading : t.update.updateAndRestart }}
               </button>
             </form>
           </div>
@@ -257,7 +256,7 @@ const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
 // App version
-const appVersion = ref('1.0.7');
+const appVersion = ref('1.0.6');
 
 // 更新相关状态
 const updateAvailable = ref(false);
@@ -321,9 +320,12 @@ async function checkForUpdates(manual = false) {
     }
   } catch (e) {
     console.error('Failed to check for updates:', e);
+    console.error('Error type:', typeof e);
+    console.error('Error keys:', e ? Object.keys(e) : 'N/A');
     // 只在手动检查时显示错误提示
     if (manual) {
-      toast.showError((t.value.update.checkFailed || '检查更新失败') + ': ' + (e as Error).message);
+      const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || '未知错误';
+      toast.showError((t.value.update.checkFailed || '检查更新失败') + ': ' + errorMsg);
     }
     // 自动检查时静默失败，不弹出提示
   } finally {
@@ -333,14 +335,13 @@ async function checkForUpdates(manual = false) {
 
 // 安装更新
 async function installUpdate() {
-  if (downloading.value || installing.value) return;
+  if (downloading.value) return;
 
   downloading.value = true;
-  installing.value = false;
   downloadProgress.value = 0;
 
   try {
-    // 模拟下载进度（实际进度会在 Rust 端处理）
+    // 模拟下载进度
     const progressInterval = setInterval(() => {
       downloadProgress.value = Math.min(downloadProgress.value + 10, 90);
     }, 500);
@@ -350,11 +351,15 @@ async function installUpdate() {
     clearInterval(progressInterval);
     downloadProgress.value = 100;
 
-    // 应用会重启，这里不会执行到
+    // 下载完成，重置状态并关闭 modal
+    downloading.value = false;
+    showUpdateModal.value = false;
+    toast.showInfo(t.value.update.downloadComplete || '下载完成，正在打开安装包...', 5000);
   } catch (e) {
     downloading.value = false;
     console.error('Failed to install update:', e);
-    toast.showError((t.value.update.installFailed || '安装更新失败') + ': ' + (e as Error).message);
+    const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || '未知错误';
+    toast.showError((t.value.update.installFailed || '安装失败') + ': ' + errorMsg);
   }
 }
 
