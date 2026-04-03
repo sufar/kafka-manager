@@ -3327,7 +3327,7 @@ async fn handle_message_send(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
     let key = get_optional_string_param(&body, "key");
-    let mut value = get_string_param(&body, "value")?;
+    let mut value = get_long_string_param(&body, "value")?;
     let partition = get_optional_i32_param(&body, "partition");
     let headers = get_hashmap_param(&body, "headers");
 
@@ -4579,7 +4579,7 @@ async fn handle_sent_message_record(state: AppState, body: Value) -> Result<Valu
     let topic_name = get_string_param(&body, "topic_name")?;
     let partition = body.get("partition").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
     let message_key = body.get("key").and_then(|v| v.as_str()).map(String::from);
-    let message_value = get_string_param(&body, "value")?;
+    let message_value = get_long_string_param(&body, "value")?;
     let headers = body.get("headers").and_then(|v| serde_json::to_string(v).ok());
     let offset = body.get("offset").and_then(|v| v.as_i64());
 
