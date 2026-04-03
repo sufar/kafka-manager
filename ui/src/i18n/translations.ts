@@ -343,10 +343,12 @@ export interface Translation {
     releaseNotes: string;
     downloading: string;
     installing: string;
+    installed: string;
     updateAndRestart: string;
     checkCompleteNoUpdate: string;
     checkFailed: string;
     installFailed: string;
+    downloadComplete: string;
   };
   toast: {
     error: string;
@@ -845,6 +847,7 @@ export const translations: Record<Language, Translation> = {
       newVersion: '新版本',
       releaseNotes: '更新说明',
       downloading: '正在下载...',
+      installing: '正在安装...',
       installed: '已安装',
       installFailed: '安装失败',
       updateAndRestart: '下载并安装',
@@ -1347,6 +1350,7 @@ export const translations: Record<Language, Translation> = {
       newVersion: 'New Version',
       releaseNotes: 'Release Notes',
       downloading: 'Downloading...',
+      installing: 'Installing...',
       installed: 'Installed',
       installFailed: 'Install Failed',
       updateAndRestart: 'Download & Install',
