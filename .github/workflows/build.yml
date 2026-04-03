@@ -275,6 +275,10 @@ jobs:
         id: release_notes
         run: |
           NOTES=$(gh api /repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} --jq .body)
+          # 如果 body 为空，使用默认值
+          if [ -z "$NOTES" ]; then
+            NOTES="No release notes"
+          fi
           # Escape for JSON
           NOTES=$(echo "$NOTES" | jq -Rs '.')
           echo "notes=$NOTES" >> $GITHUB_OUTPUT
@@ -318,6 +322,15 @@ jobs:
           EOF
           echo "Generated latest.json:"
           cat ./artifacts/latest.json
+
+          # 验证 JSON 格式
+          echo "Validating JSON..."
+          if jq empty ./artifacts/latest.json; then
+            echo "latest.json is valid JSON"
+          else
+            echo "ERROR: latest.json is invalid JSON!"
+            exit 1
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

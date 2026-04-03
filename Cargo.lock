@@ -2705,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "arc-swap",
  "axum",
@@ -2738,7 +2738,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager-api"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "apache-avro",
  "arc-swap",

@@ -274,109 +274,253 @@ pub struct UpdateResult {
     pub date: Option<String>,
 }
 
-/// 检查更新
+/// 检查更新 - 直接使用 GitHub API
 #[tauri::command]
-async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateResult, String> {
-    use tauri_plugin_updater::UpdaterExt;
+async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, String> {
+    log("=========================================");
+    log("Checking for updates via GitHub API...");
 
-    log("Checking for updates...");
+    let current_version = env!("CARGO_PKG_VERSION");
+    log(&format!("Current version: {}", current_version));
 
     // 在开发模式下跳过更新检查
     if cfg!(debug_assertions) {
         log("Skipping update check in debug mode");
         return Ok(UpdateResult {
             available: false,
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: current_version.to_string(),
             notes: None,
             date: None,
         });
     }
 
-    let updater = match app.updater() {
-        Ok(u) => u,
-        Err(e) => {
-            log(&format!("Failed to get updater: {}", e));
-            // 更新插件未配置时，返回无更新
-            return Ok(UpdateResult {
-                available: false,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                notes: None,
-                date: None,
-            });
+    // 直接请求 GitHub Releases API
+    let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
+    log(&format!("Fetching: {}", api_url));
+
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(api_url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    log(&format!("HTTP status: {}", response.status()));
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+
+    // 提取版本信息
+    let tag_name = json["tag_name"].as_str().unwrap_or("");
+    log(&format!("Latest tag: {}", tag_name));
+
+    // 提取发布说明，并处理重复内容
+    let body_str = json["body"].as_str().unwrap_or("").to_string();
+    let notes = if body_str.is_empty() {
+        None
+    } else {
+        // 检查是否有重复内容（GitHub 有时会重复）
+        let lines: Vec<&str> = body_str.lines().collect();
+        let mut unique_lines: Vec<&str> = Vec::new();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+        for line in lines {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && !seen.contains(trimmed) {
+                seen.insert(trimmed);
+                unique_lines.push(line);
+            } else if trimmed.is_empty() && !unique_lines.is_empty() && !unique_lines.last().map_or(false, |l| l.trim().is_empty()) {
+                // 保留空行，但不保留连续空行
+                unique_lines.push(line);
+            }
         }
+
+        Some(unique_lines.join("\n"))
     };
 
-    match updater.check().await {
-        Ok(Some(update)) => {
-            log(&format!("Update available: {} -> {}",
-                env!("CARGO_PKG_VERSION"),
-                update.version));
+    // 提取发布时间
+    let published_at = json["published_at"].as_str().unwrap_or("");
 
-            Ok(UpdateResult {
-                available: true,
-                version: update.version.to_string(),
-                notes: update.body.map(|s| s.to_string()),
-                date: update.date.map(|d| format!("{}", d)),
-            })
-        }
-        Ok(None) => {
-            log("No updates available");
-            Ok(UpdateResult {
-                available: false,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                notes: None,
-                date: None,
-            })
-        }
-        Err(e) => {
-            // 检查更新失败（如网络错误、404 等），不视为错误，只是没有更新
-            log(&format!("Failed to check for updates (treated as no update): {}", e));
-            Ok(UpdateResult {
-                available: false,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                notes: None,
-                date: None,
-            })
-        }
+    // 去掉 v 前缀进行比较
+    let remote_version = tag_name.strip_prefix('v').unwrap_or(tag_name);
+    log(&format!("Remote version (normalized): {}", remote_version));
+
+    // 比较版本
+    let has_update = remote_version != current_version;
+    log(&format!("Has update: {}", has_update));
+
+    if has_update {
+        log(&format!("Update available: {} -> {}", current_version, remote_version));
+    } else {
+        log("No updates available");
     }
+
+    Ok(UpdateResult {
+        available: has_update,
+        version: remote_version.to_string(),
+        notes: notes.clone(),
+        date: if published_at.is_empty() { None } else { Some(published_at.to_string()) },
+    })
 }
 
 /// 下载并安装更新
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-
     log("Downloading and installing update...");
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    // 获取当前可执行文件路径（用于日志记录）
+    let _exe_path = std::env::current_exe()
+        .map_err(|e| format!("获取程序路径失败：{}", e))?;
 
-    let update = updater.check().await.map_err(|e| e.to_string())?
-        .ok_or_else(|| "No update available".to_string())?;
+    // 获取下载目录
+    let download_dir = dirs::download_dir()
+        .unwrap_or_else(|| std::env::temp_dir());
 
-    match update
-        .download_and_install(
-            |_progress, _total| {
-                // 下载进度回调
-                log(&format!("Download progress: {}/{}", _progress, _total.unwrap_or(0)));
-            },
-            || {
-                // 下载完成回调
-                log("Download finished");
-            }
-        )
+    log(&format!("Download directory: {:?}", download_dir));
+
+    // 从 GitHub API 获取最新版本信息
+    let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(api_url)
+        .header("User-Agent", "kafka-manager")
+        .send()
         .await
-    {
-        Ok(_) => {
-            log("Update installed successfully, restarting...");
+        .map_err(|e| format!("网络错误：{}", e))?;
 
-            // 安装完成后重启应用（这不会返回）
-            app.restart()
-        }
-        Err(e) => {
-            log(&format!("Failed to install update: {}", e));
-            Err(format!("安装更新失败：{}", e))
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("解析版本信息失败：{}", e))?;
+
+    let tag_name = json["tag_name"].as_str().unwrap_or("unknown");
+    log(&format!("Latest release: {}", tag_name));
+
+    // 根据平台确定要下载的文件
+    let target = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+        "darwin-aarch64"
+    } else if cfg!(target_os = "macos") {
+        "darwin-x86_64"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
+    } else if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else {
+        return Err("不支持的平台".to_string());
+    };
+
+    log(&format!("Target platform: {}", target));
+
+    // 从 assets 中找到对应的下载 URL
+    let assets = json["assets"].as_array().ok_or("找不到下载文件")?;
+
+    let download_url = assets
+        .iter()
+        .find(|asset| {
+            let name = asset["name"].as_str().unwrap_or("");
+            if cfg!(target_os = "macos") {
+                name.ends_with(".dmg")
+            } else if cfg!(target_os = "linux") {
+                name.ends_with(".AppImage") || name.ends_with(".deb")
+            } else if cfg!(target_os = "windows") {
+                name.ends_with(".msi") || name.ends_with(".exe")
+            } else {
+                false
+            }
+        })
+        .and_then(|asset| asset["browser_download_url"].as_str())
+        .ok_or_else(|| "找不到适合当前平台的安装包")?;
+
+    log(&format!("Download URL: {}", download_url));
+
+    // 下载文件
+    let download_path = download_dir.join(format!("kafka-manager-{}", tag_name));
+
+    let response = client
+        .get(download_url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("下载失败：{}", e))?;
+
+    let total_size = response.content_length().unwrap_or(0);
+    log(&format!("Download size: {} bytes", total_size));
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取文件失败：{}", e))?;
+
+    std::fs::write(&download_path, &bytes)
+        .map_err(|e| format!("保存文件失败：{}", e))?;
+
+    log(&format!("Downloaded to: {:?}", download_path));
+
+    // 自动打开安装包
+    #[cfg(target_os = "macos")]
+    {
+        log("Opening DMG file...");
+        std::process::Command::new("open")
+            .arg(&download_path)
+            .spawn()
+            .ok();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        log("Opening MSI/EXE file...");
+        std::process::Command::new("cmd")
+            .args(["/c", "start", download_path.to_str().unwrap_or("")])
+            .spawn()
+            .ok();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if download_path.extension().map_or(false, |ext| ext == "deb") {
+            log("Installing deb package...");
+            std::process::Command::new("gdebi")
+                .arg(&download_path)
+                .spawn()
+                .ok();
+        } else {
+            log("Opening AppImage...");
+            std::process::Command::new("chmod")
+                .args(["+x", download_path.to_str().unwrap_or("")])
+                .spawn()
+                .ok();
+            std::process::Command::new(&download_path)
+                .spawn()
+                .ok();
         }
     }
+
+    // 提示用户
+    let message = if cfg!(target_os = "macos") {
+        "安装包已打开，请按照提示完成安装".to_string()
+    } else if cfg!(target_os = "windows") {
+        "安装程序已启动，请按照提示完成安装".to_string()
+    } else if cfg!(target_os = "linux") {
+        "安装包已打开，请按照提示完成安装".to_string()
+    } else {
+        "下载完成".to_string()
+    };
+
+    log(&format!("Message: {}", message));
+
+    // 使用系统对话框通知用户
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .message(&message)
+        .title("下载完成")
+        .show(|_| {});
+
+    Ok(())
 }
 
 pub fn run() {
