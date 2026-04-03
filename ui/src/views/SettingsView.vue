@@ -244,7 +244,7 @@ import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
@@ -341,15 +341,18 @@ async function installUpdate() {
   downloadProgress.value = 0;
 
   try {
-    // 模拟下载进度
-    const progressInterval = setInterval(() => {
-      downloadProgress.value = Math.min(downloadProgress.value + 10, 90);
-    }, 500);
+    // 创建进度回调通道
+    const onProgress = new Channel<[number, number]>();
+    onProgress.onmessage = (message) => {
+      const [downloaded, total] = message;
+      if (total > 0) {
+        downloadProgress.value = Math.round((downloaded / total) * 100);
+      }
+    };
 
-    await invoke('install_update');
-
-    clearInterval(progressInterval);
-    downloadProgress.value = 100;
+    await invoke('install_update', {
+      onProgress,
+    });
 
     // 下载完成，重置状态并关闭 modal
     downloading.value = false;

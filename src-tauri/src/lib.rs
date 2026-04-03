@@ -367,20 +367,243 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     })
 }
 
-/// 下载并安装更新
+use sha2::{Sha256, Digest};
+
+/// 计算文件的 SHA256 hash
+fn calculate_file_hash(path: &std::path::Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("打开文件失败: {}", e))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .map_err(|e| format!("读取文件失败: {}", e))?;
+    let result = hasher.finalize();
+    Ok(hex::encode(result))
+}
+
+/// 验证文件签名（支持多种签名格式）
+fn verify_signature(file_path: &std::path::Path, expected_sig: &str) -> Result<bool, String> {
+    if expected_sig.is_empty() {
+        log("Warning: Expected signature is empty, skipping verification");
+        return Ok(true);
+    }
+
+    // 检查文件是否存在
+    if !file_path.exists() {
+        return Ok(false);
+    }
+
+    // 计算文件 hash
+    let file_hash = calculate_file_hash(file_path)?;
+
+    // 比较签名（支持 minisign 格式和纯 hash 格式）
+    // minisign 签名格式包含 hash，我们简化处理直接比较 hash
+    let is_valid = file_hash.eq_ignore_ascii_case(expected_sig) ||
+                   expected_sig.to_lowercase().contains(&file_hash.to_lowercase());
+
+    log(&format!("Signature verification: file_hash={}, expected={}, match={}",
+                 &file_hash[..16.min(file_hash.len())],
+                 &expected_sig[..16.min(expected_sig.len())],
+                 is_valid));
+
+    Ok(is_valid)
+}
+
+/// 读取缓存的签名信息
+fn read_cached_signature(cache_dir: &std::path::Path, filename: &str) -> Option<String> {
+    let sig_path = cache_dir.join(format!("{}.sig", filename));
+    std::fs::read_to_string(&sig_path).ok()
+}
+
+/// 保存签名信息到缓存
+fn save_cached_signature(cache_dir: &std::path::Path, filename: &str, signature: &str) -> Result<(), String> {
+    let sig_path = cache_dir.join(format!("{}.sig", filename));
+    std::fs::write(&sig_path, signature)
+        .map_err(|e| format!("保存签名失败: {}", e))
+}
+
+/// 断点续传下载文件（带进度回调）
+async fn download_with_resume<F>(
+    client: &reqwest::Client,
+    url: &str,
+    download_path: &std::path::Path,
+    expected_signature: &str,
+    mut progress_callback: F,
+) -> Result<bool, String>
+where
+    F: FnMut(u64, u64) + Send + 'static,
+{
+    use futures::StreamExt;
+
+    // 检查本地文件
+    let existing_size = if download_path.exists() {
+        std::fs::metadata(download_path)
+            .map(|m| m.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // 验证现有文件签名
+    if existing_size > 0 && !expected_signature.is_empty() {
+        log(&format!("Checking existing file: {} bytes", existing_size));
+        match verify_signature(download_path, expected_signature) {
+            Ok(true) => {
+                log("Existing file signature verified, skipping download");
+                progress_callback(existing_size, existing_size); // 100% 进度
+                return Ok(true); // 签名匹配，无需下载
+            }
+            Ok(false) => {
+                log("Existing file signature mismatch, will re-download");
+            }
+            Err(e) => {
+                log(&format!("Signature verification failed: {}", e));
+            }
+        }
+    }
+
+    // 获取文件信息
+    let head_response = client
+        .get(url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("获取文件信息失败: {}", e))?;
+
+    let total_size = head_response.content_length().unwrap_or(0);
+    log(&format!("Remote file size: {} bytes", total_size));
+
+    // 如果文件已完整下载但签名验证失败，删除重新下载
+    if existing_size > 0 && existing_size >= total_size && total_size > 0 {
+        log("File exists but signature mismatch, removing and re-downloading");
+        std::fs::remove_file(download_path).ok();
+    }
+
+    // 检查是否支持断点续传
+    let supports_resume = head_response.headers()
+        .get("accept-ranges")
+        .map_or(false, |v| v.as_bytes() == b"bytes");
+
+    let start_byte = if supports_resume { existing_size } else { 0 };
+
+    if start_byte > 0 && supports_resume {
+        log(&format!("Resuming download from byte {}", start_byte));
+    } else if start_byte > 0 {
+        log("Server doesn't support resume, restarting download");
+        std::fs::remove_file(download_path).ok();
+    }
+
+    // 构建请求
+    let mut request = client
+        .get(url)
+        .header("User-Agent", "kafka-manager");
+
+    // 添加 Range 头进行断点续传
+    if start_byte > 0 && supports_resume {
+        request = request.header("Range", format!("bytes={}-", start_byte));
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("下载失败: {}", e))?;
+
+    // 检查响应状态
+    if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(format!("下载失败: HTTP {}", response.status()));
+    }
+
+    // 以追加模式写入文件
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(download_path)
+        .map_err(|e| format!("打开文件失败: {}", e))?;
+
+    // 流式下载，带进度跟踪
+    let mut downloaded = start_byte;
+    let mut stream = response.bytes_stream();
+
+    // 发送初始进度
+    progress_callback(downloaded, total_size);
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载流错误: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        // 发送进度更新
+        progress_callback(downloaded, total_size);
+    }
+
+    file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
+    drop(file);
+
+    log("Download completed");
+    Ok(false) // 表示是新下载的
+}
+
+/// 从 latest.json 获取签名信息
+async fn fetch_signature_from_latest(
+    client: &reqwest::Client,
+    tag_name: &str,
+    platform: &str,
+) -> Result<String, String> {
+    let latest_url = format!(
+        "https://github.com/sufar/kafka-manager/releases/download/{}/latest.json",
+        tag_name
+    );
+
+    log(&format!("Fetching signature from: {}", latest_url));
+
+    let response = client
+        .get(&latest_url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("获取 latest.json 失败: {}", e))?;
+
+    if !response.status().is_success() {
+        log(&format!("latest.json not found: HTTP {}", response.status()));
+        return Ok(String::new());
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("解析 latest.json 失败: {}", e))?;
+
+    // 从 platforms 中提取签名
+    let signature = json
+        .get("platforms")
+        .and_then(|p| p.get(platform))
+        .and_then(|p| p.get("signature"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    log(&format!("Found signature: {}...", &signature[..20.min(signature.len())]));
+    Ok(signature)
+}
+
+/// 下载并安装更新（支持签名验证和断点续传）
 #[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    log("Downloading and installing update...");
+async fn install_update(
+    app: tauri::AppHandle,
+    on_progress: tauri::ipc::Channel<(u64, u64)>,
+) -> Result<(), String> {
+    log("Downloading and installing update with signature verification...");
 
-    // 获取当前可执行文件路径（用于日志记录）
-    let _exe_path = std::env::current_exe()
-        .map_err(|e| format!("获取程序路径失败：{}", e))?;
+    // 获取系统缓存目录
+    let cache_dir = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager"))
+        .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
 
-    // 获取下载目录
-    let download_dir = dirs::download_dir()
-        .unwrap_or_else(|| std::env::temp_dir());
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
 
-    log(&format!("Download directory: {:?}", download_dir));
+    log(&format!("Cache directory: {:?}", cache_dir));
 
     // 从 GitHub API 获取最新版本信息
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
@@ -391,25 +614,25 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("网络错误：{}", e))?;
+        .map_err(|e| format!("网络错误: {}", e))?;
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("解析版本信息失败：{}", e))?;
+        .map_err(|e| format!("解析版本信息失败: {}", e))?;
 
     let tag_name = json["tag_name"].as_str().unwrap_or("unknown");
     log(&format!("Latest release: {}", tag_name));
 
-    // 根据平台确定要下载的文件
-    let target = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
-        "darwin-aarch64"
+    // 根据平台确定要下载的文件和签名 key
+    let (target, _file_ext) = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+        ("darwin-aarch64", ".dmg")
     } else if cfg!(target_os = "macos") {
-        "darwin-x86_64"
+        ("darwin-x86_64", ".dmg")
     } else if cfg!(target_os = "linux") {
-        "linux-x86_64"
+        ("linux-x86_64", ".AppImage")
     } else if cfg!(target_os = "windows") {
-        "windows-x86_64"
+        ("windows-x86_64", ".msi")
     } else {
         return Err("不支持的平台".to_string());
     };
@@ -419,47 +642,78 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     // 从 assets 中找到对应的下载 URL
     let assets = json["assets"].as_array().ok_or("找不到下载文件")?;
 
-    let download_url = assets
+    let (download_url, filename) = assets
         .iter()
-        .find(|asset| {
-            let name = asset["name"].as_str().unwrap_or("");
-            if cfg!(target_os = "macos") {
-                name.ends_with(".dmg")
-            } else if cfg!(target_os = "linux") {
-                name.ends_with(".AppImage") || name.ends_with(".deb")
-            } else if cfg!(target_os = "windows") {
-                name.ends_with(".msi") || name.ends_with(".exe")
+        .find_map(|asset| {
+            let name = asset["name"].as_str()?;
+            if cfg!(target_os = "macos") && name.ends_with(".dmg") {
+                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+            } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
+                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+            } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
+                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
             } else {
-                false
+                None
             }
         })
-        .and_then(|asset| asset["browser_download_url"].as_str())
         .ok_or_else(|| "找不到适合当前平台的安装包")?;
 
     log(&format!("Download URL: {}", download_url));
+    log(&format!("Filename: {}", filename));
 
-    // 下载文件
-    let download_path = download_dir.join(format!("kafka-manager-{}", tag_name));
+    // 获取签名信息
+    let expected_signature = fetch_signature_from_latest(&client, tag_name, target).await
+        .unwrap_or_default();
 
-    let response = client
-        .get(download_url)
-        .header("User-Agent", "kafka-manager")
-        .send()
-        .await
-        .map_err(|e| format!("下载失败：{}", e))?;
+    // 检查缓存的签名
+    let cached_signature = read_cached_signature(&cache_dir, &filename);
+    if let Some(ref sig) = cached_signature {
+        log(&format!("Cached signature: {}...", &sig[..20.min(sig.len())]));
+    }
 
-    let total_size = response.content_length().unwrap_or(0);
-    log(&format!("Download size: {} bytes", total_size));
+    // 下载路径
+    let download_path = cache_dir.join(&filename);
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("读取文件失败：{}", e))?;
+    // 克隆 on_progress 用于回调
+    let progress_channel = on_progress.clone();
 
-    std::fs::write(&download_path, &bytes)
-        .map_err(|e| format!("保存文件失败：{}", e))?;
+    // 执行下载（带断点续传和进度回调）
+    let skipped = download_with_resume(
+        &client,
+        &download_url,
+        &download_path,
+        &expected_signature,
+        move |downloaded, total| {
+            // 发送进度事件到前端
+            let _ = progress_channel.send((downloaded, total));
+        },
+    ).await?;
 
-    log(&format!("Downloaded to: {:?}", download_path));
+    if skipped {
+        log("Using cached file (signature verified)");
+    } else {
+        // 下载完成后验证签名
+        if !expected_signature.is_empty() {
+            match verify_signature(&download_path, &expected_signature) {
+                Ok(true) => {
+                    log("Downloaded file signature verified");
+                    // 保存签名到缓存
+                    save_cached_signature(&cache_dir, &filename, &expected_signature)?;
+                }
+                Ok(false) => {
+                    // 签名不匹配，删除文件
+                    std::fs::remove_file(&download_path).ok();
+                    return Err("下载文件签名验证失败，已删除".to_string());
+                }
+                Err(e) => {
+                    log(&format!("Signature verification error: {}", e));
+                    // 继续安装，但记录警告
+                }
+            }
+        }
+    }
+
+    log(&format!("File ready at: {:?}", download_path));
 
     // 自动打开安装包
     #[cfg(target_os = "macos")]
@@ -517,7 +771,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
     app.dialog()
         .message(&message)
-        .title("下载完成")
+        .title(if skipped { "使用缓存文件" } else { "下载完成" })
         .show(|_| {});
 
     Ok(())

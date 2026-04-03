@@ -14,6 +14,8 @@ jobs:
   build-macos:
     runs-on: macos-latest
     timeout-minutes: 60
+    outputs:
+      dmg_signature: ${{ steps.sign.outputs.dmg_signature }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,10 +57,14 @@ jobs:
 
       - name: Build Tauri app (universal)
         working-directory: src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cargo tauri build --target universal-apple-darwin
 
-      - name: Find DMG file
+      - name: Find DMG file and signature
+        id: sign
         working-directory: src-tauri
         run: |
           echo "=== Searching for DMG files ==="
@@ -72,6 +78,18 @@ jobs:
           echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
           echo "Found DMG: $DMG_PATH"
 
+          # 查找签名文件
+          SIG_PATH="${DMG_PATH}.sig"
+          if [ -f "$SIG_PATH" ]; then
+            echo "Found signature file: $SIG_PATH"
+            SIG_CONTENT=$(cat "$SIG_PATH")
+            echo "dmg_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature content: $SIG_CONTENT"
+          else
+            echo "Warning: No signature file found at $SIG_PATH"
+            echo "dmg_signature=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload macOS Bundle
         uses: actions/upload-artifact@v4
         with:
@@ -82,6 +100,8 @@ jobs:
   build-linux:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    outputs:
+      appimage_signature: ${{ steps.sign.outputs.appimage_signature }}
 
     steps:
       - uses: actions/checkout@v4
@@ -125,6 +145,9 @@ jobs:
 
       - name: Build Tauri app
         working-directory: src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build
 
       - name: Debug bundle output
@@ -137,7 +160,8 @@ jobs:
           echo "=== List all .AppImage and .deb files ==="
           find . -type f \( -name "*.AppImage" -o -name "*.deb" \) 2>/dev/null
 
-      - name: Find Linux artifacts
+      - name: Find Linux artifacts and signatures
+        id: sign
         working-directory: src-tauri
         run: |
           echo "=== Searching for Linux artifacts ==="
@@ -160,6 +184,18 @@ jobs:
           echo "Found AppImage: $APPIMAGE_PATH"
           echo "Found deb: $DEB_PATH"
 
+          # 查找 AppImage 签名文件
+          SIG_PATH="${APPIMAGE_PATH}.sig"
+          if [ -f "$SIG_PATH" ]; then
+            echo "Found signature file: $SIG_PATH"
+            SIG_CONTENT=$(cat "$SIG_PATH")
+            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature content: $SIG_CONTENT"
+          else
+            echo "Warning: No signature file found at $SIG_PATH"
+            echo "appimage_signature=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
@@ -177,6 +213,8 @@ jobs:
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 60
+    outputs:
+      msi_signature: ${{ steps.sign.outputs.msi_signature }}
 
     steps:
       - uses: actions/checkout@v4
@@ -208,9 +246,13 @@ jobs:
 
       - name: Build Tauri app
         working-directory: src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build
 
-      - name: Find Windows artifacts
+      - name: Find Windows artifacts and signatures
+        id: sign
         working-directory: src-tauri
         shell: bash
         run: |
@@ -233,8 +275,18 @@ jobs:
           echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
           echo "Found MSI: $MSI_PATH"
           echo "Found EXE: $EXE_PATH"
-          echo "Found MSI: $MSI_PATH"
-          echo "Found EXE: $EXE_PATH"
+
+          # 查找 MSI 签名文件
+          SIG_PATH="${MSI_PATH}.sig"
+          if [ -f "$SIG_PATH" ]; then
+            echo "Found signature file: $SIG_PATH"
+            SIG_CONTENT=$(cat "$SIG_PATH")
+            echo "msi_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature content: $SIG_CONTENT"
+          else
+            echo "Warning: No signature file found at $SIG_PATH"
+            echo "msi_signature=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload Windows MSI
         uses: actions/upload-artifact@v4
@@ -295,6 +347,11 @@ jobs:
           APPIMAGE_FILE=$(find ./artifacts -name '*.AppImage' 2>/dev/null | head -1 | xargs -I {} basename {} || echo "")
           MSI_FILE=$(find ./artifacts -name '*.msi' 2>/dev/null | head -1 | xargs -I {} basename {} || echo "")
 
+          # 从 job 输出获取签名
+          DMG_SIG="${{ needs.build-macos.outputs.dmg_signature }}"
+          APPIMAGE_SIG="${{ needs.build-linux.outputs.appimage_signature }}"
+          MSI_SIG="${{ needs.build-windows.outputs.msi_signature }}"
+
           cat > ./artifacts/latest.json << EOF
           {
             "version": "$VERSION",
@@ -303,19 +360,19 @@ jobs:
             "platforms": {
               "darwin-aarch64": {
                 "url": "https://github.com/sufar/kafka-manager/releases/download/${{ github.ref_name }}/$DMG_FILE",
-                "signature": ""
+                "signature": "$DMG_SIG"
               },
               "darwin-x86_64": {
                 "url": "https://github.com/sufar/kafka-manager/releases/download/${{ github.ref_name }}/$DMG_FILE",
-                "signature": ""
+                "signature": "$DMG_SIG"
               },
               "linux-x86_64": {
                 "url": "https://github.com/sufar/kafka-manager/releases/download/${{ github.ref_name }}/$APPIMAGE_FILE",
-                "signature": ""
+                "signature": "$APPIMAGE_SIG"
               },
               "windows-x86_64": {
                 "url": "https://github.com/sufar/kafka-manager/releases/download/${{ github.ref_name }}/$MSI_FILE",
-                "signature": ""
+                "signature": "$MSI_SIG"
               }
             }
           }

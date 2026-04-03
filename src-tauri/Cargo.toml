@@ -31,7 +31,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"] }
 rdkafka = { version = "0.39", features = ["tokio"] }
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 bcrypt = "0.17"
 toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
@@ -44,3 +44,10 @@ dirs = "5"
 
 # Lock-free Arc for AppState
 arc-swap = "1.7"
+
+# 文件哈希计算 (用于签名验证)
+sha2 = "0.10"
+hex = "0.4"
+
+# 异步流处理
+futures = "0.3"
