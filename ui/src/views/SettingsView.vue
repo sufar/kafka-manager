@@ -256,7 +256,7 @@ const { isDark, toggleTheme } = themeStore;
 const { t } = storeToRefs(languageStore);
 
 // App version
-const appVersion = ref('1.0.6');
+const appVersion = ref('1.0.8');
 
 // 更新相关状态
 const updateAvailable = ref(false);
