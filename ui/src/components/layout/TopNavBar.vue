@@ -24,7 +24,7 @@
       </div>
 
       <!-- Topic Search - Desktop -->
-      <div class="relative ml-2 hidden md:block">
+      <div ref="searchContainerRef" class="relative ml-2 hidden md:block">
         <input
           ref="searchInputRef"
           v-model="searchQuery"
@@ -38,7 +38,8 @@
         <!-- Search Results Dropdown -->
         <div
           v-if="showSearchDropdown && (searchQuery || searchResults.length > 0)"
-          class="absolute top-full left-0 mt-1 w-72 bg-base-100 border border-base-200 rounded-lg shadow-xl z-[100] max-h-96 overflow-y-auto"
+          ref="searchDropdownRef"
+          class="absolute top-full left-0 mt-1 w-[42rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-[100] max-h-96 overflow-y-auto"
         >
           <div v-if="searchLoading" class="p-4 text-center">
             <span class="loading loading-spinner loading-sm"></span>
@@ -152,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
@@ -183,6 +184,20 @@ const searchError = ref<string | null>(null);
 const showSearchDropdown = ref(false);
 const selectedIndex = ref(-1);
 const searchInputRef = ref<HTMLInputElement>();
+const searchDropdownRef = ref<HTMLDivElement>();
+const searchContainerRef = ref<HTMLDivElement>();
+
+// 点击外部关闭下拉框
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as Node;
+  if (
+    showSearchDropdown.value &&
+    searchContainerRef.value &&
+    !searchContainerRef.value.contains(target)
+  ) {
+    showSearchDropdown.value = false;
+  }
+}
 
 // Debounced search
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -270,6 +285,15 @@ function handleGlobalKeydown(e: KeyboardEvent) {
     showSearchDropdown.value = true;
   }
 }
+
+// 注册/注销全局事件
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 
 // 暴露方法给父组件
 defineExpose({

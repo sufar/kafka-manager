@@ -5,7 +5,7 @@
       v-if="!isMobile"
       ref="leftSidebarRef"
       class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl ml-2 mt-2 mb-2"
-      :style="{ width: leftSidebarWidth + 'px', minWidth: '200px', maxWidth: '80vw' }"
+      :style="{ width: leftSidebarWidth + 'px', minWidth: '133px', maxWidth: '80vw' }"
     >
       <div class="flex-1 flex flex-col min-h-0">
         <!-- Tree Mode -->
@@ -123,7 +123,7 @@ function startResize(e: MouseEvent) {
 
 function handleResize(e: MouseEvent) {
   const delta = e.pageX - startX.value;
-  leftSidebarWidth.value = Math.max(380, Math.min(startWidth.value + delta, window.innerWidth * 0.8));
+  leftSidebarWidth.value = Math.max(133, Math.min(startWidth.value + delta, window.innerWidth * 0.8));
 }
 
 function stopResize() {
