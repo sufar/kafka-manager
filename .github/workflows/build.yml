@@ -298,7 +298,7 @@ jobs:
           cat > ./artifacts/latest.json << EOF
           {
             "version": "$VERSION",
-            "notes": ${{ steps.release_notes.notes }},
+            "notes": ${{ steps.release_notes.outputs.notes }},
             "pub_date": "$PUB_DATE",
             "platforms": {
               "darwin-aarch64": {
