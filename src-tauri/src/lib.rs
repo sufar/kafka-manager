@@ -483,7 +483,7 @@ where
     use futures::StreamExt;
 
     // 检查本地文件
-    let existing_size = if download_path.exists() {
+    let mut existing_size = if download_path.exists() {
         std::fs::metadata(download_path)
             .map(|m| m.len())
             .unwrap_or(0)
@@ -522,8 +522,9 @@ where
 
     // 如果文件已完整下载但签名验证失败，删除重新下载
     if existing_size > 0 && existing_size >= total_size && total_size > 0 {
-        log("File exists but signature mismatch, removing and re-downloading");
+        log("File exists but signature mismatch or file too large, removing and re-downloading");
         std::fs::remove_file(download_path).ok();
+        existing_size = 0;
     }
 
     // 检查是否支持断点续传
@@ -531,14 +532,17 @@ where
         .get("accept-ranges")
         .map_or(false, |v| v.as_bytes() == b"bytes");
 
-    let start_byte = if supports_resume { existing_size } else { 0 };
-
-    if start_byte > 0 && supports_resume {
-        log(&format!("Resuming download from byte {}", start_byte));
-    } else if start_byte > 0 {
-        log("Server doesn't support resume, restarting download");
-        std::fs::remove_file(download_path).ok();
-    }
+    // 只有本地文件小于远程文件时才尝试断点续传
+    let start_byte = if supports_resume && existing_size > 0 && existing_size < total_size {
+        log(&format!("Resuming download from byte {} (remote: {})", existing_size, total_size));
+        existing_size
+    } else {
+        if existing_size > 0 && !supports_resume {
+            log("Server doesn't support resume, restarting download");
+            std::fs::remove_file(download_path).ok();
+        }
+        0
+    };
 
     // 构建请求
     let mut request = client
@@ -546,19 +550,37 @@ where
         .header("User-Agent", "kafka-manager");
 
     // 添加 Range 头进行断点续传
-    if start_byte > 0 && supports_resume {
+    // 添加 Range 头进行断点续传
+    if start_byte > 0 {
         request = request.header("Range", format!("bytes={}-", start_byte));
     }
 
     let response = request
         .send()
         .await
-        .map_err(|e| format!("下载失败: {}", e))?;
+        .map_err(|e| format!("下载失败：{}", e))?;
 
-    // 检查响应状态
-    if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-        return Err(format!("下载失败: HTTP {}", response.status()));
-    }
+    // 检查响应状态 - 处理 416 错误
+    let final_response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        log("Received 416 Range Not Satisfiable, removing local file and retrying");
+        std::fs::remove_file(download_path).ok();
+        // 重新下载
+        let retry_response = client
+            .get(url)
+            .header("User-Agent", "kafka-manager")
+            .send()
+            .await
+            .map_err(|e| format!("下载失败：{}", e))?;
+        if !retry_response.status().is_success() {
+            return Err(format!("下载失败：HTTP {}", retry_response.status()));
+        }
+        retry_response
+    } else {
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            return Err(format!("下载失败：HTTP {}", response.status()));
+        }
+        response
+    };
 
     // 以追加模式写入文件
     use std::io::Write;
@@ -566,14 +588,14 @@ where
         .create(true)
         .append(true)
         .open(download_path)
-        .map_err(|e| format!("打开文件失败: {}", e))?;
+        .map_err(|e| format!("打开文件失败：{}", e))?;
 
     // 流式下载，带进度跟踪
-    let mut downloaded = start_byte;
-    let mut stream = response.bytes_stream();
+    // 416 重试后从 0 开始下载
+    let mut downloaded: u64 = 0;
+    let mut stream = final_response.bytes_stream();
 
     // 发送初始进度
-    progress_callback(downloaded, total_size);
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载流错误: {}", e))?;

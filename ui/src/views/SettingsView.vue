@@ -254,7 +254,8 @@
               </button>
               <button
                 type="button"
-                class="btn btn-primary flex-1"
+                class="btn btn-primary flex-1 text-white"
+                :class="{'opacity-80': downloading}"
                 :disabled="downloading"
                 @click="installUpdate"
               >
