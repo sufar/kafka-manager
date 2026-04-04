@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <dialog ref="modalRef" class="modal" @click.self="close">
-      <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
+      <div class="modal-box w-full max-w-5xl mx-2 md:mx-auto p-5">
         <!-- Header -->
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
@@ -63,7 +63,7 @@
             <JsonEditor
               ref="jsonEditorRef"
               v-model="form.value"
-              height="h-64"
+              height="h-96"
               :placeholder="`{&#10;  &quot;id&quot;: 1,&#10;  &quot;data&quot;: &quot;example&quot;&#10;}`"
               :required="true"
             >

@@ -161,9 +161,9 @@ defineExpose({
   height: 100%;
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.875rem;
-  line-height: 1.5rem;
-  padding: 0.625rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  padding: 0.5rem;
   white-space: pre;
   overflow: auto;
   border: none;
