@@ -21,7 +21,7 @@
 ```toml
 [package]
 name = "kafka-manager-api"
-version = "1.0.15"  # 修改此处
+version = "1.0.17"  # 修改此处
 edition = "2021"
 ```
 
@@ -29,7 +29,7 @@ edition = "2021"
 ```toml
 [package]
 name = "kafka-manager"
-version = "1.0.15"  # 修改此处
+version = "1.0.17"  # 修改此处
 description = "A Kafka Manager tool built with Tauri 2"
 ```
 
@@ -40,7 +40,7 @@ description = "A Kafka Manager tool built with Tauri 2"
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kafka Manager",
-  "version": "1.0.15",  # 修改此处
+  "version": "1.0.17",  # 修改此处
   "identifier": "com.kafka-manager"
 }
 ```
@@ -53,10 +53,10 @@ description = "A Kafka Manager tool built with Tauri 2"
 
 ```typescript
 // 第 345 行附近 - 默认版本号
-const appVersion = ref('1.0.15');
+const appVersion = ref('1.0.17');
 
 // 第 394 行附近 - fallback 版本号
-appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.15');
+appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.17');
 ```
 
 ### 4. 验证修改
@@ -64,7 +64,7 @@ appVersion.value = typeof result === 'string' ? result : (result.version || '1.0
 运行以下命令确认所有版本号已更新：
 
 ```bash
-grep -r "1\.0\.15" Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json ui/src/views/SettingsView.vue
+grep -r "1\.0\.17" Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json ui/src/views/SettingsView.vue
 ```
 
 ### 5. 更新 Cargo.lock（可选）
@@ -92,7 +92,7 @@ cargo build
 - [ ] 所有 4 个文件的版本号一致
 - [ ] `Cargo.lock` 已更新（运行 `cargo build`）
 - [ ] 设置页面的版本号显示正确
-- [ ] Git commit 信息包含版本号（例如：`升级 v1.0.15`）
+- [ ] Git commit 信息包含版本号（例如：`升级 v1.0.17`）
 
 ## 相关文件
 
