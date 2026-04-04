@@ -7,6 +7,7 @@ use std::time::Duration;
 use futures::stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use serde::{Serialize, Deserialize};
+use bytes::Bytes;
 
 pub struct KafkaConsumer {
     timeout: Duration,
@@ -73,6 +74,11 @@ impl KafkaConsumer {
         client_config.set("fetch.min.bytes", "1");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
+        // P0 性能优化：批量 fetch 配置
+        client_config.set("fetch.message.max.bytes", "10485760"); // 10MB
+        client_config.set("fetch.max.bytes", "52428800"); // 50MB
+        client_config.set("max.partition.fetch.bytes", "10485760"); // 10MB
+        client_config.set("fetch.max.wait.ms", "10"); // 最多等待 10ms 用于批量
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -90,7 +96,7 @@ impl KafkaConsumer {
         }
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(1000));
         let base_timeout = Duration::from_millis(30);
         let mut consecutive_timeouts = 0;
 
@@ -177,7 +183,7 @@ impl KafkaConsumer {
         tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(1000));
         let mut total_received = 0usize;
         // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
         let base_timeout = if max_messages > 5000 {
@@ -311,7 +317,7 @@ impl KafkaConsumer {
         let result_tpl = consumer.offsets_for_times(tpl, Duration::from_secs(3))?;
 
         // 获取结果
-        let mut offsets = std::collections::HashMap::new();
+        let mut offsets = std::collections::HashMap::with_capacity(result_tpl.elements().len());
         for elem in result_tpl.elements() {
             if elem.topic() == topic {
                 match elem.offset() {
@@ -354,7 +360,7 @@ impl KafkaConsumer {
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(500));
         let base_timeout = Duration::from_millis(100);
         let mut consecutive_timeouts = 0;
         const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2;
@@ -542,7 +548,7 @@ impl KafkaConsumer {
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(500));
 
         for _ in 0..max_messages {
             match tokio::time::timeout(self.timeout, consumer.recv()).await {
@@ -594,7 +600,7 @@ impl KafkaConsumer {
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(500));
         let base_timeout = Duration::from_millis(100);
         let mut consecutive_timeouts = 0;
         const MAX_CONSECUTIVE_TIMEOUTS: u32 = 2; // 连续 2 次超时认为没有更多消息
@@ -694,7 +700,7 @@ impl KafkaConsumer {
         tpl.add_partition_offset(topic, target_partition, target_offset)?;
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(500));
         // 减少超时时间，加快响应
         let base_timeout = Duration::from_millis(50);
         let mut consecutive_timeouts = 0;
@@ -786,7 +792,7 @@ impl KafkaConsumer {
         tpl.add_partition_offset(topic, target_partition, target_offset)?;
         consumer.assign(&tpl)?;
 
-        let mut messages = Vec::new();
+        let mut messages = Vec::with_capacity(max_messages.min(1000));
         // 优化：根据请求数量调整超时时间，确保大数据量时能读取完成
         let base_timeout = if max_messages > 5000 {
             Duration::from_millis(100)
@@ -855,4 +861,23 @@ pub struct KafkaMessage {
     pub key: Option<String>,
     pub value: Option<String>,
     pub timestamp: Option<i64>,
+}
+
+impl KafkaMessage {
+    /// 快速转换为 JSON Value，避免重复序列化
+    pub fn to_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "partition": self.partition,
+            "offset": self.offset,
+            "key": self.key,
+            "value": self.value,
+            "timestamp": self.timestamp,
+        })
+    }
+
+    /// 零拷贝转换为 JSON 字节（使用 serde_json 直接序列化）
+    pub fn to_json_bytes(&self) -> std::result::Result<Bytes, serde_json::Error> {
+        // 使用 serde_json::to_vec 直接序列化为字节，避免 String 中间层
+        serde_json::to_vec(self).map(Bytes::from)
+    }
 }

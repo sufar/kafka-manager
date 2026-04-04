@@ -145,6 +145,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pools.init(&clusters, &config.pool).await?;
     tracing::info!("Kafka connection pools initialized");
 
+    // 预热 Consumer Pool（可选配置）
+    let warmup_size = config.pool.min_size;
+    if warmup_size > 0 {
+        for (cluster_id, _) in &clusters {
+            if let Some(consumer_pool) = pools.get_consumer_pool(cluster_id).await {
+                let size = warmup_size as usize;
+                tokio::spawn(async move {
+                    let _ = crate::pool::kafka_consumer::warmup_consumer_pool(&consumer_pool, size).await;
+                });
+            }
+        }
+        tracing::info!("Consumer pool warmup started for {} clusters (size: {} per cluster)", clusters.len(), warmup_size);
+    }
+
     // 初始化缓存
     let cache = MetadataCache::new();
     tracing::info!("Metadata cache initialized");
@@ -193,8 +207,8 @@ async fn load_clusters_from_db(
     use crate::config::KafkaConfig;
     use crate::db::cluster::ClusterStore;
 
-    let mut clusters = std::collections::HashMap::new();
     let db_clusters = ClusterStore::list(pool).await?;
+    let mut clusters = std::collections::HashMap::with_capacity(db_clusters.len());
 
     for cluster in db_clusters {
         clusters.insert(

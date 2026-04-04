@@ -212,7 +212,7 @@
           :items="sortedMessages"
           :item-size="24"
           key-field="uid"
-          :buffer="200"
+          :buffer="500"
           v-slot="{ item }"
         >
           <div
@@ -254,7 +254,7 @@
           :items="sortedMessages"
           :item-size="76"
           key-field="uid"
-          :buffer="100"
+          :buffer="300"
           v-slot="{ item }"
         >
           <div
@@ -305,16 +305,16 @@
         <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-base-content/10">
           <div class="flex items-center gap-2 flex-wrap">
             <h4 class="text-xs font-bold">{{ t.messages.messageDetail }}</h4>
-            <span class="text-[10px] text-base-content/50">{{ t.messages.partition }}: <span class="font-mono">{{ selectedMessage.partition }}</span></span>
-            <span class="text-[10px] text-base-content/50">{{ t.messages.offset }}: <span class="font-mono">{{ selectedMessage.offset }}</span></span>
-            <span class="text-[10px] text-base-content/50">{{ formatTime(selectedMessage.timestamp) }}</span>
+            <span class="text-[10px] text-base-content/50">{{ t.messages.partition }}: <span class="font-mono">{{ selectedMessage.p }}</span></span>
+            <span class="text-[10px] text-base-content/50">{{ t.messages.offset }}: <span class="font-mono">{{ selectedMessage.o }}</span></span>
+            <span class="text-[10px] text-base-content/50">{{ formatTime(selectedMessage.ts) }}</span>
           </div>
           <div class="flex items-center gap-1">
             <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">{{ t.messages.close }}</button>
           </div>
         </div>
         <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
-          <div v-if="selectedMessage.key" class="mb-1">
+          <div v-if="selectedMessage.k" class="mb-1">
             <div class="flex items-center justify-between mb-0.5">
               <div class="text-base-content/50 text-[10px] font-semibold">{{ t.messages.key }}:</div>
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="copyKey" :title="t.messages.copyKey">
@@ -323,7 +323,7 @@
                 </svg>
               </button>
             </div>
-            <div ref="keyPreRef" class="bg-base-100 p-1 rounded text-[10px] font-mono border border-base-content/5 truncate">{{ selectedMessage.key }}</div>
+            <div ref="keyPreRef" class="bg-base-100 p-1 rounded text-[10px] font-mono border border-base-content/5 truncate">{{ selectedMessage.k }}</div>
           </div>
           <div class="flex flex-col flex-1">
             <div class="flex items-center justify-between mb-0.5">
@@ -345,13 +345,13 @@
               v-if="valueViewFormat === 'json'"
               ref="valuePreRef"
               class="bg-base-100 p-1.5 rounded text-xs font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1 json-highlight"
-              v-html="highlightJson(formatValue(selectedMessage.value, valueViewFormat))"
+              v-html="highlightJson(formatValue(selectedMessage.v, valueViewFormat))"
             ></pre>
             <pre
               v-else
               ref="valuePreRef"
               class="bg-base-100 p-1.5 rounded text-xs font-mono overflow-auto whitespace-pre-wrap border border-base-content/5 flex-1"
-            >{{ formatValue(selectedMessage.value, valueViewFormat) }}</pre>
+            >{{ formatValue(selectedMessage.v, valueViewFormat) }}</pre>
           </div>
         </div>
       </div>
@@ -399,13 +399,14 @@ const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 
+// 消息类型 - 使用紧凑格式（短字段名减少内存占用）
 interface Message {
-  partition: number;
-  offset: number;
-  key: string | null;
-  value: string | null;
-  timestamp: number | null;
-  uid: string;
+  p: number;          // partition
+  o: number;          // offset
+  k: string | null;   // key
+  v: string | null;   // value
+  ts: number | null;  // timestamp
+  uid: string;        // 唯一 ID，用于虚拟滚动
 }
 
 // Props - 从父组件接收 cluster 和 topic
@@ -438,8 +439,8 @@ const sortedMessages = computed(() => {
     return messages.value;
   }
   return [...messages.value].sort((a, b) => {
-    const tsA = a.timestamp ?? 0;
-    const tsB = b.timestamp ?? 0;
+    const tsA = a.ts ?? 0;
+    const tsB = b.ts ?? 0;
     return timestampSort.value === 'asc' ? tsA - tsB : tsB - tsA;
   });
 });
@@ -495,11 +496,16 @@ function resetMessageState() {
   finalizedSort = undefined;
 }
 
-// 批量更新 UI，每 100ms 固定更新一次（throttle 模式）
+// 批量更新 UI，动态调整更新频率
 // 虚拟滚动只会渲染可见区域，所以更新频率可以更高
 let updateTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleUpdate() {
   if (updateTimer) return;
+
+  // 动态计算更新间隔：消息越多，间隔越长，避免 UI 卡顿
+  // 基础间隔 50ms，每 100 条消息增加 25ms，最大 300ms
+  const pendingCount = pendingMessages.length;
+  const updateInterval = Math.min(300, Math.max(50, 50 + Math.floor(pendingCount / 100) * 25));
 
   updateTimer = setTimeout(() => {
     updateTimer = null;
@@ -508,14 +514,14 @@ function scheduleUpdate() {
       // 合并到 messages，而不是覆盖
       messages.value = [...messages.value, ...pendingMessages];
       pendingMessages = [];
-      console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
+      // console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
       // 强制刷新虚拟滚动
       nextTick(() => {
         scrollerRef.value?.refresh();
         scrollerRefMobile.value?.refresh();
       });
     }
-  }, 100);
+  }, updateInterval);
 }
 
 // 发送消息弹框状态
@@ -684,14 +690,14 @@ async function queryMessages() {
           streamingProgress.value.received = progress;
           streamingProgress.value.total = total;
           lastQueryTime.value = Math.round(performance.now() - startTime);
-          // 追加到非响应式缓存数组
+          // 追加到非响应式缓存数组 - 使用紧凑格式减少内存
           for (const msg of newMessages) {
             pendingMessages.push({
-              partition: msg.partition,
-              offset: msg.offset,
-              key: msg.key || '',
-              value: msg.value || '',
-              timestamp: msg.timestamp || null,
+              p: msg.partition,
+              o: msg.offset,
+              k: msg.key || '',
+              v: msg.value || '',
+              ts: msg.timestamp || null,
               uid: `${msg.partition}-${msg.offset}`,
             });
           }
@@ -858,9 +864,9 @@ function exportMessages() {
 function openSendModal() {
   // 如果有选中的消息，自动填充 partition、key、value
   if (selectedMessage.value) {
-    messageFormPartition.value = selectedMessage.value.partition ?? 0;
-    messageFormKey.value = selectedMessage.value.key || '';
-    messageFormValue.value = selectedMessage.value.value || '';
+    messageFormPartition.value = selectedMessage.value.p ?? 0;
+    messageFormKey.value = selectedMessage.value.k ?? '';
+    messageFormValue.value = selectedMessage.value.v ?? '';
   } else {
     // 如果没有选中分区，默认选第一个
     if (partitions.value.length > 0 && messageFormPartition.value === 0) {
@@ -924,11 +930,11 @@ function truncate(str: string | null, len: number): string {
 }
 
 // 辅助函数：获取消息属性
-function getMsgPartition(item: any): number { return item?.partition ?? 0; }
-function getMsgOffset(item: any): number { return item?.offset ?? 0; }
-function getMsgKey(item: any): string | null { return item?.key; }
-function getMsgValue(item: any): string | null { return item?.value; }
-function getMsgTimestamp(item: any): number | null { return item?.timestamp; }
+function getMsgPartition(item: any): number { return item?.p ?? 0; }
+function getMsgOffset(item: any): number { return item?.o ?? 0; }
+function getMsgKey(item: any): string | null { return item?.k; }
+function getMsgValue(item: any): string | null { return item?.v; }
+function getMsgTimestamp(item: any): number | null { return item?.ts; }
 
 // 键盘导航：处理方向键
 function handleKeyNavigation(e: KeyboardEvent) {
@@ -955,9 +961,9 @@ function handleKeyNavigation(e: KeyboardEvent) {
 // 导航到上一条或下一条消息
 function navigateMessage(direction: NavigationDirection) {
   const currentIndex = selectedMessage.value
-    ? sortedMessages.value.findIndex(
-        (msg) => msg.partition === selectedMessage.value?.partition && msg.offset === selectedMessage.value?.offset
-      )
+    ? sortedMessages.value.findIndex((msg) => {
+        return msg.p === selectedMessage.value?.p && msg.o === selectedMessage.value?.o;
+      })
     : -1;
 
   let newIndex: number;
@@ -981,8 +987,8 @@ function scrollToSelectedMessage() {
   const scroller = scrollerRef.value;
   if (!scroller) return;
 
-  const uid = `${selectedMessage.value.partition}-${selectedMessage.value.offset}`;
-  const index = sortedMessages.value.findIndex((msg) => msg.uid === uid);
+  const uid = `${selectedMessage.value.p}-${selectedMessage.value.o}`;
+  const index = sortedMessages.value.findIndex((m) => m.uid === uid);
   if (index >= 0) {
     // 使用虚拟滚动的 scrollToItem 方法
     scroller.scrollToItem(index);
@@ -1120,24 +1126,24 @@ function handleTemplateChange(_event: CustomEvent) {
 }
 
 function copyKey() {
-  if (!selectedMessage.value?.key) return;
-  navigator.clipboard.writeText(selectedMessage.value.key).then(() => {
+  if (!selectedMessage.value?.k) return;
+  navigator.clipboard.writeText(selectedMessage.value.k).then(() => {
     showSuccess(`${t.value.messages.key} ${t.value.messages.copied}`, 2000);
   });
 }
 
 function copyValue() {
-  if (!selectedMessage.value?.value) return;
-  const text = formatValue(selectedMessage.value.value, valueViewFormat.value);
+  if (!selectedMessage.value?.v) return;
+  const text = formatValue(selectedMessage.value.v, valueViewFormat.value);
   navigator.clipboard.writeText(text).then(() => {
     showSuccess(`${t.value.messages.value} ${t.value.messages.copied}`, 2000);
   });
 }
 
 function copyMessageValue(msg: any) {
-  if (!msg?.value) return;
+  if (!msg?.v) return;
   // 默认按 JSON 格式化复制
-  const text = formatValue(msg.value, 'json');
+  const text = formatValue(msg.v, 'json');
   navigator.clipboard.writeText(text).then(() => {
     showSuccess(`${t.value.messages.value} ${t.value.messages.copied}`, 2000);
   });

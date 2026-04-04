@@ -265,7 +265,13 @@ fn encode_message(_schema: &serde_json::Value, json: &serde_json::Value) -> Resu
 
 /// 解析 Protobuf Schema JSON 获取字段信息
 fn parse_protobuf_schema(schema: &serde_json::Value) -> Result<HashMap<String, FieldInfo>> {
-    let mut fields = HashMap::new();
+    // 预估计字段数量
+    let estimated_fields = schema
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let mut fields = HashMap::with_capacity(estimated_fields);
 
     if let serde_json::Value::Object(map) = schema {
         if let Some(serde_json::Value::Array(fields_array)) = map.get("fields") {

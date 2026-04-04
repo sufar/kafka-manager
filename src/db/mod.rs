@@ -161,6 +161,25 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
+        // 审计日志索引：优化按 action 和 cluster_id 查询
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_cluster ON audit_logs(cluster_id)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC)",
+        )
+        .execute(self.inner())
+        .await?;
+
         // 创建告警规则表
         sqlx::query(
             r#"
@@ -176,6 +195,19 @@ impl DbPool {
                 UNIQUE(cluster_id, resource_type, resource_name, tag_key)
             )
             "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        // resource_tags 索引：优化按 cluster_id 和资源名称查询
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_resource_tags_cluster ON resource_tags(cluster_id)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_resource_tags_resource ON resource_tags(resource_type, resource_name)",
         )
         .execute(self.inner())
         .await?;
@@ -301,6 +333,13 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
+        // 复合索引：优化搜索 Topic 时的 cluster + name 组合查询
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_topic_metadata_cluster_name ON topic_metadata(cluster_id, topic_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
         // 创建 Consumer Group 元数据表
         sqlx::query(
             r#"
@@ -357,6 +396,13 @@ impl DbPool {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_consumer_group_offsets_topic ON consumer_group_offsets(cluster_id, topic_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 复合索引：优化按 cluster + group 查询 consumer group offsets
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_offsets_cluster_group ON consumer_group_offsets(cluster_id, group_name, topic_name)",
         )
         .execute(self.inner())
         .await?;

@@ -31,7 +31,7 @@ pub struct ClusterPools {
 impl ClusterPools {
     pub fn new() -> Self {
         Self {
-            pools: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            pools: Arc::new(tokio::sync::RwLock::new(HashMap::with_capacity(4))),
         }
     }
 
@@ -184,8 +184,10 @@ impl ClusterPools {
             pools.keys().cloned().collect()
         };
 
+        let cluster_count = cluster_ids.len();
+
         // 并行检查所有集群
-        let mut tasks = Vec::new();
+        let mut tasks = Vec::with_capacity(cluster_count);
         for cluster_id in cluster_ids {
             let this = self.clone();
             let task = tokio::spawn(async move {
@@ -196,7 +198,7 @@ impl ClusterPools {
             tasks.push(task);
         }
 
-        let mut statuses = Vec::new();
+        let mut statuses = Vec::with_capacity(cluster_count);
         for task in tasks {
             match task.await {
                 Ok(status) => statuses.push(status),

@@ -414,8 +414,7 @@
       <dialog ref="disconnectModalRef" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box">
           <h3 class="font-bold text-xl mb-4">
-            {{ t.clusters.disconnectConfirm }}
-            <span class="text-primary">{{ clusterToDisconnect }}</span>?
+            {{ t.clusters.disconnectConfirm.replace('{name}', clusterToDisconnect) }}
           </h3>
           <div class="flex justify-end gap-2 mt-6">
             <button type="button" class="btn btn-ghost" @click="closeDisconnectModal">{{ t.common.cancel }}</button>
@@ -527,11 +526,10 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                 </svg>
               </div>
-              <h3 class="font-bold text-base">{{ t.common.confirmDelete }}</h3>
+              <h3 class="font-bold text-base">{{ t.clusters.deleteGroupTitle }}</h3>
             </div>
           </div>
-          <p class="mb-2 text-base-content/80">{{ t.common.confirmDelete }} <span class="font-semibold text-primary">{{ groupToDelete?.name }}</span>？</p>
-          <p class="text-sm text-base-content/60 mb-4">{{ t.clusters.confirmDeleteGroup }}</p>
+          <p class="mb-2 text-base-content/80">{{ t.clusters.confirmDeleteGroup.replace('{name}', groupToDelete?.name || '') }}</p>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" @click="closeDeleteGroupModal">{{ t.common.cancel }}</button>
             <button type="button" class="btn btn-error" @click="confirmDeleteGroupAction" :disabled="groupDeleting">
@@ -892,7 +890,7 @@ async function testConnection(id: number) {
 }
 
 async function confirmDelete(cluster: Cluster) {
-  const confirmed = await confirm(`${t.value.clusters.confirmDelete} "${cluster.name}"?`);
+  const confirmed = await confirm(t.value.clusters.confirmDelete.replace('{name}', cluster.name));
   if (!confirmed) return;
 
   clusterStore.deleteCluster(cluster.id);

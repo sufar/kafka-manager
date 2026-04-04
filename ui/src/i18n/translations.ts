@@ -88,6 +88,7 @@ export interface Translation {
     groupDescription: string;
     groupDescPlaceholder: string;
     confirmDeleteGroup: string;
+    deleteGroupTitle: string;
     test: string;
     reconnect: string;
     disconnect: string;
@@ -137,6 +138,9 @@ export interface Translation {
     retentionMs: string;
     retentionBytes: string;
     segmentBytes: string;
+    retentionMsPlaceholder: string;
+    retentionBytesPlaceholder: string;
+    segmentBytesPlaceholder: string;
     viewMessages: string;
     viewDetails: string;
     viewPartitions: string;
@@ -154,6 +158,17 @@ export interface Translation {
     copied: string;
     copyFailed: string;
     deletedSuccess: string;
+    createdSuccess: string;
+    createFailed: string;
+    validationSelectCluster: string;
+    validationClusterIdRequired: string;
+    validationTopicNameRequired: string;
+    validationTopicNameTooLong: string;
+    validationTopicNameInvalidChars: string;
+    validationTopicNameFormat: string;
+    validationRetentionMs: string;
+    validationRetentionBytes: string;
+    validationSegmentBytes: string;
     noSearchResults: string;
     clearSearch: string;
   };
@@ -592,7 +607,8 @@ export const translations: Record<Language, Translation> = {
       groupNamePlaceholder: '请输入分组名称',
       groupDescription: '分组描述',
       groupDescPlaceholder: '请输入分组描述（可选）',
-      confirmDeleteGroup: '删除后，该分组下的所有集群将变为无分组状态。',
+      confirmDeleteGroup: '确定要删除分组 "{name}" 吗？删除后，该分组下的所有集群将变为无分组状态。',
+      deleteGroupTitle: '删除分组',
       test: '测试',
       reconnect: '重连',
       disconnect: '断开连接',
@@ -642,6 +658,9 @@ export const translations: Record<Language, Translation> = {
       retentionMs: '保留时间 (ms)',
       retentionBytes: '保留大小 (bytes)',
       segmentBytes: '段大小 (bytes)',
+      retentionMsPlaceholder: '604800000 (7 天)',
+      retentionBytesPlaceholder: '-1 (无限制)',
+      segmentBytesPlaceholder: '1073741824 (1GB)',
       viewMessages: '查看消息',
       viewDetails: '查看详情',
       viewPartitions: '查看分区',
@@ -659,6 +678,17 @@ export const translations: Record<Language, Translation> = {
       copied: '已复制',
       copyFailed: '复制失败',
       deletedSuccess: '主题已删除',
+      createdSuccess: '主题 "${name}" 创建成功',
+      createFailed: '创建主题失败',
+      validationSelectCluster: '请先选择一个集群',
+      validationClusterIdRequired: '集群 ID 不能为空',
+      validationTopicNameRequired: '主题名称不能为空',
+      validationTopicNameTooLong: '主题名称不能超过 256 个字符',
+      validationTopicNameInvalidChars: '主题名称不能包含空格、引号或逗号',
+      validationTopicNameFormat: '主题名称只能包含字母、数字、点号、下划线和短横线',
+      validationRetentionMs: 'retention.ms 必须是正数',
+      validationRetentionBytes: 'retention.bytes 必须是数字（使用 -1 表示无限制）',
+      validationSegmentBytes: 'segment.bytes 必须是正数',
       noSearchResults: '未找到匹配的 Topic',
       clearSearch: '清除搜索',
     },
@@ -1095,7 +1125,8 @@ export const translations: Record<Language, Translation> = {
       groupNamePlaceholder: 'Enter group name',
       groupDescription: 'Group Description',
       groupDescPlaceholder: 'Enter description (optional)',
-      confirmDeleteGroup: 'After deletion, all clusters in this group will become ungrouped.',
+      confirmDeleteGroup: 'Are you sure you want to delete group "{name}"? After deletion, all clusters in this group will become ungrouped.',
+      deleteGroupTitle: 'Delete Group',
       test: 'Test',
       reconnect: 'Reconnect',
       disconnect: 'Disconnect',
@@ -1145,6 +1176,9 @@ export const translations: Record<Language, Translation> = {
       retentionMs: 'Retention (ms)',
       retentionBytes: 'Retention (bytes)',
       segmentBytes: 'Segment Size (bytes)',
+      retentionMsPlaceholder: '604800000 (7 days)',
+      retentionBytesPlaceholder: '-1 (unlimited)',
+      segmentBytesPlaceholder: '1073741824 (1GB)',
       viewMessages: 'View Messages',
       viewDetails: 'View Details',
       viewPartitions: 'View Partitions',
@@ -1162,6 +1196,17 @@ export const translations: Record<Language, Translation> = {
       copied: 'Copied',
       copyFailed: 'Copy failed',
       deletedSuccess: 'Topic deleted successfully',
+      createdSuccess: 'Topic "${name}" created successfully',
+      createFailed: 'Failed to create topic',
+      validationSelectCluster: 'Please select a cluster first',
+      validationClusterIdRequired: 'Cluster ID is required',
+      validationTopicNameRequired: 'Topic name is required',
+      validationTopicNameTooLong: 'Topic name cannot exceed 256 characters',
+      validationTopicNameInvalidChars: 'Topic name cannot contain spaces, quotes, or commas',
+      validationTopicNameFormat: 'Topic name can only contain letters, numbers, dots, underscores, and hyphens',
+      validationRetentionMs: 'retention.ms must be a positive number',
+      validationRetentionBytes: 'retention.bytes must be a number (use -1 for unlimited)',
+      validationSegmentBytes: 'segment.bytes must be a positive number',
       noSearchResults: 'No matching topics found',
       clearSearch: 'Clear Search',
     },

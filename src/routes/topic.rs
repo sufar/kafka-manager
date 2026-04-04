@@ -363,8 +363,8 @@ async fn batch_create_topics(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
-    let mut created = Vec::new();
-    let mut failed = Vec::new();
+    let mut created = Vec::with_capacity(req.topics.len());
+    let mut failed = Vec::with_capacity(req.topics.len());
 
     for topic_req in req.topics {
         match admin
@@ -415,8 +415,8 @@ async fn batch_delete_topics(
 
     // 如果不需要在错误时继续，则使用串行删除
     if !req.continue_on_error {
-        let mut deleted = Vec::new();
-        let mut failed = Vec::new();
+        let mut deleted = Vec::with_capacity(req.topics.len());
+        let mut failed = Vec::with_capacity(req.topics.len());
 
         for topic_name in req.topics {
             match admin.delete_topic(&topic_name).await {
@@ -460,8 +460,8 @@ async fn batch_delete_topics(
     }).collect();
 
     let results = join_all(tasks).await;
-    let mut deleted = Vec::new();
-    let mut failed = Vec::new();
+    let mut deleted = Vec::with_capacity(results.len());
+    let mut failed = Vec::with_capacity(results.len());
 
     for result in results {
         match result {
@@ -536,7 +536,7 @@ async fn refresh_topics(
         let current_topics = admin.list_topics()?;
 
         // 获取每个 topic 的分区信息
-        let mut topic_details = Vec::new();
+        let mut topic_details = Vec::with_capacity(current_topics.len());
         for topic in &current_topics {
             if let Ok(info) = admin.get_topic_info(topic) {
                 topic_details.push((topic.clone(), info.partitions.len() as i32));
@@ -553,7 +553,7 @@ async fn refresh_topics(
 
     // 更新新增 topic 的详细信息（分区数等）
     for (topic_name, partition_count) in topic_details {
-        let config = std::collections::HashMap::new();
+        let config = std::collections::HashMap::with_capacity(0);
         let _ = TopicStore::upsert(
             state.db.inner(),
             &cluster_id,

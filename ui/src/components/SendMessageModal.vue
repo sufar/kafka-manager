@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <dialog ref="modalRef" class="modal" @click.self="close">
-      <div class="modal-box w-full max-w-5xl mx-2 md:mx-auto p-5">
+      <div class="modal-box w-full max-w-5xl mx-2 md:mx-auto p-5 max-h-[90vh] overflow-y-auto">
         <!-- Header -->
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
@@ -63,7 +63,7 @@
             <JsonEditor
               ref="jsonEditorRef"
               v-model="form.value"
-              height="h-96"
+              :height="isMobile ? 'h-48' : 'h-96'"
               :placeholder="`{&#10;  &quot;id&quot;: 1,&#10;  &quot;data&quot;: &quot;example&quot;&#10;}`"
               :required="true"
             >
@@ -161,13 +161,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useLanguageStore } from '@/stores/language';
 import JsonEditor from '@/components/JsonEditor.vue';
 
 const languageStore = useLanguageStore();
 const jsonEditorRef = ref<InstanceType<typeof JsonEditor> | null>(null);
 const t = computed(() => languageStore.t);
+
+// 检测是否为移动端
+const isMobile = ref(false);
+onMounted(() => {
+  isMobile.value = window.innerWidth < 768;
+  const handleResize = () => {
+    isMobile.value = window.innerWidth < 768;
+  };
+  window.addEventListener('resize', handleResize);
+  onUnmounted(() => window.removeEventListener('resize', handleResize));
+});
 
 const props = defineProps<{
   modelValue: boolean;

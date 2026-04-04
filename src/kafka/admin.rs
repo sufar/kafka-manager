@@ -256,8 +256,9 @@ impl KafkaAdmin {
         // 获取 committed offsets
         let committed = consumer.committed_offsets(tpl.clone(), self.timeout);
 
-        // 过滤出指定 group 的 offsets
-        let mut topic_partitions = Vec::new();
+        // 预分配容量：估计每个 topic 3 个分区
+        let estimated_size = all_metadata.topics().len() * 3;
+        let mut topic_partitions = Vec::with_capacity(estimated_size);
 
         if let Ok(offsets) = committed {
             for element in offsets.elements() {

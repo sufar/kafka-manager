@@ -39,7 +39,7 @@ impl KafkaOffsetManager {
             .fetch_group_list(None, std::time::Duration::from_millis(self.timeout_ms))
             .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
 
-        let mut all_groups = Vec::new();
+        let mut all_groups = Vec::with_capacity(group_list.groups().len());
 
         for group in group_list.groups() {
             let group_name = group.name();
@@ -79,7 +79,9 @@ impl KafkaOffsetManager {
         let committed = consumer.committed_offsets(tpl.clone(), std::time::Duration::from_millis(self.timeout_ms)).ok()?;
 
         // 按 topic 分组 offsets
-        let mut topic_map: std::collections::HashMap<String, Vec<PartitionOffsetInfo>> = std::collections::HashMap::new();
+        // 预估计：假设每个 topic 平均 3 个分区
+        let estimated_topics = committed.elements().len() / 3 + 1;
+        let mut topic_map: std::collections::HashMap<String, Vec<PartitionOffsetInfo>> = std::collections::HashMap::with_capacity(estimated_topics);
 
         for element in committed.elements() {
             if let Some(offset) = element.offset().to_raw() {
@@ -116,7 +118,7 @@ impl KafkaOffsetManager {
         }
 
         // 构建响应
-        let mut topics = Vec::new();
+        let mut topics = Vec::with_capacity(topic_map.len());
         let mut total_lag = 0i64;
 
         for (topic_name, partitions) in topic_map {
@@ -158,7 +160,8 @@ impl KafkaOffsetManager {
             .find(|t| t.name() == topic)
             .ok_or_else(|| AppError::NotFound(format!("Topic '{}' not found", topic)))?;
 
-        let mut partition_offsets = Vec::new();
+        let partition_count = topic_metadata.partitions().len();
+        let mut partition_offsets = Vec::with_capacity(partition_count);
 
         for partition in topic_metadata.partitions() {
             let partition_id = partition.id();
@@ -263,9 +266,6 @@ impl KafkaOffsetManager {
             .create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
 
-        let mut details = Vec::new();
-
-        // 首先获取 topic 列表
         let topics_to_check: Vec<String> = if let Some(t) = topic {
             vec![t.to_string()]
         } else {
@@ -273,6 +273,8 @@ impl KafkaOffsetManager {
             tracing::warn!("Cannot list all topics for consumer group without explicit topic");
             return Ok(vec![]);
         };
+
+        let mut details = Vec::with_capacity(topics_to_check.len() * 4);
 
         for topic_name in topics_to_check {
             let metadata = consumer

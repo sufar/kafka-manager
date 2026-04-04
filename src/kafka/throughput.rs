@@ -42,8 +42,9 @@ impl KafkaThroughputCalculator {
             .ok_or_else(|| AppError::NotFound(format!("Topic '{}' not found", topic)))?;
 
         let mut total_messages = 0i64;
-        let mut partition_stats = Vec::new();
-        let mut all_timestamps: Vec<i64> = Vec::new();
+        let partition_count = topic_metadata.partitions().len();
+        let mut partition_stats = Vec::with_capacity(partition_count);
+        let mut all_timestamps: Vec<i64> = Vec::with_capacity(partition_count * 2);
 
         for partition in topic_metadata.partitions() {
             let partition_id = partition.id();
@@ -193,7 +194,7 @@ struct OffsetCacheEntry {
 impl OffsetCache {
     pub fn new() -> Self {
         Self {
-            cache: HashMap::new(),
+            cache: HashMap::with_capacity(16),
         }
     }
 

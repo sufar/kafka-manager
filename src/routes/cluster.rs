@@ -282,7 +282,7 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     // 从数据库获取所有集群
     let clusters = ClusterStore::list(state.db.inner()).await?;
 
-    let mut new_clusters = std::collections::HashMap::new();
+    let mut new_clusters = std::collections::HashMap::with_capacity(clusters.len());
     for cluster in &clusters {
         new_clusters.insert(
             cluster.name.clone(),

@@ -46,7 +46,7 @@ pub struct KafkaClients {
 impl KafkaClients {
     /// 从配置创建多个 Kafka 客户端
     pub fn new(clusters: &HashMap<String, KafkaConfig>) -> Result<Self, AppError> {
-        let mut clients = HashMap::new();
+        let mut clients = HashMap::with_capacity(clusters.len());
 
         for (cluster_id, config) in clusters {
             let admin = Arc::new(KafkaAdmin::new(config)?);
@@ -87,7 +87,7 @@ impl KafkaClients {
 
     /// 创建一个新的 KafkaClients 实例，移除指定集群
     pub fn without_cluster(&self, cluster_id: &str) -> Self {
-        let mut new_clients = HashMap::new();
+        let mut new_clients = HashMap::with_capacity(self.clients.len().saturating_sub(1));
 
         for (id, (admin, consumer, producer, config)) in self.clients.iter() {
             if id != cluster_id {
@@ -109,7 +109,7 @@ impl KafkaClients {
         let consumer = Arc::new(KafkaConsumer::new(config)?);
         let producer = Arc::new(KafkaProducer::new(config)?);
 
-        let mut new_clients = HashMap::new();
+        let mut new_clients = HashMap::with_capacity(self.clients.len() + 1);
 
         // Copy existing clients
         for (id, (admin, consumer, producer, config)) in self.clients.iter() {

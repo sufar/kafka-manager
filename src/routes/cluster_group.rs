@@ -78,7 +78,7 @@ async fn list_groups_with_clusters(
 ) -> Result<Json<GroupWithClustersListResponse>> {
     let groups = ClusterGroupStore::list(state.db.inner()).await?;
 
-    let mut groups_with_clusters = Vec::new();
+    let mut groups_with_clusters = Vec::with_capacity(groups.len());
     for group in groups {
         let clusters = ClusterGroupStore::get_clusters_in_group(state.db.inner(), group.id)
             .await?

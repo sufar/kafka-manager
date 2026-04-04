@@ -448,7 +448,7 @@ async fn batch_disconnect(
     State(state): State<AppState>,
     Json(req): Json<BatchClustersRequest>,
 ) -> Result<Json<BatchOperationResponse>> {
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(req.cluster_names.len());
     let mut successful = 0;
 
     for cluster_name in &req.cluster_names {

@@ -73,7 +73,7 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        let mut topics: Vec<String> = Vec::new();
+        let mut topics: Vec<String> = Vec::with_capacity(20);
 
         // 方法 1：尝试从 active members 的 metadata 获取 topics（适用于有 active consumer 的情况）
         let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)
@@ -181,7 +181,8 @@ impl KafkaConsumerGroupManager {
 
         let consumer: BaseConsumer = client_config.create()?;
 
-        let mut result = Vec::new();
+        // 预分配容量：假设每个 topic 平均 4 个分区
+        let mut result = Vec::with_capacity(topics.len() * 4);
 
         // 对于每个 topic，获取分区信息和 offset
         for topic in topics {
@@ -283,7 +284,7 @@ impl KafkaConsumerGroupManager {
         let committed = consumer.committed_offsets(tpl, self.timeout)?;
 
         // 解析 committed offsets
-        let mut offsets_map: std::collections::HashMap<(String, i32), i64> = std::collections::HashMap::new();
+        let mut offsets_map: std::collections::HashMap<(String, i32), i64> = std::collections::HashMap::with_capacity(committed.elements().len());
         for elem in committed.elements() {
             if let Offset::Offset(o) = elem.offset() {
                 offsets_map.insert((elem.topic().to_string(), elem.partition()), o);
@@ -1176,7 +1177,6 @@ fn parse_consumer_protocol_metadata(data: &[u8]) -> Option<Vec<String>> {
         return None;
     }
 
-    let mut topics = Vec::new();
     let mut pos = 0;
 
     // 跳过 version (2 bytes)
@@ -1196,6 +1196,8 @@ fn parse_consumer_protocol_metadata(data: &[u8]) -> Option<Vec<String>> {
         data[pos + 3],
     ]) as usize;
     pos += 4;
+
+    let mut topics = Vec::with_capacity(topic_count);
 
     // 解析每个 topic
     for _ in 0..topic_count {

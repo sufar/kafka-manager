@@ -156,12 +156,12 @@ pub async fn import_messages_from_file(
     let mut lines = reader.lines();
     let mut imported = 0;
     let mut failed = 0;
-    let mut errors = Vec::new();
+    let mut errors: Vec<String> = Vec::with_capacity(100);
 
     let batch_size = req.batch_size.unwrap_or(100);
 
     loop {
-        let mut batch = Vec::new();
+        let mut batch = Vec::with_capacity(batch_size as usize);
 
         // 读取一批消息
         while batch.len() < batch_size {

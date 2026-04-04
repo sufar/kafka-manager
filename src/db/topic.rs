@@ -316,7 +316,7 @@ impl TopicStore {
 
         // 保存新增的 Topic 记录（仅保存名称，其他字段在后续获取）
         for topic_name in &added {
-            let config = std::collections::HashMap::new();
+            let config = std::collections::HashMap::with_capacity(0);
             let _ = Self::upsert(pool, cluster_id, topic_name, 1, 1, &config).await;
         }
 
@@ -331,7 +331,7 @@ impl TopicStore {
         topics: &[(String, i32, i32)], // (topic_name, partition_count, replication_factor)
     ) -> Result<()> {
         for (topic_name, partition_count, replication_factor) in topics {
-            let config = std::collections::HashMap::new();
+            let config = std::collections::HashMap::with_capacity(0);
             let _ = Self::upsert(pool, cluster_id, topic_name, *partition_count, *replication_factor, &config).await;
         }
         Ok(())

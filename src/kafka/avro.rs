@@ -43,7 +43,7 @@ impl AvroCodec {
             .map_err(|e| AppError::BadRequest(format!("Failed to read Avro data: {}", e)))?;
 
         // 获取第一条记录（假设单条消息）
-        let mut values: Vec<serde_json::Value> = Vec::new();
+        let mut values: Vec<serde_json::Value> = Vec::with_capacity(10);
         for value in reader {
             let avro_value = value
                 .map_err(|e| AppError::Internal(format!("Failed to read Avro value: {}", e)))?;
@@ -112,7 +112,7 @@ fn serde_json_to_avro(json: &serde_json::Value, schema: &Schema) -> Result<Value
             Ok(Value::Map(values?))
         }
         (serde_json::Value::Object(map), Schema::Record(record_schema)) => {
-            let mut avro_fields = Vec::new();
+            let mut avro_fields = Vec::with_capacity(record_schema.fields.len());
             for field in &record_schema.fields {
                 let key = &field.name;
                 let value = map.get(key).unwrap_or(&serde_json::Value::Null);

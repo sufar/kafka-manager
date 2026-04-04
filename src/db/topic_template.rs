@@ -211,7 +211,7 @@ pub struct TopicTemplateResponse {
 impl From<TopicTemplateRecord> for TopicTemplateResponse {
     fn from(record: TopicTemplateRecord) -> Self {
         let config: HashMap<String, String> = serde_json::from_str(&record.config_json)
-            .unwrap_or_else(|_| HashMap::new());
+            .unwrap_or_else(|_| HashMap::with_capacity(0));
         Self {
             id: record.id,
             name: record.name,
@@ -241,10 +241,10 @@ pub mod preset_templates {
     use super::*;
 
     pub fn get_preset_templates() -> Vec<CreateTopicTemplateRequest> {
-        let mut templates = Vec::new();
+        let mut templates = Vec::with_capacity(5);
 
         // default 模板
-        let mut default_config = HashMap::new();
+        let mut default_config = HashMap::with_capacity(2);
         default_config.insert("retention.ms".to_string(), "604800000".to_string());  // 7 天
         default_config.insert("segment.bytes".to_string(), "1073741824".to_string()); // 1GB
         templates.push(CreateTopicTemplateRequest {
@@ -256,7 +256,7 @@ pub mod preset_templates {
         });
 
         // high-throughput 模板
-        let mut high_throughput_config = HashMap::new();
+        let mut high_throughput_config = HashMap::with_capacity(3);
         high_throughput_config.insert("retention.ms".to_string(), "259200000".to_string());  // 3 天
         high_throughput_config.insert("segment.bytes".to_string(), "536870912".to_string()); // 512MB
         high_throughput_config.insert("compression.type".to_string(), "lz4".to_string());
@@ -269,7 +269,7 @@ pub mod preset_templates {
         });
 
         // event-sourcing 模板
-        let mut event_sourcing_config = HashMap::new();
+        let mut event_sourcing_config = HashMap::with_capacity(3);
         event_sourcing_config.insert("retention.ms".to_string(), "-1".to_string());  // 永久
         event_sourcing_config.insert("cleanup.policy".to_string(), "compact".to_string());
         event_sourcing_config.insert("min.compaction.lag.ms".to_string(), "60000".to_string());
@@ -282,7 +282,7 @@ pub mod preset_templates {
         });
 
         // logging 模板
-        let mut logging_config = HashMap::new();
+        let mut logging_config = HashMap::with_capacity(3);
         logging_config.insert("retention.ms".to_string(), "86400000".to_string());   // 1 天
         logging_config.insert("retention.bytes".to_string(), "10737418240".to_string()); // 10GB
         logging_config.insert("compression.type".to_string(), "gzip".to_string());
@@ -295,7 +295,7 @@ pub mod preset_templates {
         });
 
         // dead-letter 模板
-        let mut dlt_config = HashMap::new();
+        let mut dlt_config = HashMap::with_capacity(2);
         dlt_config.insert("retention.ms".to_string(), "2592000000".to_string());  // 30 天
         dlt_config.insert("max.message.bytes".to_string(), "10485760".to_string()); // 10MB
         templates.push(CreateTopicTemplateRequest {

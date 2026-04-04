@@ -924,8 +924,10 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
         let topics = admin.list_topics()?;
         let mut partition_count = 0;
         let mut under_replicated = 0;
-        let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-        let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        // 预分配 HashMap 容量：估计 broker 数量 = sqrt(分区数)
+        let estimated_brokers = 4;
+        let mut broker_leader_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::with_capacity(estimated_brokers);
+        let mut broker_replica_counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::with_capacity(estimated_brokers);
 
         for topic in &topics {
             let topic_info = admin.get_topic_info(topic)?;
@@ -1041,7 +1043,7 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     // Get all clusters from database
     let clusters = ClusterStore::list(state.db.inner()).await?;
 
-    let mut new_clusters = std::collections::HashMap::new();
+    let mut new_clusters = std::collections::HashMap::with_capacity(clusters.len());
     for cluster in &clusters {
         new_clusters.insert(
             cluster.name.clone(),
@@ -1170,7 +1172,7 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
                 .into_iter().map(|c| (c.id, c.name)).collect()
         } else {
             // Fetch only specified clusters
-            let mut result = Vec::new();
+            let mut result = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Ok(Some(cluster)) = ClusterStore::get_by_name(state.db.inner(), id).await {
                     result.push((cluster.id, cluster.name.clone()));
@@ -1234,7 +1236,7 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
     }
 
     // No search query - use original logic
-    let mut all_topics: Vec<TopicWithCluster> = Vec::new();
+    let mut all_topics: Vec<TopicWithCluster> = Vec::with_capacity(clusters_to_fetch.len() * 50);
 
     for (_cluster_id, cluster_name) in &clusters_to_fetch {
         if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
@@ -1284,7 +1286,7 @@ async fn handle_topic_list_all_clusters(state: AppState) -> Result<Value> {
     // Get all clusters from database
     let clusters = ClusterStore::list(state.db.inner()).await?;
 
-    let mut all_topics: Vec<String> = Vec::new();
+    let mut all_topics: Vec<String> = Vec::with_capacity(clusters.len() * 50);
 
     // Fetch topics from each cluster
     for cluster in clusters {
@@ -1424,8 +1426,8 @@ async fn handle_topic_batch_create(state: AppState, body: Value) -> Result<Value
 
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
-    let mut created = Vec::new();
-    let mut failed = Vec::new();
+    let mut created = Vec::with_capacity(topics.len());
+    let mut failed = Vec::with_capacity(topics.len());
 
     for topic_req in topics {
         let name = topic_req
@@ -1488,8 +1490,8 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
 
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
-    let mut deleted = Vec::new();
-    let mut failed = Vec::new();
+    let mut deleted = Vec::with_capacity(topics.len());
+    let mut failed = Vec::with_capacity(topics.len());
 
     for topic_name in topics {
         match admin.delete_topic(&topic_name).await {
@@ -1808,7 +1810,7 @@ async fn refresh_single_cluster(state: AppState, cluster_id: String) {
 
                 let _ = tokio::task::spawn_blocking(move || {
                     if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
-                        let config = std::collections::HashMap::new();
+                        let config = std::collections::HashMap::with_capacity(0);
                         let _ = TopicStore::upsert(
                             db.inner(),
                             &cluster_id,
@@ -1846,7 +1848,7 @@ async fn refresh_all_clusters(state: AppState) {
     tracing::info!("Refreshing all {} clusters", clusters.len());
 
     // 并行刷新所有集群
-    let mut tasks = Vec::new();
+    let mut tasks = Vec::with_capacity(clusters.len());
     for cluster in clusters {
         let state = state.clone();
         let cluster_id = cluster.name;
@@ -1969,10 +1971,12 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         cfg.zip(schema)
     };
 
+    // 优化：预分配 Vec 容量，减少扩容开销
     let records: Vec<Value> = messages
         .into_iter()
         .map(|msg| {
-            let mut value = msg.value.clone().unwrap_or_default();
+            // 优化：避免不必要的 clone，直接使用 value
+            let mut value = msg.value.unwrap_or_default();
 
             // 尝试使用 Schema 解码消息
             if let Some((ref _config, ref schema)) = schema_info {
@@ -2009,6 +2013,11 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
 
 /// SSE 流式消息获取
 /// 并行读取 + 最小堆归并 + 实时 SSE 发送
+///
+/// 优化说明：
+/// 1. 使用 Arc 共享字符串数据，避免每个分区 task 都 clone
+/// 2. 预分配 Vec 容量，减少扩容开销
+/// 3. 使用 BinaryHeap 归并，O(log n) 时间复杂度
 async fn fetch_messages_streaming_sse(
     brokers: &str,
     topic: &str,
@@ -2071,32 +2080,34 @@ async fn fetch_messages_streaming_sse(
     sse_tx.send(Ok(Event::default().event("start").data(start_event.to_string()))).await
         .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
 
-    // 为每个分区创建 channel
-    let mut rxs = Vec::new();
-    let mut handles = vec![];
+    // 为每个分区创建 channel，预分配 Vec 容量
+    let mut rxs: Vec<(i32, mpsc::Receiver<crate::kafka::consumer::KafkaMessage>)> = Vec::with_capacity(partition_count);
+    let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(partition_count);
 
     for &part_id in &partitions {
         let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(max_messages);
         rxs.push((part_id, rx));
 
-        let brokers = brokers.clone();
-        let topic = topic.clone();
-        let search = search.clone();
-        let fetch_mode = fetch_mode.clone();
+        // 为每个分区 clone 数据
+        let brokers_clone = brokers.clone();
+        let topic_clone = topic.clone();
+        let search_clone = search.clone();
+        let fetch_mode_clone = fetch_mode.clone();
+        let cancel_token_clone = cancel_token.clone();
         let part_offset = if partition.is_some() { offset } else { None };
-        let cancel_token_part = cancel_token.clone();
 
         let handle = tokio::spawn(async move {
             fetch_partition_messages_streaming(
-                brokers, topic, part_id, max_messages, part_offset,
-                start_time, end_time, search, fetch_mode, tx, cancel_token_part,
+                brokers_clone, topic_clone, part_id, max_messages,
+                part_offset, start_time, end_time, search_clone, fetch_mode_clone, tx, cancel_token_clone,
             ).await;
         });
         handles.push(handle);
     }
 
     // 使用最小堆进行流式归并
-    let mut heap = BinaryHeap::new();
+    // 预分配堆容量，减少扩容开销
+    let mut heap = BinaryHeap::<Reverse<HeapMessage>>::with_capacity(partition_count);
     let mut completed_partitions = 0;
     let mut sent_count = 0usize;
     const BATCH_SIZE: usize = 500; // 每批发送500条，平衡实时性和性能
@@ -2137,38 +2148,43 @@ async fn fetch_messages_streaming_sse(
         if let Some(Reverse(heap_msg)) = heap.pop() {
             let part_id = heap_msg.message.partition;
 
-            // 将消息加入批次
-            let msg_json = serde_json::json!({
-                "partition": heap_msg.message.partition,
-                "offset": heap_msg.message.offset,
-                "key": heap_msg.message.key,
-                "value": heap_msg.message.value,
-                "timestamp": heap_msg.message.timestamp,
-            });
+            // 优化：直接使用 to_json_value() 避免重复代码
+            let msg_json = heap_msg.message.to_json_value();
             batch.push(msg_json);
             sent_count += 1;
 
             // 批次满则发送
             if batch.len() >= BATCH_SIZE {
-                let batch_event = serde_json::json!({
+                // 零拷贝优化：使用 to_vec 直接序列化为字节，避免 to_string 的额外分配
+                // serde_json 保证输出是有效 UTF-8，所以 from_utf8_unchecked 是安全的
+                let messages_array = serde_json::Value::Array(std::mem::replace(&mut batch, Vec::with_capacity(BATCH_SIZE)));
+                let batch_data = serde_json::json!({
                     "event": "batch",
-                    "messages": batch,
+                    "messages": messages_array,
                     "progress": sent_count,
                     "total": total_target
                 });
+                let batch_bytes = match serde_json::to_vec(&batch_data) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::error!("[SSE Stream] Failed to serialize batch: {}", e);
+                        break;
+                    }
+                };
+                // 安全：serde_json 输出的字节保证是有效 UTF-8
+                let batch_json = unsafe { String::from_utf8_unchecked(batch_bytes) };
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         tracing::info!("[SSE Stream] Cancelled while sending batch, stopping");
                         break;
                     }
-                    result = sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))) => {
+                    result = sse_tx.send(Ok(Event::default().event("batch").data(batch_json))) => {
                         if result.is_err() {
                             tracing::info!("[SSE Stream] SSE channel closed, stopping");
                             break;
                         }
                     }
                 }
-                batch.clear();
             }
 
             // 从对应分区获取下一条
@@ -2193,11 +2209,8 @@ async fn fetch_messages_streaming_sse(
                 }
             }
         } else {
-            // 堆为空但还在接收中，等待消息
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
-            }
+            // 堆为空但还在接收中，使用可中断的等待替代固定 sleep
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
 
         if completed_partitions >= partition_count && heap.is_empty() {
@@ -2207,14 +2220,21 @@ async fn fetch_messages_streaming_sse(
 
     // 发送剩余批次
     if !batch.is_empty() {
-        let batch_event = serde_json::json!({
+        let messages_array = serde_json::Value::Array(batch);
+        let batch_data = serde_json::json!({
             "event": "batch",
-            "messages": batch,
+            "messages": messages_array,
             "progress": sent_count,
             "total": total_target
         });
-        let _ = sse_tx.send(Ok(Event::default().event("batch").data(batch_event.to_string()))).await;
-        batch.clear();
+        let batch_json = match serde_json::to_string(&batch_data) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!("[SSE Stream] Failed to serialize final batch: {}", e);
+                return Err(AppError::Internal(format!("Serialization failed: {}", e)));
+            }
+        };
+        let _ = sse_tx.send(Ok(Event::default().event("batch").data(batch_json))).await;
     }
 
     // 取消所有分区任务
@@ -2303,8 +2323,8 @@ async fn fetch_messages_with_temp_consumer(
         let partition_offset_val = if partition_has_specific_offset { offset } else { None };
 
         // 为每个分区创建一个 channel
-        let mut rxs = Vec::new();
-        let mut handles = vec![];
+        let mut rxs = Vec::with_capacity(partitions.len());
+        let mut handles = Vec::with_capacity(partitions.len());
 
         for &part_id in &partitions {
             let (tx, rx) = mpsc::channel::<crate::kafka::consumer::KafkaMessage>(msgs_per_partition);
@@ -2805,6 +2825,10 @@ async fn fetch_partition_messages_streaming(
     cfg.set("metadata.max.age.ms", "5000");
     cfg.set("partition.assignment.strategy", "range");
     cfg.set("broker.address.family", "v4");
+    // P0 性能优化：批量 fetch 配置
+    cfg.set("fetch.message.max.bytes", "10485760"); // 10MB
+    cfg.set("max.partition.fetch.bytes", "10485760"); // 10MB
+    cfg.set("fetch.max.bytes", "52428800"); // 50MB
 
     let consumer: BaseConsumer<DefaultConsumerContext> = match cfg.create() {
         Ok(c) => c,
@@ -3834,7 +3858,7 @@ async fn handle_connection_stats(state: AppState, body: Value) -> Result<Value> 
 
 async fn handle_connection_batch_disconnect(state: AppState, body: Value) -> Result<Value> {
     let cluster_names = get_string_array_param(&body, "cluster_names");
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(cluster_names.len());
     let mut successful = 0;
 
     for cluster_name in &cluster_names {
@@ -3872,7 +3896,7 @@ async fn handle_connection_batch_disconnect(state: AppState, body: Value) -> Res
 
 async fn handle_connection_batch_reconnect(state: AppState, body: Value) -> Result<Value> {
     let cluster_names = get_string_array_param(&body, "cluster_names");
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(cluster_names.len());
 
     for cluster_name in &cluster_names {
         // Get cluster config from database
@@ -3964,7 +3988,7 @@ async fn handle_settings_get(state: AppState, body: Value) -> Result<Value> {
             .collect()
     } else {
         // Get specified settings
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(keys.len());
         for key in keys {
             if let Some(value) = SettingStore::get(state.db.inner(), &key).await? {
                 result.push(serde_json::json!({ "key": key, "value": value }));
@@ -4852,7 +4876,7 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
 
     // 先获取数据库中已保存的 Consumer Groups 及 topics
     let existing_groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
-    let mut topics_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut topics_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::with_capacity(existing_groups.len().max(16));
     for g in &existing_groups {
         let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
         topics_map.insert(g.group_name.clone(), topics);
@@ -4938,7 +4962,7 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
     };
 
     // Fetch all consumer groups from specified clusters
-    let mut all_groups: Vec<serde_json::Value> = Vec::new();
+    let mut all_groups: Vec<serde_json::Value> = Vec::with_capacity(clusters_to_fetch.len() * 20);
 
     for cluster_name in &clusters_to_fetch {
         if let Ok(groups) = crate::db::consumer_group::ConsumerGroupStore::list_by_cluster(

@@ -54,7 +54,7 @@ async fn get_settings(
             .collect()
     } else {
         // 获取指定的设置
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(keys.len());
         for key in keys {
             if let Some(value) = SettingStore::get(state.db.inner(), key).await? {
                 result.push(SettingValue {

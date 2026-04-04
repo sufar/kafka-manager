@@ -291,7 +291,7 @@
           <!-- Advanced Config -->
           <div v-if="showAdvanced" class="mt-3 space-y-3 animate-fadeIn">
             <div>
-              <label class="block text-sm font-medium mb-1.5">cleanup.policy</label>
+              <label class="block text-sm font-medium mb-1.5">{{ t.topics.cleanupPolicy }}</label>
               <select v-model="newTopic.config.cleanup_policy" class="select select-bordered select-sm w-full">
                 <option value="delete">delete</option>
                 <option value="compact">compact</option>
@@ -299,29 +299,29 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5">retention.ms</label>
+              <label class="block text-sm font-medium mb-1.5">{{ t.topics.retentionMs }}</label>
               <input
                 v-model="newTopic.config.retention_ms"
                 type="text"
-                placeholder="604800000 (7 days)"
+                :placeholder="t.topics.retentionMsPlaceholder"
                 class="input input-bordered input-sm w-full"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5">retention.bytes</label>
+              <label class="block text-sm font-medium mb-1.5">{{ t.topics.retentionBytes }}</label>
               <input
                 v-model="newTopic.config.retention_bytes"
                 type="text"
-                placeholder="-1 (unlimited)"
+                :placeholder="t.topics.retentionBytesPlaceholder"
                 class="input input-bordered input-sm w-full"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5">segment.bytes</label>
+              <label class="block text-sm font-medium mb-1.5">{{ t.topics.segmentBytes }}</label>
               <input
                 v-model="newTopic.config.segment_bytes"
                 type="text"
-                placeholder="1073741824 (1GB)"
+                :placeholder="t.topics.segmentBytesPlaceholder"
                 class="input input-bordered input-sm w-full"
               />
             </div>
@@ -720,36 +720,36 @@ function closeCreateTopicDialog() {
 
 async function handleCreateTopic() {
   if (!clusterParam.value) {
-    showError('Please select a cluster first');
+    showError(t.value.topics.validationSelectCluster);
     return;
   }
 
   const clusterId = clusterParam.value;
   if (!clusterId) {
-    showError('Cluster ID is required');
+    showError(t.value.topics.validationClusterIdRequired);
     return;
   }
 
   // Validate topic name - Kafka topic names cannot contain spaces or special characters
   const trimmedName = newTopic.name.trim();
   if (!trimmedName) {
-    showError('Topic name is required');
+    showError(t.value.topics.validationTopicNameRequired);
     return;
   }
   if (trimmedName.length > 256) {
-    showError('Topic name cannot exceed 256 characters');
+    showError(t.value.topics.validationTopicNameTooLong);
     return;
   }
   // Topic 名称不能包含空格、引号、逗号
   if (trimmedName.includes(' ') || trimmedName.includes('"') || trimmedName.includes("'") || trimmedName.includes(',')) {
-    showError('Topic name cannot contain spaces, quotes, or commas');
+    showError(t.value.topics.validationTopicNameInvalidChars);
     return;
   }
 
   // Kafka topic naming rules: only letters, numbers, dots, underscores, and hyphens
   const topicNameRegex = /^[a-zA-Z0-9._-]+$/;
   if (!topicNameRegex.test(trimmedName)) {
-    showError('Topic name can only contain letters, numbers, dots, underscores, and hyphens');
+    showError(t.value.topics.validationTopicNameFormat);
     return;
   }
 
@@ -766,7 +766,7 @@ async function handleCreateTopic() {
         // Validate it's a number
         const retentionMs = parseInt(newTopic.config.retention_ms.trim(), 10);
         if (isNaN(retentionMs) || retentionMs < 0) {
-          showError('retention.ms must be a positive number');
+          showError(t.value.topics.validationRetentionMs);
           creatingTopic.value = false;
           return;
         }
@@ -776,7 +776,7 @@ async function handleCreateTopic() {
         // Validate it's a number
         const retentionBytes = parseInt(newTopic.config.retention_bytes.trim(), 10);
         if (isNaN(retentionBytes)) {
-          showError('retention.bytes must be a number (use -1 for unlimited)');
+          showError(t.value.topics.validationRetentionBytes);
           creatingTopic.value = false;
           return;
         }
@@ -786,7 +786,7 @@ async function handleCreateTopic() {
         // Validate it's a number
         const segmentBytes = parseInt(newTopic.config.segment_bytes.trim(), 10);
         if (isNaN(segmentBytes) || segmentBytes < 0) {
-          showError('segment.bytes must be a positive number');
+          showError(t.value.topics.validationSegmentBytes);
           creatingTopic.value = false;
           return;
         }
@@ -801,11 +801,11 @@ async function handleCreateTopic() {
       config: Object.keys(config).length > 0 ? config : undefined,
     });
 
-    showSuccess(`Topic "${trimmedName}" created successfully`);
+    showSuccess(t.value.topics.createdSuccess.replace('${name}', trimmedName));
     closeCreateTopicDialog();
     await fetchTopics();
   } catch (e) {
-    showError(`Failed to create topic: ${(e as { message: string }).message}`);
+    showError(`${t.value.topics.createFailed}: ${(e as { message: string }).message}`);
   } finally {
     creatingTopic.value = false;
   }

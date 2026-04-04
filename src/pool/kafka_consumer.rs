@@ -5,9 +5,45 @@ use crate::error::{AppError, Result};
 use deadpool::managed;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::config::ClientConfig;
+use futures::future;
 
 /// Kafka Consumer 连接池类型
 pub type KafkaConsumerPool = managed::Pool<KafkaConsumerManager>;
+
+/// 预热连接池，提前创建指定数量的 Consumer
+pub async fn warmup_consumer_pool(pool: &KafkaConsumerPool, size: usize) -> Result<()> {
+    tracing::info!("[Pool Warmup] Pre-creating {} consumer connections...", size);
+    let mut handles = Vec::with_capacity(size);
+
+    for i in 0..size {
+        let handle = tokio::spawn({
+            let pool = pool.clone();
+            async move {
+                match pool.get().await {
+                    Ok(_consumer) => {
+                        tracing::debug!("[Pool Warmup] Connection {} created successfully", i + 1);
+                        // consumer 会在 drop 时自动归还到池中
+                        Ok(())
+                    }
+                    Err(e) => {
+                        tracing::warn!("[Pool Warmup] Failed to create connection {}: {}", i + 1, e);
+                        Err::<(), _>(e)
+                    }
+                }
+            }
+        });
+        handles.push(handle);
+    }
+
+    // 等待所有预热任务完成
+    let results = future::join_all(handles).await;
+    let success_count = results.iter()
+        .filter(|r| matches!(r, Ok(Ok(()))))
+        .count();
+
+    tracing::info!("[Pool Warmup] Completed: {}/{} connections created successfully", success_count, size);
+    Ok(())
+}
 
 /// Kafka Consumer 管理器
 pub struct KafkaConsumerManager {
