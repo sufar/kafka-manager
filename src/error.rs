@@ -39,79 +39,52 @@ pub enum AppError {
     Internal(String),
 }
 
-impl axum::response::IntoResponse for AppError {
-    fn into_response(self) -> axum::response::Response {
-        use axum::{http::StatusCode, response::Json};
-        use serde_json::json;
+impl AppError {
+    /// 将错误转换为状态码和消息
+    pub fn to_status_and_message(&self) -> (u16, String) {
+        use tracing;
 
-        let (status, message) = match self {
+        match self {
             AppError::Kafka(e) => {
                 tracing::error!("Kafka error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                (500, e.to_string())
             }
             AppError::Config(e) => {
                 tracing::error!("Config error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Configuration error".to_string(),
-                )
+                (500, "Configuration error".to_string())
             }
             AppError::Database(e) => {
                 tracing::error!("Database error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Database error".to_string(),
-                )
+                (500, "Database error".to_string())
             }
             AppError::Http(e) => {
                 tracing::error!("HTTP error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "HTTP request error".to_string(),
-                )
+                (500, "HTTP request error".to_string())
             }
             AppError::Json(e) => {
                 tracing::error!("JSON error: {}", e);
-                (
-                    StatusCode::BAD_REQUEST,
-                    "JSON parse error".to_string(),
-                )
+                (400, "JSON parse error".to_string())
             }
             AppError::Io(e) => {
                 tracing::error!("IO error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "IO error".to_string(),
-                )
+                (500, "IO error".to_string())
             }
             AppError::Bcrypt(e) => {
                 tracing::error!("Bcrypt error: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Encryption error".to_string(),
-                )
+                (500, "Encryption error".to_string())
             }
             AppError::Avro(e) => {
                 tracing::error!("Avro error: {}", e);
-                (
-                    StatusCode::BAD_REQUEST,
-                    format!("Avro error: {}", e),
-                )
+                (400, format!("Avro error: {}", e))
             }
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            AppError::NotConnected(msg) => (StatusCode::PRECONDITION_FAILED, msg),
+            AppError::BadRequest(msg) => (400, msg.clone()),
+            AppError::NotFound(msg) => (404, msg.clone()),
+            AppError::NotConnected(msg) => (428, msg.clone()),
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {}", msg);
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+                (500, msg.clone())
             }
-        };
-
-        let body = Json(json!({
-            "error": message,
-        }));
-
-        (status, body).into_response()
+        }
     }
 }
 

@@ -1,17 +1,20 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use std::time::Duration;
 
 pub struct KafkaProducer {
     producer: FutureProducer,
+    timeout: Duration,
 }
 
 impl KafkaProducer {
     pub fn new(kafka_config: &KafkaConfig) -> Result<Self> {
         let client_config = super::create_client_config(kafka_config);
         let producer: FutureProducer = client_config.create()?;
+        let timeout = Duration::from_millis(kafka_config.operation_timeout_ms as u64);
 
-        Ok(Self { producer })
+        Ok(Self { producer, timeout })
     }
 
     /// 发送消息（不指定分区，由 Kafka 决定）
@@ -55,5 +58,13 @@ impl KafkaProducer {
             Ok(delivery) => Ok((delivery.partition, delivery.offset)),
             Err((e, _)) => Err(AppError::Kafka(e)),
         }
+    }
+
+    /// 验证 Topic 是否存在
+    pub fn validate_topic(&self, topic: &str) -> Result<bool> {
+        let metadata = self.producer.client().fetch_metadata(Some(topic), self.timeout)
+            .map_err(|e| AppError::Kafka(e))?;
+
+        Ok(metadata.topics().iter().any(|t| t.name() == topic && t.partitions().len() > 0))
     }
 }

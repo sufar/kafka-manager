@@ -1,6 +1,7 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
 use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::BaseConsumer;
 use rdkafka::Message;
 use rdkafka::config::ClientConfig;
 use std::time::Duration;
@@ -44,6 +45,26 @@ impl KafkaConsumer {
     pub fn new(kafka_config: &KafkaConfig) -> Result<Self> {
         let timeout = Duration::from_millis(kafka_config.operation_timeout_ms as u64);
         Ok(Self { timeout })
+    }
+
+    /// 列出所有 Consumer Groups
+    pub fn list_consumer_groups(&self, kafka_config: &KafkaConfig) -> Result<Vec<String>> {
+        let mut client_config = crate::kafka::create_client_config(kafka_config);
+        client_config.set("group.id", "kafka-manager-temp-group");
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config.create()
+            .map_err(|e| AppError::Kafka(e))?;
+
+        let group_list = consumer.fetch_group_list(None, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
+
+        let groups = group_list.groups()
+            .iter()
+            .map(|g| g.name().to_string())
+            .collect();
+
+        Ok(groups)
     }
 
     /// 快速获取最新消息（不查询 watermarks，直接从 End 开始读取）
@@ -851,6 +872,90 @@ impl KafkaConsumer {
 
         // Consumer 会自动归还到池中
         Ok(messages)
+    }
+
+    /// 获取 Topic 最新消息（同步方法，用于 UI）
+    pub fn fetch_latest_messages_sync(
+        &self,
+        kafka_config: &KafkaConfig,
+        topic: &str,
+        partition: i32,
+        max_messages: usize,
+    ) -> Result<Vec<KafkaMessage>> {
+        use rdkafka::config::ClientConfig;
+        use rdkafka::consumer::Consumer;
+
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", &format!("kafka-manager-view-{}-{}", std::process::id(), topic));
+        client_config.set("enable.auto.commit", "false");
+        client_config.set("auto.offset.reset", "earliest");
+        client_config.set("fetch.wait.max.ms", "100");
+        client_config.set("fetch.min.bytes", "1");
+        client_config.set("broker.address.family", "v4");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        // 查询 watermarks
+        let watermarks = consumer.fetch_watermarks(topic, partition, self.timeout)
+            .unwrap_or((0, 0));
+
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        let start_offset = std::cmp::max(0, watermarks.1 - max_messages as i64);
+        tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_offset))?;
+        consumer.assign(&tpl)?;
+
+        let mut messages = Vec::with_capacity(max_messages);
+        let mut consecutive_timeouts = 0;
+
+        while messages.len() < max_messages {
+            match consumer.poll(Duration::from_millis(50)) {
+                Some(Ok(msg)) => {
+                    consecutive_timeouts = 0;
+                    messages.push(KafkaMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                        value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                        timestamp: msg.timestamp().to_millis(),
+                    });
+                }
+                Some(Err(_)) | None => {
+                    consecutive_timeouts += 1;
+                    if consecutive_timeouts >= 3 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(messages)
+    }
+
+    /// 获取 Topic 分区信息和消息数量
+    pub fn get_topic_partition_info(&self, kafka_config: &KafkaConfig, topic: &str) -> Result<Vec<(i32, i64, i64)>> {
+        use rdkafka::config::ClientConfig;
+
+        let mut client_config = ClientConfig::new();
+        client_config.set("bootstrap.servers", &kafka_config.brokers);
+        client_config.set("group.id", &format!("kafka-manager-info-{}", std::process::id()));
+        client_config.set("broker.address.family", "v4");
+
+        let consumer: BaseConsumer = client_config.create()?;
+        let metadata = consumer.fetch_metadata(Some(topic), self.timeout)?;
+
+        let mut partitions = Vec::new();
+        for topic_meta in metadata.topics() {
+            for partition_meta in topic_meta.partitions() {
+                let partition_id = partition_meta.id();
+                let watermarks = consumer.fetch_watermarks(topic, partition_id, self.timeout)
+                    .unwrap_or((0, 0));
+                let message_count = watermarks.1 - watermarks.0;
+                partitions.push((partition_id, watermarks.0, message_count));
+            }
+        }
+
+        Ok(partitions)
     }
 }
 

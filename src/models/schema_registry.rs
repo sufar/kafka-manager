@@ -125,6 +125,7 @@ pub struct SchemaSummary {
 
 /// 注册 Schema 请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct RegisterSchemaRequest {
     pub subject: String,
     pub schema_json: String,
@@ -134,6 +135,7 @@ pub struct RegisterSchemaRequest {
 
 /// 测试兼容性请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TestCompatibilityRequest {
     pub subject: String,
     pub schema_json: String,

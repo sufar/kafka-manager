@@ -1,0 +1,2919 @@
+// Kafka Manager - Main Window
+// Slint UI Definition
+
+export component MainWindow inherits Window {
+    width: 1280px;
+    height: 720px;
+
+    // 状态属性
+    in-out property<string> status_message: "就绪";
+    in-out property<bool> connected: false;
+    in-out property<string> current_cluster: "";
+
+    // 连接统计
+    in-out property<string> connection_duration: "";
+
+    // 加载状态
+    in-out property<bool> is_loading: false;
+    in-out property<string> loading_message: "";
+
+    // 数据模型
+    in-out property<[string]> cluster_names: [];
+    in-out property<int> selected_cluster_index: 0;
+
+    // 集群配置管理
+    in-out property<bool> show_cluster_config_dialog: false;
+    in-out property<string> cluster_config_name: "";
+    in-out property<string> cluster_config_brokers: "";
+    in-out property<string> cluster_config_sasl_username: "";
+    in-out property<string> cluster_config_sasl_password: "";
+
+    // Topic 数据
+    in-out property<[string]> topic_names: [];
+
+    // Consumer Group 数据
+    in-out property<[string]> consumer_group_names: [];
+
+    // Tab 选择
+    in-out property<int> selected_tab: 0;  // 0: Topics, 1: Consumer Groups
+
+    // Topic 详情弹窗
+    in-out property<bool> show_topic_detail_dialog: false;
+    in-out property<string> topic_detail_name: "";
+    in-out property<string> topic_detail_partitions: "0";
+    in-out property<string> topic_detail_replication: "1";
+    in-out property<string> topic_detail_status: "Unknown";
+    in-out property<[string]> topic_detail_partition_list: [];
+    in-out property<string> topic_detail_message_count: "0";
+    in-out property<string> topic_detail_size: "0 B";
+
+    // 创建 Topic 弹窗
+    in-out property<bool> show_create_topic_dialog: false;
+    in-out property<string> create_topic_name: "";
+    in-out property<int> create_topic_partitions: 3;
+    in-out property<int> create_topic_replication: 1;
+    in-out property<string> create_topic_partitions_str: "3";
+    in-out property<string> create_topic_replication_str: "1";
+
+    // 删除 Topic 确认弹窗
+    in-out property<bool> show_delete_confirm_dialog: false;
+    in-out property<string> delete_topic_name: "";
+
+    // Consumer Group 详情弹窗
+    in-out property<bool> show_consumer_group_detail_dialog: false;
+    in-out property<string> consumer_group_detail_name: "";
+    in-out property<string> consumer_group_detail_state: "Unknown";
+    in-out property<string> consumer_group_detail_members: "0";
+    in-out property<string> consumer_group_detail_topics: "";
+    in-out property<string> consumer_group_detail_total_lag: "0";
+    in-out property<[string]> consumer_group_detail_partition_list: [];
+
+    // 查看消息弹窗
+    in-out property<bool> show_view_messages_dialog: false;
+    in-out property<string> view_messages_topic: "";
+    in-out property<string> view_messages_partition: "0";
+    in-out property<string> view_messages_count: "0";
+    in-out property<[string]> view_messages_list: [];
+    in-out property<string> view_messages_filter_key: "";
+    in-out property<string> view_messages_filter_value: "";
+
+    // 重置 Consumer Group offset 弹窗
+    in-out property<bool> show_reset_offset_dialog: false;
+    in-out property<string> reset_offset_group: "";
+    in-out property<string> reset_offset_topic: "";
+    in-out property<string> reset_offset_partition: "0";
+    in-out property<int> reset_offset_mode: 0;  // 0: earliest, 1: latest, 2: specific
+    in-out property<string> reset_offset_specific: "0";
+
+    // 发送消息弹窗
+    in-out property<bool> show_send_message_dialog: false;
+    in-out property<string> send_message_topic: "";
+    in-out property<string> send_message_partition: "0";
+    in-out property<string> send_message_key: "";
+    in-out property<string> send_message_value: "";
+    in-out property<string> send_message_result: "";
+
+    // 回调函数
+    callback connect_cluster();
+    callback disconnect_cluster();
+    callback refresh_data();
+    callback on_cluster_changed(int);
+    callback on_topic_selected(string);
+    callback on_consumer_group_selected(string);
+    callback next_cluster();
+    callback on_tab_changed(int);
+    callback close_topic_detail_dialog();
+    callback refresh_topic_detail();
+    callback close_create_topic_dialog();
+    callback confirm_create_topic();
+    callback on_create_topic_partitions_changed(string);
+    callback on_create_topic_replication_changed(string);
+    callback close_delete_confirm_dialog();
+    callback confirm_delete_topic();
+    callback close_consumer_group_detail_dialog();
+    callback refresh_consumer_group_detail();
+    callback close_view_messages_dialog();
+    callback confirm_view_messages();
+    callback on_view_messages_partition_changed(string);
+    callback close_reset_offset_dialog();
+    callback confirm_reset_offset();
+    callback on_reset_offset_mode_changed(int);
+    callback show_cluster_config();
+    callback close_cluster_config_dialog();
+    callback confirm_save_cluster_config();
+    callback close_send_message_dialog();
+    callback confirm_send_message();
+    callback on_send_message_partition_changed(string);
+
+    // 主布局
+    VerticalLayout {
+        alignment: start;
+        spacing: 0px;
+
+        // 顶部工具栏
+        Rectangle {
+            preferred-width: 100%;
+            preferred-height: 56px;
+            background: #1a1a2e;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                // 左侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+
+                // 标题
+                Text {
+                    text: "Kafka Manager";
+                    font-size: 20px;
+                    color: #ffffff;
+                    preferred-width: 160px;
+                }
+
+                Rectangle {
+                    width: 1px;
+                    height: 24px;
+                    background: #3d4a5c;
+                }
+
+                // 连接按钮
+                TouchArea {
+                    clicked => {
+                        if root.connected {
+                            root.disconnect_cluster();
+                        } else {
+                            root.connect_cluster();
+                        }
+                    }
+                    Rectangle {
+                        width: 84px;
+                        height: 34px;
+                        background: root.connected ? #e74c3c : #27ae60;
+                        border-radius: 6px;
+
+                        Text {
+                            text: root.connected ? "断开" : "连接";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // 刷新按钮
+                TouchArea {
+                    clicked => root.refresh_data();
+                    Rectangle {
+                        width: 84px;
+                        height: 34px;
+                        background: #3498db;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "刷新";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // 集群配置按钮
+                TouchArea {
+                    clicked => root.show_cluster_config();
+                    Rectangle {
+                        width: 100px;
+                        height: 34px;
+                        background: #9b59b6;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "集群配置";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // 集群选择
+                TouchArea {
+                    clicked => root.next_cluster();
+                    Rectangle {
+                        preferred-width: 220px;
+                        height: 34px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: root.cluster_names.length > 0 ? root.cluster_names[root.selected_cluster_index] : "选择集群";
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+
+                // 状态指示器
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: root.connected ? #2ecc71 : #e74c3c;
+                }
+
+                // 右侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+            }
+        }
+
+        // Tab 切换栏
+        Rectangle {
+            preferred-width: 100%;
+            preferred-height: 42px;
+            background: #1e2a3a;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+
+                // 左侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+
+                // Topics Tab
+                TouchArea {
+                    clicked => {
+                        root.selected_tab = 0;
+                        root.on_tab_changed(0);
+                    }
+                    Rectangle {
+                        width: 130px;
+                        height: 32px;
+                        background: root.selected_tab == 0 ? #3498db : transparent;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Topics";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // Consumer Groups Tab
+                TouchArea {
+                    clicked => {
+                        root.selected_tab = 1;
+                        root.on_tab_changed(1);
+                    }
+                    Rectangle {
+                        width: 150px;
+                        height: 32px;
+                        background: root.selected_tab == 1 ? #3498db : transparent;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Consumer Groups";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+
+                // 右侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+            }
+        }
+
+        // 主内容区
+        HorizontalLayout {
+            spacing: 0px;
+
+            // 左侧集群列表
+            Rectangle {
+                preferred-width: 220px;
+                background: #1e2a3a;
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    // 标题
+                    Rectangle {
+                        width: 100%;
+                        height: 30px;
+                        background: transparent;
+
+                        Text {
+                            text: "Clusters";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                        }
+                    }
+
+                    // 集群列表
+                    Rectangle {
+                        width: 100%;
+                        height: 44px;
+                        background: root.cluster_names.length >= 1 ? #34495e : transparent;
+                        visible: root.cluster_names.length >= 1;
+
+                        Text {
+                            text: root.cluster_names[0];
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_cluster_changed(0);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 44px;
+                        background: root.cluster_names.length >= 2 ? #2c3e50 : transparent;
+                        visible: root.cluster_names.length >= 2;
+
+                        Text {
+                            text: root.cluster_names[1];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_cluster_changed(1);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 44px;
+                        background: root.cluster_names.length >= 3 ? #34495e : transparent;
+                        visible: root.cluster_names.length >= 3;
+
+                        Text {
+                            text: root.cluster_names[2];
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_cluster_changed(2);
+                        }
+                    }
+                }
+            }
+
+            // 右侧内容区
+            Rectangle {
+                preferred-width: 600px;
+                background: #253347;
+
+                // Topics 内容
+                VerticalLayout {
+                    visible: root.selected_tab == 0;
+                    spacing: 12px;
+
+                    // 标题栏
+                    HorizontalLayout {
+                        Text {
+                            text: "Topics";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                        }
+                        Rectangle {
+                            preferred-width: 200px;
+                            preferred-height: 100%;
+                        }
+                        TouchArea {
+                            clicked => { root.show_create_topic_dialog = true; }
+                            Rectangle {
+                                width: 80px;
+                                height: 28px;
+                                background: #27ae60;
+                                border-radius: 5px;
+
+                                Text {
+                                    text: "+ 创建";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                        TouchArea {
+                            clicked => root.refresh_data();
+                            Rectangle {
+                                width: 70px;
+                                height: 28px;
+                                background: #27ae60;
+                                border-radius: 5px;
+
+                                Text {
+                                    text: "刷新";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                    }
+
+                    // Topic 列表
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 1 ? #34495e : transparent;
+                        visible: root.topic_names.length >= 1;
+
+                        Text {
+                            text: root.topic_names[0];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[0]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 2 ? #2c3e50 : transparent;
+                        visible: root.topic_names.length >= 2;
+
+                        Text {
+                            text: root.topic_names[1];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[1]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 3 ? #34495e : transparent;
+                        visible: root.topic_names.length >= 3;
+
+                        Text {
+                            text: root.topic_names[2];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[2]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 4 ? #2c3e50 : transparent;
+                        visible: root.topic_names.length >= 4;
+
+                        Text {
+                            text: root.topic_names[3];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[3]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 5 ? #34495e : transparent;
+                        visible: root.topic_names.length >= 5;
+
+                        Text {
+                            text: root.topic_names[4];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[4]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 6 ? #2c3e50 : transparent;
+                        visible: root.topic_names.length >= 6;
+
+                        Text {
+                            text: root.topic_names[5];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[5]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 7 ? #34495e : transparent;
+                        visible: root.topic_names.length >= 7;
+
+                        Text {
+                            text: root.topic_names[6];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[6]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 8 ? #2c3e50 : transparent;
+                        visible: root.topic_names.length >= 8;
+
+                        Text {
+                            text: root.topic_names[7];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[7]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 9 ? #34495e : transparent;
+                        visible: root.topic_names.length >= 9;
+
+                        Text {
+                            text: root.topic_names[8];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[8]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.topic_names.length >= 10 ? #2c3e50 : transparent;
+                        visible: root.topic_names.length >= 10;
+
+                        Text {
+                            text: root.topic_names[9];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_topic_selected(root.topic_names[9]);
+                        }
+                    }
+
+                    // 空状态提示
+                    Rectangle {
+                        width: 100%;
+                        height: 100px;
+                        background: transparent;
+                        visible: root.topic_names.length == 0;
+
+                        VerticalLayout {
+                            alignment: center;
+
+                            Text {
+                                text: "暂无 Topics";
+                                color: #5d6d7e;
+                                font-size: 13px;
+                            }
+                            Text {
+                                text: "点击刷新按钮获取列表";
+                                color: #5d6d7e;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+
+                // Consumer Groups 内容
+                VerticalLayout {
+                    visible: root.selected_tab == 1;
+                    spacing: 12px;
+
+                    // 标题栏
+                    HorizontalLayout {
+                        Text {
+                            text: "Consumer Groups";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                        }
+                        Rectangle {
+                            preferred-width: 400px;
+                            preferred-height: 100%;
+                        }
+                        TouchArea {
+                            clicked => root.refresh_data();
+                            Rectangle {
+                                width: 70px;
+                                height: 28px;
+                                background: #27ae60;
+                                border-radius: 5px;
+
+                                Text {
+                                    text: "刷新";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                    }
+
+                    // Consumer Group 列表
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 1 ? #34495e : transparent;
+                        visible: root.consumer_group_names.length >= 1;
+
+                        Text {
+                            text: root.consumer_group_names[0];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[0]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 2 ? #2c3e50 : transparent;
+                        visible: root.consumer_group_names.length >= 2;
+
+                        Text {
+                            text: root.consumer_group_names[1];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[1]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 3 ? #34495e : transparent;
+                        visible: root.consumer_group_names.length >= 3;
+
+                        Text {
+                            text: root.consumer_group_names[2];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[2]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 4 ? #2c3e50 : transparent;
+                        visible: root.consumer_group_names.length >= 4;
+
+                        Text {
+                            text: root.consumer_group_names[3];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[3]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 5 ? #34495e : transparent;
+                        visible: root.consumer_group_names.length >= 5;
+
+                        Text {
+                            text: root.consumer_group_names[4];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[4]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 6 ? #2c3e50 : transparent;
+                        visible: root.consumer_group_names.length >= 6;
+
+                        Text {
+                            text: root.consumer_group_names[5];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[5]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 7 ? #34495e : transparent;
+                        visible: root.consumer_group_names.length >= 7;
+
+                        Text {
+                            text: root.consumer_group_names[6];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[6]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 8 ? #2c3e50 : transparent;
+                        visible: root.consumer_group_names.length >= 8;
+
+                        Text {
+                            text: root.consumer_group_names[7];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[7]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 9 ? #34495e : transparent;
+                        visible: root.consumer_group_names.length >= 9;
+
+                        Text {
+                            text: root.consumer_group_names[8];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[8]);
+                        }
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 38px;
+                        background: root.consumer_group_names.length >= 10 ? #2c3e50 : transparent;
+                        visible: root.consumer_group_names.length >= 10;
+
+                        Text {
+                            text: root.consumer_group_names[9];
+                            color: #ecf0f1;
+                            font-size: 13px;
+                        }
+                        TouchArea {
+                            clicked => root.on_consumer_group_selected(root.consumer_group_names[9]);
+                        }
+                    }
+
+                    // 空状态提示
+                    Rectangle {
+                        width: 100%;
+                        height: 100px;
+                        background: transparent;
+                        visible: root.consumer_group_names.length == 0;
+
+                        VerticalLayout {
+                            alignment: center;
+
+                            Text {
+                                text: "暂无 Consumer Groups";
+                                color: #5d6d7e;
+                                font-size: 13px;
+                            }
+                            Text {
+                                text: "点击刷新按钮获取列表";
+                                color: #5d6d7e;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 底部状态栏
+        Rectangle {
+            preferred-width: 100%;
+            preferred-height: 28px;
+            background: #1a1a2e;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                // 左侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+
+                // 加载指示器
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    background: #3498db;
+                    visible: root.is_loading;
+                }
+
+                Text {
+                    text: root.is_loading ? root.loading_message : root.status_message;
+                    color: #95a5a6;
+                    font-size: 12px;
+                }
+
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+
+                // 连接时间
+                Text {
+                    text: root.connection_duration;
+                    color: #7f8c8d;
+                    font-size: 11px;
+                    visible: root.connected;
+                }
+
+                Rectangle {
+                    width: 20px;
+                    height: 100%;
+                    background: transparent;
+                }
+
+                Text {
+                    text: root.current_cluster;
+                    color: #7f8c8d;
+                    font-size: 11px;
+                }
+
+                // 右侧占位
+                Rectangle {
+                    width: 16px;
+                    height: 100%;
+                    background: transparent;
+                }
+            }
+        }
+    }
+
+    // Topic 详情弹窗
+    Rectangle {
+        width: 450px;
+        height: 450px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_topic_detail_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "Topic 详情";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_topic_detail_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Topic 名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Topic 名称";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.topic_detail_name;
+                    color: #ffffff;
+                    font-size: 16px;
+                }
+            }
+
+            // 分区数
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "分区数";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.topic_detail_partitions;
+                    color: #ffffff;
+                    font-size: 16px;
+                }
+            }
+
+            // 副本数
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "副本数";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.topic_detail_replication;
+                    color: #ffffff;
+                    font-size: 16px;
+                }
+            }
+
+            // 状态
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "状态";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.topic_detail_status;
+                    color: #2ecc71;
+                    font-size: 16px;
+                }
+            }
+
+            // 统计信息
+            HorizontalLayout {
+                spacing: 16px;
+
+                // 消息数量
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "消息数量";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.topic_detail_message_count;
+                        color: #3498db;
+                        font-size: 16px;
+                    }
+                }
+
+                // 占用空间
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "占用空间";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.topic_detail_size;
+                        color: #9b59b6;
+                        font-size: 16px;
+                    }
+                }
+            }
+
+            // 分区详情
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "分区详情";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+
+                // 分区列表头
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "分区";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 50px;
+                    }
+                    Text {
+                        text: "Leader";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 60px;
+                    }
+                    Text {
+                        text: "Replicas";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 100px;
+                    }
+                    Text {
+                        text: "ISR";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                    }
+                }
+
+                // 分区列表
+                Rectangle {
+                    width: 100%;
+                    height: 120px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        padding: 8px;
+
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.topic_detail_partition_list.length >= 1 ? #34495e : transparent;
+                            visible: root.topic_detail_partition_list.length >= 1;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.topic_detail_partition_list[0];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.topic_detail_partition_list.length >= 2 ? #2c3e50 : transparent;
+                            visible: root.topic_detail_partition_list.length >= 2;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.topic_detail_partition_list[1];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.topic_detail_partition_list.length >= 3 ? #34495e : transparent;
+                            visible: root.topic_detail_partition_list.length >= 3;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.topic_detail_partition_list[2];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.topic_detail_partition_list.length >= 4 ? #2c3e50 : transparent;
+                            visible: root.topic_detail_partition_list.length >= 4;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.topic_detail_partition_list[3];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.topic_detail_partition_list.length >= 5 ? #34495e : transparent;
+                            visible: root.topic_detail_partition_list.length >= 5;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.topic_detail_partition_list[4];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+
+                        // 空状态
+                        Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            background: transparent;
+                            visible: root.topic_detail_partition_list.length == 0;
+
+                            Text {
+                                text: "暂无分区信息";
+                                color: #5d6d7e;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 20px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 80px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => { root.show_view_messages_dialog = true; root.show_topic_detail_dialog = false; }
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #9b59b6;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "查看消息";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { root.show_send_message_dialog = true; root.show_topic_detail_dialog = false; }
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #16a085;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "发送消息";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { root.show_delete_confirm_dialog = true; root.show_topic_detail_dialog = false; }
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #e74c3c;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "删除";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.refresh_topic_detail();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #3498db;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "刷新";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.close_topic_detail_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "关闭";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 创建 Topic 弹窗
+    Rectangle {
+        width: 400px;
+        height: 320px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_create_topic_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "创建 Topic";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 250px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_create_topic_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Topic 名称输入
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Topic 名称";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 36px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.create_topic_name;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 分区数
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "分区数";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 36px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.create_topic_partitions_str;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 副本数
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "副本数";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 36px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.create_topic_replication_str;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 30px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 200px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.close_create_topic_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "取消";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.confirm_create_topic();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #27ae60;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "创建";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 删除 Topic 确认弹窗
+    Rectangle {
+        width: 350px;
+        height: 200px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_delete_confirm_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "确认删除";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 200px;
+                    preferred-height: 100%;
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // 确认信息
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "确定要删除 Topic";
+                    color: #95a5a6;
+                    font-size: 14px;
+                }
+                Text {
+                    text: root.delete_topic_name;
+                    color: #e74c3c;
+                    font-size: 16px;
+                }
+                Text {
+                    text: "吗？此操作不可恢复。";
+                    color: #95a5a6;
+                    font-size: 14px;
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 30px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 150px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.close_delete_confirm_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "取消";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.confirm_delete_topic();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #e74c3c;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "删除";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Consumer Group 详情弹窗
+    Rectangle {
+        width: 500px;
+        height: 450px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_consumer_group_detail_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "Consumer Group 详情";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_consumer_group_detail_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Group 名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Group 名称";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.consumer_group_detail_name;
+                    color: #ffffff;
+                    font-size: 16px;
+                }
+            }
+
+            // 状态和成员数
+            HorizontalLayout {
+                spacing: 16px;
+
+                // 状态
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "状态";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.consumer_group_detail_state;
+                        color: #f39c12;
+                        font-size: 16px;
+                    }
+                }
+
+                // 成员数
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "成员数";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.consumer_group_detail_members;
+                        color: #ffffff;
+                        font-size: 16px;
+                    }
+                }
+
+                // Total Lag
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "Total Lag";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.consumer_group_detail_total_lag;
+                        color: #e74c3c;
+                        font-size: 16px;
+                    }
+                }
+            }
+
+            // 订阅的 Topics
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "订阅的 Topics";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.consumer_group_detail_topics;
+                    color: #ffffff;
+                    font-size: 14px;
+                }
+            }
+
+            // 分区详情
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "分区详情";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+
+                // 分区列表头
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Topic";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 100px;
+                    }
+                    Text {
+                        text: "分区";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 50px;
+                    }
+                    Text {
+                        text: "Current Offset";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 80px;
+                    }
+                    Text {
+                        text: "Log End Offset";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                        preferred-width: 80px;
+                    }
+                    Text {
+                        text: "Lag";
+                        color: #5d6d7e;
+                        font-size: 11px;
+                    }
+                }
+
+                // 分区列表
+                Rectangle {
+                    width: 100%;
+                    height: 150px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        padding: 8px;
+
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.consumer_group_detail_partition_list.length >= 1 ? #34495e : transparent;
+                            visible: root.consumer_group_detail_partition_list.length >= 1;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.consumer_group_detail_partition_list[0];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.consumer_group_detail_partition_list.length >= 2 ? #2c3e50 : transparent;
+                            visible: root.consumer_group_detail_partition_list.length >= 2;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.consumer_group_detail_partition_list[1];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.consumer_group_detail_partition_list.length >= 3 ? #34495e : transparent;
+                            visible: root.consumer_group_detail_partition_list.length >= 3;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.consumer_group_detail_partition_list[2];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.consumer_group_detail_partition_list.length >= 4 ? #2c3e50 : transparent;
+                            visible: root.consumer_group_detail_partition_list.length >= 4;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.consumer_group_detail_partition_list[3];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            width: 100%;
+                            height: 24px;
+                            background: root.consumer_group_detail_partition_list.length >= 5 ? #34495e : transparent;
+                            visible: root.consumer_group_detail_partition_list.length >= 5;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.consumer_group_detail_partition_list[4];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                        }
+
+                        // 空状态
+                        Rectangle {
+                            width: 100%;
+                            height: 100%;
+                            background: transparent;
+                            visible: root.consumer_group_detail_partition_list.length == 0;
+
+                            Text {
+                                text: "暂无分区详情";
+                                color: #5d6d7e;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 20px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 50px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.refresh_consumer_group_detail();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #3498db;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "刷新";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { root.show_reset_offset_dialog = true; root.show_consumer_group_detail_dialog = false; }
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #f39c12;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "重置 Offset";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.close_consumer_group_detail_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "关闭";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 查看消息弹窗
+    Rectangle {
+        width: 800px;
+        height: 550px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_view_messages_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "查看消息";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 400px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_view_messages_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Topic 名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Topic";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.view_messages_topic;
+                    color: #ffffff;
+                    font-size: 14px;
+                }
+            }
+
+            // 分区选择
+            HorizontalLayout {
+                spacing: 16px;
+
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "分区";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #2c3e50;
+                        border-radius: 4px;
+
+                        TextInput {
+                            text: root.view_messages_partition;
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "消息数量";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Text {
+                        text: root.view_messages_count;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+
+                Rectangle {
+                    preferred-width: 50px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.confirm_view_messages();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #9b59b6;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "加载消息";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+
+            // 消息过滤
+            HorizontalLayout {
+                spacing: 16px;
+
+                // Key 过滤
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "过滤 Key（可选）";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Rectangle {
+                        width: 200px;
+                        height: 36px;
+                        background: #2c3e50;
+                        border-radius: 4px;
+
+                        TextInput {
+                            text: root.view_messages_filter_key;
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // Value 过滤
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: "过滤 Value（可选）";
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }
+                    Rectangle {
+                        width: 300px;
+                        height: 36px;
+                        background: #2c3e50;
+                        border-radius: 4px;
+
+                        TextInput {
+                            text: root.view_messages_filter_value;
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+
+            // 消息列表
+            Rectangle {
+                width: 100%;
+                height: 350px;
+                background: #2c3e50;
+                border-radius: 4px;
+
+                VerticalLayout {
+                    spacing: 8px;
+                    padding: 10px;
+
+                    // 消息列表头
+                    HorizontalLayout {
+                        Text {
+                            text: "Offset";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                            preferred-width: 80px;
+                        }
+                        Text {
+                            text: "时间戳";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                            preferred-width: 180px;
+                        }
+                        Text {
+                            text: "Key";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                            preferred-width: 120px;
+                        }
+                        Text {
+                            text: "Value";
+                            color: #7f8c8d;
+                            font-size: 11px;
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: #3d4a5c;
+                    }
+
+                    // 消息内容（动态生成）
+                    Rectangle {
+                        width: 100%;
+                        height: 300px;
+                        background: transparent;
+
+                        VerticalLayout {
+                            spacing: 8px;
+
+                            // 消息 1
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 1 ? #34495e : transparent;
+                                visible: root.view_messages_list.length >= 1;
+
+                                Text {
+                                    text: root.view_messages_list[0];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 2
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 2 ? #2c3e50 : transparent;
+                                visible: root.view_messages_list.length >= 2;
+
+                                Text {
+                                    text: root.view_messages_list[1];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 3
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 3 ? #34495e : transparent;
+                                visible: root.view_messages_list.length >= 3;
+
+                                Text {
+                                    text: root.view_messages_list[2];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 4
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 4 ? #2c3e50 : transparent;
+                                visible: root.view_messages_list.length >= 4;
+
+                                Text {
+                                    text: root.view_messages_list[3];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 5
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 5 ? #34495e : transparent;
+                                visible: root.view_messages_list.length >= 5;
+
+                                Text {
+                                    text: root.view_messages_list[4];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 6
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 6 ? #2c3e50 : transparent;
+                                visible: root.view_messages_list.length >= 6;
+
+                                Text {
+                                    text: root.view_messages_list[5];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 7
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 7 ? #34495e : transparent;
+                                visible: root.view_messages_list.length >= 7;
+
+                                Text {
+                                    text: root.view_messages_list[6];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 8
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 8 ? #2c3e50 : transparent;
+                                visible: root.view_messages_list.length >= 8;
+
+                                Text {
+                                    text: root.view_messages_list[7];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 9
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 9 ? #34495e : transparent;
+                                visible: root.view_messages_list.length >= 9;
+
+                                Text {
+                                    text: root.view_messages_list[8];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+                            // 消息 10
+                            Rectangle {
+                                width: 100%;
+                                height: 50px;
+                                background: root.view_messages_list.length >= 10 ? #2c3e50 : transparent;
+                                visible: root.view_messages_list.length >= 10;
+
+                                Text {
+                                    text: root.view_messages_list[9];
+                                    color: #ecf0f1;
+                                    font-size: 11px;
+                                }
+                            }
+
+                            // 空状态
+                            Rectangle {
+                                width: 100%;
+                                height: 100px;
+                                background: transparent;
+                                visible: root.view_messages_list.length == 0;
+
+                                VerticalLayout {
+                                    alignment: center;
+
+                                    Text {
+                                        text: "暂无消息";
+                                        color: #5d6d7e;
+                                        font-size: 13px;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 空状态
+                Rectangle {
+                    width: 100%;
+                    height: 100px;
+                    background: transparent;
+                    visible: root.view_messages_list.length == 0;
+
+                    VerticalLayout {
+                        alignment: center;
+
+                        Text {
+                            text: "暂无消息";
+                            color: #5d6d7e;
+                            font-size: 13px;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 关闭按钮
+        HorizontalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Rectangle {
+                preferred-width: 500px;
+                preferred-height: 100%;
+            }
+
+            TouchArea {
+                clicked => root.close_view_messages_dialog();
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: #34495e;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "关闭";
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+        }
+    }
+
+    // 重置 Consumer Group offset 弹窗
+    Rectangle {
+        width: 450px;
+        height: 380px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_reset_offset_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "重置 Consumer Group Offset";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 120px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_reset_offset_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Group 名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Consumer Group";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.reset_offset_group;
+                    color: #ffffff;
+                    font-size: 14px;
+                }
+            }
+
+            // Topic
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Topic";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.reset_offset_topic;
+                    color: #ffffff;
+                    font-size: 14px;
+                }
+            }
+
+            // 分区
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "分区";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 36px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.reset_offset_partition;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 重置模式
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "重置到";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+
+                // Earliest
+                TouchArea {
+                    clicked => { root.reset_offset_mode = 0; root.on_reset_offset_mode_changed(0); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: root.reset_offset_mode == 0 ? #3498db : #34495e;
+                        }
+                        Text {
+                            text: "最早的消息 (Earliest)";
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // Latest
+                TouchArea {
+                    clicked => { root.reset_offset_mode = 1; root.on_reset_offset_mode_changed(1); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: root.reset_offset_mode == 1 ? #3498db : #34495e;
+                        }
+                        Text {
+                            text: "最新的消息 (Latest)";
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // Specific
+                TouchArea {
+                    clicked => { root.reset_offset_mode = 2; root.on_reset_offset_mode_changed(2); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: root.reset_offset_mode == 2 ? #3498db : #34495e;
+                        }
+                        Text {
+                            text: "指定 Offset";
+                            color: #ffffff;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // 指定 Offset 输入
+                Rectangle {
+                    width: 100%;
+                    height: 36px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+                    visible: root.reset_offset_mode == 2;
+
+                    TextInput {
+                        text: root.reset_offset_specific;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 20px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 150px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.close_reset_offset_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "取消";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.confirm_reset_offset();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #f39c12;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "确认";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 集群配置管理弹窗
+    Rectangle {
+        width: 500px;
+        height: 400px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_cluster_config_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "集群配置管理";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 300px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_cluster_config_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // 集群名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "集群名称";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.cluster_config_name;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // Brokers 地址
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Brokers 地址";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.cluster_config_brokers;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // SASL 用户名（可选）
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "SASL 用户名（可选）";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.cluster_config_sasl_username;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // SASL 密码（可选）
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "SASL 密码（可选）";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.cluster_config_sasl_password;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            Rectangle {
+                preferred-width: 100%;
+                preferred-height: 1px;
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 200px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.close_cluster_config_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "取消";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.confirm_save_cluster_config();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #27ae60;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "保存";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 发送消息弹窗
+    Rectangle {
+        width: 500px;
+        height: 450px;
+        background: #1e2a3a;
+        border-radius: 10px;
+        visible: root.show_send_message_dialog;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+
+            // 标题
+            HorizontalLayout {
+                Text {
+                    text: "发送消息";
+                    color: #ffffff;
+                    font-size: 18px;
+                }
+                Rectangle {
+                    preferred-width: 320px;
+                    preferred-height: 100%;
+                }
+                TouchArea {
+                    clicked => root.close_send_message_dialog();
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #e74c3c;
+                        border-radius: 5px;
+
+                        Text {
+                            text: "×";
+                            color: #ffffff;
+                            font-size: 20px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #3d4a5c;
+            }
+
+            // Topic 名称
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "Topic";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Text {
+                    text: root.send_message_topic;
+                    color: #ffffff;
+                    font-size: 14px;
+                }
+            }
+
+            // 分区选择
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "分区";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.send_message_partition;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 消息 Key（可选）
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "消息 Key（可选）";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 40px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.send_message_key;
+                        color: #ffffff;
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 消息 Value
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: "消息 Value";
+                    color: #7f8c8d;
+                    font-size: 12px;
+                }
+                Rectangle {
+                    width: 100%;
+                    height: 80px;
+                    background: #2c3e50;
+                    border-radius: 4px;
+
+                    TextInput {
+                        text: root.send_message_value;
+                        color: #ffffff;
+                        font-size: 14px;
+                        vertical-alignment: top;
+                    }
+                }
+            }
+
+            // 结果显示
+            Rectangle {
+                width: 100%;
+                height: 50px;
+                background: #2c3e50;
+                border-radius: 4px;
+                visible: root.send_message_result != "";
+
+                Text {
+                    text: root.send_message_result;
+                    color: #2ecc71;
+                    font-size: 12px;
+                }
+            }
+
+            // 按钮
+            HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                Rectangle {
+                    preferred-width: 200px;
+                    preferred-height: 100%;
+                }
+
+                TouchArea {
+                    clicked => root.close_send_message_dialog();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #34495e;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "取消";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => root.confirm_send_message();
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: #27ae60;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "发送";
+                            color: #ffffff;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

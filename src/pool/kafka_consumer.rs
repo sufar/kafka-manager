@@ -11,6 +11,7 @@ use futures::future;
 pub type KafkaConsumerPool = managed::Pool<KafkaConsumerManager>;
 
 /// 预热连接池，提前创建指定数量的 Consumer
+#[allow(dead_code)]
 pub async fn warmup_consumer_pool(pool: &KafkaConsumerPool, size: usize) -> Result<()> {
     tracing::info!("[Pool Warmup] Pre-creating {} consumer connections...", size);
     let mut handles = Vec::with_capacity(size);

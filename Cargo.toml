@@ -1,24 +1,21 @@
 [package]
-name = "kafka-manager-api"
-version = "1.0.17"
+name = "kafka-manager"
+version = "1.0.18"
 edition = "2021"
-description = "A Kafka management tool with RESTful API"
+description = "A Kafka management tool built with Slint"
 
-[workspace]
-members = ["src-tauri"]
+[build-dependencies]
+slint-build = "1.9"
 
 [dependencies]
-# Web framework
-axum = { version = "0.7", features = ["macros"] }
-tokio = { version = "1", features = ["full"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "compression-br", "compression-zstd", "timeout"] }
+# Slint UI
+slint = { version = "1.9", default-features = true }
 
 # Kafka client
-rdkafka = { version = "0.39", features = ["cmake-build"] }
+rdkafka = { version = "0.39", features = ["cmake-build", "tokio"] }
 
 # HTTP client for Schema Registry
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # Avro 编解码
 apache-avro = "0.17"
@@ -37,7 +34,6 @@ config = "0.14"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
-tracing-appender = "0.2"
 
 # Error handling
 thiserror = "1"
@@ -59,6 +55,7 @@ moka = { version = "0.12", features = ["future"] }
 
 # Futures utilities
 futures = "0.3"
+tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["rt"] }
 
@@ -68,9 +65,3 @@ bytes = "1.5"
 # Lock-free Arc for AppState
 arc-swap = "1.7"
 dirs = "6.0.0"
-
-# Testing
-[dev-dependencies]
-mockall = "0.13"
-rstest = "0.24"
-tokio-test = "0.4"
