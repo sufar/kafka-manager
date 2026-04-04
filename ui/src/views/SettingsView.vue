@@ -130,7 +130,14 @@
           <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between">
             <span class="text-sm font-medium">{{ t.settings.currentVersion }}</span>
             <div class="flex items-center gap-2">
-              <span class="badge badge-primary font-mono">{{ appVersion }}</span>
+              <span
+                class="badge badge-primary font-mono cursor-pointer select-none transition-all duration-200 hover:scale-105 active:scale-95"
+                :class="{ 'animate-pulse': clickCount > 0 && clickCount < 5 }"
+                @click="handleVersionClick"
+                title="点击查看版本历史"
+              >
+                {{ appVersion }}
+              </span>
               <button
                 v-if="updateAvailable"
                 class="btn btn-xs btn-warning text-white"
@@ -147,7 +154,7 @@
             <span class="text-sm font-medium">{{ t.settings.author }}</span>
             <span class="text-sm font-medium">朱占全</span>
           </div>
-          <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
+          <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2" v-if="showLogButton">
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">检查更新</span>
               <span v-if="checking" class="loading loading-spinner loading-xs"></span>
@@ -281,7 +288,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
@@ -359,6 +366,11 @@ const downloading = ref(false);
 const installing = ref(false);
 const downloadProgress = ref(0);
 
+// 隐藏功能 - 查看日志按钮（双击版本号 5 次显示）
+const showLogButton = ref(false);
+const clickCount = ref(0);
+const clickTimer = ref<NodeJS.Timeout | null>(null);
+
 // Modal ref
 const modalRef = ref<HTMLDialogElement>();
 
@@ -396,6 +408,34 @@ async function getCurrentVersion() {
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
+}
+
+// 处理版本号点击（隐藏功能：2 秒内点击 5 次显示查看日志按钮）
+function handleVersionClick() {
+  clickCount.value++;
+
+  // 如果是第 5 次点击，显示按钮
+  if (clickCount.value >= 5) {
+    showLogButton.value = true;
+    clickCount.value = 0;
+    if (clickTimer.value) {
+      clearTimeout(clickTimer.value);
+      clickTimer.value = null;
+    }
+    toast.showSuccess('已开启开发者功能');
+    return;
+  }
+
+  // 清除之前的定时器
+  if (clickTimer.value) {
+    clearTimeout(clickTimer.value);
+  }
+
+  // 设置新的定时器，2 秒后重置计数
+  clickTimer.value = setTimeout(() => {
+    clickCount.value = 0;
+    clickTimer.value = null;
+  }, 2000);
 }
 
 // 查看日志
@@ -570,6 +610,13 @@ onMounted(() => {
   loadSidebarModeSetting();
   // 延迟检查更新
   setTimeout(() => checkForUpdates(false), 2000);
+});
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  if (clickTimer.value) {
+    clearTimeout(clickTimer.value);
+  }
 });
 </script>
 
