@@ -390,7 +390,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.20');
+const appVersion = ref('1.0.21');
 
 // 日志相关
 const logs = ref('');
