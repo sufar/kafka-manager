@@ -166,6 +166,12 @@ async fn delete_cluster(
     // 5. 删除 Schema Registry 配置和 Schema 缓存
     delete_schema_registry_by_cluster(&state.db, &cluster_name).await?;
 
+    // 6. 删除资源标签
+    delete_tags_by_cluster(&state.db, &cluster_name).await?;
+
+    // 7. 删除集群连接历史
+    delete_cluster_connection_history(&state.db, &cluster_name).await?;
+
     // 删除集群
     ClusterStore::delete(state.db.inner(), id).await?;
 
@@ -355,6 +361,34 @@ async fn delete_topic_metadata_by_cluster(pool: &sqlx::SqlitePool, cluster_id: &
         .await?;
     tracing::info!(
         "Deleted {} topic metadata for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
+    Ok(())
+}
+
+/// 删除指定集群的所有资源标签
+async fn delete_tags_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    let result = sqlx::query("DELETE FROM resource_tags WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+    tracing::info!(
+        "Deleted {} resource tags for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
+    Ok(())
+}
+
+/// 删除指定集群的连接历史
+async fn delete_cluster_connection_history(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    let result = sqlx::query("DELETE FROM cluster_connection_history WHERE cluster_name = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+    tracing::info!(
+        "Deleted {} cluster connection history records for cluster '{}'",
         result.rows_affected(),
         cluster_id
     );
