@@ -1,5 +1,4 @@
 pub mod cluster;
-pub mod cluster_connection;
 pub mod cluster_group;
 pub mod consumer_group;
 pub mod favorite;
@@ -155,40 +154,6 @@ impl DbPool {
                 updated_at TEXT NOT NULL
             )
             "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建集群连接历史表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS cluster_connection_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cluster_name TEXT NOT NULL,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                latency_ms INTEGER,
-                checked_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_cluster_history_name ON cluster_connection_history(cluster_name)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_cluster_history_checked_at ON cluster_connection_history(checked_at DESC)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_cluster_history_name_checked_at ON cluster_connection_history(cluster_name, checked_at DESC)",
         )
         .execute(self.inner())
         .await?;

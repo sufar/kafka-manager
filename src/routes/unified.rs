@@ -2,7 +2,6 @@
 /// 所有 API 请求都通过 POST /api 发送，method 放在 header 中，参数放在 body 中
 
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
-use crate::db::cluster_connection::ClusterConnectionStore;
 use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest, UpdateClusterGroupRequest};
 use crate::db::favorite::{
     create_favorite, create_group, delete_favorite, delete_favorite_by_topic,
@@ -594,8 +593,6 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "connection.reconnect" => handle_connection_reconnect(state, body).await,
         "connection.health_check" => handle_connection_health_check(state, body).await,
         "connection.metrics" => handle_connection_metrics(state, body).await,
-        "connection.history" => handle_connection_history(state, body).await,
-        "connection.stats" => handle_connection_stats(state, body).await,
         "connection.batch_disconnect" => handle_connection_batch_disconnect(state, body).await,
         "connection.batch_reconnect" => handle_connection_batch_reconnect(state, body).await,
 
@@ -3828,67 +3825,6 @@ async fn handle_connection_metrics(state: AppState, body: Value) -> Result<Value
         "consumer_pool_available": consumer_pool_available,
         "producer_pool_available": producer_pool_available,
     }))
-}
-
-async fn handle_connection_history(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let limit = get_optional_i64_param(&body, "limit").unwrap_or(100);
-
-    let history = ClusterConnectionStore::get_history(state.db.inner(), &cluster_id, limit).await?;
-
-    let entries: Vec<Value> = history
-        .into_iter()
-        .map(|h| {
-            serde_json::json!({
-                "status": h.status,
-                "error_message": h.error_message,
-                "latency_ms": h.latency_ms,
-                "checked_at": h.checked_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "cluster_id": cluster_id,
-        "history": entries,
-    }))
-}
-
-async fn handle_connection_stats(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    let stats = ClusterConnectionStore::get_stats(state.db.inner(), &cluster_id).await?;
-
-    match stats {
-        Some(s) => {
-            let success_rate = if s.total_checks > 0 {
-                (s.successful_checks as f64 / s.total_checks as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            Ok(serde_json::json!({
-                "cluster_id": cluster_id,
-                "total_checks": s.total_checks,
-                "successful_checks": s.successful_checks,
-                "failed_checks": s.failed_checks,
-                "success_rate": success_rate,
-                "avg_latency_ms": s.avg_latency_ms,
-                "last_status": s.last_status,
-                "last_checked_at": s.last_checked_at,
-            }))
-        }
-        None => Ok(serde_json::json!({
-            "cluster_id": cluster_id,
-            "total_checks": 0,
-            "successful_checks": 0,
-            "failed_checks": 0,
-            "success_rate": 0.0,
-            "avg_latency_ms": None::<f64>,
-            "last_status": "unknown",
-            "last_checked_at": None::<String>,
-        })),
-    }
 }
 
 async fn handle_connection_batch_disconnect(state: AppState, body: Value) -> Result<Value> {

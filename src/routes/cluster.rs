@@ -169,9 +169,6 @@ async fn delete_cluster(
     // 6. 删除资源标签
     delete_tags_by_cluster(&state.db, &cluster_name).await?;
 
-    // 7. 删除集群连接历史
-    delete_cluster_connection_history(&state.db, &cluster_name).await?;
-
     // 删除集群
     ClusterStore::delete(state.db.inner(), id).await?;
 
@@ -242,43 +239,25 @@ async fn reload_clients(state: &AppState) -> Result<()> {
 
 /// 删除指定集群的所有 Topic 收藏
 async fn delete_favorites_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
-    use crate::db::favorite::delete_favorite_by_topic;
+    // 直接删除该集群下的所有收藏
+    let result = sqlx::query("DELETE FROM favorite_items WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
 
-    // 获取该集群下的所有收藏
-    let favorites: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT id, topic_name FROM favorite_items WHERE cluster_id = ?"
-    )
-    .bind(cluster_id)
-    .fetch_all(pool.inner())
-    .await?;
-
-    // 逐个删除
-    for (_, topic_name) in &favorites {
-        let _ = delete_favorite_by_topic(pool, cluster_id, topic_name).await;
-    }
-
-    tracing::info!("Deleted {} favorites for cluster '{}'", favorites.len(), cluster_id);
+    tracing::info!("Deleted {} favorites for cluster '{}'", result.rows_affected(), cluster_id);
     Ok(())
 }
 
 /// 删除指定集群的所有 Topic 浏览历史
 async fn delete_history_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
-    use crate::db::topic_history::delete_history_by_topic;
+    // 直接删除该集群下的所有历史记录
+    let result = sqlx::query("DELETE FROM topic_history WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
 
-    // 获取该集群下的所有历史记录
-    let histories: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT id, topic_name FROM topic_history WHERE cluster_id = ?"
-    )
-    .bind(cluster_id)
-    .fetch_all(pool.inner())
-    .await?;
-
-    // 逐个删除
-    for (_, topic_name) in &histories {
-        let _ = delete_history_by_topic(pool, cluster_id, topic_name).await;
-    }
-
-    tracing::info!("Deleted {} history records for cluster '{}'", histories.len(), cluster_id);
+    tracing::info!("Deleted {} history records for cluster '{}'", result.rows_affected(), cluster_id);
     Ok(())
 }
 
@@ -375,20 +354,6 @@ async fn delete_tags_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> R
         .await?;
     tracing::info!(
         "Deleted {} resource tags for cluster '{}'",
-        result.rows_affected(),
-        cluster_id
-    );
-    Ok(())
-}
-
-/// 删除指定集群的连接历史
-async fn delete_cluster_connection_history(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
-    let result = sqlx::query("DELETE FROM cluster_connection_history WHERE cluster_name = ?")
-        .bind(cluster_id)
-        .execute(pool.inner())
-        .await?;
-    tracing::info!(
-        "Deleted {} cluster connection history records for cluster '{}'",
         result.rows_affected(),
         cluster_id
     );
