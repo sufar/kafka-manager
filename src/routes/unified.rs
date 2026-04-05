@@ -701,45 +701,22 @@ async fn handle_app_logs() -> Result<Value> {
     use std::fs;
     use dirs::cache_dir;
     use std::path::PathBuf;
+    use chrono::Local;
 
     let log_dir = cache_dir()
         .map(|d| d.join("kafka-manager").join("logs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
 
-    // 读取所有日志文件并按时间排序
-    let mut logs_content = String::new();
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let today_log_file = format!("kafka-manager-{}.log", today);
 
-    if let Ok(entries) = fs::read_dir(&log_dir) {
-        let mut log_files: Vec<_> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with("kafka-manager-") && n.ends_with(".log"))
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        // 按文件名排序（即按日期排序）
-        log_files.sort_by(|a, b| {
-            a.path().file_name().cmp(&b.path().file_name())
-        });
-
-        // 读取每个日志文件
-        for entry in log_files {
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                logs_content.push_str(&content);
-                if !content.ends_with('\n') {
-                    logs_content.push('\n');
-                }
-            }
-        }
-    }
+    // 只读取今天的日志文件
+    let log_file_path = log_dir.join(&today_log_file);
+    let logs_content = fs::read_to_string(&log_file_path).unwrap_or_default();
 
     Ok(serde_json::json!({
         "logs": logs_content,
-        "log_dir": log_dir.to_string_lossy()
+        "log_file": log_file_path.to_string_lossy()
     }))
 }
 
