@@ -255,21 +255,6 @@ CREATE TABLE favorites (
     UNIQUE(cluster_id, topic_name)
 );
 
--- Audit logs
-CREATE TABLE audit_logs (
-    id INTEGER PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    method TEXT NOT NULL,
-    path TEXT NOT NULL,
-    cluster_id TEXT,
-    resource TEXT,
-    action TEXT,
-    api_key TEXT,
-    status INTEGER,
-    duration_ms INTEGER,
-    client_ip TEXT
-);
-
 -- Topic templates
 CREATE TABLE topic_templates (
     id INTEGER PRIMARY KEY,

@@ -154,14 +154,14 @@
             <span class="text-sm font-medium">{{ t.settings.author }}</span>
             <span class="text-sm font-medium">朱占全</span>
           </div>
-          <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2" v-if="showLogButton">
+          <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">检查更新</span>
               <span v-if="checking" class="loading loading-spinner loading-xs"></span>
               <span v-if="updateAvailable" class="text-warning text-xs">新版本 {{ updateInfo?.version }}</span>
             </div>
             <div class="flex gap-2">
-              <button class="btn btn-sm" @click="viewLogs">
+              <button v-if="showLogButton" class="btn btn-sm" @click="viewLogs">
                 查看日志
               </button>
               <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)">
@@ -399,7 +399,8 @@ const downloading = ref(false);
 const installing = ref(false);
 const downloadProgress = ref(0);
 
-// 隐藏功能 - 查看日志按钮（双击版本号 5 次显示）
+// 隐藏功能 - 查看日志按钮（2 秒内点击版本号 5 次显示）
+// 默认隐藏，点击 5 次后显示
 const showLogButton = ref(false);
 const clickCount = ref(0);
 const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);

@@ -333,23 +333,6 @@ curl -X POST http://localhost:9732/api \
 
 ---
 
-## 认证
-
-如果启用了认证，需要在请求头中包含 API Key：
-
-```http
-X-API-Key: your-api-key
-```
-
-或通过环境变量配置：
-
-```bash
-export API_KEYS="key1,key2,key3"
-export AUTH_ENABLED=true
-```
-
----
-
 ## HTTP 状态码
 
 | 状态码 | 描述 |

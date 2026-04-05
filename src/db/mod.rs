@@ -1,4 +1,3 @@
-pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod cluster_group;
@@ -10,7 +9,6 @@ pub mod topic;
 pub mod topic_template;
 pub mod topic_history;
 pub mod sent_message;
-pub mod user;
 pub mod json_highlight;
 pub mod schema_registry;
 
@@ -111,75 +109,6 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
-        // 创建 API Key 表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_hash TEXT NOT NULL,
-                key_prefix TEXT NOT NULL,
-                name TEXT,
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建审计日志表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                method TEXT NOT NULL,
-                path TEXT NOT NULL,
-                cluster_id TEXT,
-                resource TEXT,
-                action TEXT NOT NULL,
-                api_key TEXT,
-                status INTEGER NOT NULL,
-                duration_ms INTEGER NOT NULL,
-                client_ip TEXT
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 审计日志索引：优化按 action 和 cluster_id 查询
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_audit_logs_cluster ON audit_logs(cluster_id)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC)",
-        )
-        .execute(self.inner())
-        .await?;
-
         // 创建告警规则表
         sqlx::query(
             r#"
@@ -260,45 +189,6 @@ impl DbPool {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_cluster_history_name_checked_at ON cluster_connection_history(cluster_name, checked_at DESC)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建用户和角色表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS roles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                permissions TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                email TEXT,
-                role_id INTEGER NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (role_id) REFERENCES roles(id)
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
         )
         .execute(self.inner())
         .await?;
@@ -460,9 +350,6 @@ impl DbPool {
         // 运行额外的索引优化迁移
         self.run_indexes_migration().await?;
 
-        // 初始化默认角色
-        self.init_default_roles().await?;
-
         // 初始化内置 JSON 高亮模板
         json_highlight::JsonHighlightTemplate::init_builtin_templates(self.inner()).await?;
 
@@ -474,67 +361,8 @@ impl DbPool {
         Ok(())
     }
 
-    /// 初始化默认角色
-    async fn init_default_roles(&self) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().to_rfc3339();
-
-        // 创建管理员角色（所有权限）
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO roles (name, description, permissions, created_at)
-            VALUES ('admin', '系统管理员，拥有所有权限', '["*"]', ?)
-            "#,
-        )
-        .bind(&now)
-        .execute(self.inner())
-        .await?;
-
-        // 创建运维角色
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO roles (name, description, permissions, created_at)
-            VALUES ('operator', '运维人员，拥有集群管理权限',
-                    '["cluster:*", "topic:*", "consumer_group:*", "message:*"]', ?)
-            "#,
-        )
-        .bind(&now)
-        .execute(self.inner())
-        .await?;
-
-        // 创建只读角色
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO roles (name, description, permissions, created_at)
-            VALUES ('viewer', '只读用户，仅查看权限',
-                    '["cluster:read", "topic:read", "consumer_group:read", "message:read"]', ?)
-            "#,
-        )
-        .bind(&now)
-        .execute(self.inner())
-        .await?;
-
-        Ok(())
-    }
-
     /// 运行索引优化迁移
     async fn run_indexes_migration(&self) -> Result<(), sqlx::Error> {
-        // 审计日志索引
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_logs_cluster_id ON audit_logs(cluster_id)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_logs_cluster_timestamp ON audit_logs(cluster_id, timestamp DESC)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs(status)")
-            .execute(self.inner()).await?;
-
-        // API Key 索引
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active)")
-            .execute(self.inner()).await?;
-
         // Topic 标签索引
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_cluster_id ON resource_tags(cluster_id)")
             .execute(self.inner()).await?;

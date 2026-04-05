@@ -27,7 +27,6 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::kafka::KafkaClients;
-use crate::middleware::audit::audit_middleware;
 use crate::pool::ClusterPools;
 use crate::cache::MetadataCache;
 
@@ -180,7 +179,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 构建路由
     let app = routes::create_router(state.clone())
-        .layer(axum::middleware::from_fn(audit_middleware))
         .layer(TimeoutLayer::new(Duration::from_secs(300)))
         .layer(CompressionLayer::new()
             .gzip(true)

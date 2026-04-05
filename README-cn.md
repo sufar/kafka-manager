@@ -116,8 +116,6 @@ connection_timeout_sec = 30
 
 | 变量 | 描述 | 默认值 |
 |------|------|--------|
-| `API_KEYS` | 逗号分隔的 API Keys | - |
-| `AUTH_ENABLED` | 启用认证 | `false` |
 | `HEALTH_CHECK_INTERVAL_SECS` | 健康检查间隔 | `30` |
 
 ## 数据库
@@ -135,7 +133,6 @@ connection_timeout_sec = 30
 | `user_settings` | 用户设置（语言、侧边栏模式、选中分组等） |
 | `favorites` | Topic 收藏 |
 | `favorite_groups` | 收藏分组 |
-| `audit_logs` | 审计日志 |
 | `topic_templates` | Topic 模板 |
 
 ## API 文档

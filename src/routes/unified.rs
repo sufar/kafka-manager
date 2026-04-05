@@ -4,7 +4,6 @@
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
 use crate::db::cluster_connection::ClusterConnectionStore;
 use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest, UpdateClusterGroupRequest};
-use crate::db::audit_log::AuditLogStore;
 use crate::db::favorite::{
     create_favorite, create_group, delete_favorite, delete_favorite_by_topic,
     delete_group, get_all_favorites_with_groups, get_all_groups_with_count, get_favorite_by_id,
@@ -627,9 +626,6 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "template.delete" => handle_template_delete(state, body).await,
         "template.presets" => handle_template_presets().await,
         "template.create_topic" => handle_template_create_topic(state, body).await,
-
-        // Audit Log
-        "audit_log.list" => handle_audit_log_list(state, body).await,
 
         // Favorite
         "favorite.group.list" => handle_favorite_group_list(state).await,
@@ -4383,67 +4379,6 @@ async fn handle_template_create_topic(state: AppState, body: Value) -> Result<Va
         "template": template.name,
         "num_partitions": template.num_partitions,
         "replication_factor": template.replication_factor,
-    }))
-}
-
-// ==================== Audit Log ====================
-
-async fn handle_audit_log_list(state: AppState, body: Value) -> Result<Value> {
-    let limit = get_optional_i64_param(&body, "limit").unwrap_or(100);
-    let offset = get_optional_i64_param(&body, "offset").unwrap_or(0);
-    let action = get_optional_string_param(&body, "action");
-    let cluster_id = get_optional_string_param(&body, "cluster_id");
-    let status = get_optional_i64_param(&body, "status").map(|v| v as i32);
-
-    let total = AuditLogStore::count(
-        state.db.inner(),
-        action.as_deref(),
-        cluster_id.as_deref(),
-        status,
-    )
-    .await?;
-
-    let logs = AuditLogStore::list(
-        state.db.inner(),
-        limit,
-        offset,
-        action.as_deref(),
-        cluster_id.as_deref(),
-        status,
-    )
-    .await?;
-
-    use chrono::{DateTime, Utc};
-
-    let log_infos: Vec<Value> = logs
-        .into_iter()
-        .map(|log| {
-            // Parse timestamp
-            let timestamp = DateTime::parse_from_rfc3339(&log.timestamp)
-                .unwrap_or_else(|_| DateTime::from_timestamp(0, 0).expect("valid epoch timestamp").into())
-                .with_timezone(&Utc);
-
-            serde_json::json!({
-                "id": log.id,
-                "timestamp": timestamp,
-                "method": log.method,
-                "path": log.path,
-                "cluster_id": log.cluster_id,
-                "resource": log.resource,
-                "action": log.action,
-                "api_key": log.api_key,
-                "status": log.status,
-                "duration_ms": log.duration_ms,
-                "client_ip": log.client_ip,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "logs": log_infos,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
     }))
 }
 

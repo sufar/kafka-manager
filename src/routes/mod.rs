@@ -1,4 +1,3 @@
-pub mod audit_log;
 pub mod cluster;
 pub mod cluster_connection;
 pub mod health;
@@ -7,7 +6,6 @@ pub mod tag;
 pub mod topic;
 pub mod topic_template;
 pub mod unified;
-pub mod user;
 pub mod schema_registry;
 
 use crate::AppState;

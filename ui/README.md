@@ -70,19 +70,6 @@ npm run preview
 
 ## 配置
 
-### 环境变量
-
-复制 `.env.example` 文件为 `.env.local` 进行配置：
-
-```bash
-cp .env.example .env.local
-```
-
-可用配置项：
-- `VITE_API_URL` - 后端 API 地址
-- `VITE_AUTH_ENABLED` - 是否启用认证
-- `VITE_API_KEY` - API 密钥
-
 ### API 代理
 
 开发环境下，API 请求通过 Vite 代理到后端服务。默认配置：
