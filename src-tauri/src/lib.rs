@@ -349,6 +349,19 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
 
     log(&format!("HTTP status: {}", response.status()));
 
+    // 检查 HTTP 状态码，非 200 时返回错误
+    if !response.status().is_success() {
+        log(&format!("GitHub API error: HTTP {}", response.status()));
+        // API 请求失败时，返回无更新而不是错误
+        // 这样可以避免网络问题或 API 限制造成用户困扰
+        return Ok(UpdateResult {
+            available: false,
+            version: current_version.to_string(),
+            notes: None,
+            date: None,
+        });
+    }
+
     let json: serde_json::Value = response
         .json()
         .await
@@ -357,6 +370,17 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     // 提取版本信息
     let tag_name = json["tag_name"].as_str().unwrap_or("");
     log(&format!("Latest tag: {}", tag_name));
+
+    // 如果 tag_name 为空，说明响应格式异常，返回无更新
+    if tag_name.is_empty() {
+        log("Warning: tag_name is empty, response may be malformed");
+        return Ok(UpdateResult {
+            available: false,
+            version: current_version.to_string(),
+            notes: None,
+            date: None,
+        });
+    }
 
     // 提取发布说明，并处理重复内容
     let body_str = json["body"].as_str().unwrap_or("").to_string();
@@ -396,8 +420,9 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     ) {
         remote_ver > current_ver
     } else {
-        // 如果版本解析失败，回退到字符串比较
-        remote_version != current_version
+        // 如果版本解析失败，回退到字符串比较（只有远程版本字符串 > 当前版本字符串才认为有更新）
+        // 这种回退逻辑较为粗糙，仅在语义化版本解析失败时使用
+        remote_version > current_version
     };
     log(&format!("Has update: {}", has_update));
 
@@ -785,14 +810,30 @@ async fn install_update(
 
     log(&format!("File ready at: {:?}", download_path));
 
-    // 自动打开安装包
+    // 使用系统对话框通知用户
+    use tauri_plugin_dialog::DialogExt;
+
     #[cfg(target_os = "macos")]
     {
-        log("Opening DMG file...");
+        log("Opening DMG file and will exit app...");
         std::process::Command::new("open")
             .arg(&download_path)
             .spawn()
             .ok();
+
+        // 通知用户即将退出
+        app.dialog()
+            .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+            .title("下载完成")
+            .show(|_| {});
+
+        // 延迟退出应用，让用户看到提示
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            log("Exiting app for update installation...");
+            app_handle.exit(0);
+        });
     }
 
     #[cfg(target_os = "windows")]
@@ -802,6 +843,18 @@ async fn install_update(
             .args(["/c", "start", download_path.to_str().unwrap_or("")])
             .spawn()
             .ok();
+
+        app.dialog()
+            .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
+            .title("下载完成")
+            .show(|_| {});
+
+        // 延迟退出应用
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            log("Exiting app for update installation...");
+            std::process::exit(0);
+        });
     }
 
     #[cfg(target_os = "linux")]
@@ -822,27 +875,27 @@ async fn install_update(
                 .spawn()
                 .ok();
         }
+
+        app.dialog()
+            .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+            .title("下载完成")
+            .show(|_| {});
+
+        // 延迟退出应用
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            log("Exiting app for update installation...");
+            std::process::exit(0);
+        });
     }
 
-    // 提示用户
-    let message = if cfg!(target_os = "macos") {
-        "安装包已打开，请按照提示完成安装".to_string()
-    } else if cfg!(target_os = "windows") {
-        "安装程序已启动，请按照提示完成安装".to_string()
-    } else if cfg!(target_os = "linux") {
-        "安装包已打开，请按照提示完成安装".to_string()
-    } else {
-        "下载完成".to_string()
-    };
-
-    log(&format!("Message: {}", message));
-
-    // 使用系统对话框通知用户
-    use tauri_plugin_dialog::DialogExt;
-    app.dialog()
-        .message(&message)
-        .title(if skipped { "使用缓存文件" } else { "下载完成" })
-        .show(|_| {});
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        app.dialog()
+            .message("下载完成")
+            .title(if skipped { "使用缓存文件" } else { "下载完成" })
+            .show(|_| {});
+    }
 
     Ok(())
 }
@@ -955,4 +1008,62 @@ pub fn run() {
 
     // 退出进程，确保后端线程也被终止
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    /// 测试版本比较逻辑
+    fn compare_versions(remote_version: &str, current_version: &str) -> bool {
+        if let (Ok(remote_ver), Ok(current_ver)) = (
+            semver::Version::parse(remote_version),
+            semver::Version::parse(current_version),
+        ) {
+            remote_ver > current_ver
+        } else {
+            // 回退到字符串比较
+            remote_version > current_version
+        }
+    }
+
+    #[test]
+    fn test_version_compare_equal() {
+        // 相同版本应该返回 false（无更新）
+        assert_eq!(compare_versions("1.0.20", "1.0.20"), false);
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), false);
+        assert_eq!(compare_versions("0.1.0", "0.1.0"), false);
+    }
+
+    #[test]
+    fn test_version_compare_newer() {
+        // 远程版本更新应该返回 true
+        assert_eq!(compare_versions("1.0.21", "1.0.20"), true);
+        assert_eq!(compare_versions("1.1.0", "1.0.20"), true);
+        assert_eq!(compare_versions("2.0.0", "1.0.20"), true);
+        assert_eq!(compare_versions("1.0.20", "1.0.19"), true);
+    }
+
+    #[test]
+    fn test_version_compare_older() {
+        // 远程版本更旧应该返回 false
+        assert_eq!(compare_versions("1.0.19", "1.0.20"), false);
+        assert_eq!(compare_versions("1.0.0", "1.0.20"), false);
+        assert_eq!(compare_versions("0.9.0", "1.0.20"), false);
+    }
+
+    #[test]
+    fn test_version_with_v_prefix() {
+        // 测试带 v 前缀的版本号（模拟 GitHub API 返回的格式）
+        let remote_with_v = "v1.0.21";
+        let remote_normalized = remote_with_v.strip_prefix('v').unwrap_or(remote_with_v);
+        assert_eq!(compare_versions(remote_normalized, "1.0.20"), true);
+        assert_eq!(compare_versions("1.0.20", "1.0.20"), false);
+    }
+
+    #[test]
+    fn test_version_empty_remote() {
+        // 测试远程版本为空的情况（API 失败时）
+        // 空字符串应该返回 false（无更新）
+        assert_eq!(compare_versions("", "1.0.20"), false);
+        assert_eq!(compare_versions("", "0.0.1"), false);
+    }
 }

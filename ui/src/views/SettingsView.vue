@@ -685,6 +685,9 @@ async function checkForUpdates(manual = false) {
         showUpdateModal.value = true;
       }
     } else {
+      // 无更新时清除状态
+      updateAvailable.value = false;
+      updateInfo.value = null;
       if (manual) {
         // 使用 Toast 显示成功提示，替代系统 alert
         toast.showInfo(t.value.update.checkCompleteNoUpdate || '已是最新版本', 3000);
@@ -692,9 +695,9 @@ async function checkForUpdates(manual = false) {
     }
   } catch (e) {
     console.error('Failed to check for updates:', e);
-    console.error('Error type:', typeof e);
-    console.error('Error keys:', e ? Object.keys(e) : 'N/A');
-    // 静默失败，不显示错误提示（网络问题等）
+    // 检查失败时清除状态，避免显示过时的更新提示
+    updateAvailable.value = false;
+    updateInfo.value = null;
   } finally {
     checking.value = false;
   }
