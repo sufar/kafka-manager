@@ -881,6 +881,40 @@ class ApiClient {
     return this.request('settings.update', { key, value });
   }
 
+  // ==================== 导入导出 ====================
+  async exportData(): Promise<{
+    version: string;
+    exported_at: string;
+    cluster_groups: Array<{ name: string; description?: string | null; sort_order: number }>;
+    clusters: Array<{ name: string; brokers: string; request_timeout_ms: number; operation_timeout_ms: number; group_name?: string | null }>;
+    topics: Array<{ cluster_name: string; topic_name: string; partition_count: number; replication_factor: number; config: Record<string, string> }>;
+    favorites: Array<{ name: string; description?: string | null; sort_order: number; items: Array<{ cluster_id: string; topic_name: string; description?: string | null; sort_order: number }> }>;
+    history: Array<{ cluster_id: string; topic_name: string; viewed_at: string }>;
+  }> {
+    return this.request('settings.export', {});
+  }
+
+  async importData(data: {
+    cluster_groups?: Array<{ name: string; description?: string | null; sort_order: number }>;
+    clusters?: Array<{ name: string; brokers: string; request_timeout_ms: number; operation_timeout_ms: number; group_name?: string | null }>;
+    topics?: Array<{ cluster_name: string; topic_name: string; partition_count: number; replication_factor: number; config: Record<string, string> }>;
+    favorites?: Array<{ name: string; description?: string | null; sort_order: number; items: Array<{ cluster_id: string; topic_name: string; description?: string | null; sort_order: number }> }>;
+    history?: Array<{ cluster_id: string; topic_name: string; viewed_at: string }>;
+  }, strategy?: 'skip' | 'overwrite'): Promise<{
+    cluster_groups_imported: number;
+    cluster_groups_skipped: number;
+    clusters_imported: number;
+    clusters_skipped: number;
+    topics_imported: number;
+    topics_skipped: number;
+    favorites_imported: number;
+    favorites_skipped: number;
+    history_imported: number;
+    history_skipped: number;
+  }> {
+    return this.request('settings.import', { data, strategy: strategy || 'skip' });
+  }
+
   // ==================== Topic 收藏 ====================
   async getFavoriteGroups(): Promise<Array<{ id: number; name: string; description?: string; sort_order: number; item_count: number; created_at: string; updated_at: string }>> {
     return this.request('favorite.group.list', {});

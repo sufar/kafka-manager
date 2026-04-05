@@ -1,5 +1,4 @@
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
-use crate::db::topic::TopicStore;
 use crate::error::{AppError, Result};
 use crate::kafka::KafkaClients;
 use crate::AppState;
@@ -150,13 +149,22 @@ async fn delete_cluster(
     // 获取集群信息
     let cluster = ClusterStore::get(state.db.inner(), id).await?;
     let cluster_name = cluster.name.clone();
-    let brokers = cluster.brokers.clone();
-    let request_timeout_ms = cluster.request_timeout_ms as u32;
-    let operation_timeout_ms = cluster.operation_timeout_ms as u32;
 
-    // 获取集群下的所有 topic
-    let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster.name).await?;
-    let topic_names: Vec<String> = topics.iter().map(|t| t.topic_name.clone()).collect();
+    // 删除该集群下的所有关联数据（按依赖顺序）
+    // 1. 删除 Topic 收藏（favorite_items 表中 cluster_id 匹配的记录）
+    delete_favorites_by_cluster(&state.db, &cluster_name).await?;
+
+    // 2. 删除 Topic 浏览历史
+    delete_history_by_cluster(&state.db, &cluster_name).await?;
+
+    // 3. 删除 Topic 发送历史
+    delete_sent_messages_by_cluster(&state.db, &cluster_name).await?;
+
+    // 4. 删除 Consumer Group 元数据和 Offset
+    delete_consumer_groups_by_cluster(&state.db, &cluster_name).await?;
+
+    // 5. 删除 Schema Registry 配置和 Schema 缓存
+    delete_schema_registry_by_cluster(&state.db, &cluster_name).await?;
 
     // 删除集群
     ClusterStore::delete(state.db.inner(), id).await?;
@@ -164,106 +172,11 @@ async fn delete_cluster(
     // 重新加载 Kafka 客户端（移除已删除的集群）
     reload_clients(&state).await?;
 
-    // 异步删除 Kafka 集群中的 topic（不阻塞响应）
-    if !topic_names.is_empty() {
-        let db = state.db.clone();
-        tokio::spawn(async move {
-            use crate::config::KafkaConfig;
-            use crate::kafka::KafkaAdmin;
-
-            let kafka_config = KafkaConfig {
-                brokers,
-                request_timeout_ms,
-                operation_timeout_ms,
-            };
-
-            match KafkaAdmin::new(&kafka_config) {
-                Ok(admin) => {
-                    tracing::info!("Starting async deletion of {} topics for cluster '{}'", topic_names.len(), cluster_name);
-
-                    // 并发删除所有 topic，收集详细结果
-                    let delete_tasks: Vec<_> = topic_names.iter().map(|topic_name| {
-                        let admin = admin.clone();
-                        let topic_name = topic_name.clone();
-                        async move {
-                            match admin.delete_topic(&topic_name).await {
-                                Ok(_) => {
-                                    tracing::info!("Deleted topic '{}'", topic_name);
-                                    (topic_name, true, None)
-                                }
-                                Err(e) => {
-                                    let error_msg = e.to_string();
-                                    tracing::warn!("Failed to delete topic '{}': {}", topic_name, e);
-                                    (topic_name, false, Some(error_msg))
-                                }
-                            }
-                        }
-                    }).collect();
-
-                    let results = futures::future::join_all(delete_tasks).await;
-                    let success_count = results.iter().filter(|(_, success, _)| *success).count();
-                    let failed_count = results.iter().filter(|(_, success, _)| !*success).count();
-
-                    // 记录失败的 Topic 详情
-                    let failed_topics: Vec<&(String, bool, Option<String>)> = results.iter().filter(|(_, success, _)| !*success).collect();
-                    if !failed_topics.is_empty() {
-                        tracing::warn!("Failed to delete {} topics for cluster '{}':", failed_count, cluster_name);
-                        for (name, _, error) in &failed_topics {
-                            tracing::warn!("  - {}: {}", name, error.as_deref().unwrap_or("Unknown error"));
-                        }
-                    }
-
-                    tracing::info!(
-                        "Completed topic deletion for cluster '{}': {} succeeded, {} failed",
-                        cluster_name,
-                        success_count,
-                        failed_count
-                    );
-
-                    // 记录审计日志
-                    let now = chrono::Utc::now().to_rfc3339();
-                    for (topic_name, success, _error) in &results {
-                        let action = if *success { "topic.deleted" } else { "topic.delete_failed" };
-                        let status = if *success { 200 } else { 500 };
-                        let _ = sqlx::query(
-                            "INSERT INTO audit_logs (timestamp, method, path, cluster_id, resource, action, status, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-                        )
-                        .bind(&now)
-                        .bind("DELETE")
-                        .bind("/api/cluster")
-                        .bind(&cluster_name)
-                        .bind(topic_name)
-                        .bind(action)
-                        .bind(status)
-                        .bind(0)
-                        .execute(db.inner())
-                        .await;
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to create Kafka admin client for cluster '{}': {}", cluster_name, e);
-                    // 记录审计日志
-                    let _ = sqlx::query(
-                        "INSERT INTO audit_logs (timestamp, method, path, cluster_id, resource, action, status, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-                    )
-                    .bind(&chrono::Utc::now().to_rfc3339())
-                    .bind("DELETE")
-                    .bind("/api/cluster")
-                    .bind(&cluster_name)
-                    .bind("*")
-                    .bind("topic.delete_failed")
-                    .bind(500)
-                    .bind(0)
-                    .execute(db.inner())
-                    .await;
-                }
-            }
-        });
-    }
+    // 删除本地缓存的 Topic 元数据
+    delete_topic_metadata_by_cluster(state.db.inner(), &cluster_name).await?;
 
     Ok(())
 }
-
 async fn test_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -318,5 +231,132 @@ async fn reload_clients(state: &AppState) -> Result<()> {
 
     tracing::info!("Reloaded Kafka clients");
 
+    Ok(())
+}
+
+/// 删除指定集群的所有 Topic 收藏
+async fn delete_favorites_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    use crate::db::favorite::delete_favorite_by_topic;
+
+    // 获取该集群下的所有收藏
+    let favorites: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, topic_name FROM favorite_items WHERE cluster_id = ?"
+    )
+    .bind(cluster_id)
+    .fetch_all(pool.inner())
+    .await?;
+
+    // 逐个删除
+    for (_, topic_name) in &favorites {
+        let _ = delete_favorite_by_topic(pool, cluster_id, topic_name).await;
+    }
+
+    tracing::info!("Deleted {} favorites for cluster '{}'", favorites.len(), cluster_id);
+    Ok(())
+}
+
+/// 删除指定集群的所有 Topic 浏览历史
+async fn delete_history_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    use crate::db::topic_history::delete_history_by_topic;
+
+    // 获取该集群下的所有历史记录
+    let histories: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, topic_name FROM topic_history WHERE cluster_id = ?"
+    )
+    .bind(cluster_id)
+    .fetch_all(pool.inner())
+    .await?;
+
+    // 逐个删除
+    for (_, topic_name) in &histories {
+        let _ = delete_history_by_topic(pool, cluster_id, topic_name).await;
+    }
+
+    tracing::info!("Deleted {} history records for cluster '{}'", histories.len(), cluster_id);
+    Ok(())
+}
+
+/// 删除指定集群的所有 Topic 发送历史
+async fn delete_sent_messages_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    let result = sqlx::query("DELETE FROM sent_messages WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+
+    tracing::info!(
+        "Deleted {} sent messages for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
+    Ok(())
+}
+
+/// 删除指定集群的所有 Consumer Group 数据
+async fn delete_consumer_groups_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    // 先删除 offsets，再删除 metadata（外键依赖）
+    let result = sqlx::query("DELETE FROM consumer_group_offsets WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+    tracing::info!(
+        "Deleted {} consumer group offsets for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
+
+    // 获取所有 group 名称用于日志
+    let groups: Vec<String> = sqlx::query_scalar(
+        "SELECT group_name FROM consumer_group_metadata WHERE cluster_id = ?"
+    )
+    .bind(cluster_id)
+    .fetch_all(pool.inner())
+    .await?;
+
+    // 删除 metadata
+    let result = sqlx::query("DELETE FROM consumer_group_metadata WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+    tracing::info!(
+        "Deleted {} consumer groups for cluster '{}': {:?}",
+        result.rows_affected(),
+        cluster_id,
+        groups
+    );
+    Ok(())
+}
+
+/// 删除指定集群的所有 Schema Registry 数据
+async fn delete_schema_registry_by_cluster(pool: &crate::db::DbPool, cluster_id: &str) -> Result<()> {
+    use crate::db::schema_registry::SchemaRegistryStore;
+
+    // 删除配置
+    let _ = SchemaRegistryStore::delete_config(pool.inner(), cluster_id).await;
+    tracing::info!("Deleted schema registry config for cluster '{}'", cluster_id);
+
+    // 删除 Schema 缓存
+    let result = sqlx::query("DELETE FROM schemas WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool.inner())
+        .await?;
+    tracing::info!(
+        "Deleted {} schemas for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
+    Ok(())
+}
+
+/// 删除指定集群的 Topic 元数据（本地缓存）
+async fn delete_topic_metadata_by_cluster(pool: &sqlx::SqlitePool, cluster_id: &str) -> Result<()> {
+    let result = sqlx::query("DELETE FROM topic_metadata WHERE cluster_id = ?")
+        .bind(cluster_id)
+        .execute(pool)
+        .await?;
+    tracing::info!(
+        "Deleted {} topic metadata for cluster '{}'",
+        result.rows_affected(),
+        cluster_id
+    );
     Ok(())
 }

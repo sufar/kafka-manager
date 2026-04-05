@@ -172,6 +172,39 @@
         </div>
       </div>
 
+      <!-- Import/Export -->
+      <div class="card glass gradient-border hover:glow-secondary transition-all duration-300">
+        <div class="card-body p-3">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-secondary">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-gradient-warm">{{ t.settings.importExport }}</h2>
+              <p class="text-xs text-base-content/60">{{ t.settings.importExportDesc }}</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-sm btn-primary flex-1" @click="handleExport" :disabled="exporting">
+              <svg v-if="!exporting" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              <span v-else class="loading loading-spinner loading-xs mr-1"></span>
+              {{ exporting ? t.settings.exporting : t.settings.exportData }}
+            </button>
+            <label class="btn btn-sm btn-secondary flex-1 cursor-pointer" :class="{ 'opacity-50': importing }">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+              </svg>
+              {{ importing ? t.settings.importing : t.settings.importData }}
+              <input type="file" accept=".json" @change="handleImport" :disabled="importing" class="hidden" />
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Logs Modal -->
       <dialog ref="logsModalRef" class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': showLogsModal }">
         <div class="modal-box max-w-5xl">
@@ -350,7 +383,7 @@ const { t } = storeToRefs(languageStore);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.19');
+const appVersion = ref('1.0.20');
 
 // 日志相关
 const logs = ref('');
@@ -369,7 +402,11 @@ const downloadProgress = ref(0);
 // 隐藏功能 - 查看日志按钮（双击版本号 5 次显示）
 const showLogButton = ref(false);
 const clickCount = ref(0);
-const clickTimer = ref<NodeJS.Timeout | null>(null);
+const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+// 导入导出相关
+const exporting = ref(false);
+const importing = ref(false);
 
 // Modal ref
 const modalRef = ref<HTMLDialogElement>();
@@ -404,7 +441,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.19');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.20');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -489,6 +526,114 @@ async function clearLogs() {
     toast.showSuccess('日志已清除');
   } catch (e) {
     toast.showError('清除日志失败');
+  }
+}
+
+// 导出数据
+async function handleExport() {
+  if (exporting.value) return;
+
+  exporting.value = true;
+  try {
+    const data = await apiClient.exportData();
+    const exportData = {
+      version: data.version,
+      exported_at: data.exported_at,
+      cluster_groups: data.cluster_groups,
+      clusters: data.clusters,
+      topics: data.topics,
+      favorites: data.favorites,
+      history: data.history,
+    };
+
+    // 创建下载
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kafka-manager-export-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    const lang = languageStore.currentLanguage;
+    if (lang === 'zh') {
+      toast.showSuccess(`导出成功：${data.cluster_groups.length} 个分组，${data.clusters.length} 个集群，${data.topics.length} 个 Topic，${data.favorites.length} 个收藏分组，${data.history.length} 条历史`);
+    } else {
+      toast.showSuccess(`Export successful: ${data.cluster_groups.length} groups, ${data.clusters.length} clusters, ${data.topics.length} topics, ${data.favorites.length} favorites, ${data.history.length} history records`);
+    }
+  } catch (e) {
+    console.error('Export failed:', e);
+    toast.showError((e as Error).message);
+  } finally {
+    exporting.value = false;
+  }
+}
+
+// 导入数据
+async function handleImport(event: Event) {
+  if (importing.value) return;
+
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+
+  // 重置 input，允许重复选择同一文件
+  target.value = '';
+
+  importing.value = true;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    // 验证数据格式
+    if (!data.clusters && !data.favorites && !data.history && !data.cluster_groups && !data.topics) {
+      throw new Error('Invalid export file format');
+    }
+
+    const result = await apiClient.importData({
+      cluster_groups: data.cluster_groups || [],
+      clusters: data.clusters || [],
+      topics: data.topics || [],
+      favorites: data.favorites || [],
+      history: data.history || [],
+    }, 'skip');
+
+    const lang = languageStore.currentLanguage;
+    const skippedParts = [];
+    if (result.cluster_groups_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.cluster_groups_skipped} 个分组` : `${result.cluster_groups_skipped} groups skipped`);
+    }
+    if (result.clusters_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.clusters_skipped} 个集群` : `${result.clusters_skipped} clusters skipped`);
+    }
+    if (result.topics_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.topics_skipped} 个 Topic` : `${result.topics_skipped} topics skipped`);
+    }
+    if (result.favorites_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.favorites_skipped} 个收藏` : `${result.favorites_skipped} favorites skipped`);
+    }
+    if (result.history_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.history_skipped} 条历史` : `${result.history_skipped} history records skipped`);
+    }
+
+    if (lang === 'zh') {
+      toast.showSuccess(
+        `导入完成：${result.cluster_groups_imported} 个分组，${result.clusters_imported} 个集群，${result.topics_imported} 个 Topic，${result.favorites_imported} 个收藏，${result.history_imported} 条历史` +
+        (skippedParts.length > 0 ? `（${skippedParts.join('，')}）` : '')
+      );
+    } else {
+      toast.showSuccess(
+        `Import completed: ${result.cluster_groups_imported} groups, ${result.clusters_imported} clusters, ${result.topics_imported} topics, ${result.favorites_imported} favorites, ${result.history_imported} history records` +
+        (skippedParts.length > 0 ? ` (${skippedParts.join(', ')})` : '')
+      );
+    }
+  } catch (e) {
+    console.error('Import failed:', e);
+    toast.showError((e as Error).message);
+  } finally {
+    importing.value = false;
   }
 }
 

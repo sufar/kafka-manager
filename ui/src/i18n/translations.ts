@@ -338,6 +338,14 @@ export interface Translation {
     confirmDeleteTemplate: string;
     templateFormat: string;
     builtInTemplates: string;
+    importExport: string;
+    importExportDesc: string;
+    exportData: string;
+    exporting: string;
+    exportSuccess: string;
+    importData: string;
+    importing: string;
+    importSuccess: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -376,6 +384,7 @@ export interface Translation {
     clusterNotFound: string;
     networkError: string;
     invalidFormat: string;
+    skipped: string;
   };
   topicContextMenu: {
     viewMessages: string;
@@ -445,6 +454,7 @@ export interface Translation {
     groupCreated: string;
     remark: string;
     remarkPlaceholder: string;
+    group: string;
   };
   history: {
     title: string;
@@ -858,6 +868,14 @@ export const translations: Record<Language, Translation> = {
       confirmDeleteTemplate: '确定要删除这个自定义模板吗？',
       templateFormat: '模板格式',
       builtInTemplates: '内置模板',
+      importExport: '数据导入导出',
+      importExportDesc: '导出或导入集群、收藏和历史记录',
+      exportData: '导出数据',
+      exporting: '导出中...',
+      exportSuccess: '导出成功',
+      importData: '导入数据',
+      importing: '导入中...',
+      importSuccess: '导入完成',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -896,6 +914,7 @@ export const translations: Record<Language, Translation> = {
       clusterNotFound: '集群不存在',
       networkError: '网络错误',
       invalidFormat: '格式无效',
+      skipped: '跳过',
     },
     topicContextMenu: {
       viewMessages: '查看消息',
@@ -965,6 +984,7 @@ export const translations: Record<Language, Translation> = {
       groupCreated: '分组创建成功',
       remark: '备注',
       remarkPlaceholder: '添加备注（可选）',
+      group: '个分组',
     },
     history: {
       title: '浏览历史',
@@ -1376,6 +1396,14 @@ export const translations: Record<Language, Translation> = {
       confirmDeleteTemplate: 'Are you sure you want to delete this custom template?',
       templateFormat: 'Template Format',
       builtInTemplates: 'Built-in Templates',
+      importExport: 'Import/Export Data',
+      importExportDesc: 'Export or import clusters, favorites and history',
+      exportData: 'Export Data',
+      exporting: 'Exporting...',
+      exportSuccess: 'Export successful',
+      importData: 'Import Data',
+      importing: 'Importing...',
+      importSuccess: 'Import completed',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',
@@ -1414,6 +1442,7 @@ export const translations: Record<Language, Translation> = {
       clusterNotFound: 'Cluster not found',
       networkError: 'Network error',
       invalidFormat: 'Invalid format',
+      skipped: 'Skipped',
     },
     topicContextMenu: {
       viewMessages: 'View Messages',
@@ -1483,6 +1512,7 @@ export const translations: Record<Language, Translation> = {
       groupCreated: 'Group created successfully',
       remark: 'Remark',
       remarkPlaceholder: 'Add remark (optional)',
+      group: 'group(s)',
     },
     history: {
       title: 'Browsing History',

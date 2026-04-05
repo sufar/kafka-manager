@@ -19,6 +19,7 @@ use crate::db::sent_message::{
     clear_sent_message_history, delete_sent_message, get_sent_message_list, record_sent_message,
 };
 use crate::db::settings::SettingStore;
+use crate::routes::settings::ImportDataRequest;
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
     CreateTopicTemplateRequest, TopicTemplateStore,
@@ -602,6 +603,8 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         // Settings
         "settings.get" => handle_settings_get(state, body).await,
         "settings.update" => handle_settings_update(state, body).await,
+        "settings.export" => handle_settings_export(state).await,
+        "settings.import" => handle_settings_import(state, body).await,
 
         // App
         "app.version" => handle_app_version().await,
@@ -706,15 +709,44 @@ async fn handle_app_logs() -> Result<Value> {
     use dirs::cache_dir;
     use std::path::PathBuf;
 
-    let log_path = cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_dir = cache_dir()
+        .map(|d| d.join("kafka-manager").join("logs"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
 
-    let logs = fs::read_to_string(&log_path)
-        .unwrap_or_default();
+    // 读取所有日志文件并按时间排序
+    let mut logs_content = String::new();
+
+    if let Ok(entries) = fs::read_dir(&log_dir) {
+        let mut log_files: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("kafka-manager-") && n.ends_with(".log"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        // 按文件名排序（即按日期排序）
+        log_files.sort_by(|a, b| {
+            a.path().file_name().cmp(&b.path().file_name())
+        });
+
+        // 读取每个日志文件
+        for entry in log_files {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                logs_content.push_str(&content);
+                if !content.ends_with('\n') {
+                    logs_content.push('\n');
+                }
+            }
+        }
+    }
 
     Ok(serde_json::json!({
-        "logs": logs
+        "logs": logs_content,
+        "log_dir": log_dir.to_string_lossy()
     }))
 }
 
@@ -723,12 +755,19 @@ async fn handle_app_logs_clear() -> Result<Value> {
     use dirs::cache_dir;
     use std::path::PathBuf;
 
-    let log_path = cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_dir = cache_dir()
+        .map(|d| d.join("kafka-manager").join("logs"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
 
-    fs::write(&log_path, "")
-        .map_err(|e| crate::error::AppError::Internal(format!("清除日志失败：{}", e)))?;
+    // 删除所有日志文件
+    if let Ok(entries) = fs::read_dir(&log_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
 
     Ok(serde_json::json!({
         "success": true
@@ -4010,6 +4049,29 @@ async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
         "key": key,
         "value": value,
     }))
+}
+
+// ==================== Settings Import/Export ====================
+
+async fn handle_settings_export(state: AppState) -> Result<Value> {
+    use crate::routes::settings::export_data;
+    use axum::extract::State;
+    use axum::Json;
+    use std::sync::Arc;
+
+    let Json(data) = export_data(State(Arc::new(state))).await?;
+    Ok(serde_json::to_value(&data)?)
+}
+
+async fn handle_settings_import(state: AppState, body: Value) -> Result<Value> {
+    use crate::routes::settings::import_data;
+    use axum::extract::State;
+    use axum::Json;
+    use std::sync::Arc;
+
+    let req: ImportDataRequest = serde_json::from_value(body)?;
+    let Json(result) = import_data(State(Arc::new(state)), Json(req)).await?;
+    Ok(serde_json::to_value(&result)?)
 }
 
 // ==================== JSON Highlight Templates ====================
