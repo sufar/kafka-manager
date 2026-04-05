@@ -874,10 +874,67 @@ async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
 
 async fn handle_cluster_delete(state: AppState, body: Value) -> Result<Value> {
     let id = get_i64_param(&body, "id")?;
+
+    // 获取集群信息
+    let cluster = ClusterStore::get(state.db.inner(), id).await?;
+    let cluster_name = cluster.name.clone();
+
+    // 删除该集群下的所有关联数据（按依赖顺序）
+    // 1. 删除 Topic 收藏
+    sqlx::query("DELETE FROM favorite_items WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 2. 删除 Topic 浏览历史
+    sqlx::query("DELETE FROM topic_history WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 3. 删除 Topic 发送历史
+    sqlx::query("DELETE FROM sent_messages WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 4. 删除 Consumer Group 元数据和 Offset
+    sqlx::query("DELETE FROM consumer_group_offsets WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+    sqlx::query("DELETE FROM consumer_group_metadata WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 5. 删除 Schema Registry 配置和 Schema 缓存
+    sqlx::query("DELETE FROM schema_registry_configs WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+    sqlx::query("DELETE FROM schemas WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 6. 删除资源标签
+    sqlx::query("DELETE FROM resource_tags WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
+
+    // 删除集群
     ClusterStore::delete(state.db.inner(), id).await?;
 
-    // Reload Kafka clients
+    // 重新加载 Kafka 客户端
     reload_clients(&state).await?;
+
+    // 删除本地缓存的 Topic 元数据
+    sqlx::query("DELETE FROM topic_metadata WHERE cluster_id = ?")
+        .bind(&cluster_name)
+        .execute(state.db.inner())
+        .await?;
 
     Ok(serde_json::json!({ "success": true }))
 }
