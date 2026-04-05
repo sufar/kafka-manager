@@ -21,6 +21,30 @@ use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 
+/// 后台下载状态
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DownloadState {
+    pub is_downloading: bool,
+    pub downloaded: u64,
+    pub total: u64,
+    pub download_url: String,
+    pub filename: String,
+    pub download_path: Option<PathBuf>,
+}
+
+impl Default for DownloadState {
+    fn default() -> Self {
+        Self {
+            is_downloading: false,
+            downloaded: 0,
+            total: 0,
+            download_url: String::new(),
+            filename: String::new(),
+            download_path: None,
+        }
+    }
+}
+
 /// 简单的日志函数，确保在 Windows 上也能看到输出
 fn log(msg: &str) {
     eprintln!("[KAFKA-MANAGER] {}", msg);
@@ -338,22 +362,33 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
     log(&format!("Fetching: {}", api_url));
 
-    let client = reqwest::Client::new();
+    // 创建带超时的 HTTP 客户端（连接超时 5 秒，请求超时 10 秒）
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))?;
 
     let response = client
         .get(api_url)
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("Network error: {}", e))?;
+        .map_err(|e| {
+            log(&format!("请求失败：{}", e));
+            format!("网络错误：{}", e)
+        })?;
 
     log(&format!("HTTP status: {}", response.status()));
 
-    // 检查 HTTP 状态码，非 200 时返回错误
+    // 检查 HTTP 状态码，403 时返回特殊错误信息
+    if response.status() == reqwest::StatusCode::FORBIDDEN {
+        log("GitHub API rate limit exceeded (403 Forbidden)");
+        return Err("403 Forbidden".to_string());
+    }
+
     if !response.status().is_success() {
         log(&format!("GitHub API error: HTTP {}", response.status()));
-        // API 请求失败时，返回无更新而不是错误
-        // 这样可以避免网络问题或 API 限制造成用户困扰
         return Ok(UpdateResult {
             available: false,
             version: current_version.to_string(),
@@ -494,150 +529,6 @@ fn save_cached_signature(cache_dir: &std::path::Path, filename: &str, signature:
         .map_err(|e| format!("保存签名失败: {}", e))
 }
 
-/// 断点续传下载文件（带进度回调）
-async fn download_with_resume<F>(
-    client: &reqwest::Client,
-    url: &str,
-    download_path: &std::path::Path,
-    expected_signature: &str,
-    mut progress_callback: F,
-) -> Result<bool, String>
-where
-    F: FnMut(u64, u64) + Send + 'static,
-{
-    use futures::StreamExt;
-
-    // 检查本地文件
-    let mut existing_size = if download_path.exists() {
-        std::fs::metadata(download_path)
-            .map(|m| m.len())
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    // 验证现有文件签名
-    if existing_size > 0 && !expected_signature.is_empty() {
-        log(&format!("Checking existing file: {} bytes", existing_size));
-        match verify_signature(download_path, expected_signature) {
-            Ok(true) => {
-                log("Existing file signature verified, skipping download");
-                progress_callback(existing_size, existing_size); // 100% 进度
-                return Ok(true); // 签名匹配，无需下载
-            }
-            Ok(false) => {
-                log("Existing file signature mismatch, will re-download");
-            }
-            Err(e) => {
-                log(&format!("Signature verification failed: {}", e));
-            }
-        }
-    }
-
-    // 获取文件信息
-    let head_response = client
-        .get(url)
-        .header("User-Agent", "kafka-manager")
-        .send()
-        .await
-        .map_err(|e| format!("获取文件信息失败: {}", e))?;
-
-    let total_size = head_response.content_length().unwrap_or(0);
-    log(&format!("Remote file size: {} bytes", total_size));
-
-    // 如果文件已完整下载但签名验证失败，删除重新下载
-    if existing_size > 0 && existing_size >= total_size && total_size > 0 {
-        log("File exists but signature mismatch or file too large, removing and re-downloading");
-        std::fs::remove_file(download_path).ok();
-        existing_size = 0;
-    }
-
-    // 检查是否支持断点续传
-    let supports_resume = head_response.headers()
-        .get("accept-ranges")
-        .map_or(false, |v| v.as_bytes() == b"bytes");
-
-    // 只有本地文件小于远程文件时才尝试断点续传
-    let start_byte = if supports_resume && existing_size > 0 && existing_size < total_size {
-        log(&format!("Resuming download from byte {} (remote: {})", existing_size, total_size));
-        existing_size
-    } else {
-        if existing_size > 0 && !supports_resume {
-            log("Server doesn't support resume, restarting download");
-            std::fs::remove_file(download_path).ok();
-        }
-        0
-    };
-
-    // 构建请求
-    let mut request = client
-        .get(url)
-        .header("User-Agent", "kafka-manager");
-
-    // 添加 Range 头进行断点续传
-    // 添加 Range 头进行断点续传
-    if start_byte > 0 {
-        request = request.header("Range", format!("bytes={}-", start_byte));
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("下载失败：{}", e))?;
-
-    // 检查响应状态 - 处理 416 错误
-    let final_response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-        log("Received 416 Range Not Satisfiable, removing local file and retrying");
-        std::fs::remove_file(download_path).ok();
-        // 重新下载
-        let retry_response = client
-            .get(url)
-            .header("User-Agent", "kafka-manager")
-            .send()
-            .await
-            .map_err(|e| format!("下载失败：{}", e))?;
-        if !retry_response.status().is_success() {
-            return Err(format!("下载失败：HTTP {}", retry_response.status()));
-        }
-        retry_response
-    } else {
-        if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-            return Err(format!("下载失败：HTTP {}", response.status()));
-        }
-        response
-    };
-
-    // 以追加模式写入文件
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(download_path)
-        .map_err(|e| format!("打开文件失败：{}", e))?;
-
-    // 流式下载，带进度跟踪
-    // 416 重试后从 0 开始下载
-    let mut downloaded: u64 = 0;
-    let mut stream = final_response.bytes_stream();
-
-    // 发送初始进度
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载流错误: {}", e))?;
-        file.write_all(&chunk)
-            .map_err(|e| format!("写入文件失败: {}", e))?;
-        downloaded += chunk.len() as u64;
-
-        // 发送进度更新
-        progress_callback(downloaded, total_size);
-    }
-
-    file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
-    drop(file);
-
-    log("Download completed");
-    Ok(false) // 表示是新下载的
-}
 
 /// 从 latest.json 获取签名信息
 async fn fetch_signature_from_latest(
@@ -682,13 +573,244 @@ async fn fetch_signature_from_latest(
     Ok(signature)
 }
 
-/// 下载并安装更新（支持签名验证和断点续传）
+/// 获取下载状态
 #[tauri::command]
-async fn install_update(
-    app: tauri::AppHandle,
-    on_progress: tauri::ipc::Channel<(u64, u64)>,
-) -> Result<(), String> {
+fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
+    log("get_download_status called");
+    match app.try_state::<Arc<Mutex<DownloadState>>>() {
+        Some(state) => {
+            let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+            let mut result = guard.clone();
+            log(&format!("DownloadState from memory: downloaded={}, total={}, is_downloading={}", result.downloaded, result.total, result.is_downloading));
+
+            // 如果状态中没有进度，但缓存目录中有文件，检查文件大小
+            if result.downloaded == 0 && result.total == 0 {
+                log("Checking cache directory for downloaded files...");
+                let cache_dir = dirs::cache_dir()
+                    .map(|d| d.join("kafka-manager"))
+                    .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
+
+                // 查找缓存的 DMG 文件
+                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.ends_with(".dmg") || name_str.ends_with(".AppImage") || name_str.ends_with(".msi") {
+                            if let Ok(meta) = entry.metadata() {
+                                let file_size = meta.len();
+                                if file_size > 0 {
+                                    // 找到缓存文件，返回文件大小
+                                    result.downloaded = file_size;
+                                    // 假设完整大小约 30MB（实际会在重新下载时获取）
+                                    result.total = 30 * 1024 * 1024;
+                                    result.filename = name_str.to_string();
+                                    result.download_path = Some(entry.path());
+                                    log(&format!("Found cached file: {} ({} bytes)", name_str, file_size));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            log(&format!("Returning DownloadState: downloaded={}, total={}", result.downloaded, result.total));
+            Ok(result)
+        }
+        None => {
+            log("DownloadState not found, returning default");
+            Ok(DownloadState::default())
+        }
+    }
+}
+
+/// 清除下载状态
+#[tauri::command]
+fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        guard.is_downloading = false;
+        guard.downloaded = 0;
+        guard.total = 0;
+    }
+    Ok(())
+}
+
+/// 后台下载函数（使用状态对象而不是 Channel）
+async fn download_with_resume_background(
+    client: &reqwest::Client,
+    url: &str,
+    download_path: &std::path::Path,
+    expected_signature: &str,
+    state: Arc<Mutex<DownloadState>>,
+    total_size: u64,
+) -> Result<bool, String> {
+    use futures::StreamExt;
+    use std::io::Write;
+
+    // 检查本地文件
+    let mut existing_size = if download_path.exists() {
+        std::fs::metadata(download_path)
+            .map(|m| m.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    // 验证现有文件签名
+    if existing_size > 0 && !expected_signature.is_empty() {
+        log(&format!("Checking existing file: {} bytes", existing_size));
+        match verify_signature(download_path, expected_signature) {
+            Ok(true) => {
+                log("Existing file signature verified, skipping download");
+                {
+                    let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+                    guard.downloaded = existing_size;
+                    guard.total = existing_size;
+                    guard.is_downloading = false;
+                }
+                return Ok(true);
+            }
+            Ok(false) => {
+                log("Existing file signature mismatch, will re-download");
+            }
+            Err(e) => {
+                log(&format!("Signature verification failed: {}", e));
+            }
+        }
+    }
+
+    // 如果文件已完整下载但签名验证失败，删除重新下载
+    if existing_size > 0 && existing_size >= total_size && total_size > 0 {
+        log("File exists but signature mismatch, removing and re-downloading");
+        std::fs::remove_file(download_path).ok();
+        existing_size = 0;
+    }
+
+    // 发送 HEAD 请求检查是否支持断点续传
+    let head_response = client
+        .get(url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("获取文件信息失败：{}", e))?;
+
+    // 检查是否支持断点续传
+    let supports_resume = head_response.headers()
+        .get("accept-ranges")
+        .map_or(false, |v| v.as_bytes() == b"bytes");
+
+    let start_byte = if supports_resume && existing_size > 0 && existing_size < total_size {
+        log(&format!("Resuming download from byte {} (remote: {})", existing_size, total_size));
+        existing_size
+    } else {
+        if existing_size > 0 && !supports_resume {
+            log("Server doesn't support resume, restarting download");
+            std::fs::remove_file(download_path).ok();
+        }
+        0
+    };
+
+    let mut request = client.get(url).header("User-Agent", "kafka-manager");
+    if start_byte > 0 {
+        request = request.header("Range", format!("bytes={}-", start_byte));
+    }
+
+    let response = request.send().await.map_err(|e| format!("下载失败：{}", e))?;
+
+    let final_response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        log("Received 416, removing and retrying");
+        std::fs::remove_file(download_path).ok();
+        let retry = client.get(url).header("User-Agent", "kafka-manager").send().await
+            .map_err(|e| format!("下载失败：{}", e))?;
+        if !retry.status().is_success() {
+            return Err(format!("下载失败：HTTP {}", retry.status()));
+        }
+        retry
+    } else {
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            return Err(format!("下载失败：HTTP {}", response.status()));
+        }
+        response
+    };
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(download_path)
+        .map_err(|e| format!("打开文件失败：{}", e))?;
+
+    let mut downloaded: u64 = 0;
+    let mut stream = final_response.bytes_stream();
+
+    // 用于每 10 秒打印进度
+    let mut last_progress_log = std::time::Instant::now();
+    let mut last_logged_downloaded: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载流错误：{}", e))?;
+        file.write_all(&chunk).map_err(|e| format!("写入文件失败：{}", e))?;
+        downloaded += chunk.len() as u64;
+
+        // 更新状态
+        {
+            let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+            guard.downloaded = existing_size + downloaded;
+        }
+
+        // 每 10 秒打印一次下载进度
+        if last_progress_log.elapsed().as_secs() >= 10 {
+            let total = if total_size > 0 { total_size } else { existing_size + downloaded };
+            let progress = if total > 0 { (existing_size + downloaded) as f64 / total as f64 * 100.0 } else { 0.0 };
+            let speed_bytes = downloaded - last_logged_downloaded;
+            let speed_mb = speed_bytes as f64 / 1024.0 / 1024.0 / 10.0; // MB/s
+            log(&format!("Download progress: {}/{} ({:.1}%), speed: {:.2} MB/s",
+                format_size(existing_size + downloaded),
+                format_size(total),
+                progress,
+                speed_mb));
+            last_progress_log = std::time::Instant::now();
+            last_logged_downloaded = downloaded;
+        }
+    }
+
+    file.flush().map_err(|e| format!("刷新文件失败：{}", e))?;
+    log("Download completed");
+    Ok(false)
+}
+
+/// 格式化文件大小
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+
+
+/// 下载并安装更新（支持签名验证和断点续传）- 后台线程运行
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     log("Downloading and installing update with signature verification...");
+
+    // 检查是否已在下载
+    {
+        let state = app.state::<Arc<Mutex<DownloadState>>>();
+        let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        if guard.is_downloading {
+            return Err("下载已在进行中".to_string());
+        }
+    }
 
     // 获取系统缓存目录
     let cache_dir = dirs::cache_dir()
@@ -696,7 +818,7 @@ async fn install_update(
         .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
 
     std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
+        .map_err(|e| format!("创建缓存目录失败：{}", e))?;
 
     log(&format!("Cache directory: {:?}", cache_dir));
 
@@ -709,12 +831,12 @@ async fn install_update(
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("网络错误: {}", e))?;
+        .map_err(|e| format!("网络错误：{}", e))?;
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("解析版本信息失败: {}", e))?;
+        .map_err(|e| format!("解析版本信息失败：{}", e))?;
 
     let tag_name = json["tag_name"].as_str().unwrap_or("unknown");
     log(&format!("Latest release: {}", tag_name));
@@ -769,136 +891,190 @@ async fn install_update(
     // 下载路径
     let download_path = cache_dir.join(&filename);
 
-    // 克隆 on_progress 用于回调
-    let progress_channel = on_progress.clone();
-
-    // 执行下载（带断点续传和进度回调）
-    let skipped = download_with_resume(
-        &client,
-        &download_url,
-        &download_path,
-        &expected_signature,
-        move |downloaded, total| {
-            // 发送进度事件到前端
-            let _ = progress_channel.send((downloaded, total));
-        },
-    ).await?;
-
-    if skipped {
-        log("Using cached file (signature verified)");
+    // 检查是否有缓存文件
+    let existing_size = if download_path.exists() {
+        std::fs::metadata(&download_path).map(|m| m.len()).unwrap_or(0)
     } else {
-        // 下载完成后验证签名
-        if !expected_signature.is_empty() {
-            match verify_signature(&download_path, &expected_signature) {
-                Ok(true) => {
-                    log("Downloaded file signature verified");
-                    // 保存签名到缓存
-                    save_cached_signature(&cache_dir, &filename, &expected_signature)?;
-                }
-                Ok(false) => {
-                    // 签名不匹配，删除文件
-                    std::fs::remove_file(&download_path).ok();
-                    return Err("下载文件签名验证失败，已删除".to_string());
-                }
+        0
+    };
+
+    // 先获取文件总大小，再初始化下载状态（避免前端轮询时 total 为 0）
+    let head_response = client
+        .get(&download_url)
+        .header("User-Agent", "kafka-manager")
+        .send()
+        .await
+        .map_err(|e| format!("获取文件信息失败：{}", e))?;
+
+    let total_size = head_response.content_length().unwrap_or(0);
+    log(&format!("Remote file size: {} bytes", total_size));
+
+    // 初始化下载状态
+    {
+        let state = app.state::<Arc<Mutex<DownloadState>>>();
+        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        guard.is_downloading = true;
+        guard.downloaded = existing_size; // 保留已下载大小，支持断点续传
+        guard.total = total_size;
+        guard.download_url = download_url.clone();
+        guard.filename = filename.clone();
+        guard.download_path = Some(download_path.clone());
+        if existing_size > 0 {
+            log(&format!("Found existing file: {} bytes, will resume download", existing_size));
+        }
+    }
+
+    // 克隆状态和 app 用于后台线程
+    let state = app.state::<Arc<Mutex<DownloadState>>>().inner().clone();
+    let app_handle = app.clone();
+
+    // 在独立线程中执行下载，不依赖前端生命周期
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        rt.block_on(async move {
+            log("Starting background download in independent thread...");
+
+            // 执行下载（带断点续传，使用状态对象更新进度）
+            let skipped = match download_with_resume_background(
+                &client,
+                &download_url,
+                &download_path,
+                &expected_signature,
+                state.clone(),
+                total_size,
+            ).await {
+                Ok(skipped) => skipped,
                 Err(e) => {
-                    log(&format!("Signature verification error: {}", e));
-                    // 继续安装，但记录警告
+                    log(&format!("Download error: {}", e));
+                    let mut guard = state.lock().expect("Lock error");
+                    guard.is_downloading = false;
+                    return;
+                }
+            };
+
+            // 下载完成，更新状态
+            {
+                let mut guard = state.lock().expect("Lock error");
+                guard.is_downloading = false;
+            }
+
+            if skipped {
+                log("Using cached file (signature verified)");
+            } else {
+                // 下载完成后验证签名
+                if !expected_signature.is_empty() {
+                    match verify_signature(&download_path, &expected_signature) {
+                        Ok(true) => {
+                            log("Downloaded file signature verified");
+                            // 保存签名到缓存
+                            let _ = save_cached_signature(&cache_dir, &filename, &expected_signature);
+                        }
+                        Ok(false) => {
+                            log("Signature mismatch, removing file");
+                            std::fs::remove_file(&download_path).ok();
+                            return;
+                        }
+                        Err(e) => {
+                            log(&format!("Signature verification error: {}", e));
+                        }
+                    }
                 }
             }
-        }
-    }
 
-    log(&format!("File ready at: {:?}", download_path));
+            log(&format!("File ready at: {:?}", download_path));
 
-    // 使用系统对话框通知用户
-    use tauri_plugin_dialog::DialogExt;
+            // 使用系统对话框通知用户
+            use tauri_plugin_dialog::DialogExt;
 
-    #[cfg(target_os = "macos")]
-    {
-        log("Opening DMG file and will exit app...");
-        std::process::Command::new("open")
-            .arg(&download_path)
-            .spawn()
-            .ok();
+            #[cfg(target_os = "macos")]
+            {
+                log("Opening DMG file and will exit app...");
+                std::process::Command::new("open")
+                    .arg(&download_path)
+                    .spawn()
+                    .ok();
 
-        // 通知用户即将退出
-        app.dialog()
-            .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
-            .title("下载完成")
-            .show(|_| {});
+                // 通知用户即将退出
+                app_handle.dialog()
+                    .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+                    .title("下载完成")
+                    .show(|_| {});
 
-        // 延迟退出应用，让用户看到提示
-        let app_handle = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            log("Exiting app for update installation...");
-            app_handle.exit(0);
+                // 延迟退出应用，让用户看到提示
+                let app_handle_clone = app_handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    log("Exiting app for update installation...");
+                    app_handle_clone.exit(0);
+                });
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                log("Opening MSI/EXE file...");
+                std::process::Command::new("cmd")
+                    .args(["/c", "start", download_path.to_str().unwrap_or("")])
+                    .spawn()
+                    .ok();
+
+                app_handle.dialog()
+                    .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
+                    .title("下载完成")
+                    .show(|_| {});
+
+                // 延迟退出应用
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    log("Exiting app for update installation...");
+                    std::process::exit(0);
+                });
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                if download_path.extension().map_or(false, |ext| ext == "deb") {
+                    log("Installing deb package...");
+                    std::process::Command::new("gdebi")
+                        .arg(&download_path)
+                        .spawn()
+                        .ok();
+                } else {
+                    log("Opening AppImage...");
+                    std::process::Command::new("chmod")
+                        .args(["+x", download_path.to_str().unwrap_or("")])
+                        .spawn()
+                        .ok();
+                    std::process::Command::new(&download_path)
+                        .spawn()
+                        .ok();
+                }
+
+                app_handle.dialog()
+                    .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+                    .title("下载完成")
+                    .show(|_| {});
+
+                // 延迟退出应用
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    log("Exiting app for update installation...");
+                    std::process::exit(0);
+                });
+            }
+
+            #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+            {
+                app_handle.dialog()
+                    .message("下载完成")
+                    .title(if skipped { "使用缓存文件" } else { "下载完成" })
+                    .show(|_| {});
+            }
         });
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        log("Opening MSI/EXE file...");
-        std::process::Command::new("cmd")
-            .args(["/c", "start", download_path.to_str().unwrap_or("")])
-            .spawn()
-            .ok();
-
-        app.dialog()
-            .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
-            .title("下载完成")
-            .show(|_| {});
-
-        // 延迟退出应用
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            log("Exiting app for update installation...");
-            std::process::exit(0);
-        });
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if download_path.extension().map_or(false, |ext| ext == "deb") {
-            log("Installing deb package...");
-            std::process::Command::new("gdebi")
-                .arg(&download_path)
-                .spawn()
-                .ok();
-        } else {
-            log("Opening AppImage...");
-            std::process::Command::new("chmod")
-                .args(["+x", download_path.to_str().unwrap_or("")])
-                .spawn()
-                .ok();
-            std::process::Command::new(&download_path)
-                .spawn()
-                .ok();
-        }
-
-        app.dialog()
-            .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
-            .title("下载完成")
-            .show(|_| {});
-
-        // 延迟退出应用
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            log("Exiting app for update installation...");
-            std::process::exit(0);
-        });
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        app.dialog()
-            .message("下载完成")
-            .title(if skipped { "使用缓存文件" } else { "下载完成" })
-            .show(|_| {});
-    }
+    });
 
     Ok(())
 }
+
 
 pub fn run() {
     log("Tauri application starting...");
@@ -954,8 +1130,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
         .setup(|app| {
+            // 注册下载状态到 app state
+            app.manage(Arc::new(Mutex::new(DownloadState::default())));
+
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

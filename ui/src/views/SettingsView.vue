@@ -169,6 +169,14 @@
               </button>
             </div>
           </div>
+          <!-- 后台下载进度 -->
+          <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
+            <div class="flex items-center gap-2 flex-1">
+              <span class="loading loading-spinner loading-sm text-primary"></span>
+              <span class="text-sm font-bold text-base-content">{{ t.update.downloadingInBackground || '正在下载更新...' }} {{ downloadProgress }}%</span>
+            </div>
+            <progress class="progress progress-primary w-32" :value="downloadProgress" max="100"></progress>
+          </div>
         </div>
       </div>
 
@@ -279,34 +287,68 @@
             <div class="text-sm whitespace-pre-wrap">{{ updateInfo.notes }}</div>
           </div>
 
+          <!-- 下载进度 -->
           <div v-if="downloading" class="mb-4">
             <div class="flex justify-between text-xs mb-1">
-              <span>{{ t.update.downloading }}</span>
+              <span>{{ t.update.downloadingInBackground || '正在后台下载...' }}</span>
               <span>{{ downloadProgress }}%</span>
             </div>
             <progress class="progress progress-primary w-full" :value="downloadProgress" max="100"></progress>
+            <p class="text-xs text-base-content/60 mt-2">{{ t.update.minimizeHint || '关闭弹窗后下载将在后台继续' }}</p>
+          </div>
+
+          <!-- 下载中断提示 -->
+          <div v-if="downloadInterrupted" class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+            <div class="flex items-center gap-2 text-warning">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <span class="font-medium">下载已中断</span>
+            </div>
+            <p class="text-xs text-base-content/70 mt-1">检测到下载未完成，您可以选择重新下载（支持断点续传）</p>
           </div>
 
           <div class="modal-action">
-            <form method="dialog" class="flex gap-2 w-full">
+            <div class="flex gap-2 w-full">
               <button
                 type="button"
-                class="btn btn-ghost flex-1"
-                :disabled="downloading"
+                class="btn btn-outline flex-1 border-base-content/30 hover:border-base-content"
+                :class="downloading ? 'text-base-content' : 'text-base-content'"
                 @click="showUpdateModal = false"
               >
-                {{ t.common.cancel }}
+                <svg v-if="downloading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 5.25l-7.5 7.5-7.5-7.5m15 6l-7.5 7.5-7.5-7.5" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span class="font-medium">{{ downloading ? (t.update.minimizeModal || '隐藏窗口') : (t.common.cancel || '取消') }}</span>
               </button>
               <button
+                v-if="downloadInterrupted"
                 type="button"
-                class="btn btn-primary flex-1 text-white"
-                :class="{'opacity-80': downloading}"
+                class="btn btn-warning flex-1 text-white font-medium shadow-lg shadow-warning/20"
+                @click="resumeDownload"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                <span>重新下载</span>
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-primary flex-1 text-white font-medium shadow-lg shadow-primary/20"
+                :class="{'opacity-60 cursor-not-allowed': downloading}"
                 :disabled="downloading"
                 @click="installUpdate"
               >
-                {{ downloading ? t.update.downloading : t.update.updateAndRestart }}
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                <span>{{ downloading ? (t.update.downloading || '下载中') : (t.update.updateAndRestart || '下载并安装') }}</span>
               </button>
-            </form>
+            </div>
           </div>
         </div>
 
@@ -330,9 +372,9 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
+import { useUpdateStore } from '@/stores/update';
 import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
-import { Channel } from '@tauri-apps/api/core';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
@@ -379,6 +421,7 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
 
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
+const updateStore = useUpdateStore();
 const toast = useToast();
 
 const { isDark, toggleTheme } = themeStore;
@@ -403,9 +446,11 @@ const updateAvailable = ref(false);
 const updateInfo = ref<{ version: string; notes: string } | null>(null);
 const showUpdateModal = ref(false);
 const checking = ref(false);
-const downloading = ref(false);
 const installing = ref(false);
-const downloadProgress = ref(0);
+const downloadInterrupted = ref(false);
+
+// 使用 store 中的下载状态（持久化）
+const { downloading, downloadProgress } = storeToRefs(updateStore);
 
 // 隐藏功能 - 查看日志按钮（2 秒内点击版本号 5 次显示）
 // 默认隐藏，点击 5 次后显示
@@ -698,6 +743,14 @@ async function checkForUpdates(manual = false) {
     // 检查失败时清除状态，避免显示过时的更新提示
     updateAvailable.value = false;
     updateInfo.value = null;
+
+    // 处理 403 Forbidden 错误（GitHub API 限流）
+    const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || '';
+    if (errorMsg.includes('403')) {
+      toast.showError(t.value.update.rateLimitExceeded || '访问受限，请稍后重试');
+    } else if (manual) {
+      toast.showError(t.value.update.checkFailed || '检查更新失败');
+    }
   } finally {
     checking.value = false;
   }
@@ -707,33 +760,90 @@ async function checkForUpdates(manual = false) {
 async function installUpdate() {
   if (downloading.value) return;
 
-  downloading.value = true;
-  downloadProgress.value = 0;
-
   try {
-    // 创建进度回调通道
-    const onProgress = new Channel<[number, number]>();
-    onProgress.onmessage = (message) => {
-      const [downloaded, total] = message;
-      if (total > 0) {
-        downloadProgress.value = Math.round((downloaded / total) * 100);
-      }
-    };
+    // 先获取当前下载状态（包括缓存文件）
+    const status = await tauriInvoke<any>('get_download_status');
+    const initialProgress = status.total > 0
+      ? Math.round((status.downloaded / status.total) * 100)
+      : (status.downloaded > 0 ? 1 : 0);
 
-    await tauriInvoke('install_update', {
-      onProgress,
+    updateStore.setDownloading(true, initialProgress);
+
+    // 开始轮询下载状态
+    startPollingDownloadStatus();
+
+    // 调用后台下载接口（不等待完成）
+    tauriInvoke('install_update').catch((e) => {
+      console.error('Background download error:', e);
     });
 
-    // 下载完成，重置状态并关闭 modal
-    downloading.value = false;
-    showUpdateModal.value = false;
-    toast.showInfo(t.value.update.downloadComplete);
+    // 注意：下载在后台进行，不由这里处理完成逻辑
+    // 完成逻辑由轮询函数处理
   } catch (e) {
-    downloading.value = false;
+    updateStore.clearState();
+    stopPolling();
     console.error('Failed to install update:', e);
     const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || t.value.common.unknown;
     toast.showError(t.value.update.installFailed + ': ' + errorMsg);
   }
+}
+
+// 轮询下载状态
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function startPollingDownloadStatus() {
+  // 清除之前的轮询
+  if (pollTimer) {
+    clearInterval(pollTimer);
+  }
+
+  // 每 500ms 轮询一次下载状态
+  pollTimer = setInterval(async () => {
+    try {
+      const status = await tauriInvoke<any>('get_download_status');
+      if (status.is_downloading) {
+        const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
+        updateStore.updateProgress(progress);
+        downloadInterrupted.value = false;
+      } else {
+        // 下载完成或停止，停止轮询
+        if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
+          // 下载完成
+          updateStore.clearState();
+          downloadInterrupted.value = false;
+          toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+        } else if (status.downloaded > 0 || status.total > 0) {
+          // 下载中断（有部分进度但没有完成）
+          // 不清除 downloading 状态，让用户可以点击"重新下载"按钮
+          downloadInterrupted.value = true;
+          // 注意：这里不清除 downloading，因为用户可能需要重新打开弹窗点击重新下载
+        } else if (status.downloaded === 0 && status.total === 0) {
+          // 后端没有在下载，但前端显示在下载（可能是从 localStorage 恢复的状态），重置状态
+          if (downloading.value) {
+            updateStore.clearState();
+            downloadInterrupted.value = false;
+            toast.showError('下载已中断，请重新开始下载');
+          }
+        }
+        stopPolling();
+      }
+    } catch (e) {
+      console.error('Failed to get download status:', e);
+    }
+  }, 500);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+// 重新下载（断点续传）
+async function resumeDownload() {
+  downloadInterrupted.value = false;
+  await installUpdate();
 }
 
 // Sidebar mode state
@@ -773,8 +883,42 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
+  // 加载持久化的下载状态
+  updateStore.loadState();
+  // 检查后端是否有下载状态或缓存文件
+  tauriInvoke<any>('get_download_status').then((status) => {
+    if (status.is_downloading) {
+      // 后端确实在下载，开始轮询
+      updateStore.setDownloading(true, 0);
+      startPollingDownloadStatus();
+    } else if (status.downloaded > 0 && status.total > 0 && downloading.value) {
+      // 只有当前端已经在显示下载状态时，才检查是否中断
+      if (status.downloaded >= status.total) {
+        // 下载完成
+        updateStore.clearState();
+        toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+      } else {
+        // 下载中断，显示重新下载按钮
+        downloadInterrupted.value = true;
+        // 更新前端的下载进度显示
+        updateStore.updateProgress(Math.round((status.downloaded / status.total) * 100));
+        console.log('Download interrupted, showing resume button');
+      }
+    }
+  }).catch((e) => {
+    console.error('Failed to get download status:', e);
+  });
   // 延迟检查更新
   setTimeout(() => checkForUpdates(false), 2000);
+});
+
+// 监听下载状态变化，自动开始/停止轮询
+watch(downloading, (newVal) => {
+  if (newVal) {
+    startPollingDownloadStatus();
+  } else {
+    stopPolling();
+  }
 });
 
 // 组件卸载时清理定时器
@@ -782,6 +926,7 @@ onUnmounted(() => {
   if (clickTimer.value) {
     clearTimeout(clickTimer.value);
   }
+  stopPolling();
 });
 </script>
 

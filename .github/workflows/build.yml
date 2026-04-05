@@ -63,6 +63,23 @@ jobs:
         run: |
           cargo tauri build --target universal-apple-darwin
 
+          # 手动为 DMG 文件生成签名（如果 Tauri 没有自动生成）
+          echo "=== Checking for generated signature files ==="
+          DMG_PATH=$(find ../target/universal-apple-darwin/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
+          if [ -n "$DMG_PATH" ]; then
+            SIG_PATH="../${DMG_PATH}.sig"
+            if [ ! -f "$SIG_PATH" ]; then
+              echo "No .sig file found, generating signature manually..."
+              cd ..
+              # Tauri 2.x 使用 tauri signer sign 命令，文件路径作为位置参数
+              if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$DMG_PATH" 2>&1 || echo "Signature generation failed"
+              else
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$DMG_PATH" 2>&1 || echo "Signature generation failed"
+              fi
+            fi
+          fi
+
       - name: Find DMG file and signature
         id: sign
         working-directory: src-tauri
@@ -78,15 +95,23 @@ jobs:
           echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
           echo "Found DMG: $DMG_PATH"
 
-          # 查找签名文件
+          # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
           SIG_PATH="${DMG_PATH}.sig"
+          SIG_JSON_PATH="${DMG_PATH}.sig.json"
           if [ -f "$SIG_PATH" ]; then
             echo "Found signature file: $SIG_PATH"
-            SIG_CONTENT=$(cat "$SIG_PATH")
+            SIG_CONTENT=$(cat "$SIG_PATH" | tr -d '\n')
             echo "dmg_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
             echo "Signature content: $SIG_CONTENT"
+          elif [ -f "$SIG_JSON_PATH" ]; then
+            echo "Found signature JSON file: $SIG_JSON_PATH"
+            SIG_CONTENT=$(jq -r '.signature' "$SIG_JSON_PATH" 2>/dev/null || echo "")
+            echo "dmg_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature from JSON: $SIG_CONTENT"
           else
-            echo "Warning: No signature file found at $SIG_PATH"
+            echo "Warning: No signature file found at $SIG_PATH or $SIG_JSON_PATH"
+            echo "Listing bundle directory:"
+            ls -la ../target/universal-apple-darwin/release/bundle/
             echo "dmg_signature=" >> $GITHUB_OUTPUT
           fi
 
@@ -94,7 +119,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-bundle
-          path: ${{ env.DMG_PATH }}
+          path: |
+            ${{ env.DMG_PATH }}
+            ${{ env.DMG_PATH }}.sig
+            ${{ env.DMG_PATH }}.sig.json
           if-no-files-found: error
 
   build-linux:
@@ -148,7 +176,24 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build
+        run: |
+          cargo tauri build
+
+          # 手动为 AppImage 生成签名（如果 Tauri 没有自动生成）
+          echo "=== Checking for generated signature files ==="
+          APPIMAGE_PATH=$(find ../target/release/bundle -type f -name '*.AppImage' 2>/dev/null | head -1)
+          if [ -n "$APPIMAGE_PATH" ]; then
+            SIG_PATH="../${APPIMAGE_PATH}.sig"
+            if [ ! -f "$SIG_PATH" ]; then
+              echo "No .sig file found, generating signature manually..."
+              cd ..
+              if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$APPIMAGE_PATH" 2>&1 || echo "Signature generation failed"
+              else
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$APPIMAGE_PATH" 2>&1 || echo "Signature generation failed"
+              fi
+            fi
+          fi
 
       - name: Debug bundle output
         working-directory: src-tauri
@@ -184,15 +229,23 @@ jobs:
           echo "Found AppImage: $APPIMAGE_PATH"
           echo "Found deb: $DEB_PATH"
 
-          # 查找 AppImage 签名文件
+          # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
           SIG_PATH="${APPIMAGE_PATH}.sig"
+          SIG_JSON_PATH="${APPIMAGE_PATH}.sig.json"
           if [ -f "$SIG_PATH" ]; then
             echo "Found signature file: $SIG_PATH"
-            SIG_CONTENT=$(cat "$SIG_PATH")
+            SIG_CONTENT=$(cat "$SIG_PATH" | tr -d '\n')
             echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
             echo "Signature content: $SIG_CONTENT"
+          elif [ -f "$SIG_JSON_PATH" ]; then
+            echo "Found signature JSON file: $SIG_JSON_PATH"
+            SIG_CONTENT=$(jq -r '.signature' "$SIG_JSON_PATH" 2>/dev/null || echo "")
+            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature from JSON: $SIG_CONTENT"
           else
-            echo "Warning: No signature file found at $SIG_PATH"
+            echo "Warning: No signature file found at $SIG_PATH or $SIG_JSON_PATH"
+            echo "Listing bundle directory:"
+            ls -la ../target/release/bundle/
             echo "appimage_signature=" >> $GITHUB_OUTPUT
           fi
 
@@ -200,7 +253,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: ${{ env.APPIMAGE_PATH }}
+          path: |
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_PATH }}.sig
+            ${{ env.APPIMAGE_PATH }}.sig.json
           if-no-files-found: error
 
       - name: Upload Linux deb
@@ -249,7 +305,24 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build
+        run: |
+          cargo tauri build
+
+          # 手动为 MSI 生成签名（如果 Tauri 没有自动生成）
+          echo "=== Checking for generated signature files ==="
+          MSI_PATH=$(find ../target/release/bundle -type f -name '*.msi' 2>/dev/null | head -1)
+          if [ -n "$MSI_PATH" ]; then
+            SIG_PATH="../${MSI_PATH}.sig"
+            if [ ! -f "$SIG_PATH" ]; then
+              echo "No .sig file found, generating signature manually..."
+              cd ..
+              if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$MSI_PATH" 2>&1 || echo "Signature generation failed"
+              else
+                cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$MSI_PATH" 2>&1 || echo "Signature generation failed"
+              fi
+            fi
+          fi
 
       - name: Find Windows artifacts and signatures
         id: sign
@@ -276,15 +349,23 @@ jobs:
           echo "Found MSI: $MSI_PATH"
           echo "Found EXE: $EXE_PATH"
 
-          # 查找 MSI 签名文件
+          # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
           SIG_PATH="${MSI_PATH}.sig"
+          SIG_JSON_PATH="${MSI_PATH}.sig.json"
           if [ -f "$SIG_PATH" ]; then
             echo "Found signature file: $SIG_PATH"
-            SIG_CONTENT=$(cat "$SIG_PATH")
+            SIG_CONTENT=$(cat "$SIG_PATH" | tr -d '\n')
             echo "msi_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
             echo "Signature content: $SIG_CONTENT"
+          elif [ -f "$SIG_JSON_PATH" ]; then
+            echo "Found signature JSON file: $SIG_JSON_PATH"
+            SIG_CONTENT=$(jq -r '.signature' "$SIG_JSON_PATH" 2>/dev/null || echo "")
+            echo "msi_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
+            echo "Signature from JSON: $SIG_CONTENT"
           else
-            echo "Warning: No signature file found at $SIG_PATH"
+            echo "Warning: No signature file found at $SIG_PATH or $SIG_JSON_PATH"
+            echo "Listing bundle directory:"
+            ls -la ../target/release/bundle/
             echo "msi_signature=" >> $GITHUB_OUTPUT
           fi
 
@@ -292,7 +373,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-msi
-          path: ${{ env.MSI_PATH }}
+          path: |
+            ${{ env.MSI_PATH }}
+            ${{ env.MSI_PATH }}.sig
+            ${{ env.MSI_PATH }}.sig.json
           if-no-files-found: error
 
       - name: Upload Windows EXE

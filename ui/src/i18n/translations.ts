@@ -40,6 +40,7 @@ export interface Translation {
     copy: string;
     copyFailed: string;
     failed: string;
+    hide: string;
   };
   clusters: {
     title: string;
@@ -388,6 +389,10 @@ export interface Translation {
     checkForUpdates: string;
     checking: string;
     checkNow: string;
+    downloadingInBackground: string;
+    minimizeHint: string;
+    minimizeModal: string;
+    rateLimitExceeded: string;
   };
   toast: {
     error: string;
@@ -586,6 +591,7 @@ export const translations: Record<Language, Translation> = {
       copy: '复制',
       copyFailed: '复制失败',
       failed: '失败',
+      hide: '隐藏',
     },
     clusters: {
       title: '集群',
@@ -934,6 +940,10 @@ export const translations: Record<Language, Translation> = {
       checkForUpdates: '检查更新',
       checking: '检查中...',
       checkNow: '立即检查',
+      downloadingInBackground: '正在后台下载更新...',
+      minimizeHint: '关闭弹窗后下载将在后台继续',
+      minimizeModal: '隐藏窗口',
+      rateLimitExceeded: '访问受限，请稍后重试',
     },
     toast: {
       error: '错误',
@@ -1130,6 +1140,7 @@ export const translations: Record<Language, Translation> = {
       copy: 'Copy',
       copyFailed: 'Copy failed',
       failed: 'Failed',
+      hide: 'Hide',
     },
     clusters: {
       title: 'Clusters',
@@ -1478,6 +1489,10 @@ export const translations: Record<Language, Translation> = {
       checkForUpdates: 'Check for Updates',
       checking: 'Checking...',
       checkNow: 'Check Now',
+      downloadingInBackground: 'Downloading update in background...',
+      minimizeHint: 'Download will continue in background after closing this dialog',
+      minimizeModal: 'Hide Window',
+      rateLimitExceeded: 'Access denied, please try again later',
     },
     toast: {
       error: 'Error',
