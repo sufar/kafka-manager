@@ -708,7 +708,8 @@ async fn handle_app_logs() -> Result<Value> {
         .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
 
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let today_log_file = format!("kafka-manager-{}.log", today);
+    // 日志文件名格式：kafka-manager.YYYY-MM-DD.log (RollingFileAppender 使用点号分隔)
+    let today_log_file = format!("kafka-manager.{}.log", today);
 
     // 只读取今天的日志文件
     let log_file_path = log_dir.join(&today_log_file);

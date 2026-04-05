@@ -237,12 +237,12 @@ fn cleanup_old_logs(log_dir: &std::path::Path) {
                 continue;
             }
 
-            // 检查文件名格式：kafka-manager-YYYY-MM-DD.log
+            // 检查文件名格式：kafka-manager.YYYY-MM-DD.log (RollingFileAppender 使用点号分隔)
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if file_name.starts_with("kafka-manager-") && file_name.ends_with(".log") {
+                if file_name.starts_with("kafka-manager.") && file_name.ends_with(".log") {
                     // 提取日期部分
                     let date_str = file_name
-                        .trim_start_matches("kafka-manager-")
+                        .trim_start_matches("kafka-manager.")
                         .trim_end_matches(".log");
 
                     // 解析日期
