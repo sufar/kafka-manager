@@ -38,6 +38,8 @@ export interface Translation {
     cannotBeGreaterThan: string;
     unknown: string;
     copy: string;
+    copyFailed: string;
+    failed: string;
   };
   clusters: {
     title: string;
@@ -346,6 +348,16 @@ export interface Translation {
     importData: string;
     importing: string;
     importSuccess: string;
+    viewLogs: string;
+    appLogs: string;
+    refreshLogs: string;
+    copyLogs: string;
+    clearLogs: string;
+    scrollToBottom: string;
+    noLogs: string;
+    logsCopied: string;
+    logsCleared: string;
+    logsRefreshed: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -568,6 +580,8 @@ export const translations: Record<Language, Translation> = {
       cannotBeGreaterThan: '不能大于',
       unknown: '未知',
       copy: '复制',
+      copyFailed: '复制失败',
+      failed: '失败',
     },
     clusters: {
       title: '集群',
@@ -876,6 +890,16 @@ export const translations: Record<Language, Translation> = {
       importData: '导入数据',
       importing: '导入中...',
       importSuccess: '导入完成',
+      viewLogs: '查看日志',
+      appLogs: '应用日志',
+      refreshLogs: '刷新日志',
+      copyLogs: '复制日志',
+      clearLogs: '清除日志',
+      scrollToBottom: '滚动到底部',
+      noLogs: '暂无日志',
+      logsCopied: '已复制到剪贴板',
+      logsCleared: '日志已清除',
+      logsRefreshed: '刷新成功',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -1096,6 +1120,8 @@ export const translations: Record<Language, Translation> = {
       cannotBeGreaterThan: 'cannot be greater than',
       unknown: 'Unknown',
       copy: 'Copy',
+      copyFailed: 'Copy failed',
+      failed: 'Failed',
     },
     clusters: {
       title: 'Clusters',
@@ -1404,6 +1430,16 @@ export const translations: Record<Language, Translation> = {
       importData: 'Import Data',
       importing: 'Importing...',
       importSuccess: 'Import completed',
+      viewLogs: 'View Logs',
+      appLogs: 'Application Logs',
+      refreshLogs: 'Refresh Logs',
+      copyLogs: 'Copy Logs',
+      clearLogs: 'Clear Logs',
+      scrollToBottom: 'Scroll to Bottom',
+      noLogs: 'No logs',
+      logsCopied: 'Copied to clipboard',
+      logsCleared: 'Logs cleared',
+      logsRefreshed: 'Refreshed',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',

@@ -162,7 +162,7 @@
             </div>
             <div class="flex gap-2">
               <button v-if="showLogButton" class="btn btn-sm" @click="viewLogs">
-                查看日志
+                {{ t.settings.viewLogs }}
               </button>
               <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)">
                 {{ checking ? '检查中...' : '立即检查' }}
@@ -209,24 +209,24 @@
       <dialog ref="logsModalRef" class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': showLogsModal }">
         <div class="modal-box max-w-5xl">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-lg">应用日志</h3>
+            <h3 class="font-bold text-lg">{{ t.settings.appLogs }}</h3>
             <div class="flex gap-2">
-              <button class="btn btn-xs" @click="scrollToBottom" title="滚动到底部">
+              <button class="btn btn-xs" @click="scrollToBottom" :title="t.settings.scrollToBottom">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 5.25 7.5 7.5 7.5-7.5m-15 6 7.5 7.5 7.5-7.5" />
                 </svg>
               </button>
-              <button class="btn btn-xs" @click="refreshLogs" title="刷新日志">
+              <button class="btn btn-xs" @click="refreshLogs" :title="t.settings.refreshLogs">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
               </button>
-              <button class="btn btn-xs" @click="copyLogs" title="复制日志">
+              <button class="btn btn-xs" @click="copyLogs" :title="t.settings.copyLogs">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
               </button>
-              <button class="btn btn-xs btn-ghost" @click="clearLogs" title="清除日志">
+              <button class="btn btn-xs btn-ghost" @click="clearLogs" :title="t.settings.clearLogs">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                 </svg>
@@ -326,7 +326,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeStore } from '@/stores/theme';
 import { useLanguageStore } from '@/stores/language';
@@ -382,7 +382,9 @@ const languageStore = useLanguageStore();
 const toast = useToast();
 
 const { isDark, toggleTheme } = themeStore;
-const { t } = storeToRefs(languageStore);
+
+// 翻译快捷访问
+const t = computed(() => languageStore.t);
 
 // Tauri 环境检测
 const isTauriEnv = ref(isTauri());
@@ -490,11 +492,11 @@ async function viewLogs() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{logs}对象
-    logs.value = typeof result === 'string' ? result : (result.logs || '暂无日志');
+    logs.value = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
     showLogsModal.value = true;
   } catch (e) {
     console.error('Failed to get logs:', e);
-    logs.value = '获取日志失败';
+    logs.value = t.value.settings.noLogs;
     showLogsModal.value = true;
   }
 }
@@ -503,9 +505,9 @@ async function viewLogs() {
 async function copyLogs() {
   try {
     await navigator.clipboard.writeText(logs.value);
-    toast.showSuccess('已复制到剪贴板');
+    toast.showSuccess(t.value.settings.logsCopied);
   } catch (e) {
-    toast.showError('复制失败');
+    toast.showError(t.value.common.copyFailed);
   }
 }
 
@@ -522,10 +524,11 @@ async function refreshLogs() {
     const win = window as any;
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
     const result = await tauriInvoke<any>(cmd);
-    logs.value = typeof result === 'string' ? result : (result.logs || '暂无日志');
+    logs.value = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
+    toast.showSuccess(t.value.settings.logsRefreshed);
   } catch (e) {
     console.error('Failed to refresh logs:', e);
-    toast.showError('刷新日志失败');
+    toast.showError(t.value.settings.refreshLogs + t.value.common.failed);
   }
 }
 
@@ -536,10 +539,10 @@ async function clearLogs() {
     // Tauri 环境使用 clear_app_logs，浏览器环境使用 app.logs.clear
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'clear_app_logs' : 'app.logs.clear';
     await tauriInvoke(cmd);
-    logs.value = '日志已清除';
-    toast.showSuccess('日志已清除');
+    logs.value = t.value.settings.noLogs;
+    toast.showSuccess(t.value.settings.logsCleared);
   } catch (e) {
-    toast.showError('清除日志失败');
+    toast.showError(t.value.settings.clearLogs + t.value.common.failed);
   }
 }
 
