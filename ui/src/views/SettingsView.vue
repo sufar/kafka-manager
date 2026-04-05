@@ -146,7 +146,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 20A2.653 2.653 0 0 0 21 17.25l-4.662-4.662a7.467 7.467 0 0 0-.75-5.933m-6.75 5.511L12 15m0 0V3.75m0 11.25-2.822-2.822m0 0a7.467 7.467 0 0 1 5.933-.75m-5.933.75L5.25 15m0 0V3.75m0 11.25a2.653 2.653 0 0 1-3.75-3.75L6.127 6.375" />
                 </svg>
-                新版本 {{ updateInfo?.version }}
+                {{ t.update.newVersion }} {{ updateInfo?.version }}
               </button>
             </div>
           </div>
@@ -156,16 +156,16 @@
           </div>
           <div class="p-3 rounded-xl bg-base-100/50 flex items-center justify-between mt-2">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium">检查更新</span>
+              <span class="text-sm font-medium">{{ t.update.checkForUpdates }}</span>
               <span v-if="checking" class="loading loading-spinner loading-xs"></span>
-              <span v-if="updateAvailable" class="text-warning text-xs">新版本 {{ updateInfo?.version }}</span>
+              <span v-if="updateAvailable" class="text-warning text-xs">{{ t.update.newVersion }} {{ updateInfo?.version }}</span>
             </div>
             <div class="flex gap-2">
               <button v-if="showLogButton" class="btn btn-sm" @click="viewLogs">
                 {{ t.settings.viewLogs }}
               </button>
               <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)">
-                {{ checking ? '检查中...' : '立即检查' }}
+                {{ checking ? t.update.checking : t.update.checkNow }}
               </button>
             </div>
           </div>
@@ -661,7 +661,7 @@ async function checkForUpdates(manual = false) {
   // 非 Tauri 环境不支持检查更新
   if (!isTauri()) {
     if (manual) {
-      toast.showInfo('浏览器环境不支持检查更新');
+      toast.showInfo(t.value.update.browserNotSupported);
     }
     return;
   }
@@ -724,12 +724,12 @@ async function installUpdate() {
     // 下载完成，重置状态并关闭 modal
     downloading.value = false;
     showUpdateModal.value = false;
-    toast.showInfo(t.value.update.downloadComplete || '下载完成，正在打开安装包...', 5000);
+    toast.showInfo(t.value.update.downloadComplete);
   } catch (e) {
     downloading.value = false;
     console.error('Failed to install update:', e);
-    const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || '未知错误';
-    toast.showError((t.value.update.installFailed || '安装失败') + ': ' + errorMsg);
+    const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || t.value.common.unknown;
+    toast.showError(t.value.update.installFailed + ': ' + errorMsg);
   }
 }
 

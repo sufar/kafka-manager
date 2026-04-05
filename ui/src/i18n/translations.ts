@@ -384,6 +384,10 @@ export interface Translation {
     checkFailed: string;
     installFailed: string;
     downloadComplete: string;
+    browserNotSupported: string;
+    checkForUpdates: string;
+    checking: string;
+    checkNow: string;
   };
   toast: {
     error: string;
@@ -926,6 +930,10 @@ export const translations: Record<Language, Translation> = {
       checkCompleteNoUpdate: '已是最新版本',
       checkFailed: '检查更新失败',
       downloadComplete: '下载完成，正在打开安装包...',
+      browserNotSupported: '浏览器环境不支持检查更新',
+      checkForUpdates: '检查更新',
+      checking: '检查中...',
+      checkNow: '立即检查',
     },
     toast: {
       error: '错误',
@@ -1466,6 +1474,10 @@ export const translations: Record<Language, Translation> = {
       checkCompleteNoUpdate: 'Already up to date',
       checkFailed: 'Failed to check for updates',
       downloadComplete: 'Download complete, opening installer...',
+      browserNotSupported: 'Check for updates is not supported in browser environment',
+      checkForUpdates: 'Check for Updates',
+      checking: 'Checking...',
+      checkNow: 'Check Now',
     },
     toast: {
       error: 'Error',
