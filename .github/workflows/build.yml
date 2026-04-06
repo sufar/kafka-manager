@@ -72,17 +72,28 @@ jobs:
             SIG_PATH="${DMG_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$DMG_PATH" 2>&1 || echo "Signature generation failed"
+              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              BUNDLE_DIR=$(dirname "$DMG_PATH")
+              cd "$BUNDLE_DIR"
+              DMG_FILE=$(basename "$DMG_PATH")
+              SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$DMG_FILE" 2>&1)
+              echo "Sign command output: $SIGN_OUTPUT"
+              cd -
 
               # 检查签名文件是否已生成在正确位置
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
+                echo "Signature file content:"
+                cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ${GITHUB_WORKSPACE}/target/universal-apple-darwin/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
+                echo "Searching for .sig files:"
+                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
+              echo "Signature file content:"
+              cat "$SIG_PATH"
             fi
           fi
 
@@ -198,17 +209,28 @@ jobs:
             SIG_PATH="${APPIMAGE_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$APPIMAGE_PATH" 2>&1 || echo "Signature generation failed"
+              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              BUNDLE_DIR=$(dirname "$APPIMAGE_PATH")
+              cd "$BUNDLE_DIR"
+              APPIMAGE_FILE=$(basename "$APPIMAGE_PATH")
+              SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$APPIMAGE_FILE" 2>&1)
+              echo "Sign command output: $SIGN_OUTPUT"
+              cd -
 
               # 检查签名文件是否已生成在正确位置
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
+                echo "Signature file content:"
+                cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ${GITHUB_WORKSPACE}/target/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
+                echo "Searching for .sig files:"
+                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
+              echo "Signature file content:"
+              cat "$SIG_PATH"
             fi
           fi
 
@@ -251,20 +273,26 @@ jobs:
           SIG_JSON_PATH="${APPIMAGE_PATH}.sig.json"
 
           echo "Looking for signature at: $SIG_PATH"
+          echo "Checking if file exists:"
+          ls -la "$SIG_PATH" 2>/dev/null || echo ".sig file not found"
+          ls -la "$SIG_JSON_PATH" 2>/dev/null || echo ".sig.json file not found"
+
           if [ -f "$SIG_PATH" ]; then
             echo "Found signature file: $SIG_PATH"
+            echo "Signature file size: $(wc -c < "$SIG_PATH") bytes"
             SIG_CONTENT=$(cat "$SIG_PATH" | tr -d '\n')
-            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
             echo "Signature content (first 50 chars): ${SIG_CONTENT:0:50}..."
+            if [ -z "$SIG_CONTENT" ]; then
+              echo "ERROR: Signature file is empty!"
+            fi
+            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
           elif [ -f "$SIG_JSON_PATH" ]; then
             echo "Found signature JSON file: $SIG_JSON_PATH"
             SIG_CONTENT=$(jq -r '.signature' "$SIG_JSON_PATH" 2>/dev/null || echo "")
-            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
             echo "Signature from JSON (first 50 chars): ${SIG_CONTENT:0:50}..."
+            echo "appimage_signature=$SIG_CONTENT" >> $GITHUB_OUTPUT
           else
             echo "Warning: No signature file found!"
-            echo "Listing bundle directory:"
-            ls -la ${GITHUB_WORKSPACE}/target/release/bundle/
             echo "appimage_signature=" >> $GITHUB_OUTPUT
           fi
 
@@ -337,17 +365,28 @@ jobs:
             SIG_PATH="${MSI_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$MSI_PATH" 2>&1 || echo "Signature generation failed"
+              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              BUNDLE_DIR=$(dirname "$MSI_PATH")
+              cd "$BUNDLE_DIR"
+              MSI_FILE=$(basename "$MSI_PATH")
+              SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$MSI_FILE" 2>&1)
+              echo "Sign command output: $SIGN_OUTPUT"
+              cd -
 
               # 检查签名文件是否已生成在正确位置
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
+                echo "Signature file content:"
+                cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ${GITHUB_WORKSPACE}/target/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
+                echo "Searching for .sig files:"
+                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
+              echo "Signature file content:"
+              cat "$SIG_PATH"
             fi
           fi
 
