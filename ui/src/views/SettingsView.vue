@@ -762,10 +762,17 @@ async function installUpdate() {
   try {
     const backendStatus = await tauriInvoke<any>('get_download_status');
     if (backendStatus.is_downloading) {
-      // 后端确实在下载，更新前端状态并显示进度
-      updateStore.setDownloading(true, backendStatus.total > 0 ? Math.round((backendStatus.downloaded / backendStatus.total) * 100) : 0);
-      toast.showInfo(t.value.update.downloadInProgress || '下载正在进行中，请稍候...');
-      return;
+      // 检查是否是"假死"状态：后端显示在下载，但前端显示下载已中断
+      // 这种情况下需要清除后端状态重新开始
+      if (downloadInterrupted.value) {
+        console.log('Download state inconsistent, clearing and retrying...');
+        await tauriInvoke('clear_download_status');
+      } else {
+        // 后端确实在下载，更新前端状态并显示进度
+        updateStore.setDownloading(true, backendStatus.total > 0 ? Math.round((backendStatus.downloaded / backendStatus.total) * 100) : 0);
+        toast.showInfo(t.value.update.downloadInProgress || '下载正在进行中，请稍候...');
+        return;
+      }
     }
     // 后端没有在下载，但前端显示在下载（状态不同步），清除前端状态
     if (downloading.value && !backendStatus.is_downloading) {
@@ -859,6 +866,12 @@ function stopPolling() {
 // 重新下载（断点续传）
 async function resumeDownload() {
   downloadInterrupted.value = false;
+  // 先清除后端下载状态，避免"下载已在进行中"的错误
+  try {
+    await tauriInvoke('clear_download_status');
+  } catch (e) {
+    console.error('Failed to clear download status:', e);
+  }
   await installUpdate();
 }
 
