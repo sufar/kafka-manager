@@ -74,7 +74,7 @@
       "endpoints": [
         "https://github.com/sufar/kafka-manager/releases/download/v{{ curr_version }}/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxOTQ3NTQyNUMwMjE5NTEKUldSUkdRSmNRbldVUWNxbURnQThOTDBkMjU0TUtpZUh6VENTSVA0ZnY1YlVlN3NzdmNta0lFVlEK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzNENDMjQzOEYzN0VGQzUKUldURjd6ZVBROEpNbzUzREJnVzJ2SjFWSTdYSnhqN2xMRDlvbVRrUXFkaGwxU2IyT0VLTExSQ2wK"
     }
   }
 }

@@ -74,28 +74,29 @@ jobs:
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
               # 在 src-tauri 目录执行（tauri.conf.json 所在位置）
               cd "${GITHUB_WORKSPACE}/src-tauri"
-              echo "Signing file: $DMG_PATH"
+              DMG_FILE=$(basename "$DMG_PATH")
+              echo "Signing file: $DMG_FILE"
+              echo "File path: $DMG_PATH"
               echo "Current dir: $(pwd)"
+              # 使用文件相对路径（从 src-tauri 到 bundle 目录）
+              REL_PATH="../${DMG_PATH#${GITHUB_WORKSPACE}/}"
+              echo "Relative path: $REL_PATH"
               # 如果没有密码，不传递 --password 参数
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$DMG_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$REL_PATH" 2>&1)
               else
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$DMG_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$REL_PATH" 2>&1)
               fi
+              SIGN_EXIT_CODE=$?
               echo "Sign command output: $SIGN_OUTPUT"
-              # 签名文件会生成在 bundle 目录
-              echo "Looking for signature file:"
-              ls -la "$SIG_PATH" 2>/dev/null || echo "No .sig at expected path"
-              # 如果需要，移动签名文件到正确位置
+              echo "Sign exit code: $SIGN_EXIT_CODE"
+              # 签名文件应该生成在 bundle 目录（文件旁边）
+              echo "Looking for signature file at: $SIG_PATH"
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file found at expected location"
               else
-                # 可能在 src-tauri 目录下生成
-                DMG_FILE=$(basename "$DMG_PATH")
-                if [ -f "${DMG_FILE}.sig" ]; then
-                  mv "${DMG_FILE}.sig" "$SIG_PATH"
-                  echo "Signature file moved to $SIG_PATH"
-                fi
+                echo "Searching for .sig files:"
+                find "${GITHUB_WORKSPACE}/target" -name '*.sig' 2>/dev/null
               fi
 
               # 最终检查
@@ -229,28 +230,29 @@ jobs:
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
               # 在 src-tauri 目录执行（tauri.conf.json 所在位置）
               cd "${GITHUB_WORKSPACE}/src-tauri"
-              echo "Signing file: $APPIMAGE_PATH"
+              APPIMAGE_FILE=$(basename "$APPIMAGE_PATH")
+              echo "Signing file: $APPIMAGE_FILE"
+              echo "File path: $APPIMAGE_PATH"
               echo "Current dir: $(pwd)"
+              # 使用文件相对路径（从 src-tauri 到 bundle 目录）
+              REL_PATH="../${APPIMAGE_PATH#${GITHUB_WORKSPACE}/}"
+              echo "Relative path: $REL_PATH"
               # 如果没有密码，不传递 --password 参数
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$APPIMAGE_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$REL_PATH" 2>&1)
               else
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$APPIMAGE_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$REL_PATH" 2>&1)
               fi
+              SIGN_EXIT_CODE=$?
               echo "Sign command output: $SIGN_OUTPUT"
-              # 签名文件会生成在 bundle 目录
-              echo "Looking for signature file:"
-              ls -la "$SIG_PATH" 2>/dev/null || echo "No .sig at expected path"
-              # 如果需要，移动签名文件到正确位置
+              echo "Sign exit code: $SIGN_EXIT_CODE"
+              # 签名文件应该生成在 bundle 目录（文件旁边）
+              echo "Looking for signature file at: $SIG_PATH"
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file found at expected location"
               else
-                # 可能在 src-tauri 目录下生成
-                APPIMAGE_FILE=$(basename "$APPIMAGE_PATH")
-                if [ -f "${APPIMAGE_FILE}.sig" ]; then
-                  mv "${APPIMAGE_FILE}.sig" "$SIG_PATH"
-                  echo "Signature file moved to $SIG_PATH"
-                fi
+                echo "Searching for .sig files:"
+                find "${GITHUB_WORKSPACE}/target" -name '*.sig' 2>/dev/null
               fi
 
               # 最终检查
@@ -407,28 +409,29 @@ jobs:
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
               # 在 src-tauri 目录执行（tauri.conf.json 所在位置）
               cd "${GITHUB_WORKSPACE}/src-tauri"
-              echo "Signing file: $MSI_PATH"
+              MSI_FILE=$(basename "$MSI_PATH")
+              echo "Signing file: $MSI_FILE"
+              echo "File path: $MSI_PATH"
               echo "Current dir: $(pwd)"
+              # 使用文件相对路径（从 src-tauri 到 bundle 目录）
+              REL_PATH="../${MSI_PATH#${GITHUB_WORKSPACE}/}"
+              echo "Relative path: $REL_PATH"
               # 如果没有密码，不传递 --password 参数
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$MSI_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$REL_PATH" 2>&1)
               else
-                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$MSI_PATH" 2>&1)
+                SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$REL_PATH" 2>&1)
               fi
+              SIGN_EXIT_CODE=$?
               echo "Sign command output: $SIGN_OUTPUT"
-              # 签名文件会生成在 bundle 目录
-              echo "Looking for signature file:"
-              ls -la "$SIG_PATH" 2>/dev/null || echo "No .sig at expected path"
-              # 如果需要，移动签名文件到正确位置
+              echo "Sign exit code: $SIGN_EXIT_CODE"
+              # 签名文件应该生成在 bundle 目录（文件旁边）
+              echo "Looking for signature file at: $SIG_PATH"
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file found at expected location"
               else
-                # 可能在 src-tauri 目录下生成
-                MSI_FILE=$(basename "$MSI_PATH")
-                if [ -f "${MSI_FILE}.sig" ]; then
-                  mv "${MSI_FILE}.sig" "$SIG_PATH"
-                  echo "Signature file moved to $SIG_PATH"
-                fi
+                echo "Searching for .sig files:"
+                find "${GITHUB_WORKSPACE}/target" -name '*.sig' 2>/dev/null
               fi
 
               # 最终检查

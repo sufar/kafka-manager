@@ -758,7 +758,23 @@ async function checkForUpdates(manual = false) {
 
 // 安装更新（仅 Tauri 环境）
 async function installUpdate() {
-  if (downloading.value) return;
+  // 先同步后端状态，避免状态不一致
+  try {
+    const backendStatus = await tauriInvoke<any>('get_download_status');
+    if (backendStatus.is_downloading) {
+      // 后端确实在下载，更新前端状态并显示进度
+      updateStore.setDownloading(true, backendStatus.total > 0 ? Math.round((backendStatus.downloaded / backendStatus.total) * 100) : 0);
+      toast.showInfo(t.value.update.downloadInProgress || '下载正在进行中，请稍候...');
+      return;
+    }
+    // 后端没有在下载，但前端显示在下载（状态不同步），清除前端状态
+    if (downloading.value && !backendStatus.is_downloading) {
+      updateStore.clearState();
+      downloadInterrupted.value = false;
+    }
+  } catch (e) {
+    console.error('Failed to get download status:', e);
+  }
 
   try {
     // 先获取当前下载状态（包括缓存文件）
@@ -814,9 +830,9 @@ function startPollingDownloadStatus() {
           toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
         } else if (status.downloaded > 0 || status.total > 0) {
           // 下载中断（有部分进度但没有完成）
-          // 不清除 downloading 状态，让用户可以点击"重新下载"按钮
+          // 清除 downloading 状态，允许用户重新点击下载
+          updateStore.setDownloading(false, 0);
           downloadInterrupted.value = true;
-          // 注意：这里不清除 downloading，因为用户可能需要重新打开弹窗点击重新下载
         } else if (status.downloaded === 0 && status.total === 0) {
           // 后端没有在下载，但前端显示在下载（可能是从 localStorage 恢复的状态），重置状态
           if (downloading.value) {
