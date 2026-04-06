@@ -413,8 +413,15 @@ jobs:
               echo "Signing file: $MSI_FILE"
               echo "File path: $MSI_PATH"
               echo "Current dir: $(pwd)"
+              # 在 Windows 上，find 返回的是 Windows 路径，需要转换为 Unix 风格路径
+              # 使用 cygpath 将 Windows 路径转换为 Unix 风格
+              if command -v cygpath &> /dev/null; then
+                MSI_PATH_UNIX=$(cygpath -u "$MSI_PATH")
+                echo "Converted Windows path to Unix: $MSI_PATH_UNIX"
+                MSI_PATH="$MSI_PATH_UNIX"
+              fi
               # 使用文件相对路径（从 src-tauri 到 bundle 目录）
-              REL_PATH="../${MSI_PATH#${GITHUB_WORKSPACE}/}"
+              REL_PATH="${MSI_PATH#${GITHUB_WORKSPACE}/}"
               echo "Relative path: $REL_PATH"
               # 如果没有密码，不传递 --password 参数
               if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
