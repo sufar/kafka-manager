@@ -393,6 +393,7 @@ export interface Translation {
     minimizeHint: string;
     minimizeModal: string;
     rateLimitExceeded: string;
+    downloadInProgress: string;
   };
   toast: {
     error: string;
@@ -944,6 +945,7 @@ export const translations: Record<Language, Translation> = {
       minimizeHint: '关闭弹窗后下载将在后台继续',
       minimizeModal: '隐藏窗口',
       rateLimitExceeded: '访问受限，请稍后重试',
+      downloadInProgress: '下载正在进行中，请稍候...',
     },
     toast: {
       error: '错误',
@@ -1493,6 +1495,7 @@ export const translations: Record<Language, Translation> = {
       minimizeHint: 'Download will continue in background after closing this dialog',
       minimizeModal: 'Hide Window',
       rateLimitExceeded: 'Access denied, please try again later',
+      downloadInProgress: 'Download in progress, please wait...',
     },
     toast: {
       error: 'Error',
