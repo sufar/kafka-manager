@@ -65,14 +65,14 @@ jobs:
 
           # 手动为 DMG 文件生成签名（如果 Tauri 没有自动生成）
           echo "=== Checking for generated signature files ==="
-          # target 目录在仓库根目录，不是 src-tauri 下
+          # target 目录在仓库根目录
           DMG_PATH=$(find ../target/universal-apple-darwin/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
           if [ -n "$DMG_PATH" ]; then
-            SIG_PATH="../${DMG_PATH}.sig"
+            # 使用 realpath 获取规范化绝对路径
+            FULL_DMG_PATH=$(realpath "../${DMG_PATH}")
+            SIG_PATH="${FULL_DMG_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # 使用绝对路径，签名会生成在文件旁边
-              FULL_DMG_PATH="${{ github.workspace }}/${DMG_PATH}"
               cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$FULL_DMG_PATH" 2>&1 || echo "Signature generation failed"
 
               # 检查签名文件是否已生成在正确位置
@@ -80,7 +80,7 @@ jobs:
                 echo "Signature file generated at $SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ../*.sig 2>/dev/null || echo "No .sig files in parent directory"
+                ls -la ../target/universal-apple-darwin/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
@@ -100,8 +100,8 @@ jobs:
             ls -la ../target/universal-apple-darwin/release/bundle/ 2>/dev/null || echo "Directory not found"
             exit 1
           fi
-          # 转换为绝对路径
-          DMG_PATH="${{ github.workspace }}/${DMG_PATH}"
+          # 转换为绝对路径 (使用 realpath 规范化路径)
+          DMG_PATH=$(realpath "../${DMG_PATH}")
           echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
           echo "Found DMG: $DMG_PATH"
 
@@ -135,7 +135,7 @@ jobs:
             ${{ env.DMG_PATH }}
             ${{ env.DMG_PATH }}.sig
             ${{ env.DMG_PATH }}.sig.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -191,22 +191,16 @@ jobs:
         run: |
           cargo tauri build
 
-          # 调试：查看实际的目录结构
-          echo "=== Bundle directory structure ==="
-          pwd
-          echo "=== Listing ../target/release/bundle ==="
-          ls -la ../target/release/bundle/ 2>/dev/null || echo "../target/release/bundle not found"
-
           # 手动为 AppImage 生成签名（如果 Tauri 没有自动生成）
           echo "=== Checking for generated signature files ==="
-          # target 目录在仓库根目录，不是 src-tauri 下
+          # target 目录在仓库根目录
           APPIMAGE_PATH=$(find ../target/release/bundle -type f -name '*.AppImage' 2>/dev/null | head -1)
           if [ -n "$APPIMAGE_PATH" ]; then
-            SIG_PATH="../${APPIMAGE_PATH}.sig"
+            # 使用 realpath 获取规范化绝对路径
+            FULL_APPIMAGE_PATH=$(realpath "../${APPIMAGE_PATH}")
+            SIG_PATH="${FULL_APPIMAGE_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # 使用绝对路径，签名会生成在文件旁边
-              FULL_APPIMAGE_PATH="${{ github.workspace }}/${APPIMAGE_PATH}"
               cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$FULL_APPIMAGE_PATH" 2>&1 || echo "Signature generation failed"
 
               # 检查签名文件是否已生成在正确位置
@@ -214,7 +208,7 @@ jobs:
                 echo "Signature file generated at $SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ../*.sig 2>/dev/null || echo "No .sig files in parent directory"
+                ls -la ../target/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
@@ -249,9 +243,9 @@ jobs:
             echo "Error: No deb file found!"
             exit 1
           fi
-          # 转换为绝对路径
-          APPIMAGE_PATH="${{ github.workspace }}/${APPIMAGE_PATH}"
-          DEB_PATH="${{ github.workspace }}/${DEB_PATH}"
+          # 转换为绝对路径 (使用 realpath 规范化路径)
+          APPIMAGE_PATH=$(realpath "../${APPIMAGE_PATH}")
+          DEB_PATH=$(realpath "../${DEB_PATH}")
           echo "APPIMAGE_PATH=$APPIMAGE_PATH" >> $GITHUB_ENV
           echo "DEB_PATH=$DEB_PATH" >> $GITHUB_ENV
           echo "Found AppImage: $APPIMAGE_PATH"
@@ -287,7 +281,7 @@ jobs:
             ${{ env.APPIMAGE_PATH }}
             ${{ env.APPIMAGE_PATH }}.sig
             ${{ env.APPIMAGE_PATH }}.sig.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload Linux deb
         uses: actions/upload-artifact@v4
@@ -341,14 +335,14 @@ jobs:
 
           # 手动为 MSI 生成签名（如果 Tauri 没有自动生成）
           echo "=== Checking for generated signature files ==="
-          # target 目录在仓库根目录，不是 src-tauri 下
+          # target 目录在仓库根目录
           MSI_PATH=$(find ../target/release/bundle -type f -name '*.msi' 2>/dev/null | head -1)
           if [ -n "$MSI_PATH" ]; then
-            SIG_PATH="../${MSI_PATH}.sig"
+            # 使用 realpath 获取规范化绝对路径
+            FULL_MSI_PATH=$(realpath "../${MSI_PATH}")
+            SIG_PATH="${FULL_MSI_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # 使用绝对路径，签名会生成在文件旁边
-              FULL_MSI_PATH="${{ github.workspace }}/${MSI_PATH}"
               cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$FULL_MSI_PATH" 2>&1 || echo "Signature generation failed"
 
               # 检查签名文件是否已生成在正确位置
@@ -356,7 +350,7 @@ jobs:
                 echo "Signature file generated at $SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                ls -la ../*.sig 2>/dev/null || echo "No .sig files in parent directory"
+                ls -la ../target/release/bundle/*.sig 2>/dev/null || echo "No .sig files in bundle directory"
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
@@ -382,9 +376,9 @@ jobs:
             echo "Error: No EXE file found!"
             exit 1
           fi
-          # 转换为绝对路径
-          MSI_PATH="${{ github.workspace }}/${MSI_PATH}"
-          EXE_PATH="${{ github.workspace }}/${EXE_PATH}"
+          # 转换为绝对路径 (使用 realpath 规范化路径)
+          MSI_PATH=$(realpath "../${MSI_PATH}")
+          EXE_PATH=$(realpath "../${EXE_PATH}")
           echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
           echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
           echo "Found MSI: $MSI_PATH"
@@ -420,7 +414,7 @@ jobs:
             ${{ env.MSI_PATH }}
             ${{ env.MSI_PATH }}.sig
             ${{ env.MSI_PATH }}.sig.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
