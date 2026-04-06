@@ -72,23 +72,33 @@ jobs:
             SIG_PATH="${DMG_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              # 切换到 bundle 目录，使用相对路径避免空格问题
               BUNDLE_DIR=$(dirname "$DMG_PATH")
               cd "$BUNDLE_DIR"
               DMG_FILE=$(basename "$DMG_PATH")
+              echo "Signing file: $DMG_FILE"
+              echo "Current dir: $(pwd)"
               SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$DMG_FILE" 2>&1)
               echo "Sign command output: $SIGN_OUTPUT"
-              cd -
+              # 签名文件应该就在当前目录
+              LOCAL_SIG_PATH="${DMG_FILE}.sig"
+              echo "Looking for signature file:"
+              ls -la "$LOCAL_SIG_PATH" 2>/dev/null || echo "No .sig in current dir"
+              # 移动签名文件到正确位置
+              if [ -f "$LOCAL_SIG_PATH" ]; then
+                mv "$LOCAL_SIG_PATH" "$SIG_PATH"
+                echo "Signature file moved to $SIG_PATH"
+              fi
 
-              # 检查签名文件是否已生成在正确位置
+              # 最终检查
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
                 echo "Signature file content:"
                 cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                echo "Searching for .sig files:"
-                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
+                echo "Searching for .sig files in workspace:"
+                find ${GITHUB_WORKSPACE} -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
@@ -209,23 +219,33 @@ jobs:
             SIG_PATH="${APPIMAGE_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              # 切换到 bundle 目录，使用相对路径避免空格问题
               BUNDLE_DIR=$(dirname "$APPIMAGE_PATH")
               cd "$BUNDLE_DIR"
               APPIMAGE_FILE=$(basename "$APPIMAGE_PATH")
+              echo "Signing file: $APPIMAGE_FILE"
+              echo "Current dir: $(pwd)"
               SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$APPIMAGE_FILE" 2>&1)
               echo "Sign command output: $SIGN_OUTPUT"
-              cd -
+              # 签名文件应该就在当前目录
+              LOCAL_SIG_PATH="${APPIMAGE_FILE}.sig"
+              echo "Looking for signature file:"
+              ls -la "$LOCAL_SIG_PATH" 2>/dev/null || echo "No .sig in current dir"
+              # 移动签名文件到正确位置
+              if [ -f "$LOCAL_SIG_PATH" ]; then
+                mv "$LOCAL_SIG_PATH" "$SIG_PATH"
+                echo "Signature file moved to $SIG_PATH"
+              fi
 
-              # 检查签名文件是否已生成在正确位置
+              # 最终检查
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
                 echo "Signature file content:"
                 cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                echo "Searching for .sig files:"
-                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
+                echo "Searching for .sig files in workspace:"
+                find ${GITHUB_WORKSPACE} -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
@@ -276,6 +296,10 @@ jobs:
           echo "Checking if file exists:"
           ls -la "$SIG_PATH" 2>/dev/null || echo ".sig file not found"
           ls -la "$SIG_JSON_PATH" 2>/dev/null || echo ".sig.json file not found"
+
+          # 列出 bundle 目录中的所有 .sig 文件
+          echo "All .sig files in bundle directory:"
+          find "$(dirname "$APPIMAGE_PATH")" -name '*.sig' 2>/dev/null || echo "No .sig files found"
 
           if [ -f "$SIG_PATH" ]; then
             echo "Found signature file: $SIG_PATH"
@@ -365,23 +389,33 @@ jobs:
             SIG_PATH="${MSI_PATH}.sig"
             if [ ! -f "$SIG_PATH" ]; then
               echo "No .sig file found at $SIG_PATH, generating signature manually..."
-              # cargo tauri signer sign 在当前目录生成签名，需要 cd 到 bundle 目录
+              # 切换到 bundle 目录，使用相对路径避免空格问题
               BUNDLE_DIR=$(dirname "$MSI_PATH")
               cd "$BUNDLE_DIR"
               MSI_FILE=$(basename "$MSI_PATH")
+              echo "Signing file: $MSI_FILE"
+              echo "Current dir: $(pwd)"
               SIGN_OUTPUT=$(cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" "$MSI_FILE" 2>&1)
               echo "Sign command output: $SIGN_OUTPUT"
-              cd -
+              # 签名文件应该就在当前目录
+              LOCAL_SIG_PATH="${MSI_FILE}.sig"
+              echo "Looking for signature file:"
+              ls -la "$LOCAL_SIG_PATH" 2>/dev/null || echo "No .sig in current dir"
+              # 移动签名文件到正确位置
+              if [ -f "$LOCAL_SIG_PATH" ]; then
+                mv "$LOCAL_SIG_PATH" "$SIG_PATH"
+                echo "Signature file moved to $SIG_PATH"
+              fi
 
-              # 检查签名文件是否已生成在正确位置
+              # 最终检查
               if [ -f "$SIG_PATH" ]; then
                 echo "Signature file generated at $SIG_PATH"
                 echo "Signature file content:"
                 cat "$SIG_PATH"
               else
                 echo "Warning: Signature file not found at expected location"
-                echo "Searching for .sig files:"
-                find ${GITHUB_WORKSPACE}/target -name '*.sig' 2>/dev/null
+                echo "Searching for .sig files in workspace:"
+                find ${GITHUB_WORKSPACE} -name '*.sig' 2>/dev/null
               fi
             else
               echo "Signature file already exists at $SIG_PATH"
