@@ -2705,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager"
-version = "1.0.21"
+version = "1.0.29"
 dependencies = [
  "arc-swap",
  "axum",
