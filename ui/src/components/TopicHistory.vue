@@ -87,7 +87,7 @@
             </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <span class="text-[10px] text-base-content/40 whitespace-nowrap">{{ formatTime(item.viewed_at) }}</span>
+            <span class="text-[10px] text-base-content/40 whitespace-nowrap" :title="formatFullTime(item.viewed_at)">{{ formatTime(item.viewed_at) }}</span>
             <button
               class="btn btn-ghost btn-xs px-0.5 h-auto text-error"
               @click.stop="deleteHistory(item.id)"
@@ -175,6 +175,24 @@ function navigateToTopic(clusterId: string, topicName: string) {
   window.dispatchEvent(new CustomEvent('navigate-to-topic-from-history', {
     detail: { clusterId, topicName }
   }));
+}
+
+// Format full time for tooltip
+function formatFullTime(viewedAt: string): string {
+  try {
+    const date = new Date(viewedAt);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return viewedAt;
+  }
 }
 
 // Format time

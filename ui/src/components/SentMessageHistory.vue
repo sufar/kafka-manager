@@ -80,15 +80,19 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5" />
               </svg>
             </div>
-            <div class="flex items-center gap-2 flex-1 min-w-0">
-              <span class="font-medium text-xs truncate flex-shrink-0 min-w-0" :title="item.topic_name">{{ item.topic_name }}</span>
-              <span class="text-[10px] text-base-content/40 flex-shrink-0 hidden sm:inline">·</span>
-              <span class="badge badge-ghost badge-[10px] text-[9px] px-1 flex-shrink-0 truncate max-w-[60px]" :title="item.cluster_id">{{ item.cluster_id }}</span>
-              <span class="badge badge-primary badge-[10px] text-[9px] px-1 flex-shrink-0">P{{ item.partition }}</span>
-            </div>
+            <span class="font-medium text-xs truncate flex-shrink-0 min-w-0" :title="item.topic_name">{{ item.topic_name }}</span>
+            <span class="text-[10px] text-base-content/40 flex-shrink-0 hidden sm:inline">·</span>
+            <span class="badge badge-ghost badge-[10px] text-[9px] px-1 flex-shrink-0 truncate max-w-[60px]" :title="item.cluster_id">{{ item.cluster_id }}</span>
+            <span class="badge badge-primary badge-[10px] text-[9px] px-1 flex-shrink-0">P{{ item.partition }}</span>
+            <span v-if="item.message_key" class="text-[10px] text-base-content/50 flex-shrink-0">
+              <span class="text-base-content/30">K:</span> <span class="truncate max-w-[80px] inline-block align-bottom" :title="item.message_key">{{ item.message_key }}</span>
+            </span>
+            <span class="text-[10px] text-base-content/50 flex-1 min-w-0 truncate" :title="item.message_value">
+              <span class="text-base-content/30">V:</span> {{ item.message_value }}
+            </span>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <span class="text-[10px] text-base-content/40 whitespace-nowrap">{{ formatTime(item.sent_at) }}</span>
+            <span class="text-[10px] text-base-content/40 whitespace-nowrap" :title="formatFullTime(item.sent_at)">{{ formatTime(item.sent_at) }}</span>
             <button
               class="btn btn-ghost btn-xs px-0.5 h-auto text-error"
               @click.stop="deleteHistory(item.id)"
@@ -106,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
@@ -155,22 +159,8 @@ const filteredMessages = computed(() => {
 async function loadHistory() {
   loading.value = true;
   try {
-    const params: any = { limit: 100, offset: 0 };
-    if (props.cluster) {
-      params.cluster_id = props.cluster;
-    }
-    if (props.topic) {
-      params.topic_name = props.topic;
-    }
-    const result = await apiClient.getSentMessageHistory(params.limit, params.offset);
-    // 如果传入了 cluster/topic，前端再过滤一次确保准确
-    if (props.cluster && props.topic) {
-      messages.value = (result.messages || []).filter((m: any) =>
-        m.cluster_id === props.cluster && m.topic_name === props.topic
-      );
-    } else {
-      messages.value = result.messages || [];
-    }
+    const result = await apiClient.getSentMessageHistory(100, 0, props.cluster, props.topic);
+    messages.value = result.messages || [];
   } catch (error: any) {
     showError(error.message || '加载历史失败');
   } finally {
@@ -215,6 +205,24 @@ function selectMessage(item: typeof messages.value[number]) {
   });
 }
 
+// Format full time for tooltip
+function formatFullTime(sentAt: string): string {
+  try {
+    const date = new Date(sentAt);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return sentAt;
+  }
+}
+
 // Format time
 function formatTime(sentAt: string): string {
   try {
@@ -243,6 +251,12 @@ function formatTime(sentAt: string): string {
 
 onMounted(() => {
   loadHistory();
+});
+
+watch(() => [props.cluster, props.topic], () => {
+  if (props.cluster && props.topic) {
+    loadHistory();
+  }
 });
 </script>
 

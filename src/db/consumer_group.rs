@@ -309,25 +309,6 @@ impl ConsumerGroupStore {
 
         Ok(groups)
     }
-
-    /// 获取消费指定 topic 的 Consumer Group 名称列表
-    pub async fn list_groups_by_topic(
-        pool: &sqlx::SqlitePool,
-        cluster_id: &str,
-        topic: &str,
-    ) -> Result<Vec<String>> {
-        let groups: Vec<String> = sqlx::query_scalar(
-            "SELECT DISTINCT group_name FROM consumer_group_offsets
-             WHERE cluster_id = ? AND topic_name = ?
-             ORDER BY group_name",
-        )
-        .bind(cluster_id)
-        .bind(topic)
-        .fetch_all(pool)
-        .await?;
-
-        Ok(groups)
-    }
 }
 
 /// 同步结果

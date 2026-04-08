@@ -1036,13 +1036,19 @@ class ApiClient {
   }
 
   // ==================== Sent Message History ====================
-  async getSentMessageHistory(limit?: number, offset?: number): Promise<{ messages: Array<{ id: number; cluster_id: string; topic_name: string; partition: number; message_key: string | null; message_value: string; headers?: any; offset?: number; sent_at: string }> }> {
+  async getSentMessageHistory(limit?: number, offset?: number, clusterId?: string, topicName?: string): Promise<{ messages: Array<{ id: number; cluster_id: string; topic_name: string; partition: number; message_key: string | null; message_value: string; headers?: any; offset?: number; sent_at: string }> }> {
     const params: any = {};
     if (limit !== undefined) {
       params.limit = limit;
     }
     if (offset !== undefined) {
       params.offset = offset;
+    }
+    if (clusterId) {
+      params.cluster_id = clusterId;
+    }
+    if (topicName) {
+      params.topic_name = topicName;
     }
     return this.request('sent_message.list', params);
   }

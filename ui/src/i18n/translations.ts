@@ -318,6 +318,7 @@ export interface Translation {
     lag: string;
     viewDetails: string;
     refresh: string;
+    refreshAllConsumerGroup: string;
     refreshed: string;
     dataNotice: string;
     dataNoticeTitle: string;
@@ -882,15 +883,16 @@ export const translations: Record<Language, Translation> = {
       title: 'Topic 消费者组',
       description: '查看消费此 Topic 的所有 Consumer Groups',
       noData: '暂无消费此 Topic 的 Consumer Groups',
-      groupName: '组名称',
+      groupName: 'Consumer Group 名称',
       state: '状态',
       partitions: '分区数',
       lag: '延迟',
       viewDetails: '查看详情',
       refresh: '刷新',
+      refreshAllConsumerGroup: '刷新集群 Consumer Group',
       refreshed: 'Consumer Groups 已刷新',
       dataNoticeTitle: '数据来源说明',
-      dataNotice: '此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。如发现遗漏，请先在 Consumer Groups 页面刷新同步。',
+      dataNotice: '此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。如发现遗漏，请点击页面上的 "刷新集群 Consumer Group" 按钮刷新同步。',
       topicNamePrefix: 'Topic：',
     },
     settings: {
@@ -1450,15 +1452,16 @@ export const translations: Record<Language, Translation> = {
       title: 'Topic Consumer Groups',
       description: 'View all Consumer Groups consuming this Topic',
       noData: 'No Consumer Groups consuming this Topic',
-      groupName: 'Group Name',
+      groupName: 'Consumer Group Name',
       state: 'State',
       partitions: 'Partitions',
       lag: 'Lag',
       viewDetails: 'View Details',
       refresh: 'Refresh',
+      refreshAllConsumerGroup: 'Refresh Cluster Consumer Groups',
       refreshed: 'Consumer Groups refreshed',
       dataNoticeTitle: 'Data Source Notice',
-      dataNotice: 'Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time. If data is missing, please refresh and sync on the Consumer Groups page first.',
+      dataNotice: 'Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time. If data is missing, please click the "Refresh Cluster Consumer Groups" button on this page to refresh and sync.',
       topicNamePrefix: 'Topic: ',
     },
     settings: {

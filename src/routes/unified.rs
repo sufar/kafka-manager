@@ -4808,7 +4808,7 @@ async fn handle_cluster_group_assign_cluster(state: AppState, body: Value) -> Re
 // ==================== Consumer Group ====================
 
 use crate::db::consumer_group::ConsumerGroupStore;
-use crate::kafka::consumer_group::KafkaConsumerGroupManager;
+use crate::kafka::consumer_group::{KafkaConsumerGroupManager, PartitionOffsetDetail};
 
 /// 刷新 Consumer Group 列表（从 Kafka 集群同步到数据库）
 async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<Value> {
@@ -4846,9 +4846,16 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // 先获取数据库中已保存的 Consumer Groups 及 topics
     let existing_groups = ConsumerGroupStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
     let mut topics_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::with_capacity(existing_groups.len().max(16));
+    let mut groups_needing_topic_sync: Vec<String> = Vec::new();
+
     for g in &existing_groups {
         let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
-        topics_map.insert(g.group_name.clone(), topics);
+        if topics.is_empty() {
+            // topics 为空，需要重新同步
+            groups_needing_topic_sync.push(g.group_name.clone());
+        } else {
+            topics_map.insert(g.group_name.clone(), topics);
+        }
     }
 
     // 在阻塞线程中执行 Kafka 操作
@@ -4856,15 +4863,27 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
         // 从 Kafka 集群获取当前 Consumer Group 列表
         let current_groups = cg_manager.list_consumer_groups()?;
 
-        // 对于大量 consumer groups，直接使用数据库中的 topics，不再逐个查询 Kafka
-        // 这样可以显著提高性能（从几分钟降低到几秒）
-        let group_details: Vec<(String, Vec<String>)> = current_groups
-            .iter()
-            .map(|group| {
-                let topics = topics_map.get(group).cloned().unwrap_or_default();
-                (group.clone(), topics)
-            })
-            .collect();
+        // 对于 topics 为空的 groups，从 Kafka 获取 topics
+        // 对于已有缓存的 groups，使用缓存的 topics
+        let mut group_details: Vec<(String, Vec<String>)> = Vec::with_capacity(current_groups.len());
+
+        for group in &current_groups {
+            if let Some(cached_topics) = topics_map.get(group) {
+                // 使用缓存的 topics
+                group_details.push((group.clone(), cached_topics.clone()));
+            } else {
+                // topics 为空或新增的 group，从 Kafka 获取
+                match cg_manager.get_consumer_group_topics(group) {
+                    Ok(topics) => {
+                        group_details.push((group.clone(), topics));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get topics for group '{}': {}", group, e);
+                        group_details.push((group.clone(), vec![]));
+                    }
+                }
+            }
+        }
 
         Ok((current_groups, group_details))
     })
@@ -4874,7 +4893,7 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // 同步到数据库
     let sync_result = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &current_groups).await?;
 
-    // 批量更新新增 group 的详细信息
+    // 批量更新 group 的详细信息（包含 topics）
     for (group_name, topics) in group_details {
         let _ = ConsumerGroupStore::upsert(state.db.inner(), &cluster_id, &group_name, &topics).await;
     }
@@ -4984,25 +5003,35 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     let cluster_id = get_cluster_id_param(&body)?;
     let topic = get_string_param(&body, "topic")?;
 
-    // 步骤 1: 从数据库快速获取消费指定 topic 的 consumer groups
-    let topic_groups = crate::db::consumer_group::ConsumerGroupStore::list_groups_by_topic(
+    // 步骤 1: 从数据库获取所有 consumer groups，过滤出订阅了该 topic 的 groups
+    let all_groups = crate::db::consumer_group::ConsumerGroupStore::list_by_cluster(
         state.db.inner(),
         &cluster_id,
-        &topic,
     )
     .await
     .unwrap_or_default();
+
+    // 过滤出订阅了该 topic 的 group names（使用数据库中缓存的 topics）
+    let topic_groups: Vec<String> = all_groups
+        .iter()
+        .filter(|g| {
+            let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
+            topics.contains(&topic)
+        })
+        .map(|g| g.group_name.clone())
+        .collect();
 
     // 步骤 2: 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
 
     // 步骤 3: 从 Kafka 获取每个 group 的最新 offset 信息
-    let mut topic_offsets: Vec<serde_json::Value> = Vec::new();
+    let mut all_offsets: Vec<(String, PartitionOffsetDetail)> = Vec::new();
 
-    for group_name in topic_groups {
+    for group_name in &topic_groups {
         let cg_manager_clone = cg_manager.clone();
         let group_name_for_offsets = group_name.clone();
+
         let offsets_result = tokio::task::spawn_blocking(move || {
             cg_manager_clone.get_consumer_group_offsets_auto(&group_name_for_offsets)
         })
@@ -5013,21 +5042,62 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
         // 过滤出当前 topic 的 offsets
         for offset in offsets_result {
             if offset.topic == topic {
-                topic_offsets.push(serde_json::json!({
-                    "group": group_name,
-                    "topic": offset.topic,
-                    "partition": offset.partition,
-                    "start_offset": offset.start_offset,
-                    "end_offset": offset.end_offset,
-                    "committed_offset": offset.committed_offset,
-                    "lag": offset.lag,
-                    "last_commit_time": offset.last_commit_time,
-                }));
+                all_offsets.push((group_name.clone(), offset));
             }
         }
     }
 
-    // 按 group name, 然后 partition 排序
+    // 步骤 4: 批量获取所有分区的最后提交时间
+    let mut partitions: Vec<(String, String, i32)> = Vec::new(); // (group, topic, partition)
+    for (group_name, offset) in &all_offsets {
+        partitions.push((group_name.clone(), offset.topic.clone(), offset.partition));
+    }
+
+    // 按 group 分组获取 last_commit_time
+    let mut last_commit_times: std::collections::HashMap<(String, String, i32), Option<i64>> = std::collections::HashMap::new();
+
+    // 将 partitions 按 group 分组
+    let mut group_partitions: std::collections::HashMap<String, Vec<(String, i32)>> = std::collections::HashMap::new();
+    for (group, topic, partition) in &partitions {
+        group_partitions.entry(group.clone()).or_default().push((topic.clone(), *partition));
+    }
+
+    for (group_name, group_parts) in &group_partitions {
+        match cg_manager.get_partitions_last_commit_time(group_name, group_parts) {
+            Ok(times) => {
+                for (i, time) in times.iter().enumerate() {
+                    if i < group_parts.len() {
+                        let key = (group_name.clone(), group_parts[i].0.clone(), group_parts[i].1);
+                        last_commit_times.insert(key, *time);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get last_commit_time for group '{}': {}", group_name, e);
+            }
+        }
+    }
+
+    // 步骤 5: 构建返回结果
+    let mut topic_offsets: Vec<serde_json::Value> = Vec::new();
+
+    for (group_name, offset) in all_offsets {
+        let key = (group_name.clone(), offset.topic.clone(), offset.partition);
+        let last_commit_time = last_commit_times.get(&key).copied().flatten();
+
+        topic_offsets.push(serde_json::json!({
+            "group": group_name,
+            "topic": offset.topic,
+            "partition": offset.partition,
+            "start_offset": offset.start_offset,
+            "end_offset": offset.end_offset,
+            "committed_offset": offset.committed_offset,
+            "lag": offset.lag,
+            "last_commit_time": last_commit_time,
+        }));
+    }
+
+    // 按 group name，然后 partition 排序
     topic_offsets.sort_by(|a, b| {
         let group_cmp = a["group"].as_str().cmp(&b["group"].as_str());
         if group_cmp != std::cmp::Ordering::Equal {

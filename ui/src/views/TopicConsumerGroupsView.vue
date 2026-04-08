@@ -5,6 +5,16 @@
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
           <h1 class="text-xl font-bold flex items-center gap-2 flex-wrap">
+            <!-- Back button -->
+            <button
+              class="btn btn-ghost btn-sm"
+              @click="goBack"
+              title="Back to Messages"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+              </svg>
+            </button>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
               <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
             </svg>
@@ -19,14 +29,14 @@
             <span class="tooltip tooltip-right" :data-tip="t.topicConsumerGroups?.dataNotice">
               <button class="btn btn-ghost btn-xs btn-circle ml-1">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.458.775-2.072 1.404-.297.305-.567.644-.796 1.013-.23.369-.427.774-.586 1.21-.254.696-.384 1.437-.384 2.202 0 .414.336.75.75.75s.75-.336.75-.75c0-.53.087-1.04.248-1.516.16-.476.395-.914.696-1.298.3-.384.659-.724 1.067-1.003.408-.279.858-.5 1.34-.646.396-.12.776-.29 1.13-.512.354-.222.68-.496.968-.814.923-1.022 1.486-2.376 1.486-3.868 0-2.95-2.4-5.35-5.35-5.35S5.5 5.05 5.5 8c0 1.492.563 2.846 1.486 3.868.288.318.614.592.968.814.354.222.734.392 1.13.512.482.146.932.367 1.34.646.408.279.767.619 1.067 1.003.3.384.536.822.696 1.298.16.476.248.986.248 1.516 0 .414.336.75.75.75s.75-.336.75-.75c0-.765-.13-1.506-.384-2.202-.159-.436-.356-.841-.586-1.21-.229-.369-.499-.708-.796-1.013-.614-.629-1.327-1.043-2.072-1.404-.24-.116-.467-.263-.67-.442-1.172-1.025-1.172-2.687 0-3.712Z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 16a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM12 4a.75.75 0 0 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                 </svg>
               </button>
             </span>
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
+          <!-- Refresh offsets button -->
           <button
             class="btn btn-xs btn-outline"
             @click="refreshAll"
@@ -36,6 +46,17 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
             <span class="hidden md:inline ml-1">{{ t.common.refresh }}</span>
+          </button>
+          <!-- Refresh Consumer Groups button -->
+          <button
+            class="btn btn-xs btn-outline"
+            @click="refreshConsumerGroups"
+            :disabled="refreshingCG"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshingCG }">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            <span class="hidden md:inline ml-1">{{ t.topicConsumerGroups?.refreshAllConsumerGroup }}</span>
           </button>
         </div>
       </div>
@@ -66,12 +87,11 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <!-- Table Header -->
-      <div class="bg-base-100 border-b border-base-200 sticky top-0 z-10">
+      <div class="overflow-auto" style="max-height: calc(100vh - 280px);">
         <table class="table w-full">
           <thead>
-            <tr>
-              <th class="p-2">{{ t.consumerGroups.groupName }}</th>
+            <tr class="bg-base-100 sticky top-0 z-10">
+              <th class="p-2">{{ t.topicConsumerGroups.groupName }}</th>
               <th class="p-2">{{ t.consumerGroups.partition }}</th>
               <th class="p-2 text-right">{{ t.consumerGroups.startOffset }}</th>
               <th class="p-2 text-right">{{ t.consumerGroups.endOffset }}</th>
@@ -80,14 +100,9 @@
               <th class="p-2 text-right">{{ t.consumerGroups.lastCommit }}</th>
             </tr>
           </thead>
-        </table>
-      </div>
-      <!-- Table Body -->
-      <div class="overflow-auto" style="max-height: calc(100vh - 280px);">
-        <table class="table w-full">
           <tbody>
             <tr v-for="item in offsets" :key="`${item.group}-${item.partition}`" class="hover">
-              <td class="font-medium">
+              <td class="p-2">
                 <div class="flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
@@ -95,14 +110,14 @@
                   {{ item.group }}
                 </div>
               </td>
-              <td><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
-              <td class="text-right font-mono text-sm">{{ item.start_offset }}</td>
-              <td class="text-right font-mono text-sm">{{ item.end_offset }}</td>
-              <td class="text-right font-mono text-sm">{{ item.committed_offset }}</td>
-              <td class="text-right">
+              <td class="p-2"><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
+              <td class="p-2 text-right font-mono text-sm">{{ item.start_offset }}</td>
+              <td class="p-2 text-right font-mono text-sm">{{ item.end_offset }}</td>
+              <td class="p-2 text-right font-mono text-sm">{{ item.committed_offset }}</td>
+              <td class="p-2 text-right">
                 <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
               </td>
-              <td class="text-right text-xs text-base-content/60">{{ formatLastCommitTime(item.last_commit_time) }}</td>
+              <td class="p-2 text-right text-xs text-base-content/60">{{ formatLastCommitTime(item.last_commit_time) }}</td>
             </tr>
           </tbody>
         </table>
@@ -113,12 +128,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useLanguageStore } from '@/stores/language';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
 const route = useRoute();
+const router = useRouter();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 const currentLang = computed(() => languageStore.currentLanguage);
@@ -139,6 +155,7 @@ const topicParam = computed(() => {
 const loading = ref(false);
 const error = ref<string | null>(null);
 const refreshing = ref(false);
+const refreshingCG = ref(false);
 
 interface OffsetRow {
   group: string;
@@ -152,6 +169,35 @@ interface OffsetRow {
 }
 
 const offsets = ref<OffsetRow[]>([]);
+
+// Go back to messages page
+function goBack() {
+  router.push({
+    path: '/messages',
+    query: {
+      cluster: clusterParam.value,
+      topic: topicParam.value
+    }
+  });
+}
+
+// Refresh Consumer Groups (sync from Kafka to database)
+async function refreshConsumerGroups() {
+  if (!clusterParam.value) return;
+
+  refreshingCG.value = true;
+  try {
+    await apiClient.refreshConsumerGroups(clusterParam.value);
+    showSuccess(t.value.consumerGroups?.refreshed || 'Consumer Groups refreshed');
+    // After refreshing consumer groups, reload the offsets
+    await loadOffsets();
+  } catch (e) {
+    console.error('[TopicConsumerGroupsView] Error refreshing consumer groups:', e);
+    showError(`Refresh failed: ${(e as { message: string }).message}`);
+  } finally {
+    refreshingCG.value = false;
+  }
+}
 
 // Get lag class
 function getLagClass(lag: number): string {

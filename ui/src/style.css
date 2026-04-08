@@ -609,6 +609,24 @@ aside .hover\:bg-base-200:hover {
   border-color: rgba(60, 60, 80, 0.4);
 }
 
+/* Select dropdown opacity overrides - reduce transparency */
+.select {
+  background-color: rgb(255 255 255 / 0.95) !important;
+}
+
+:root[data-theme="dark"] .select {
+  background-color: rgb(26 26 46 / 0.95) !important;
+}
+
+.select option {
+  background-color: rgb(255 255 255) !important;
+  color: var(--text-primary) !important;
+}
+
+:root[data-theme="dark"] .select option {
+  background-color: rgb(26 26 46) !important;
+}
+
 /* ============================================
    BADGE ENHANCEMENTS
    ============================================ */
