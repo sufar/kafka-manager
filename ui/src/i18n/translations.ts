@@ -39,6 +39,8 @@ export interface Translation {
     unknown: string;
     copy: string;
     copyFailed: string;
+    viewDetails: string;
+    view: string;
     failed: string;
     hide: string;
   };
@@ -304,6 +306,22 @@ export interface Translation {
     timestampValue: string;
     noOffsets: string;
     selectFromNav: string;
+    groupNamePrefix: string;
+  };
+  topicConsumerGroups: {
+    title: string;
+    description: string;
+    noData: string;
+    groupName: string;
+    state: string;
+    partitions: string;
+    lag: string;
+    viewDetails: string;
+    refresh: string;
+    refreshed: string;
+    dataNotice: string;
+    dataNoticeTitle: string;
+    topicNamePrefix: string;
   };
   settings: {
     title: string;
@@ -593,6 +611,8 @@ export const translations: Record<Language, Translation> = {
       copyFailed: '复制失败',
       failed: '失败',
       hide: '隐藏',
+      viewDetails: '查看详情',
+      view: '查看',
     },
     clusters: {
       title: '集群',
@@ -856,6 +876,22 @@ export const translations: Record<Language, Translation> = {
       timestampValue: '时间戳',
       noOffsets: '暂无偏移量数据',
       selectFromNav: '请从左侧导航栏选择一个消费者组查看详情',
+      groupNamePrefix: '消费者组：',
+    },
+    topicConsumerGroups: {
+      title: 'Topic 消费者组',
+      description: '查看消费此 Topic 的所有 Consumer Groups',
+      noData: '暂无消费此 Topic 的 Consumer Groups',
+      groupName: '组名称',
+      state: '状态',
+      partitions: '分区数',
+      lag: '延迟',
+      viewDetails: '查看详情',
+      refresh: '刷新',
+      refreshed: 'Consumer Groups 已刷新',
+      dataNoticeTitle: '数据来源说明',
+      dataNotice: '此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。如发现遗漏，请先在 Consumer Groups 页面刷新同步。',
+      topicNamePrefix: 'Topic：',
     },
     settings: {
       title: '设置',
@@ -1143,6 +1179,8 @@ export const translations: Record<Language, Translation> = {
       copyFailed: 'Copy failed',
       failed: 'Failed',
       hide: 'Hide',
+      viewDetails: 'View Details',
+      view: 'View',
     },
     clusters: {
       title: 'Clusters',
@@ -1406,6 +1444,22 @@ export const translations: Record<Language, Translation> = {
       timestampValue: 'Timestamp',
       noOffsets: 'No offset data available',
       selectFromNav: 'Please select a consumer group from the left navigation to view details',
+      groupNamePrefix: 'Consumer Group: ',
+    },
+    topicConsumerGroups: {
+      title: 'Topic Consumer Groups',
+      description: 'View all Consumer Groups consuming this Topic',
+      noData: 'No Consumer Groups consuming this Topic',
+      groupName: 'Group Name',
+      state: 'State',
+      partitions: 'Partitions',
+      lag: 'Lag',
+      viewDetails: 'View Details',
+      refresh: 'Refresh',
+      refreshed: 'Consumer Groups refreshed',
+      dataNoticeTitle: 'Data Source Notice',
+      dataNotice: 'Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time. If data is missing, please refresh and sync on the Consumer Groups page first.',
+      topicNamePrefix: 'Topic: ',
     },
     settings: {
       title: 'Settings',

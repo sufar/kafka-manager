@@ -469,6 +469,29 @@ class ApiClient {
     return this.request('consumer_group.refresh', params);
   }
 
+  async getConsumerGroupsByTopic(clusterId: string, topic: string): Promise<Array<{
+    group: string;
+    topic: string;
+    partition: number;
+    start_offset: number;
+    end_offset: number;
+    committed_offset: number;
+    lag: number;
+    last_commit_time: number | null;
+  }>> {
+    const data = await this.request<{ offsets: Array<{
+      group: string;
+      topic: string;
+      partition: number;
+      start_offset: number;
+      end_offset: number;
+      committed_offset: number;
+      lag: number;
+      last_commit_time: number | null;
+    }> }>('consumer_group.list_by_topic', { cluster_id: clusterId, topic });
+    return data.offsets || [];
+  }
+
   async getConsumerGroupInfo(clusterId: string, groupName: string): Promise<{ name: string; cluster: string; topics: string[]; state: string }> {
     return this.request('consumer_group.get', { cluster_id: clusterId, group_name: groupName });
   }

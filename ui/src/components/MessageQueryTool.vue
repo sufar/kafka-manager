@@ -72,6 +72,18 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
         </svg>
       </button>
+
+      <!-- 消费者组 -->
+      <button
+        class="btn btn-ghost btn-sm"
+        @click="viewTopicConsumerGroups"
+        :title="t.topicConsumerGroups?.title || '消费者组'"
+        :disabled="!selectedCluster || !selectedTopic"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
+        </svg>
+      </button>
     </div>
 
     <!-- 时间范围筛选面板 -->
@@ -415,6 +427,10 @@ const props = defineProps<{
   topic?: string;
 }>();
 
+const emit = defineEmits<{
+  navigate: [{ path: string; query?: Record<string, string> }];
+}>();
+
 // 状态 - 使用 shallowRef 避免深度响应式带来的性能问题
 const partitions = ref<number[]>([]);
 const messages = shallowRef<Message[]>([]);
@@ -536,6 +552,19 @@ const showHistory = ref(false);
 
 function toggleHistory() {
   showHistory.value = !showHistory.value;
+}
+
+// 查看 Topic 的消费者组
+function viewTopicConsumerGroups() {
+  if (!selectedCluster.value || !selectedTopic.value) return;
+  // 跳转到 topic-consumer-groups 页面
+  emit('navigate', {
+    path: '/topic-consumer-groups',
+    query: {
+      cluster: selectedCluster.value,
+      topic: selectedTopic.value,
+    },
+  });
 }
 
 // 处理选择历史消息

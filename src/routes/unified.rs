@@ -653,6 +653,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
 
         // Consumer Group
         "consumer_group.list" => handle_consumer_group_list(state, body).await,
+        "consumer_group.list_by_topic" => handle_consumer_group_list_by_topic(state, body).await,
         "consumer_group.get" => handle_consumer_group_get(state, body).await,
         "consumer_group.offsets" => handle_consumer_group_offsets(state, body).await,
         "consumer_group.refresh" => handle_consumer_group_refresh(state, body).await,
@@ -4975,6 +4976,68 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
         "offset": offset,
         "limit": limit,
         "has_more": end < total
+    }))
+}
+
+/// 获取消费指定 Topic 的 Consumer Groups（从 Kafka 获取最新 offset 数据）
+async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Result<Value> {
+    let cluster_id = get_cluster_id_param(&body)?;
+    let topic = get_string_param(&body, "topic")?;
+
+    // 步骤 1: 从数据库快速获取消费指定 topic 的 consumer groups
+    let topic_groups = crate::db::consumer_group::ConsumerGroupStore::list_groups_by_topic(
+        state.db.inner(),
+        &cluster_id,
+        &topic,
+    )
+    .await
+    .unwrap_or_default();
+
+    // 步骤 2: 确保集群客户端已创建
+    let config = ensure_cluster_client(&state, &cluster_id).await?;
+    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
+
+    // 步骤 3: 从 Kafka 获取每个 group 的最新 offset 信息
+    let mut topic_offsets: Vec<serde_json::Value> = Vec::new();
+
+    for group_name in topic_groups {
+        let cg_manager_clone = cg_manager.clone();
+        let group_name_for_offsets = group_name.clone();
+        let offsets_result = tokio::task::spawn_blocking(move || {
+            cg_manager_clone.get_consumer_group_offsets_auto(&group_name_for_offsets)
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))?
+        .unwrap_or_default();
+
+        // 过滤出当前 topic 的 offsets
+        for offset in offsets_result {
+            if offset.topic == topic {
+                topic_offsets.push(serde_json::json!({
+                    "group": group_name,
+                    "topic": offset.topic,
+                    "partition": offset.partition,
+                    "start_offset": offset.start_offset,
+                    "end_offset": offset.end_offset,
+                    "committed_offset": offset.committed_offset,
+                    "lag": offset.lag,
+                    "last_commit_time": offset.last_commit_time,
+                }));
+            }
+        }
+    }
+
+    // 按 group name, 然后 partition 排序
+    topic_offsets.sort_by(|a, b| {
+        let group_cmp = a["group"].as_str().cmp(&b["group"].as_str());
+        if group_cmp != std::cmp::Ordering::Equal {
+            return group_cmp;
+        }
+        a["partition"].as_i64().cmp(&b["partition"].as_i64())
+    });
+
+    Ok(serde_json::json!({
+        "offsets": topic_offsets,
     }))
 }
 
