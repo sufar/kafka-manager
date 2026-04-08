@@ -24,6 +24,7 @@
     <!-- Main Layout Container -->
     <div class="flex flex-1 overflow-hidden pt-10">
       <LeftSidebar
+        ref="leftSidebarRef"
         :is-mobile="isMobile"
         :sidebar-mode="sidebarMode"
         :sidebar-open="sidebarOpen"
@@ -83,7 +84,13 @@ const t = computed(() => languageStore.t);
 // Refs
 const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();
 const toastRef = ref<InstanceType<typeof ToastAndConfirm>>();
-const clusterTreeNavigatorRef = ref<InstanceType<typeof import('@/components/ClusterTreeNavigator.vue').default>>();
+const leftSidebarRef = ref<InstanceType<typeof LeftSidebar>>();
+
+// Get clusterTreeNavigatorRef from LeftSidebar component
+const clusterTreeNavigatorRef = computed(() => {
+  const sidebar = leftSidebarRef.value as any;
+  return sidebar?.clusterTreeNavigatorRef?.value || null;
+});
 
 // Provide showToast globally for layout children (including router-view components)
 provide('showToast', (type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => {
@@ -157,14 +164,25 @@ provide('showConfirm', showConfirmWrapper);
 async function handleSearchTopicSelect(cluster: string, topic: string) {
   router.push({ path: '/messages', query: { cluster, topic } });
   if (sidebarMode.value === 'tree') {
-    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+    }
+    // 如果 ref 为空，router.push 已经执行了，不需要额外处理
   }
 }
 
 // Handle topic selection in tree mode
 function handleSelectTopicInTree(topicName: string, clusterName: string) {
   if (sidebarMode.value === 'tree') {
-    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+    } else {
+      // Fallback: directly navigate if clusterTreeNavigatorRef is not available
+      router.push({
+        path: '/messages',
+        query: { cluster: clusterName, topic: topicName },
+      });
+    }
   } else {
     router.push({
       path: '/messages',
@@ -184,7 +202,18 @@ function handleSettingsChanged(event: CustomEvent) {
 // Handle navigate from favorites
 function handleNavigateFromFavorites(clusterId: string, topicName: string) {
   if (sidebarMode.value === 'tree') {
-    clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterId);
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterId);
+    } else {
+      // Fallback: directly navigate if clusterTreeNavigatorRef is not available
+      router.push({
+        path: '/messages',
+        query: { cluster: clusterId, topic: topicName },
+      });
+      if (isMobile.value) {
+        sidebarOpen.value = false;
+      }
+    }
   } else {
     router.push({
       path: '/messages',
