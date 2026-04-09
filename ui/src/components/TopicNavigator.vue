@@ -220,7 +220,7 @@
         <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Load More Button (Topics only) -->
           <button
-            v-if="currentView === 'topics' && hasMore && allTopics.length < 10000"
+            v-if="currentView === 'topics' && hasMore"
             class="btn btn-ghost btn-xs text-primary"
             :disabled="loadingMore"
             @click="loadMoreTopics"
@@ -230,7 +230,7 @@
           </button>
           <!-- Load More Button (Consumer Groups only) -->
           <button
-            v-if="currentView === 'consumer-groups' && hasMoreGroups && allConsumerGroups.length < 10000"
+            v-if="currentView === 'consumer-groups' && hasMoreGroups"
             class="btn btn-ghost btn-xs text-primary"
             :disabled="loadingMore"
             @click="loadMoreConsumerGroups"
@@ -569,13 +569,13 @@ const refreshingGroups = ref(false);
 
 // Pagination state for topics
 const offset = ref(0);
-const limit = ref(10000);
+const limit = ref(1000);
 const total = ref(0);
 const hasMore = ref(false);
 
 // Pagination state for consumer groups
 const offsetGroups = ref(0);
-const limitGroups = ref(10000);
+const limitGroups = ref(1000);
 const totalGroups = ref(0);
 const hasMoreGroups = ref(false);
 
@@ -1122,24 +1122,32 @@ async function refreshTopics() {
   try {
     const selectedClustersList = getAllSelectedClusterNames();
 
-    // Refresh only selected clusters
-    for (const clusterName of selectedClustersList) {
-      if (isUnmounted.value) return;
+    // If all clusters are selected, call "refresh all" in one request
+    if (selectedClustersList.length === 0) {
       try {
-        await apiClient.refreshTopics(clusterName);
+        await apiClient.refreshTopics();
       } catch (e: any) {
-        if (isUnmounted.value) return;
-        // 检查是否是"正在刷新中"错误
-        if (e.message?.includes('already being refreshed')) {
-          console.warn(`Topic refresh already in progress for cluster ${clusterName}`);
-          // 显示提示但不中断其他集群的刷新
-          continue;
+        if (e.message?.includes('already in progress')) {
+          console.warn('Topic refresh already in progress for all clusters');
+        } else {
+          console.warn('Failed to refresh all topics:', e);
         }
-        // Silent failure - wait 5 seconds then continue to next cluster
-        console.warn(`Failed to refresh topics for cluster ${clusterName}, waiting 5s before continuing...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        if (isUnmounted.value) return;
       }
+    } else {
+      // 并行刷新选中的集群，遇到正在刷新的集群直接跳过
+      const refreshPromises = selectedClustersList.map(async (clusterName) => {
+        try {
+          await apiClient.refreshTopics(clusterName);
+        } catch (e: any) {
+          // 正在刷新中，直接跳过
+          if (e.message?.includes('already being refreshed')) {
+            console.warn(`Topic refresh already in progress for cluster ${clusterName}, skipping`);
+            return;
+          }
+          console.warn(`Failed to refresh topics for cluster ${clusterName}:`, e);
+        }
+      });
+      await Promise.allSettled(refreshPromises);
     }
 
     // Cleanup orphan topics
@@ -1272,21 +1280,32 @@ async function refreshConsumerGroups() {
   try {
     const selectedClustersList = getAllSelectedClusterNames();
 
-    // Refresh consumer groups for each selected cluster
-    for (const clusterName of selectedClustersList) {
-      if (isUnmounted.value) return;
+    // If all clusters are selected, call "refresh all" in one request
+    if (selectedClustersList.length === 0) {
       try {
-        await apiClient.refreshConsumerGroups(clusterName);
+        await apiClient.refreshConsumerGroups();
       } catch (e: any) {
-        if (isUnmounted.value) return;
-        // 检查是否是"正在刷新中"错误
-        if (e.message?.includes('already being refreshed')) {
-          console.warn(`Consumer group refresh already in progress for cluster ${clusterName}`);
-          // 显示提示但不中断其他集群的刷新
-          continue;
+        if (e.message?.includes('already in progress')) {
+          console.warn('Consumer group refresh already in progress for all clusters');
+        } else {
+          console.warn('Failed to refresh all consumer groups:', e);
         }
-        console.warn(`Failed to refresh consumer groups for cluster ${clusterName}:`, e);
       }
+    } else {
+      // 并行刷新选中的集群，遇到正在刷新的集群直接跳过
+      const refreshPromises = selectedClustersList.map(async (clusterName) => {
+        try {
+          await apiClient.refreshConsumerGroups(clusterName);
+        } catch (e: any) {
+          // 正在刷新中，直接跳过
+          if (e.message?.includes('already being refreshed')) {
+            console.warn(`Consumer group refresh already in progress for cluster ${clusterName}, skipping`);
+            return;
+          }
+          console.warn(`Failed to refresh consumer groups for cluster ${clusterName}:`, e);
+        }
+      });
+      await Promise.allSettled(refreshPromises);
     }
 
     // Wait for sync to complete
@@ -1431,20 +1450,29 @@ function handleNavigateFromHistory(event: Event) {
 
 // Handle scroll to load more automatically
 function handleScroll(event: Event) {
-  if (scrollLock || !hasMore.value || loadingMore.value || isUnmounted.value) return;
+  if (scrollLock || loadingMore.value || isUnmounted.value) return;
 
   const target = event.target as HTMLElement;
   const { scrollTop, scrollHeight, clientHeight } = target;
 
   // Load more when scrolled to 80% of the list
   const scrollThreshold = scrollHeight * 0.8;
-  if (scrollTop + clientHeight >= scrollThreshold && allTopics.value.length < 10000) {
-    scrollLock = true;
-    loadMoreTopics().then(() => {
-      scrollLock = false;
-    }).catch(() => {
-      scrollLock = false;
-    });
+  if (scrollTop + clientHeight >= scrollThreshold) {
+    if (currentView.value === 'topics' && hasMore.value) {
+      scrollLock = true;
+      loadMoreTopics().then(() => {
+        scrollLock = false;
+      }).catch(() => {
+        scrollLock = false;
+      });
+    } else if (currentView.value === 'consumer-groups' && hasMoreGroups.value) {
+      scrollLock = true;
+      loadMoreConsumerGroups().then(() => {
+        scrollLock = false;
+      }).catch(() => {
+        scrollLock = false;
+      });
+    }
   }
 }
 

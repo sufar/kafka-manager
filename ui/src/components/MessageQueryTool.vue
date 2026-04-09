@@ -647,7 +647,7 @@ async function queryMessages() {
 
   loading.value = true;
   error.value = '';
-  timestampSort.value = null; // 重置排序状态
+  // 保留 timestampSort 排序状态，不重置
   resetMessageState();
   const startTime = performance.now();
 

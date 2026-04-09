@@ -39,10 +39,12 @@ pub struct AppState {
 /// 刷新状态跟踪结构
 #[derive(Debug, Default)]
 pub struct RefreshState {
-    /// 正在刷新 topic 的集群
-    pub refreshing_topics: HashSet<String>,
-    /// 正在刷新 consumer group 的集群
-    pub refreshing_consumer_groups: HashSet<String>,
+    /// 正在刷新的集群（无论是 topic 还是 consumer group，每个集群同一时间只能有一个刷新）
+    pub refreshing_clusters: HashSet<String>,
+    /// 是否正在刷新所有集群的 topic
+    pub refreshing_all_topics: bool,
+    /// 是否正在刷新所有集群的 consumer group
+    pub refreshing_all_consumer_groups: bool,
 }
 
 impl AppState {
