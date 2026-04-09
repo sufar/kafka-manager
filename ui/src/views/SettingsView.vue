@@ -169,14 +169,6 @@
               </button>
             </div>
           </div>
-          <!-- 后台下载进度 -->
-          <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
-            <div class="flex items-center gap-2 flex-1">
-              <span class="loading loading-spinner loading-sm text-primary"></span>
-              <span class="text-sm font-bold text-base-content">{{ t.update.downloadingInBackground || '正在下载更新...' }} {{ downloadProgress }}%</span>
-            </div>
-            <progress class="progress progress-primary w-32" :value="downloadProgress" max="100"></progress>
-          </div>
           <!-- 代理设置 -->
           <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
             <div class="flex items-center justify-between">
@@ -188,13 +180,21 @@
                 v-model="proxyUrl"
                 type="text"
                 class="input input-sm input-bordered flex-1"
-                placeholder="例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+                placeholder="例如 http://127.0.0.1:7890"
                 @change="saveProxySetting"
               />
               <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
                 清除
               </button>
             </div>
+          </div>
+          <!-- 后台下载进度 -->
+          <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
+            <div class="flex items-center gap-2 flex-1">
+              <span class="loading loading-spinner loading-sm text-primary"></span>
+              <span class="text-sm font-bold text-base-content">{{ t.update.downloadingInBackground || '正在下载更新...' }} {{ downloadProgress }}%</span>
+            </div>
+            <progress class="progress progress-primary w-32" :value="downloadProgress" max="100"></progress>
           </div>
         </div>
       </div>
