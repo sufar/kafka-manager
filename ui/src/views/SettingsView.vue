@@ -169,6 +169,25 @@
               </button>
             </div>
           </div>
+          <!-- 代理设置 -->
+          <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">代理服务器</span>
+              <span class="text-xs text-base-content/60">用于下载更新（支持 http(s):// 或 socks5://）</span>
+            </div>
+            <div class="flex gap-2">
+              <input
+                v-model="proxyUrl"
+                type="text"
+                class="input input-sm input-bordered flex-1"
+                placeholder="例如 http://127.0.0.1:7890"
+                @change="saveProxySetting"
+              />
+              <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
+                清除
+              </button>
+            </div>
+          </div>
           <!-- 后台下载进度 -->
           <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
             <div class="flex items-center gap-2 flex-1">
@@ -433,7 +452,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.35');
+const appVersion = ref('1.0.36');
 
 // 日志相关
 const logs = ref('');
@@ -448,6 +467,9 @@ const showUpdateModal = ref(false);
 const checking = ref(false);
 const installing = ref(false);
 const downloadInterrupted = ref(false);
+
+// 代理设置
+const proxyUrl = ref('');
 
 // 使用 store 中的下载状态（持久化）
 const { downloading, downloadProgress } = storeToRefs(updateStore);
@@ -495,7 +517,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.35');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.36');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -813,47 +835,59 @@ async function installUpdate() {
 
 // 轮询下载状态
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let downloadEverStarted = false;
 
 function startPollingDownloadStatus() {
   // 清除之前的轮询
   if (pollTimer) {
     clearInterval(pollTimer);
   }
+  downloadEverStarted = false;
 
-  // 每 500ms 轮询一次下载状态
-  pollTimer = setInterval(async () => {
-    try {
-      const status = await tauriInvoke<any>('get_download_status');
-      if (status.is_downloading) {
-        const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
-        updateStore.updateProgress(progress);
-        downloadInterrupted.value = false;
-      } else {
-        // 下载完成或停止，停止轮询
-        if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
-          // 下载完成
-          updateStore.clearState();
+  // 延迟 1.5 秒后开始首次轮询，给后端足够时间初始化下载状态
+  // 后端需要创建 tokio runtime、获取远程信息、设置状态等，短时间内可能未完成
+  setTimeout(() => {
+    // 轮询期间每 500ms 检查一次下载状态
+    pollTimer = setInterval(async () => {
+      try {
+        const status = await tauriInvoke<any>('get_download_status');
+        if (status.is_downloading) {
+          const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
+          updateStore.updateProgress(progress);
           downloadInterrupted.value = false;
-          toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
-        } else if (status.downloaded > 0 || status.total > 0) {
-          // 下载中断（有部分进度但没有完成）
-          // 清除 downloading 状态，允许用户重新点击下载
-          updateStore.setDownloading(false, 0);
-          downloadInterrupted.value = true;
-        } else if (status.downloaded === 0 && status.total === 0) {
-          // 后端没有在下载，但前端显示在下载（可能是从 localStorage 恢复的状态），重置状态
-          if (downloading.value) {
+          downloadEverStarted = true;
+        } else {
+          // 下载完成或停止，停止轮询
+          if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
+            // 下载完成
             updateStore.clearState();
             downloadInterrupted.value = false;
-            toast.showError('下载已中断，请重新开始下载');
+            toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+          } else if (status.downloaded > 0 || status.total > 0) {
+            // 下载中断（有部分进度但没有完成）
+            // 清除 downloading 状态，允许用户重新点击下载
+            updateStore.setDownloading(false, 0);
+            downloadInterrupted.value = true;
+          } else if (status.downloaded === 0 && status.total === 0) {
+            // 后端没有在下载
+            if (downloadEverStarted) {
+              // 下载曾经开始但中断了
+              updateStore.setDownloading(false, 0);
+              downloadInterrupted.value = true;
+            } else if (downloading.value) {
+              // 下载从未开始，可能是后端下载失败（错误信息由 download_error 事件提供）
+              // 或状态不同步，此时不显示错误，让事件系统处理
+              updateStore.clearState();
+              downloadInterrupted.value = false;
+            }
           }
+          stopPolling();
         }
-        stopPolling();
+      } catch (e) {
+        console.error('Failed to get download status:', e);
       }
-    } catch (e) {
-      console.error('Failed to get download status:', e);
-    }
-  }, 500);
+    }, 500);
+  }, 1500);
 }
 
 function stopPolling() {
@@ -866,6 +900,7 @@ function stopPolling() {
 // 重新下载（断点续传）
 async function resumeDownload() {
   downloadInterrupted.value = false;
+  downloadEverStarted = false;
   // 先清除后端下载状态，避免"下载已在进行中"的错误
   try {
     await tauriInvoke('clear_download_status');
@@ -905,6 +940,47 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
   }
 }
 
+// 代理设置
+async function loadProxySetting() {
+  try {
+    // 优先从 Tauri 后端加载
+    if (isTauriEnv.value) {
+      const proxy = await tauriInvoke<string>('get_proxy_url');
+      if (proxy) {
+        proxyUrl.value = proxy;
+        return;
+      }
+    }
+    // 回退到数据库设置
+    const settings = await apiClient.getSettings(['update.proxy_url']);
+    const value = settings.find((s: { key: string; value: string }) => s.key === 'update.proxy_url')?.value;
+    if (value) {
+      proxyUrl.value = value;
+    }
+  } catch (e) {
+    console.error('Failed to load proxy setting:', e);
+  }
+}
+
+async function saveProxySetting() {
+  try {
+    await apiClient.updateSetting('update.proxy_url', proxyUrl.value);
+    // 同步到 Tauri 后端状态
+    if (isTauriEnv.value) {
+      await tauriInvoke('set_proxy_url', { url: proxyUrl.value });
+    }
+    toast.showSuccess('代理设置已保存，下次下载更新时生效');
+  } catch (e) {
+    console.error('Failed to save proxy setting:', e);
+    toast.showError('保存代理设置失败');
+  }
+}
+
+function clearProxySetting() {
+  proxyUrl.value = '';
+  saveProxySetting();
+}
+
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -912,8 +988,11 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
+  loadProxySetting();
   // 加载持久化的下载状态
   updateStore.loadState();
+  // 监听后端下载错误事件
+  setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件
   tauriInvoke<any>('get_download_status').then((status) => {
     if (status.is_downloading) {
@@ -956,6 +1035,30 @@ onUnmounted(() => {
     clearTimeout(clickTimer.value);
   }
   stopPolling();
+  if (unlistenDownloadError) {
+    unlistenDownloadError();
+  }
 });
+
+// 监听后端下载错误事件
+let unlistenDownloadError: (() => void) | null = null;
+function setupDownloadErrorListener() {
+  const win = window as any;
+  if (win.__TAURI__?.event?.listen) {
+    win.__TAURI__.event.listen('download_error', (event: any) => {
+      console.error('Download error from backend:', event.payload);
+      // 停止轮询
+      stopPolling();
+      // 清除下载状态
+      updateStore.clearState();
+      // 显示具体错误信息
+      toast.showError(`下载失败: ${event.payload}`);
+    }).then((unlisten: () => void) => {
+      unlistenDownloadError = unlisten;
+    }).catch((e: Error) => {
+      console.error('Failed to setup download error listener:', e);
+    });
+  }
+}
 </script>
 
