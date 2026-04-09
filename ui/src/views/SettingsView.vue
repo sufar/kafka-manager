@@ -452,7 +452,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.37');
+const appVersion = ref('1.0.38');
 
 // 日志相关
 const logs = ref('');
@@ -517,7 +517,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.37');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.38');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -863,6 +863,12 @@ function startPollingDownloadStatus() {
             updateStore.clearState();
             downloadInterrupted.value = false;
             toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+          } else if (status.downloaded > 0 && status.total === 0) {
+            // 下载完成但无法获取总大小（HEAD 请求未返回 content-length）
+            // 认为下载已完成，不显示中断状态
+            updateStore.clearState();
+            downloadInterrupted.value = false;
+            toast.showInfo(t.value.update.downloadComplete || '下载完成，安装包已打开');
           } else if (status.downloaded > 0 || status.total > 0) {
             // 下载中断（有部分进度但没有完成）
             // 清除 downloading 状态，允许用户重新点击下载

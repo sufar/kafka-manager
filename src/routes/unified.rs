@@ -4026,7 +4026,7 @@ async fn handle_settings_get(state: AppState, body: Value) -> Result<Value> {
 
 async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
     let key = get_string_param(&body, "key")?;
-    let value = get_string_param(&body, "value")?;
+    let value = body.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     SettingStore::set(state.db.inner(), &key, &value).await?;
 

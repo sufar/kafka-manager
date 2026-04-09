@@ -67,6 +67,94 @@ fn write_log(msg: &str) {
     }
 }
 
+/// 清理日志文件，只保留指定天数内的日志
+fn cleanup_log(max_days: u32) {
+    use chrono::NaiveDateTime;
+
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    if !log_path.exists() {
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&log_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let cutoff = chrono::Local::now()
+        .checked_sub_days(chrono::Days::new(max_days as u64))
+        .map(|dt| dt.naive_local())
+        .unwrap_or_else(|| chrono::Local::now().naive_local());
+
+    // 过滤出指定天数内的日志行
+    // 日志格式: [2026-04-09 12:00:00] message
+    let kept_lines: Vec<&str> = content.lines().filter(|line| {
+        if let Some(ts_start) = line.find('[') {
+            if let Some(ts_end) = line.find(']') {
+                if ts_end > ts_start {
+                    let ts_str = &line[ts_start + 1..ts_end];
+                    if let Ok(line_time) = NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S") {
+                        return line_time >= cutoff;
+                    }
+                }
+            }
+        }
+        // 无法解析日期的行也保留（可能是启动日志等）
+        true
+    }).collect();
+
+    let _ = std::fs::write(&log_path, kept_lines.join("\n"));
+    log(&format!("Log cleanup: kept {} lines, removed {} lines",
+        kept_lines.len(),
+        content.lines().count().saturating_sub(kept_lines.len())));
+}
+
+/// 启动时清理：只保留今天的日志
+fn cleanup_today_start() {
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    if !log_path.exists() {
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&log_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    // 只保留今天的日志（按日期前缀过滤）
+    let today_lines: Vec<&str> = content.lines()
+        .skip_while(|line| {
+            // 跳过日志开头直到遇到今天的第一条日志
+            !line.contains(&today_str)
+        })
+        .collect();
+
+    if today_lines.len() < content.lines().count() {
+        let _ = std::fs::write(&log_path, today_lines.join("\n"));
+        log(&format!("Startup log cleanup: today's lines={}, removed={} lines",
+            today_lines.len(),
+            content.lines().count().saturating_sub(today_lines.len())));
+    }
+}
+
+/// 启动定时日志清理任务（每小时检查，清理3天前的日志）
+fn spawn_periodic_log_cleanup() {
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+            cleanup_log(3);
+        }
+    });
+}
+
 /// 启动后端服务器
 async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     log("=========================================");
@@ -577,15 +665,14 @@ async fn fetch_signature_from_latest(
 /// 获取下载状态
 #[tauri::command]
 fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
-    log("get_download_status called");
     match app.try_state::<Arc<Mutex<DownloadState>>>() {
         Some(state) => {
             let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
             let mut result = guard.clone();
-            log(&format!("DownloadState from memory: downloaded={}, total={}, is_downloading={}", result.downloaded, result.total, result.is_downloading));
 
             // 如果状态中没有进度，但缓存目录中有文件，检查文件大小
-            if result.downloaded == 0 && result.total == 0 {
+            // 注意：只在之前有下载记录时才返回缓存文件信息，避免误报"下载已中断"
+            if result.downloaded == 0 && result.total == 0 && result.is_downloading {
                 log("Checking cache directory for downloaded files...");
                 let cache_dir = dirs::cache_dir()
                     .map(|d| d.join("kafka-manager"))
@@ -615,7 +702,6 @@ fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
                 }
             }
 
-            log(&format!("Returning DownloadState: downloaded={}, total={}", result.downloaded, result.total));
             Ok(result)
         }
         None => {
@@ -634,6 +720,8 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
         guard.downloaded = 0;
         guard.total = 0;
     }
+    // 注意：不清除缓存的下载文件，保留以便断点续传
+    // install_update() 会检查现有文件并自动续传
     Ok(())
 }
 
@@ -1168,11 +1256,17 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_proxy_url, get_proxy_url])
         .setup(|app| {
+            // 启动时清理今天之前的日志
+            cleanup_today_start();
+
             // 注册下载状态到 app state
             app.manage(Arc::new(Mutex::new(DownloadState::default())));
 
             // 注册代理 URL 到 app state
             app.manage(Arc::new(Mutex::new(String::new())));
+
+            // 启动定时日志清理任务（每小时清理3天前的日志）
+            spawn_periodic_log_cleanup();
 
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;
