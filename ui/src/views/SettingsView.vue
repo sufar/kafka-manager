@@ -28,7 +28,7 @@
       <!-- Settings Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
       <!-- Language Setting -->
-      <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
+      <div class="card glass gradient-border">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
@@ -48,7 +48,7 @@
       </div>
 
       <!-- Theme Setting -->
-      <div class="card glass gradient-border hover:glow-secondary transition-all duration-300">
+      <div class="card glass gradient-border">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
@@ -71,7 +71,7 @@
       </div>
 
       <!-- Sidebar Mode Setting -->
-      <div class="card glass gradient-border hover:glow-accent transition-all duration-300">
+      <div class="card glass gradient-border">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
@@ -131,7 +131,7 @@
             <span class="text-sm font-medium">{{ t.settings.currentVersion }}</span>
             <div class="flex items-center gap-2">
               <span
-                class="badge badge-primary font-mono cursor-pointer select-none transition-all duration-200 hover:scale-105 active:scale-95"
+                class="badge badge-primary font-mono cursor-pointer select-none"
                 :class="{ 'animate-pulse': clickCount > 0 && clickCount < 5 }"
                 @click="handleVersionClick"
                 title="点击查看版本历史"
@@ -200,7 +200,7 @@
       </div>
 
       <!-- Import/Export -->
-      <div class="card glass gradient-border hover:glow-secondary transition-all duration-300">
+      <div class="card glass gradient-border">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">

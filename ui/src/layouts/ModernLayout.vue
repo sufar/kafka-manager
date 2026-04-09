@@ -513,6 +513,7 @@ function handleOpenCreateClusterModal() {
 onMounted(async () => {
   themeStore.initTheme();
   languageStore.initLanguage();
+  await loadSidebarModeSetting();
   await clusterStore.fetchClusters();
 
   restorePreviousState();

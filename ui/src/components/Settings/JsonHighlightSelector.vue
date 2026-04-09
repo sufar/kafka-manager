@@ -1,5 +1,5 @@
 <template>
-  <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
+  <div class="card glass gradient-border">
     <div class="card-body p-3">
       <div class="flex items-center gap-2 mb-3">
         <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">

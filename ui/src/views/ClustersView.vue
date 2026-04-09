@@ -130,7 +130,7 @@
       <div
         v-for="cluster in filteredClusters"
         :key="cluster.id"
-        class="card glass gradient-border hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
+        class="card glass gradient-border"
       >
         <div class="flex items-center justify-between p-3 border-b border-base-content/10">
           <div class="flex items-center gap-2 min-w-0 flex-1">

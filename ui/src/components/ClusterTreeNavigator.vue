@@ -99,7 +99,7 @@
           class="relative"
         >
           <div
-            class="flex items-center p-2 rounded-xl cursor-pointer transition-all duration-300 hover:bg-primary/5 hover:shadow-md sticky top-0 z-30 bg-base-100/95 group overflow-visible"
+            class="flex items-center p-2 rounded-xl cursor-pointer hover:bg-primary/5 sticky top-0 z-30 bg-base-100/95 group overflow-visible"
             :class="{ 'bg-primary/10 shadow-inner': expandedClusters.has(cluster.name) }"
             @dblclick="toggleCluster(cluster.name)"
           >
