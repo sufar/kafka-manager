@@ -4832,40 +4832,40 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
-    // 检查是否正在刷新
-    let refresh_state = state.refresh_state.lock().unwrap();
-    if let Some(ref cluster) = cluster_id {
-        if refresh_state.refreshing_clusters.contains(cluster) {
-            return Err(AppError::BadRequest(format!(
-                "Cluster '{}' consumer groups are already being refreshed, please wait",
-                cluster
-            )));
-        }
-    } else {
-        // 刷新所有集群时，检查是否已有全局刷新任务在运行
-        if refresh_state.refreshing_all_consumer_groups {
-            return Err(AppError::BadRequest(
-                "All clusters consumer group refresh is already in progress, please wait".to_string(),
-            ));
+    // 检查是否正在刷新（使用作用域确保 MutexGuard 在 spawn 前完全释放）
+    {
+        let refresh_state = state.refresh_state.lock().unwrap();
+        if let Some(ref cluster) = cluster_id {
+            if refresh_state.refreshing_clusters.contains(cluster) {
+                return Err(AppError::BadRequest(format!(
+                    "Cluster '{}' consumer groups are already being refreshed, please wait",
+                    cluster
+                )));
+            }
+        } else {
+            if refresh_state.refreshing_all_consumer_groups {
+                return Err(AppError::BadRequest(
+                    "All clusters consumer group refresh is already in progress, please wait".to_string(),
+                ));
+            }
         }
     }
-    drop(refresh_state);
 
-    // 立即返回成功，后台异步同步
+    // 同步等待刷新完成（使用 mpsc channel）
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
         if let Some(cluster_id) = cluster_id {
-            // 刷新指定集群
             refresh_single_consumer_group(state, cluster_id).await;
         } else {
-            // 刷新所有集群
             refresh_all_consumer_groups(state).await;
         }
+        let _ = tx.send(()).await;
     });
+    let _ = rx.recv().await;
 
-    // 立即返回成功
     Ok(serde_json::json!({
         "success": true,
-        "message": "Consumer group refresh started in background",
+        "message": "Consumer group refresh completed",
     }))
 }
 
@@ -4918,48 +4918,68 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         }
     }
 
-    // 在阻塞线程中执行 Kafka 操作
+    // 步骤 1: 在阻塞线程中获取所有 consumer group 列表
     let cg_manager_clone = cg_manager.clone();
-    let topics_map_clone = topics_map.clone();
     let cluster_id_clone = cluster_id.clone();
-    let spawn_result = tokio::task::spawn_blocking(move || {
-        let current_groups = match cg_manager_clone.list_consumer_groups() {
-            Ok(groups) => groups,
-            Err(e) => {
-                tracing::warn!("Failed to list consumer groups for {}: {}", cluster_id_clone, e);
-                return Err(AppError::Internal(format!("Failed to list consumer groups: {}", e)));
-            }
-        };
-
-        let mut group_details: Vec<(String, Vec<String>)> = Vec::with_capacity(current_groups.len());
-        for group in &current_groups {
-            if let Some(cached_topics) = topics_map_clone.get(group) {
-                group_details.push((group.clone(), cached_topics.clone()));
-            } else {
-                match cg_manager_clone.get_consumer_group_topics(group) {
-                    Ok(topics) => {
-                        group_details.push((group.clone(), topics));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to get topics for group '{}': {}", group, e);
-                        group_details.push((group.clone(), vec![]));
-                    }
-                }
-            }
-        }
-
-        Ok((current_groups, group_details))
+    let current_groups = match tokio::task::spawn_blocking(move || {
+        cg_manager_clone.list_consumer_groups()
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Task failed: {}", e)));
-
-    let (current_groups, group_details) = match spawn_result {
-        Ok(Ok(data)) => data,
-        Ok(Err(e)) | Err(e) => {
-            tracing::error!("Failed to refresh consumer groups for {}: {}", cluster_id, e);
+    {
+        Ok(Ok(groups)) => groups,
+        Ok(Err(e)) => {
+            tracing::warn!("Failed to list consumer groups for {}: {}", cluster_id_clone, e);
+            return;
+        }
+        Err(e) => {
+            tracing::error!("Failed to list consumer groups for {}: {}", cluster_id, e);
             return;
         }
     };
+
+    // 步骤 2: 分离已有缓存和需要查询 Kafka 的 groups
+    let groups_to_query: Vec<String> = current_groups
+        .iter()
+        .filter(|g| !topics_map.contains_key(g.as_str()))
+        .cloned()
+        .collect();
+
+    // 已有缓存的 groups 直接使用
+    let mut group_details: Vec<(String, Vec<String>)> = Vec::with_capacity(current_groups.len());
+    for group in &current_groups {
+        if let Some(cached_topics) = topics_map.get(group) {
+            group_details.push((group.clone(), cached_topics.clone()));
+        }
+    }
+
+    // 步骤 3: 并行查询每个 group 的 topics
+    let topic_futures: Vec<_> = groups_to_query
+        .iter()
+        .map(|group| {
+            let cg = cg_manager.clone();
+            let group = group.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = cg.get_consumer_group_topics(&group);
+                (group, result)
+            })
+        })
+        .collect();
+
+    // 等待所有并行查询完成
+    for future in topic_futures {
+        match future.await {
+            Ok((group, Ok(topics))) => {
+                group_details.push((group, topics));
+            }
+            Ok((group, Err(e))) => {
+                tracing::warn!("Failed to get topics for group '{}': {}", group, e);
+                group_details.push((group, vec![]));
+            }
+            Err(e) => {
+                tracing::error!("Task failed for getting topics: {}", e);
+            }
+        }
+    }
 
     // 同步到数据库
     if let Err(e) = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &current_groups).await {
