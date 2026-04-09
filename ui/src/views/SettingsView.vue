@@ -177,6 +177,25 @@
             </div>
             <progress class="progress progress-primary w-32" :value="downloadProgress" max="100"></progress>
           </div>
+          <!-- 代理设置 -->
+          <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">代理服务器</span>
+              <span class="text-xs text-base-content/60">用于下载更新（支持 http(s):// 或 socks5://）</span>
+            </div>
+            <div class="flex gap-2">
+              <input
+                v-model="proxyUrl"
+                type="text"
+                class="input input-sm input-bordered flex-1"
+                placeholder="例如 http://127.0.0.1:7890"
+                @change="saveProxySetting"
+              />
+              <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
+                清除
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -448,6 +467,9 @@ const showUpdateModal = ref(false);
 const checking = ref(false);
 const installing = ref(false);
 const downloadInterrupted = ref(false);
+
+// 代理设置
+const proxyUrl = ref('');
 
 // 使用 store 中的下载状态（持久化）
 const { downloading, downloadProgress } = storeToRefs(updateStore);
@@ -917,6 +939,34 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
   }
 }
 
+// 代理设置
+async function loadProxySetting() {
+  try {
+    const settings = await apiClient.getSettings(['update.proxy_url']);
+    const value = settings.find((s: { key: string; value: string }) => s.key === 'update.proxy_url')?.value;
+    if (value) {
+      proxyUrl.value = value;
+    }
+  } catch (e) {
+    console.error('Failed to load proxy setting:', e);
+  }
+}
+
+async function saveProxySetting() {
+  try {
+    await apiClient.updateSetting('update.proxy_url', proxyUrl.value);
+    toast.showSuccess('代理设置已保存，下次下载更新时生效');
+  } catch (e) {
+    console.error('Failed to save proxy setting:', e);
+    toast.showError('保存代理设置失败');
+  }
+}
+
+function clearProxySetting() {
+  proxyUrl.value = '';
+  saveProxySetting();
+}
+
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -924,6 +974,7 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
+  loadProxySetting();
   // 加载持久化的下载状态
   updateStore.loadState();
   // 检查后端是否有下载状态或缓存文件
