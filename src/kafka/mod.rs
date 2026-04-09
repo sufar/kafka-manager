@@ -19,6 +19,19 @@ use crate::error::AppError;
 use rdkafka::ClientConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+
+/// 全局代理 URL 存储（用于 HTTP 请求，如更新下载、Schema Registry 等）
+pub static GLOBAL_PROXY_URL: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_global_proxy(url: String) {
+    let mut proxy = GLOBAL_PROXY_URL.lock().unwrap();
+    *proxy = if url.is_empty() { None } else { Some(url) };
+}
+
+pub fn get_global_proxy() -> Option<String> {
+    GLOBAL_PROXY_URL.lock().unwrap().clone()
+}
 
 pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
     let mut client_config = ClientConfig::new();

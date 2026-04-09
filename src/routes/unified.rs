@@ -601,6 +601,8 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "app.version" => handle_app_version().await,
         "app.logs" => handle_app_logs().await,
         "app.logs.clear" => handle_app_logs_clear().await,
+        "app.proxy.get" => handle_proxy_get().await,
+        "app.proxy.set" => handle_proxy_set(body).await,
 
         // JSON Highlight Templates
         "json_highlight.list" => handle_json_highlight_list(state).await,
@@ -739,6 +741,17 @@ async fn handle_app_logs_clear() -> Result<Value> {
     Ok(serde_json::json!({
         "success": true
     }))
+}
+
+async fn handle_proxy_get() -> Result<Value> {
+    let proxy_url = crate::kafka::get_global_proxy().unwrap_or_default();
+    Ok(serde_json::json!({ "proxy_url": proxy_url }))
+}
+
+async fn handle_proxy_set(body: serde_json::Value) -> Result<Value> {
+    let proxy_url = body["proxy_url"].as_str().unwrap_or("").to_string();
+    crate::kafka::set_global_proxy(proxy_url.clone());
+    Ok(serde_json::json!({ "proxy_url": proxy_url }))
 }
 
 // ==================== Cluster ====================

@@ -180,15 +180,15 @@
           <!-- 代理设置 -->
           <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
             <div class="flex items-center justify-between">
-              <span class="text-sm font-medium">代理服务器</span>
-              <span class="text-xs text-base-content/60">用于下载更新（支持 http(s):// 或 socks5://）</span>
+              <span class="text-sm font-medium">HTTP 代理</span>
+              <span class="text-xs text-base-content/60">用于 Schema Registry 和更新下载</span>
             </div>
             <div class="flex gap-2">
               <input
                 v-model="proxyUrl"
                 type="text"
                 class="input input-sm input-bordered flex-1"
-                placeholder="例如 http://127.0.0.1:7890"
+                placeholder="例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
                 @change="saveProxySetting"
               />
               <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
@@ -942,6 +942,16 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
 // 代理设置
 async function loadProxySetting() {
   try {
+    if (isTauriEnv.value) {
+      // Tauri 环境：先从后端获取代理设置
+      const proxy = await tauriInvoke<string>('get_proxy_url');
+      if (proxy) {
+        proxyUrl.value = proxy;
+        return;
+      }
+      // 回退到数据库设置
+    }
+    // 非 Tauri 环境或 Tauri 后端无设置：从 API 加载
     const settings = await apiClient.getSettings(['update.proxy_url']);
     const value = settings.find((s: { key: string; value: string }) => s.key === 'update.proxy_url')?.value;
     if (value) {
@@ -955,7 +965,21 @@ async function loadProxySetting() {
 async function saveProxySetting() {
   try {
     await apiClient.updateSetting('update.proxy_url', proxyUrl.value);
-    toast.showSuccess('代理设置已保存，下次下载更新时生效');
+    // 通知后端设置全局代理（热更新）
+    if (isTauriEnv.value) {
+      await tauriInvoke('set_proxy_url', { url: proxyUrl.value });
+    } else {
+      // 非 Tauri 环境通过 HTTP 通知
+      await fetch('http://localhost:9732/api', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Method': 'app.proxy.set',
+        },
+        body: JSON.stringify({ proxy_url: proxyUrl.value }),
+      });
+    }
+    toast.showSuccess('代理设置已保存，立即生效');
   } catch (e) {
     console.error('Failed to save proxy setting:', e);
     toast.showError('保存代理设置失败');
