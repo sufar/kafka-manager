@@ -1012,9 +1012,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             #[cfg(target_os = "windows")]
             {
                 log("Opening MSI/EXE file...");
+                let path_str = download_path.to_str().unwrap_or("");
+                // start 的第一个引号参数是窗口标题，需要传空标题 "" 后跟真实路径
                 std::process::Command::new("cmd")
-                    .args(["/c", "start", download_path.to_str().unwrap_or("")])
+                    .raw_arg("/c")
+                    .raw_arg("start")
+                    .raw_arg("\"\"")
+                    .raw_arg(&format!("\"{}\"", path_str))
                     .spawn()
+                    .map_err(|e| {
+                        log(&format!("Failed to open installer: {}", e));
+                        e.to_string()
+                    })
                     .ok();
 
                 app_handle.dialog()
