@@ -1001,6 +1001,8 @@ onMounted(() => {
   loadProxySetting();
   // 加载持久化的下载状态
   updateStore.loadState();
+  // 监听后端下载错误事件
+  setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件
   tauriInvoke<any>('get_download_status').then((status) => {
     if (status.is_downloading) {
@@ -1043,6 +1045,33 @@ onUnmounted(() => {
     clearTimeout(clickTimer.value);
   }
   stopPolling();
+  if (unlistenDownloadError) {
+    unlistenDownloadError();
+  }
 });
+
+// 监听后端下载错误事件
+let unlistenDownloadError: (() => void) | null = null;
+function setupDownloadErrorListener() {
+  const win = window as any;
+  // Tauri v2 global event API check
+  if (win.__TAURI__ && win.__TAURI__.event && typeof win.__TAURI__.event.listen === 'function') {
+    try {
+      win.__TAURI__.event.listen('download_error', (event: any) => {
+        console.error('Download error from backend:', event.payload);
+        stopPolling();
+        updateStore.clearState();
+        const msg = typeof event.payload === 'string' ? event.payload : '未知错误';
+        toast.showError(`下载失败: ${msg}`);
+      }).then((unlisten: () => void) => {
+        unlistenDownloadError = unlisten;
+      }).catch((e: Error) => {
+        console.error('Failed to setup download error listener:', e);
+      });
+    } catch (e) {
+      console.error('Error setting up download error listener:', e);
+    }
+  }
+}
 </script>
 

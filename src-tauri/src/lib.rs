@@ -18,6 +18,7 @@ use kafka_manager_api::{
     AppState, create_router,
 };
 use tauri::Manager;
+use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 
@@ -641,15 +642,21 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
 fn set_proxy_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
         let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        *guard = url;
-        log(&format!("Proxy URL set to: {}", guard));
+        *guard = url.clone();
+        log(&format!("Proxy URL set to: {}", url));
     }
+    // 同步到全局代理（用于 Kafka 连接等）
+    kafka_manager_api::kafka::set_global_proxy(url);
     Ok(())
 }
 
 /// 获取代理 URL
 #[tauri::command]
 fn get_proxy_url(app: tauri::AppHandle) -> Result<String, String> {
+    // 优先从全局代理读取
+    if let Some(url) = kafka_manager_api::kafka::get_global_proxy() {
+        return Ok(url);
+    }
     if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
         let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
         Ok(guard.clone())
@@ -967,9 +974,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             ).await {
                 Ok(skipped) => skipped,
                 Err(e) => {
-                    log(&format!("Download error: {}", e));
-                    let mut guard = state.lock().expect("Lock error");
-                    guard.is_downloading = false;
+                    let error_msg = e.clone();
+                    log(&format!("Download error: {}", error_msg));
+                    {
+                        let mut guard = state.lock().expect("Lock error");
+                        guard.is_downloading = false;
+                    }
+                    // 向前端发送错误事件
+                    let _ = app_handle.emit("download_error", error_msg);
                     return;
                 }
             };
