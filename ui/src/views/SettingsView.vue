@@ -169,25 +169,6 @@
               </button>
             </div>
           </div>
-          <!-- 代理设置 -->
-          <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium">代理服务器</span>
-              <span class="text-xs text-base-content/60">用于下载更新（支持 http(s):// 或 socks5://）</span>
-            </div>
-            <div class="flex gap-2">
-              <input
-                v-model="proxyUrl"
-                type="text"
-                class="input input-sm input-bordered flex-1"
-                placeholder="例如 http://127.0.0.1:7890"
-                @change="saveProxySetting"
-              />
-              <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
-                清除
-              </button>
-            </div>
-          </div>
           <!-- 后台下载进度 -->
           <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
             <div class="flex items-center gap-2 flex-1">
@@ -467,9 +448,6 @@ const showUpdateModal = ref(false);
 const checking = ref(false);
 const installing = ref(false);
 const downloadInterrupted = ref(false);
-
-// 代理设置
-const proxyUrl = ref('');
 
 // 使用 store 中的下载状态（持久化）
 const { downloading, downloadProgress } = storeToRefs(updateStore);
@@ -875,8 +853,7 @@ function startPollingDownloadStatus() {
               updateStore.setDownloading(false, 0);
               downloadInterrupted.value = true;
             } else if (downloading.value) {
-              // 下载从未开始，可能是后端下载失败（错误信息由 download_error 事件提供）
-              // 或状态不同步，此时不显示错误，让事件系统处理
+              // 下载从未开始，可能是后端初始化失败或状态不同步
               updateStore.clearState();
               downloadInterrupted.value = false;
             }
@@ -940,47 +917,6 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
   }
 }
 
-// 代理设置
-async function loadProxySetting() {
-  try {
-    // 优先从 Tauri 后端加载
-    if (isTauriEnv.value) {
-      const proxy = await tauriInvoke<string>('get_proxy_url');
-      if (proxy) {
-        proxyUrl.value = proxy;
-        return;
-      }
-    }
-    // 回退到数据库设置
-    const settings = await apiClient.getSettings(['update.proxy_url']);
-    const value = settings.find((s: { key: string; value: string }) => s.key === 'update.proxy_url')?.value;
-    if (value) {
-      proxyUrl.value = value;
-    }
-  } catch (e) {
-    console.error('Failed to load proxy setting:', e);
-  }
-}
-
-async function saveProxySetting() {
-  try {
-    await apiClient.updateSetting('update.proxy_url', proxyUrl.value);
-    // 同步到 Tauri 后端状态
-    if (isTauriEnv.value) {
-      await tauriInvoke('set_proxy_url', { url: proxyUrl.value });
-    }
-    toast.showSuccess('代理设置已保存，下次下载更新时生效');
-  } catch (e) {
-    console.error('Failed to save proxy setting:', e);
-    toast.showError('保存代理设置失败');
-  }
-}
-
-function clearProxySetting() {
-  proxyUrl.value = '';
-  saveProxySetting();
-}
-
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -988,11 +924,8 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
-  loadProxySetting();
   // 加载持久化的下载状态
   updateStore.loadState();
-  // 监听后端下载错误事件
-  setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件
   tauriInvoke<any>('get_download_status').then((status) => {
     if (status.is_downloading) {
@@ -1035,30 +968,6 @@ onUnmounted(() => {
     clearTimeout(clickTimer.value);
   }
   stopPolling();
-  if (unlistenDownloadError) {
-    unlistenDownloadError();
-  }
 });
-
-// 监听后端下载错误事件
-let unlistenDownloadError: (() => void) | null = null;
-function setupDownloadErrorListener() {
-  const win = window as any;
-  if (win.__TAURI__?.event?.listen) {
-    win.__TAURI__.event.listen('download_error', (event: any) => {
-      console.error('Download error from backend:', event.payload);
-      // 停止轮询
-      stopPolling();
-      // 清除下载状态
-      updateStore.clearState();
-      // 显示具体错误信息
-      toast.showError(`下载失败: ${event.payload}`);
-    }).then((unlisten: () => void) => {
-      unlistenDownloadError = unlisten;
-    }).catch((e: Error) => {
-      console.error('Failed to setup download error listener:', e);
-    });
-  }
-}
 </script>
 

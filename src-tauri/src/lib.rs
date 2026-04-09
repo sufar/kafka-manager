@@ -18,7 +18,6 @@ use kafka_manager_api::{
     AppState, create_router,
 };
 use tauri::Manager;
-use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 
@@ -50,42 +49,6 @@ impl Default for DownloadState {
 fn log(msg: &str) {
     eprintln!("[KAFKA-MANAGER] {}", msg);
     write_log(msg);
-}
-
-/// 创建带代理的 HTTP 客户端（仅用于更新下载相关请求）
-/// 支持从环境变量 HTTPS_PROXY / HTTP_PROXY 读取代理地址
-/// 也支持通过参数传入自定义代理 URL（从 Tauri 状态获取）
-fn create_update_client(custom_proxy: Option<&str>) -> reqwest::Client {
-    let mut builder = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(30))
-        .use_rustls_tls();
-
-    // 优先使用传入的自定义代理 URL
-    let proxy_url = custom_proxy
-        .filter(|u| !u.is_empty())
-        .map(|u| u.to_string())
-        .or_else(|| std::env::var("HTTPS_PROXY").ok().filter(|u| !u.is_empty()))
-        .or_else(|| std::env::var("HTTP_PROXY").ok().filter(|u| !u.is_empty()));
-
-    if let Some(url) = proxy_url {
-        match reqwest::Proxy::all(&url) {
-            Ok(proxy) => {
-                builder = builder.proxy(proxy);
-                log(&format!("Using proxy: {}", url));
-            }
-            Err(e) => {
-                log(&format!("Invalid proxy URL: {}", e));
-            }
-        }
-    } else {
-        log("No proxy configured, using direct connection");
-    }
-
-    builder.build().unwrap_or_else(|_| {
-        log("Falling back to default HTTP client");
-        reqwest::Client::new()
-    })
 }
 
 /// 写入日志到文件
@@ -673,28 +636,6 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 设置代理 URL
-#[tauri::command]
-fn set_proxy_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        *guard = url;
-        log(&format!("Proxy URL set to: {}", guard));
-    }
-    Ok(())
-}
-
-/// 获取代理 URL
-#[tauri::command]
-fn get_proxy_url(app: tauri::AppHandle) -> Result<String, String> {
-    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        Ok(guard.clone())
-    } else {
-        Ok(String::new())
-    }
-}
-
 /// 后台下载函数（使用状态对象而不是 Channel）
 async fn download_with_resume_background(
     client: &reqwest::Client,
@@ -881,18 +822,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
     log(&format!("Cache directory: {:?}", cache_dir));
 
-    // 读取代理设置
-    let proxy_url = if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        state.lock().map(|g| g.clone()).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    // 使用带代理的 HTTP 客户端
-    let client = create_update_client(if proxy_url.is_empty() { None } else { Some(&proxy_url) });
-
     // 从 GitHub API 获取最新版本信息
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
+    let client = reqwest::Client::new();
 
     let response = client
         .get(api_url)
@@ -1013,14 +945,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             ).await {
                 Ok(skipped) => skipped,
                 Err(e) => {
-                    let error_msg = e.clone();
-                    log(&format!("Download error: {}", error_msg));
-                    {
-                        let mut guard = state.lock().expect("Lock error");
-                        guard.is_downloading = false;
-                    }
-                    // 向前端发送错误事件
-                    let _ = app_handle.emit("download_error", &error_msg);
+                    log(&format!("Download error: {}", e));
+                    let mut guard = state.lock().expect("Lock error");
+                    guard.is_downloading = false;
                     return;
                 }
             };
@@ -1205,13 +1132,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_proxy_url, get_proxy_url])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
         .setup(|app| {
             // 注册下载状态到 app state
             app.manage(Arc::new(Mutex::new(DownloadState::default())));
-
-            // 注册代理 URL 到 app state
-            app.manage(Arc::new(Mutex::new(String::new())));
 
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;
