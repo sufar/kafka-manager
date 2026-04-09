@@ -228,8 +228,12 @@
           v-slot="{ item }"
         >
           <div
-            class="flex items-center px-2 py-0.5 hover:bg-base-200/50 transition-colors border-b border-base-200/30 cursor-pointer w-full"
-            :class="{ 'bg-primary/30 border-l-2 border-l-primary shadow-sm': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
+            class="flex items-center px-2 py-0.5 transition-colors border-b border-base-200/30 cursor-pointer w-full"
+            :class="[
+              selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item)
+                ? 'bg-primary/30 border-l-2 border-l-primary shadow-sm'
+                : 'hover:bg-base-200/50'
+            ]"
             style="height: 24px;"
             @click="selectedMessage = (item as any)"
           >
@@ -271,7 +275,7 @@
         >
           <div
             class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-0 cursor-pointer"
-            :class="{ 'border-l-2 border-l-primary shadow-primary/30 ring-1 ring-primary/20': selectedMessage?.partition === getMsgPartition(item) && selectedMessage?.offset === getMsgOffset(item) }"
+            :class="{ 'border-l-2 border-l-primary shadow-primary/30 ring-1 ring-primary/20': selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item) }"
             @click="selectedMessage = (item as any)"
           >
             <div class="flex items-center justify-between mb-1">
