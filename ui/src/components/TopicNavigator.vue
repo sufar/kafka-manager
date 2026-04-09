@@ -218,26 +218,6 @@
     <div v-show="!showHistory" class="flex-shrink-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
-          <!-- Load More Button (Topics only) -->
-          <button
-            v-if="currentView === 'topics' && hasMore"
-            class="btn btn-ghost btn-xs text-primary"
-            :disabled="loadingMore"
-            @click="loadMoreTopics"
-          >
-            <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
-            加载更多
-          </button>
-          <!-- Load More Button (Consumer Groups only) -->
-          <button
-            v-if="currentView === 'consumer-groups' && hasMoreGroups"
-            class="btn btn-ghost btn-xs text-primary"
-            :disabled="loadingMore"
-            @click="loadMoreConsumerGroups"
-          >
-            <span v-if="loadingMore" class="loading loading-spinner loading-xs"></span>
-            加载更多
-          </button>
           <span class="text-xs">Cluster:</span>
           <!-- Advanced Cluster Selector -->
           <div class="relative">
