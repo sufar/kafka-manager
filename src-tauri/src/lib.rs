@@ -31,6 +31,8 @@ pub struct DownloadState {
     pub download_url: String,
     pub filename: String,
     pub download_path: Option<PathBuf>,
+    #[serde(skip)]
+    pub cancel_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for DownloadState {
@@ -42,6 +44,7 @@ impl Default for DownloadState {
             download_url: String::new(),
             filename: String::new(),
             download_path: None,
+            cancel_requested: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }
@@ -147,9 +150,9 @@ fn cleanup_today_start() {
 
 /// 启动定时日志清理任务（每小时检查，清理3天前的日志）
 fn spawn_periodic_log_cleanup() {
-    tokio::spawn(async {
+    std::thread::spawn(|| {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+            std::thread::sleep(Duration::from_secs(3600));
             cleanup_log(3);
         }
     });
@@ -427,40 +430,9 @@ pub struct UpdateResult {
     pub date: Option<String>,
 }
 
-/// 创建带代理的 HTTP 客户端（连接超时 5 秒，请求超时 10 秒）
-fn build_http_client(proxy_url: &str) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(10));
-
-    if !proxy_url.is_empty() {
-        log(&format!("Using proxy: {}", proxy_url));
-        let proxy = reqwest::Proxy::all(proxy_url)
-            .map_err(|e| format!("创建代理失败：{}", e))?;
-        builder = builder.proxy(proxy);
-    }
-
-    builder
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))
-}
-
-/// 获取用户设置的代理 URL
-fn get_proxy_from_state(app: &tauri::AppHandle) -> String {
-    if let Some(url) = kafka_manager_api::kafka::get_global_proxy() {
-        return url;
-    }
-    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        if let Ok(guard) = state.lock() {
-            return guard.clone();
-        }
-    }
-    String::new()
-}
-
 /// 检查更新 - 直接使用 GitHub API
 #[tauri::command]
-async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateResult, String> {
+async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, String> {
     log("=========================================");
     log("Checking for updates via GitHub API...");
 
@@ -482,8 +454,11 @@ async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateResult, String
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
     log(&format!("Fetching: {}", api_url));
 
-    let proxy_url = get_proxy_from_state(&app);
-    let client = build_http_client(&proxy_url)?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))?;
 
     let response = client
         .get(api_url)
@@ -697,34 +672,20 @@ fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
             let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
             let mut result = guard.clone();
 
-            // 如果状态中没有进度，但缓存目录中有文件，检查文件大小
-            // 注意：只在之前有下载记录时才返回缓存文件信息，避免误报"下载已中断"
-            if result.downloaded == 0 && result.total == 0 && result.is_downloading {
-                log("Checking cache directory for downloaded files...");
+            // 如果状态中没有进度，但缓存目录中有当前下载的文件，检查文件大小
+            // 注意：只检查当前正在下载的文件名，避免匹配到旧版本的缓存文件
+            if result.downloaded == 0 && result.total == 0 && result.is_downloading && !result.filename.is_empty() {
                 let cache_dir = dirs::cache_dir()
                     .map(|d| d.join("kafka-manager"))
                     .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
 
-                // 查找缓存的 DMG 文件
-                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-                    for entry in entries.flatten() {
-                        let name = entry.file_name();
-                        let name_str = name.to_string_lossy();
-                        if name_str.ends_with(".dmg") || name_str.ends_with(".AppImage") || name_str.ends_with(".msi") {
-                            if let Ok(meta) = entry.metadata() {
-                                let file_size = meta.len();
-                                if file_size > 0 {
-                                    // 找到缓存文件，返回文件大小
-                                    result.downloaded = file_size;
-                                    // 假设完整大小约 30MB（实际会在重新下载时获取）
-                                    result.total = 30 * 1024 * 1024;
-                                    result.filename = name_str.to_string();
-                                    result.download_path = Some(entry.path());
-                                    log(&format!("Found cached file: {} ({} bytes)", name_str, file_size));
-                                    break;
-                                }
-                            }
-                        }
+                let target_path = cache_dir.join(&result.filename);
+                if let Ok(meta) = std::fs::metadata(&target_path) {
+                    let file_size = meta.len();
+                    if file_size > 0 {
+                        result.downloaded = file_size;
+                        result.total = std::cmp::max(result.total, file_size);
+                        result.download_path = Some(target_path);
                     }
                 }
             }
@@ -732,7 +693,6 @@ fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
             Ok(result)
         }
         None => {
-            log("DownloadState not found, returning default");
             Ok(DownloadState::default())
         }
     }
@@ -743,6 +703,7 @@ fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
 fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
         let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        guard.cancel_requested.store(true, std::sync::atomic::Ordering::Relaxed);
         guard.is_downloading = false;
         guard.downloaded = 0;
         guard.total = 0;
@@ -750,34 +711,6 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
     // 注意：不清除缓存的下载文件，保留以便断点续传
     // install_update() 会检查现有文件并自动续传
     Ok(())
-}
-
-/// 设置代理 URL
-#[tauri::command]
-fn set_proxy_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        *guard = url.clone();
-        log(&format!("Proxy URL set to: {}", url));
-    }
-    // 同步到全局代理（用于 Kafka 连接等）
-    kafka_manager_api::kafka::set_global_proxy(url);
-    Ok(())
-}
-
-/// 获取代理 URL
-#[tauri::command]
-fn get_proxy_url(app: tauri::AppHandle) -> Result<String, String> {
-    // 优先从全局代理读取
-    if let Some(url) = kafka_manager_api::kafka::get_global_proxy() {
-        return Ok(url);
-    }
-    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
-        let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        Ok(guard.clone())
-    } else {
-        Ok(String::new())
-    }
 }
 
 /// 后台下载函数（使用状态对象而不是 Channel）
@@ -809,6 +742,7 @@ async fn download_with_resume_background(
                 log("Existing file signature verified, skipping download");
                 {
                     let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+                    guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
                     guard.downloaded = existing_size;
                     guard.total = existing_size;
                     guard.is_downloading = false;
@@ -892,6 +826,12 @@ async fn download_with_resume_background(
     let mut last_logged_downloaded: u64 = 0;
 
     while let Some(chunk) = stream.next().await {
+        // 检查取消请求
+        if state.lock().map_or(false, |g| g.cancel_requested.load(std::sync::atomic::Ordering::Relaxed)) {
+            log("Download cancelled");
+            return Err("下载已取消".to_string());
+        }
+
         let chunk = chunk.map_err(|e| format!("下载流错误：{}", e))?;
         file.write_all(&chunk).map_err(|e| format!("写入文件失败：{}", e))?;
         downloaded += chunk.len() as u64;
@@ -947,12 +887,13 @@ fn format_size(bytes: u64) -> String {
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     log("Downloading and installing update with signature verification...");
 
-    // 检查是否已在下载
+    // 检查是否已在下载，如果是则取消旧下载
     {
         let state = app.state::<Arc<Mutex<DownloadState>>>();
         let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
         if guard.is_downloading {
-            return Err("下载已在进行中".to_string());
+            log("Cancelling existing download to start a new one");
+            guard.cancel_requested.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -969,8 +910,11 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     // 从 GitHub API 获取最新版本信息
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
 
-    let proxy_url = get_proxy_from_state(&app);
-    let client = build_http_client(&proxy_url)?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))?;
 
     let response = client
         .get(api_url)
@@ -1036,9 +980,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     log(&format!("Download URL: {}", download_url));
     log(&format!("Filename: {}", filename));
 
-    // 获取签名信息
-    let expected_signature = fetch_signature_from_latest(&client, tag_name, target).await
-        .unwrap_or_default();
+    // 获取签名信息（使用独立 client，不走代理，超时 5 秒）
+    let sig_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("创建签名请求客户端失败：{}", e))?;
+    let expected_signature = match fetch_signature_from_latest(&sig_client, tag_name, target).await {
+        Ok(sig) => sig,
+        Err(e) => {
+            log(&format!("Warning: signature fetch skipped (will skip verification): {}", e));
+            String::new()
+        }
+    };
 
     // 检查缓存的签名
     let cached_signature = read_cached_signature(&cache_dir, &filename);
@@ -1056,23 +1009,37 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         0
     };
 
-    // 先获取文件总大小，再初始化下载状态（避免前端轮询时 total 为 0）
-    let head_response = client
+    // 为下载创建一个独立的 client（无代理、无超时限制）
+    let download_client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| format!("创建下载客户端失败：{}", e))?;
+
+    // 获取文件总大小（使用独立 client，不走代理）
+    let head_response = download_client
         .get(&download_url)
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("获取文件信息失败：{}", e))?;
+        .map_err(|e| {
+            // 如果 HEAD 请求失败，确保清理下载状态
+            if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+                if let Ok(mut guard) = state.lock() {
+                    guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                    guard.is_downloading = false;
+                }
+            }
+            format!("获取文件信息失败：{}", e)
+        })?;
 
     let total_size = head_response.content_length().unwrap_or(0);
     log(&format!("Remote file size: {} bytes", total_size));
 
-    // 初始化下载状态
+    // 获取文件大小成功后，立即标记为下载中（避免并发下载）
     {
         let state = app.state::<Arc<Mutex<DownloadState>>>();
         let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
         guard.is_downloading = true;
-        guard.downloaded = existing_size; // 保留已下载大小，支持断点续传
+        guard.downloaded = existing_size;
         guard.total = total_size;
         guard.download_url = download_url.clone();
         guard.filename = filename.clone();
@@ -1085,6 +1052,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     // 克隆状态和 app 用于后台线程
     let state = app.state::<Arc<Mutex<DownloadState>>>().inner().clone();
     let app_handle = app.clone();
+    let download_client = download_client.clone();
 
     // 在独立线程中执行下载，不依赖前端生命周期
     std::thread::spawn(move || {
@@ -1094,7 +1062,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
             // 执行下载（带断点续传，使用状态对象更新进度）
             let skipped = match download_with_resume_background(
-                &client,
+                &download_client,
                 &download_url,
                 &download_path,
                 &expected_signature,
@@ -1107,6 +1075,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     log(&format!("Download error: {}", error_msg));
                     {
                         let mut guard = state.lock().expect("Lock error");
+                        guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
                         guard.is_downloading = false;
                     }
                     // 向前端发送错误事件
@@ -1118,6 +1087,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             // 下载完成，更新状态
             {
                 let mut guard = state.lock().expect("Lock error");
+                guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
                 guard.is_downloading = false;
             }
 
@@ -1295,16 +1265,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_proxy_url, get_proxy_url])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
         .setup(|app| {
             // 启动时清理今天之前的日志
             cleanup_today_start();
 
             // 注册下载状态到 app state
             app.manage(Arc::new(Mutex::new(DownloadState::default())));
-
-            // 注册代理 URL 到 app state
-            app.manage(Arc::new(Mutex::new(String::new())));
 
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();

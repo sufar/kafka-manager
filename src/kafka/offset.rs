@@ -28,7 +28,6 @@ impl KafkaOffsetManager {
         client_config.set("enable.auto.commit", "false");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -236,7 +235,6 @@ impl KafkaOffsetManager {
         temp_config.set("enable.auto.commit", "false");
         temp_config.set("auto.offset.reset", "earliest");
         temp_config.set("broker.address.family", "v4");
-        crate::kafka::apply_proxy_if_socks(&mut temp_config);
 
         let temp_consumer: BaseConsumer<DefaultConsumerContext> =
             temp_config.create().ok()?;
@@ -263,7 +261,6 @@ impl KafkaOffsetManager {
         client_config.set("group.id", group_id);
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -348,7 +345,6 @@ impl KafkaOffsetManager {
         client_config.set("enable.auto.commit", "false");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()

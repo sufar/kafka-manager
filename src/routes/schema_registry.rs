@@ -98,7 +98,7 @@ pub async fn handle_config_test(_state: AppState, body: Value) -> Result<Value> 
     let username = body.get("username").and_then(|v| v.as_str()).map(|s| s.to_string());
     let password = body.get("password").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let client = SchemaRegistryClient::new_with_global_proxy(&registry_url, username.as_deref(), password.as_deref())?;
+    let client = SchemaRegistryClient::new(&registry_url, username.as_deref(), password.as_deref())?;
 
     let connected = client.test_connection().await?;
 

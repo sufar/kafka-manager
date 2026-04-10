@@ -10,6 +10,9 @@
     "dialog:default",
     "dialog:allow-save",
     "fs:default",
-    "fs:allow-write"
+    {
+      "identifier": "fs:write-all",
+      "allow": [{ "path": "**" }]
+    }
   ]
 }

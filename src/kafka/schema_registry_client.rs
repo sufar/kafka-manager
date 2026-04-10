@@ -83,26 +83,7 @@ impl SchemaRegistryClient {
         username: Option<&str>,
         password: Option<&str>,
     ) -> Result<Self> {
-        Self::with_proxy(base_url, username, password, None)
-    }
-
-    /// 创建带代理的 Schema Registry 客户端
-    pub fn with_proxy(
-        base_url: &str,
-        username: Option<&str>,
-        password: Option<&str>,
-        proxy_url: Option<&str>,
-    ) -> Result<Self> {
-        let mut client_builder = Client::builder();
-
-        // 应用代理（支持 HTTP 和 SOCKS5）
-        if let Some(proxy) = proxy_url.filter(|p| !p.is_empty()) {
-            let reqwest_proxy = reqwest::Proxy::all(proxy)
-                .map_err(|e| AppError::Internal(format!("创建代理失败: {}", e)))?;
-            client_builder = client_builder.proxy(reqwest_proxy);
-        }
-
-        let client = client_builder
+        let client = Client::builder()
             .build()
             .map_err(|e| AppError::Http(e))?;
 
@@ -416,15 +397,5 @@ impl SchemaRegistryClient {
             Ok(response) => Ok(response.status().is_success()),
             Err(_) => Ok(false),
         }
-    }
-
-    /// 创建带全局代理的 Schema Registry 客户端（便捷方法）
-    pub fn new_with_global_proxy(
-        base_url: &str,
-        username: Option<&str>,
-        password: Option<&str>,
-    ) -> Result<Self> {
-        let proxy_url = crate::kafka::get_global_proxy();
-        Self::with_proxy(base_url, username, password, proxy_url.as_deref())
     }
 }

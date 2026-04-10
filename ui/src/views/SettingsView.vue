@@ -169,25 +169,6 @@
               </button>
             </div>
           </div>
-          <!-- 代理设置 -->
-          <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
-            <div class="flex items-center justify-between">
-              <span class="text-sm font-medium">{{ t.update.proxy.title }}</span>
-              <span class="text-xs text-base-content/60">{{ t.update.proxy.description }}</span>
-            </div>
-            <div class="flex gap-2">
-              <input
-                v-model="proxyUrl"
-                type="text"
-                class="input input-sm input-bordered flex-1"
-                :placeholder="t.update.proxy.placeholder"
-                @change="saveProxySetting"
-              />
-              <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
-                {{ t.update.proxy.clear }}
-              </button>
-            </div>
-          </div>
           <!-- 后台下载进度 -->
           <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
             <div class="flex items-center gap-2 flex-1">
@@ -452,7 +433,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.39');
+const appVersion = ref('1.0.40');
 
 // 日志相关
 const logs = ref('');
@@ -467,9 +448,6 @@ const showUpdateModal = ref(false);
 const checking = ref(false);
 const installing = ref(false);
 const downloadInterrupted = ref(false);
-
-// 代理设置
-const proxyUrl = ref('');
 
 // 使用 store 中的下载状态（持久化）
 const { downloading, downloadProgress } = storeToRefs(updateStore);
@@ -517,7 +495,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.39');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.40');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -820,6 +798,10 @@ async function installUpdate() {
     // 调用后台下载接口（不等待完成）
     tauriInvoke('install_update').catch((e) => {
       console.error('Background download error:', e);
+      updateStore.clearState();
+      stopPolling();
+      const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || t.value.common.unknown;
+      toast.showError(t.value.update.installFailed + ': ' + errorMsg);
     });
 
     // 注意：下载在后台进行，不由这里处理完成逻辑
@@ -835,17 +817,17 @@ async function installUpdate() {
 
 // 轮询下载状态
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 let downloadEverStarted = false;
 
 function startPollingDownloadStatus() {
-  // 清除之前的轮询
-  if (pollTimer) {
-    clearInterval(pollTimer);
-  }
+  // 清除之前的轮询（包括待执行的 setTimeout）
+  stopPolling();
   downloadEverStarted = false;
 
   // 延迟 200ms 后开始首次轮询，给后端足够时间初始化下载状态
-  setTimeout(() => {
+  pollTimeout = setTimeout(() => {
+    pollTimeout = null;
     // 轮询期间每 500ms 检查一次下载状态
     pollTimer = setInterval(async () => {
       try {
@@ -895,6 +877,10 @@ function startPollingDownloadStatus() {
 }
 
 function stopPolling() {
+  if (pollTimeout) {
+    clearTimeout(pollTimeout);
+    pollTimeout = null;
+  }
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -944,58 +930,6 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
   }
 }
 
-// 代理设置
-async function loadProxySetting() {
-  try {
-    if (isTauriEnv.value) {
-      // Tauri 环境：先从后端获取代理设置
-      const proxy = await tauriInvoke<string>('get_proxy_url');
-      if (proxy) {
-        proxyUrl.value = proxy;
-        return;
-      }
-      // 回退到数据库设置
-    }
-    // 非 Tauri 环境或 Tauri 后端无设置：从 API 加载
-    const settings = await apiClient.getSettings(['update.proxy_url']);
-    const value = settings.find((s: { key: string; value: string }) => s.key === 'update.proxy_url')?.value;
-    if (value) {
-      proxyUrl.value = value;
-    }
-  } catch (e) {
-    console.error('Failed to load proxy setting:', e);
-  }
-}
-
-async function saveProxySetting() {
-  try {
-    await apiClient.updateSetting('update.proxy_url', proxyUrl.value);
-    // 通知后端设置全局代理（热更新）
-    if (isTauriEnv.value) {
-      await tauriInvoke('set_proxy_url', { url: proxyUrl.value });
-    } else {
-      // 非 Tauri 环境通过 HTTP 通知
-      await fetch('http://localhost:9732/api', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Method': 'app.proxy.set',
-        },
-        body: JSON.stringify({ proxy_url: proxyUrl.value }),
-      });
-    }
-    toast.showSuccess(t.value.update.proxy.saved);
-  } catch (e) {
-    console.error('Failed to save proxy setting:', e);
-    toast.showError(t.value.update.proxy.saveFailed);
-  }
-}
-
-function clearProxySetting() {
-  proxyUrl.value = '';
-  saveProxySetting();
-}
-
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -1003,7 +937,6 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
-  loadProxySetting();
   // 监听后端下载错误事件
   setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件

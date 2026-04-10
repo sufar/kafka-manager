@@ -229,8 +229,6 @@ impl KafkaAdmin {
         client_config.set("enable.auto.commit", "false");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
-        // 应用 SOCKS5 代理
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer<DefaultConsumerContext> = client_config
             .create()
@@ -322,7 +320,6 @@ impl KafkaAdmin {
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -383,8 +380,6 @@ impl KafkaAdmin {
         client_config.set("enable.auto.commit", "false");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
-        // 应用 SOCKS5 代理
-        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()
@@ -476,7 +471,6 @@ impl KafkaAdmin {
                 cfg.set("bootstrap.servers", &kafka_config.brokers);
                 cfg.set("enable.auto.commit", "false");
                 cfg.set("broker.address.family", "v4");
-                crate::kafka::apply_proxy_if_socks(&mut cfg);
                 cfg.create().ok()?
             };
 
@@ -602,7 +596,6 @@ impl KafkaAdmin {
         let mut cfg = ClientConfig::new();
         cfg.set("bootstrap.servers", bootstrap_servers);
         cfg.set("broker.address.family", "v4");
-        crate::kafka::apply_proxy_if_socks(&mut cfg);
         let consumer: BaseConsumer = cfg
             .create()
             .map_err(|e| AppError::Internal(format!("Failed to create consumer: {}", e)))?;
