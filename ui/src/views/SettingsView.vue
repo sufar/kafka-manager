@@ -172,19 +172,19 @@
           <!-- 代理设置 -->
           <div class="p-3 rounded-xl bg-base-100/50 flex flex-col gap-2 mt-2">
             <div class="flex items-center justify-between">
-              <span class="text-sm font-medium">HTTP 代理</span>
-              <span class="text-xs text-base-content/60">用于 Schema Registry 和更新下载</span>
+              <span class="text-sm font-medium">{{ t.update.proxy.title }}</span>
+              <span class="text-xs text-base-content/60">{{ t.update.proxy.description }}</span>
             </div>
             <div class="flex gap-2">
               <input
                 v-model="proxyUrl"
                 type="text"
                 class="input input-sm input-bordered flex-1"
-                placeholder="例如 http://127.0.0.1:7890"
+                :placeholder="t.update.proxy.placeholder"
                 @change="saveProxySetting"
               />
               <button class="btn btn-sm" :class="proxyUrl ? 'btn-error' : 'btn-outline'" @click="clearProxySetting">
-                清除
+                {{ t.update.proxy.clear }}
               </button>
             </div>
           </div>
@@ -844,8 +844,7 @@ function startPollingDownloadStatus() {
   }
   downloadEverStarted = false;
 
-  // 延迟 1.5 秒后开始首次轮询，给后端足够时间初始化下载状态
-  // 后端需要创建 tokio runtime、获取远程信息、设置状态等，短时间内可能未完成
+  // 延迟 200ms 后开始首次轮询，给后端足够时间初始化下载状态
   setTimeout(() => {
     // 轮询期间每 500ms 检查一次下载状态
     pollTimer = setInterval(async () => {
@@ -892,7 +891,7 @@ function startPollingDownloadStatus() {
         console.error('Failed to get download status:', e);
       }
     }, 500);
-  }, 1500);
+  }, 200);
 }
 
 function stopPolling() {
@@ -985,10 +984,10 @@ async function saveProxySetting() {
         body: JSON.stringify({ proxy_url: proxyUrl.value }),
       });
     }
-    toast.showSuccess('代理设置已保存，立即生效');
+    toast.showSuccess(t.value.update.proxy.saved);
   } catch (e) {
     console.error('Failed to save proxy setting:', e);
-    toast.showError('保存代理设置失败');
+    toast.showError(t.value.update.proxy.saveFailed);
   }
 }
 
@@ -1005,8 +1004,6 @@ onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
   loadProxySetting();
-  // 加载持久化的下载状态
-  updateStore.loadState();
   // 监听后端下载错误事件
   setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件

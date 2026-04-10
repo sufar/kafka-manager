@@ -79,6 +79,7 @@ impl KafkaConsumer {
         client_config.set("fetch.max.bytes", "52428800"); // 50MB
         client_config.set("max.partition.fetch.bytes", "10485760"); // 10MB
         client_config.set("fetch.max.wait.ms", "10"); // 最多等待 10ms 用于批量
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -263,6 +264,7 @@ impl KafkaConsumer {
         client_config.set("socket.connection.setup.timeout.ms", "10000");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -303,6 +305,7 @@ impl KafkaConsumer {
         client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -356,6 +359,7 @@ impl KafkaConsumer {
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
         client_config.set("fetch.min.bytes", "1");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
@@ -478,6 +482,7 @@ impl KafkaConsumer {
             client_config.set("enable.auto.commit", "false");
             client_config.set("auto.offset.reset", "earliest");
             client_config.set("request.timeout.ms", &request_timeout.to_string());
+            crate::kafka::apply_proxy_if_socks(&mut client_config);
 
             match client_config.create::<StreamConsumer>() {
                 Ok(consumer) => {
@@ -544,6 +549,7 @@ impl KafkaConsumer {
         client_config.set("auto.offset.reset", "earliest");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
@@ -596,6 +602,7 @@ impl KafkaConsumer {
         // 降低 fetch 等待时间，加快空主题响应
         client_config.set("fetch.wait.max.ms", "50");
         client_config.set("fetch.min.bytes", "1");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[topic])?;
@@ -680,6 +687,7 @@ impl KafkaConsumer {
         client_config.set("broker.address.family", "v4");
         client_config.set("fetch.max.bytes", "1048576");    // 1MB
         client_config.set("session.timeout.ms", "5000");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: StreamConsumer = client_config.create()?;
 

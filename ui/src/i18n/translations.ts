@@ -413,6 +413,14 @@ export interface Translation {
     minimizeModal: string;
     rateLimitExceeded: string;
     downloadInProgress: string;
+    proxy: {
+      title: string;
+      description: string;
+      placeholder: string;
+      clear: string;
+      saved: string;
+      saveFailed: string;
+    };
   };
   toast: {
     error: string;
@@ -984,6 +992,14 @@ export const translations: Record<Language, Translation> = {
       minimizeModal: '隐藏窗口',
       rateLimitExceeded: '访问受限，请稍后重试',
       downloadInProgress: '下载正在进行中，请稍候...',
+      proxy: {
+        title: '代理设置',
+        description: '用于 Kafka 连接（SOCKS5）、Schema Registry 和更新下载（HTTP/SOCKS5）',
+        placeholder: '例如 socks5://127.0.0.1:7890 或 http://127.0.0.1:7890',
+        clear: '清除',
+        saved: '代理设置已保存，立即生效',
+        saveFailed: '保存代理设置失败',
+      },
     },
     toast: {
       error: '错误',
@@ -1553,6 +1569,14 @@ export const translations: Record<Language, Translation> = {
       minimizeModal: 'Hide Window',
       rateLimitExceeded: 'Access denied, please try again later',
       downloadInProgress: 'Download in progress, please wait...',
+      proxy: {
+        title: 'Proxy',
+        description: 'For Kafka connections (SOCKS5 only), Schema Registry & update downloads (HTTP/SOCKS5)',
+        placeholder: 'e.g. socks5://127.0.0.1:7890 or http://127.0.0.1:7890',
+        clear: 'Clear',
+        saved: 'Proxy settings saved',
+        saveFailed: 'Failed to save proxy settings',
+      },
     },
     toast: {
       error: 'Error',

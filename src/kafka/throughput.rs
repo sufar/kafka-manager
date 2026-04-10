@@ -150,13 +150,14 @@ impl KafkaThroughputCalculator {
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, Offset::Offset(offset)).ok()?;
 
-        let temp_consumer: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", &kafka_config.brokers)
-            .set("enable.auto.commit", "false")
-            .set("auto.offset.reset", "earliest")
-            .set("broker.address.family", "v4")
-            .create()
-            .ok()?;
+        let mut temp_config = ClientConfig::new();
+        temp_config.set("bootstrap.servers", &kafka_config.brokers);
+        temp_config.set("enable.auto.commit", "false");
+        temp_config.set("auto.offset.reset", "earliest");
+        temp_config.set("broker.address.family", "v4");
+        crate::kafka::apply_proxy_if_socks(&mut temp_config);
+
+        let temp_consumer: BaseConsumer = temp_config.create().ok()?;
 
         temp_consumer.assign(&tpl).ok()?;
 
@@ -172,6 +173,7 @@ impl KafkaThroughputCalculator {
         client_config.set("enable.auto.commit", "false");
         // 强制使用 IPv4，避免 IPv6 连接问题
         client_config.set("broker.address.family", "v4");
+        crate::kafka::apply_proxy_if_socks(&mut client_config);
 
         let consumer: BaseConsumer = client_config
             .create()

@@ -427,9 +427,40 @@ pub struct UpdateResult {
     pub date: Option<String>,
 }
 
+/// 创建带代理的 HTTP 客户端（连接超时 5 秒，请求超时 10 秒）
+fn build_http_client(proxy_url: &str) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10));
+
+    if !proxy_url.is_empty() {
+        log(&format!("Using proxy: {}", proxy_url));
+        let proxy = reqwest::Proxy::all(proxy_url)
+            .map_err(|e| format!("创建代理失败：{}", e))?;
+        builder = builder.proxy(proxy);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))
+}
+
+/// 获取用户设置的代理 URL
+fn get_proxy_from_state(app: &tauri::AppHandle) -> String {
+    if let Some(url) = kafka_manager_api::kafka::get_global_proxy() {
+        return url;
+    }
+    if let Some(state) = app.try_state::<Arc<Mutex<String>>>() {
+        if let Ok(guard) = state.lock() {
+            return guard.clone();
+        }
+    }
+    String::new()
+}
+
 /// 检查更新 - 直接使用 GitHub API
 #[tauri::command]
-async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, String> {
+async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateResult, String> {
     log("=========================================");
     log("Checking for updates via GitHub API...");
 
@@ -451,12 +482,8 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
     log(&format!("Fetching: {}", api_url));
 
-    // 创建带超时的 HTTP 客户端（连接超时 5 秒，请求超时 10 秒）
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))?;
+    let proxy_url = get_proxy_from_state(&app);
+    let client = build_http_client(&proxy_url)?;
 
     let response = client
         .get(api_url)
@@ -941,7 +968,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
     // 从 GitHub API 获取最新版本信息
     let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
-    let client = reqwest::Client::new();
+
+    let proxy_url = get_proxy_from_state(&app);
+    let client = build_http_client(&proxy_url)?;
 
     let response = client
         .get(api_url)
@@ -976,19 +1005,31 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     // 从 assets 中找到对应的下载 URL
     let assets = json["assets"].as_array().ok_or("找不到下载文件")?;
 
+    // 先精确匹配目标平台+架构（优先），再回退到按扩展名匹配
     let (download_url, filename) = assets
         .iter()
         .find_map(|asset| {
             let name = asset["name"].as_str()?;
-            if cfg!(target_os = "macos") && name.ends_with(".dmg") {
-                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-            } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
-                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-            } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
-                Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-            } else {
-                None
+            // 精确匹配：文件名包含目标平台标识
+            if name.contains(target) {
+                return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
             }
+            None
+        })
+        .or_else(|| {
+            // 回退：按扩展名匹配
+            assets.iter().find_map(|asset| {
+                let name = asset["name"].as_str()?;
+                if cfg!(target_os = "macos") && name.ends_with(".dmg") {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else {
+                    None
+                }
+            })
         })
         .ok_or_else(|| "找不到适合当前平台的安装包")?;
 

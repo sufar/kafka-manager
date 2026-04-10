@@ -33,6 +33,21 @@ pub fn get_global_proxy() -> Option<String> {
     GLOBAL_PROXY_URL.lock().unwrap().clone()
 }
 
+/// 检测代理是否为 SOCKS5 类型
+pub fn is_socks_proxy(url: &str) -> bool {
+    url.starts_with("socks5://") || url.starts_with("socks5h://") || url.starts_with("socks://")
+}
+
+/// 为已有的 ClientConfig 应用 SOCKS5 代理（如果已设置）
+pub fn apply_proxy_if_socks(config: &mut ClientConfig) {
+    if let Some(proxy_url) = get_global_proxy() {
+        if is_socks_proxy(&proxy_url) {
+            config.set("socks", &proxy_url);
+        }
+    }
+}
+
+/// 创建 rdkafka 客户端配置，自动应用 SOCKS5 代理（如果已设置）
 pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", &kafka_config.brokers);
@@ -46,6 +61,10 @@ pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
     );
     // 强制使用 IPv4，避免 IPv6 连接问题
     client_config.set("broker.address.family", "v4");
+
+    // 应用 SOCKS5 代理（rdkafka 不支持 HTTP 代理）
+    apply_proxy_if_socks(&mut client_config);
+
     client_config
 }
 
