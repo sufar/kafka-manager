@@ -38,6 +38,8 @@ The frontend will start on `http://localhost:9733`
 
 ### Option 2: Run Desktop Application
 
+Prerequisites: Install [Tauri dependencies](https://tauri.app/start/prerequisites/) first.
+
 ```bash
 # Install frontend dependencies
 cd ui
@@ -47,6 +49,9 @@ npm install
 npm run tauri dev
 
 # Or build production version
+cd ui
+npm run build
+cd ..
 npm run tauri build
 ```
 
@@ -144,11 +149,13 @@ For detailed API documentation:
 - [Architecture Design](./docs/architecture.md) - Technical architecture and design (English)
 - [Architecture Design](./docs/architecture-cn.md) - Technical architecture and design (Chinese)
 
-## Development
-
-### Build
+### Development
 
 ```bash
+# Build frontend
+cd ui && npm run build
+
+# Build backend
 cargo build --release
 ```
 

@@ -38,6 +38,8 @@ npm run dev
 
 ### 方式二：运行桌面应用
 
+前置条件：先安装 [Tauri 依赖](https://tauri.app/start/prerequisites/)。
+
 ```bash
 # 安装前端依赖
 cd ui
@@ -47,6 +49,9 @@ npm install
 npm run tauri dev
 
 # 或构建生产版本
+cd ui
+npm run build
+cd ..
 npm run tauri build
 ```
 
@@ -145,9 +150,11 @@ connection_timeout_sec = 30
 
 ## 开发
 
-### 构建
-
 ```bash
+# 构建前端
+cd ui && npm run build
+
+# 构建后端
 cargo build --release
 ```
 
@@ -163,13 +170,6 @@ cargo test
 cargo clippy
 cargo fmt
 ```
-
-## 文档
-
-- [API 参考](./docs/api.md) - 完整 API 文档（英文）
-- [API 参考](./docs/api-cn.md) - 完整 API 文档（中文）
-- [架构设计](./docs/architecture.md) - 技术架构和设计（英文）
-- [架构设计](./docs/architecture-cn.md) - 技术架构和设计（中文）
 
 ## License
 
