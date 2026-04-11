@@ -859,7 +859,17 @@ function isTauri(): boolean {
 function exportMessages() {
   if (messages.value.length === 0) return;
 
-  const data = JSON.stringify(messages.value, null, 2);
+  // 将缩写字段名映射为完整字段名
+  const exportData = messages.value.map(m => ({
+    partition: m.p,
+    offset: m.o,
+    key: m.k,
+    value: m.v,
+    timestamp: m.ts,
+    uid: m.uid,
+  }));
+
+  const data = JSON.stringify(exportData, null, 2);
   const filename = `${selectedTopic.value}_messages_${Date.now()}.json`;
 
   if (isTauri()) {
