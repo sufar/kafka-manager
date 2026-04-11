@@ -174,13 +174,13 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="loading loading-spinner loading-sm text-primary"></span>
-                <span class="text-sm font-bold text-base-content">正在下载更新...</span>
+                <span class="text-sm font-bold text-base-content">{{ t.update.downloading || '正在下载更新...' }}</span>
               </div>
               <button class="btn btn-xs btn-error text-white" @click="cancelDownload">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                取消
+                {{ t.common.cancel || '取消' }}
               </button>
             </div>
             <div class="text-xs text-base-content/70">{{ downloadDetailText }}</div>
@@ -442,7 +442,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.43');
+const appVersion = ref('1.0.45');
 
 // 日志相关
 const logs = ref('');
@@ -497,7 +497,7 @@ const downloadDetailText = computed(() => {
     return text;
   }
 
-  return '正在下载更新...';
+  return t.update.downloading || '正在下载更新...';
 });
 
 // 隐藏功能 - 查看日志按钮（2 秒内点击版本号 5 次显示）
@@ -543,7 +543,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.43');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.45');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }

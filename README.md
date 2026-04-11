@@ -7,74 +7,148 @@
 
 **[中文文档](README-cn.md)** | **[English](README.md)**
 
-A powerful Kafka cluster management tool with Web API and cross-platform desktop application. Easily manage multiple Kafka clusters, browse topics, explore messages, and manage favorites.
+A cross-platform desktop application and RESTful API for managing Kafka clusters. Browse topics, explore messages, manage consumer groups, and monitor cluster health with an intuitive interface.
 
 ![Kafka Manager](img/about.png)
 
+## Features
+
+### Cluster Management
+
+- Multi-cluster support with group organization
+- Real-time connection health monitoring
+- Cluster reconnection and disconnection
+- Broker information display
+
+### Topics
+
+- Create, delete, and configure topics
+- Partition details and distribution view
+- Topic templates for quick creation
+- Topic tagging and favorites with group management
+- Topic change history tracking
+
+### Messages
+
+- Browse and search messages across partitions
+- Time range filtering (recent 5min to 1 day)
+- SSE real-time streaming message fetch
+- Multiple view formats: JSON (with syntax highlighting), raw, hex
+- Message export (JSON/CSV/TXT)
+- Send messages to topics with custom keys and partitions
+
+### Consumer Groups
+
+- View consumer group state and member details
+- Inspect committed offsets and lag per partition
+- Reset offsets to earliest, latest, or specific timestamp
+- Topic-level consumer group view
+
+### Schema Registry
+
+- Connect and configure Schema Registry
+- Browse and manage Avro/Protobuf schemas
+
+### Desktop App Features
+
+- Automatic update with resume support and progress display
+- System tray with background running
+- Single-instance enforcement
+- Application log viewer
+- Data import/export for settings migration
+- Dark/Light theme toggle
+- Chinese/English bilingual interface
+
 ## Quick Start
 
-### Option 1: Run Web Backend
+### Option 1: Desktop Application (Recommended)
+
+Prerequisites: [Tauri dependencies](https://tauri.app/start/prerequisites/)
 
 ```bash
 # Clone the repository
 git clone <repo-url>
 cd kafka-manager
 
-# Run the backend service
-cargo run
-```
-
-The backend server will start on `http://localhost:9732`
-
-Then start the frontend development server:
-
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-The frontend will start on `http://localhost:9733`
-
-### Option 2: Run Desktop Application
-
-Prerequisites: Install [Tauri dependencies](https://tauri.app/start/prerequisites/) first.
-
-```bash
 # Install frontend dependencies
-cd ui
-npm install
+cd ui && npm install
 
-# Run in development mode
-npm run tauri dev
+# Development mode
+cd ui && npm run tauri dev
 
-# Or build production version
-cd ui
-npm run build
-cd ..
+# Production build
+cd ui && npm run build
 npm run tauri build
 ```
 
-## Features
+Built installers will be in `src-tauri/target/release/bundle/`.
 
-### Core Features
+### Option 2: Web API + Frontend Dev Server
 
-| Module | Description |
-|--------|-------------|
-| **Multi-Cluster Management** | Manage multiple Kafka clusters with group support, real-time connection status and health monitoring |
-| **Topic Management** | Create, delete, configure topics with partition management, batch operations and template support |
-| **Message Browser** | Browse, search, filter messages with time range queries, SSE streaming and export (JSON/CSV/TXT) |
-| **Cluster Monitoring** | Broker information, partition distribution, watermark info, throughput statistics |
-| **Favorite Management** | Favorite frequently used topics with group management, remarks and sorting |
-| **Multi-Language Support** | Switch between Chinese and English interfaces |
-| **Data Persistence** | SQLite database for cluster configs, user settings, favorites and audit logs |
+```bash
+# Start the backend (port 9732)
+cargo run
 
-### UI Features
+# In another terminal, start the frontend (port 9733)
+cd ui && npm install && npm run dev
+```
 
-- Modern responsive interface based on Vue 3 + Tailwind CSS 4 + DaisyUI 5
-- Real-time cluster connection status display
-- Left sidebar tree navigation with group support
-- Cross-platform desktop app based on Tauri 2
+Open `http://localhost:9733` in your browser.
+
+## Configuration
+
+Create `config.toml` for server settings and multi-cluster configuration:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 9732
+
+[pool]
+max_size = 50
+min_size = 5
+acquire_timeout_secs = 15
+idle_timeout_secs = 300
+
+[kafka.clusters.development]
+brokers = "localhost:9092"
+request_timeout_ms = 5000
+operation_timeout_ms = 5000
+
+[kafka.clusters.production]
+brokers = "prod-kafka-1:9092,prod-kafka-2:9092,prod-kafka-3:9092"
+request_timeout_ms = 10000
+operation_timeout_ms = 10000
+```
+
+### Environment Variables
+
+Prefix: `KAFKA_MANAGER__` (double underscore for nested keys)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KAFKA_MANAGER__SERVER__PORT` | Server port | `9732` |
+| `HEALTH_CHECK_INTERVAL_SECS` | Health check interval | `30` |
+
+## Database
+
+SQLite is used for local data persistence. The database is created automatically on first run.
+
+| Table | Purpose |
+|-------|---------|
+| `kafka_clusters` | Cluster configurations |
+| `cluster_groups` | Cluster group organization |
+| `topic_metadata` | Cached topic metadata |
+| `consumer_group_metadata` | Cached consumer group info |
+| `consumer_group_offsets` | Cached consumer group offsets |
+| `favorites` / `favorite_groups` | Topic favorites with grouping |
+| `topic_templates` | Reusable topic creation templates |
+| `json_highlight_templates` | JSON syntax highlighting themes |
+| `resource_tags` | Resource tagging |
+| `topic_history` | Topic change history |
+| `sent_message_history` | Sent message records |
+| `user_settings` | User preferences (language, theme, etc.) |
+| `schema_registry_configs` | Schema Registry connection configs |
 
 ## Tech Stack
 
@@ -82,74 +156,31 @@ npm run tauri build
 
 | Technology | Purpose |
 |------------|---------|
-| [Axum](https://github.com/tokio-rs/axum) | Web framework |
+| [Axum](https://github.com/tokio-rs/axum) 0.7 | Web framework |
 | [Tokio](https://tokio.rs/) | Async runtime |
-| [SQLx](https://github.com/launchbadge/sqlx) | Async database (SQLite) |
-| [rdkafka](https://github.com/fede1024/rust-rdkafka) | Kafka client |
-| [deadpool](https://github.com/bikeshedder/deadpool) | Connection pool |
-| [Moka](https://github.com/moka-rs/moka) | Cache |
+| [SQLx](https://github.com/launchbadge/sqlx) 0.8 | Async SQLite |
+| [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka client |
+| [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | Connection pooling |
+| [Moka](https://github.com/moka-rs/moka) 0.12 | In-memory cache |
+| [apache-avro](https://github.com/apache/avro) 0.17 | Avro encoding/decoding |
+| [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf encoding/decoding |
+| [tracing](https://github.com/tokio-rs/tracing) | Structured logging |
+| [arc-swap](https://github.com/vorner/arc-swap) | Lock-free state updates |
 
 ### Frontend
 
 | Technology | Purpose |
 |------------|---------|
-| [Vue 3](https://vuejs.org/) + TypeScript | Frontend framework |
-| [Tailwind CSS 4](https://tailwindcss.com/) | CSS framework |
+| [Vue 3](https://vuejs.org/) + TypeScript | UI framework |
+| [Tailwind CSS 4](https://tailwindcss.com/) | Styling |
 | [DaisyUI 5](https://daisyui.com/) | Component library |
 | [Pinia](https://pinia.vuejs.org/) | State management |
-| [Tauri 2](https://tauri.app/) | Desktop application framework |
+| [vue-router](https://router.vuejs.org/) 5 | Client-side routing |
+| [Chart.js](https://www.chartjs.org/) 4 | Data visualization |
+| [Tauri 2](https://tauri.app/) | Desktop shell |
+| [Vite](https://vitejs.dev/) 7 | Build tool |
 
-## Configuration
-
-Create `config.toml` for server configuration:
-
-```toml
-[server]
-host = "0.0.0.0"
-port = 9732
-
-[database]
-path = "kafka_manager.db"
-
-[pool]
-max_connections = 10
-min_idle = 2
-connection_timeout_sec = 30
-```
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `HEALTH_CHECK_INTERVAL_SECS` | Health check interval | `30` |
-
-## Database
-
-SQLite database `kafka_manager.db` is created automatically on first run.
-
-### Core Tables
-
-| Table Name | Description |
-|------------|-------------|
-| `kafka_clusters` | Cluster configuration |
-| `cluster_group` | Cluster groups |
-| `cluster_connection_history` | Connection history |
-| `topic_metadata` | Topic metadata cache |
-| `user_settings` | User settings (language, sidebar mode, selected group, etc.) |
-| `favorites` | Topic favorites |
-| `favorite_groups` | Favorite groups |
-| `audit_logs` | Audit logs |
-| `topic_templates` | Topic templates |
-
-## API Documentation
-
-For detailed API documentation:
-- [API Reference](./docs/api.md) - Complete API documentation (English)
-- [API Reference](./docs/api-cn.md) - Complete API documentation (Chinese)
-- [Architecture Design](./docs/architecture.md) - Technical architecture and design (English)
-- [Architecture Design](./docs/architecture-cn.md) - Technical architecture and design (Chinese)
-
-### Development
+## Development
 
 ```bash
 # Build frontend
@@ -157,17 +188,11 @@ cd ui && npm run build
 
 # Build backend
 cargo build --release
-```
 
-### Test
-
-```bash
+# Run tests
 cargo test
-```
 
-### Code Check and Format
-
-```bash
+# Lint and format
 cargo clippy
 cargo fmt
 ```

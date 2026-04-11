@@ -641,7 +641,7 @@ async fn download_with_resume_background(
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("获取文件信息失败：{}", e))?;
+        .map_err(|_| "network_error".to_string())?;
 
     let remote_size = head_response.content_length().unwrap_or(total_size);
 
