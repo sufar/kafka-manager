@@ -170,12 +170,21 @@
             </div>
           </div>
           <!-- 后台下载进度 -->
-          <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex items-center justify-between mt-2 border border-primary/50 shadow-lg">
-            <div class="flex items-center gap-2 flex-1">
-              <span class="loading loading-spinner loading-sm text-primary"></span>
-              <span class="text-sm font-bold text-base-content">{{ t.update.downloadingInBackground || '正在下载更新...' }} {{ downloadProgress }}%</span>
+          <div v-if="downloading" class="p-3 rounded-xl bg-base-300 flex flex-col gap-2 mt-2 border border-primary/50 shadow-lg">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="loading loading-spinner loading-sm text-primary"></span>
+                <span class="text-sm font-bold text-base-content">正在下载更新...</span>
+              </div>
+              <button class="btn btn-xs btn-error text-white" @click="cancelDownload">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                取消
+              </button>
             </div>
-            <progress class="progress progress-primary w-32" :value="downloadProgress" max="100"></progress>
+            <div class="text-xs text-base-content/70">{{ downloadDetailText }}</div>
+            <progress class="progress progress-primary w-full" :value="downloadProgress" max="100"></progress>
           </div>
         </div>
       </div>
@@ -450,7 +459,46 @@ const installing = ref(false);
 const downloadInterrupted = ref(false);
 
 // 使用 store 中的下载状态（持久化）
-const { downloading, downloadProgress } = storeToRefs(updateStore);
+const { downloading, downloadProgress, downloadDownloaded, downloadTotal, downloadSpeed } = storeToRefs(updateStore);
+
+// 格式化文件大小
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const KB = 1024;
+  const MB = 1024 * KB;
+  const GB = 1024 * MB;
+  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
+  if (bytes >= MB) return `${(bytes / MB).toFixed(2)} MB`;
+  if (bytes >= KB) return `${(bytes / KB).toFixed(2)} KB`;
+  return `${bytes} B`;
+}
+
+// 下载详细信息文本
+const downloadDetailText = computed(() => {
+  const downloaded = downloadDownloaded.value;
+  const total = downloadTotal.value;
+  const speed = downloadSpeed.value;
+
+  if (total > 0) {
+    const progress = (downloaded / total * 100).toFixed(1);
+    let text = `${formatBytes(downloaded)}/${formatBytes(total)} (${progress}%)`;
+    if (speed > 0) {
+      text += `, speed: ${formatBytes(speed)}/s`;
+    }
+    return text;
+  }
+
+  // 无总大小时只显示已下载
+  if (downloaded > 0) {
+    let text = `${formatBytes(downloaded)} 已下载`;
+    if (speed > 0) {
+      text += `, speed: ${formatBytes(speed)}/s`;
+    }
+    return text;
+  }
+
+  return '正在下载更新...';
+});
 
 // 隐藏功能 - 查看日志按钮（2 秒内点击版本号 5 次显示）
 // 默认隐藏，点击 5 次后显示
@@ -769,7 +817,7 @@ async function installUpdate() {
         await tauriInvoke('clear_download_status');
       } else {
         // 后端确实在下载，更新前端状态并显示进度
-        updateStore.setDownloading(true, backendStatus.total > 0 ? Math.round((backendStatus.downloaded / backendStatus.total) * 100) : 0);
+        updateStore.setDownloading(true, backendStatus.total > 0 ? Math.round((backendStatus.downloaded / backendStatus.total) * 100) : 0, backendStatus.downloaded, backendStatus.total);
         toast.showInfo(t.value.update.downloadInProgress || '下载正在进行中，请稍候...');
         return;
       }
@@ -790,7 +838,7 @@ async function installUpdate() {
       ? Math.round((status.downloaded / status.total) * 100)
       : (status.downloaded > 0 ? 1 : 0);
 
-    updateStore.setDownloading(true, initialProgress);
+    updateStore.setDownloading(true, initialProgress, status.downloaded, status.total, 0);
 
     // 开始轮询下载状态
     startPollingDownloadStatus();
@@ -801,7 +849,11 @@ async function installUpdate() {
       updateStore.clearState();
       stopPolling();
       const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || t.value.common.unknown;
-      toast.showError(t.value.update.installFailed + ': ' + errorMsg);
+      if (errorMsg === 'network_error') {
+        toast.showError(t.value.update.networkError);
+      } else {
+        toast.showError(t.value.update.installFailed + ': ' + errorMsg);
+      }
     });
 
     // 注意：下载在后台进行，不由这里处理完成逻辑
@@ -811,7 +863,11 @@ async function installUpdate() {
     stopPolling();
     console.error('Failed to install update:', e);
     const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || t.value.common.unknown;
-    toast.showError(t.value.update.installFailed + ': ' + errorMsg);
+    if (errorMsg === 'network_error') {
+      toast.showError(t.value.update.networkError);
+    } else {
+      toast.showError(t.value.update.installFailed + ': ' + errorMsg);
+    }
   }
 }
 
@@ -819,11 +875,13 @@ async function installUpdate() {
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 let downloadEverStarted = false;
+let lastDownloadedBytes = 0; // 用于计算速度
 
 function startPollingDownloadStatus() {
   // 清除之前的轮询（包括待执行的 setTimeout）
   stopPolling();
   downloadEverStarted = false;
+  lastDownloadedBytes = 0;
 
   // 延迟 200ms 后开始首次轮询，给后端足够时间初始化下载状态
   pollTimeout = setTimeout(() => {
@@ -834,7 +892,10 @@ function startPollingDownloadStatus() {
         const status = await tauriInvoke<any>('get_download_status');
         if (status.is_downloading) {
           const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
-          updateStore.updateProgress(progress);
+          // 计算速度（bytes/s，轮询间隔 500ms）
+          const speed = status.downloaded - lastDownloadedBytes;
+          lastDownloadedBytes = status.downloaded;
+          updateStore.updateProgress(progress, status.downloaded, status.total, speed * 2); // *2 因为间隔是 500ms
           downloadInterrupted.value = false;
           downloadEverStarted = true;
         } else {
@@ -885,6 +946,19 @@ function stopPolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+}
+
+// 取消下载
+async function cancelDownload() {
+  stopPolling();
+  try {
+    await tauriInvoke('clear_download_status');
+  } catch (e) {
+    console.error('Failed to cancel download:', e);
+  }
+  updateStore.clearState();
+  downloadInterrupted.value = false;
+  toast.showInfo('已取消下载');
 }
 
 // 重新下载（断点续传）

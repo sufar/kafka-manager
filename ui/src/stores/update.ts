@@ -4,24 +4,39 @@ import { ref } from 'vue';
 export const useUpdateStore = defineStore('update', () => {
   const downloading = ref(false);
   const downloadProgress = ref(0);
+  const downloadDownloaded = ref(0);
+  const downloadTotal = ref(0);
+  const downloadSpeed = ref(0); // bytes per second
 
-  const setDownloading = (isDownloading: boolean, progress = 0) => {
+  const setDownloading = (isDownloading: boolean, progress = 0, downloaded = 0, total = 0, speed = 0) => {
     downloading.value = isDownloading;
     downloadProgress.value = progress;
+    downloadDownloaded.value = downloaded;
+    downloadTotal.value = total;
+    downloadSpeed.value = speed;
   };
 
-  const updateProgress = (progress: number) => {
+  const updateProgress = (progress: number, downloaded = 0, total = 0, speed = 0) => {
     downloadProgress.value = progress;
+    downloadDownloaded.value = downloaded;
+    downloadTotal.value = total;
+    downloadSpeed.value = speed;
   };
 
   const clearState = () => {
     downloading.value = false;
     downloadProgress.value = 0;
+    downloadDownloaded.value = 0;
+    downloadTotal.value = 0;
+    downloadSpeed.value = 0;
   };
 
   return {
     downloading,
     downloadProgress,
+    downloadDownloaded,
+    downloadTotal,
+    downloadSpeed,
     setDownloading,
     updateProgress,
     clearState,

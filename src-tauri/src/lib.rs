@@ -566,104 +566,6 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     })
 }
 
-use sha2::{Sha256, Digest};
-
-/// 计算文件的 SHA256 hash
-fn calculate_file_hash(path: &std::path::Path) -> Result<String, String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("打开文件失败: {}", e))?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)
-        .map_err(|e| format!("读取文件失败: {}", e))?;
-    let result = hasher.finalize();
-    Ok(hex::encode(result))
-}
-
-/// 验证文件签名（支持多种签名格式）
-fn verify_signature(file_path: &std::path::Path, expected_sig: &str) -> Result<bool, String> {
-    if expected_sig.is_empty() {
-        log("Warning: Expected signature is empty, skipping verification");
-        return Ok(true);
-    }
-
-    // 检查文件是否存在
-    if !file_path.exists() {
-        return Ok(false);
-    }
-
-    // 计算文件 hash
-    let file_hash = calculate_file_hash(file_path)?;
-
-    // 比较签名（支持 minisign 格式和纯 hash 格式）
-    // minisign 签名格式包含 hash，我们简化处理直接比较 hash
-    let is_valid = file_hash.eq_ignore_ascii_case(expected_sig) ||
-                   expected_sig.to_lowercase().contains(&file_hash.to_lowercase());
-
-    log(&format!("Signature verification: file_hash={}, expected={}, match={}",
-                 &file_hash[..16.min(file_hash.len())],
-                 &expected_sig[..16.min(expected_sig.len())],
-                 is_valid));
-
-    Ok(is_valid)
-}
-
-/// 读取缓存的签名信息
-fn read_cached_signature(cache_dir: &std::path::Path, filename: &str) -> Option<String> {
-    let sig_path = cache_dir.join(format!("{}.sig", filename));
-    std::fs::read_to_string(&sig_path).ok()
-}
-
-/// 保存签名信息到缓存
-fn save_cached_signature(cache_dir: &std::path::Path, filename: &str, signature: &str) -> Result<(), String> {
-    let sig_path = cache_dir.join(format!("{}.sig", filename));
-    std::fs::write(&sig_path, signature)
-        .map_err(|e| format!("保存签名失败: {}", e))
-}
-
-
-/// 从 latest.json 获取签名信息
-async fn fetch_signature_from_latest(
-    client: &reqwest::Client,
-    tag_name: &str,
-    platform: &str,
-) -> Result<String, String> {
-    let latest_url = format!(
-        "https://github.com/sufar/kafka-manager/releases/download/{}/latest.json",
-        tag_name
-    );
-
-    log(&format!("Fetching signature from: {}", latest_url));
-
-    let response = client
-        .get(&latest_url)
-        .header("User-Agent", "kafka-manager")
-        .send()
-        .await
-        .map_err(|e| format!("获取 latest.json 失败: {}", e))?;
-
-    if !response.status().is_success() {
-        log(&format!("latest.json not found: HTTP {}", response.status()));
-        return Ok(String::new());
-    }
-
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("解析 latest.json 失败: {}", e))?;
-
-    // 从 platforms 中提取签名
-    let signature = json
-        .get("platforms")
-        .and_then(|p| p.get(platform))
-        .and_then(|p| p.get("signature"))
-        .and_then(|s| s.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    log(&format!("Found signature: {}...", &signature[..20.min(signature.len())]));
-    Ok(signature)
-}
-
 /// 获取下载状态
 #[tauri::command]
 fn get_download_status(app: tauri::AppHandle) -> Result<DownloadState, String> {
@@ -718,7 +620,6 @@ async fn download_with_resume_background(
     client: &reqwest::Client,
     url: &str,
     download_path: &std::path::Path,
-    expected_signature: &str,
     state: Arc<Mutex<DownloadState>>,
     total_size: u64,
 ) -> Result<bool, String> {
@@ -734,38 +635,7 @@ async fn download_with_resume_background(
         0
     };
 
-    // 验证现有文件签名
-    if existing_size > 0 && !expected_signature.is_empty() {
-        log(&format!("Checking existing file: {} bytes", existing_size));
-        match verify_signature(download_path, expected_signature) {
-            Ok(true) => {
-                log("Existing file signature verified, skipping download");
-                {
-                    let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-                    guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
-                    guard.downloaded = existing_size;
-                    guard.total = existing_size;
-                    guard.is_downloading = false;
-                }
-                return Ok(true);
-            }
-            Ok(false) => {
-                log("Existing file signature mismatch, will re-download");
-            }
-            Err(e) => {
-                log(&format!("Signature verification failed: {}", e));
-            }
-        }
-    }
-
-    // 如果文件已完整下载但签名验证失败，删除重新下载
-    if existing_size > 0 && existing_size >= total_size && total_size > 0 {
-        log("File exists but signature mismatch, removing and re-downloading");
-        std::fs::remove_file(download_path).ok();
-        existing_size = 0;
-    }
-
-    // 发送 HEAD 请求检查是否支持断点续传
+    // 发送 HEAD 请求检查文件信息和是否支持断点续传
     let head_response = client
         .get(url)
         .header("User-Agent", "kafka-manager")
@@ -773,13 +643,50 @@ async fn download_with_resume_background(
         .await
         .map_err(|e| format!("获取文件信息失败：{}", e))?;
 
+    let remote_size = head_response.content_length().unwrap_or(total_size);
+
     // 检查是否支持断点续传
     let supports_resume = head_response.headers()
         .get("accept-ranges")
         .map_or(false, |v| v.as_bytes() == b"bytes");
 
-    let start_byte = if supports_resume && existing_size > 0 && existing_size < total_size {
-        log(&format!("Resuming download from byte {} (remote: {})", existing_size, total_size));
+    // 验证缓存文件：检查远程 ETag 是否与本地缓存一致
+    // 如果 ETag 不同，说明远程文件已更新（例如新版本发布），需要重新下载
+    let cached_etag_path = download_path.with_extension("etag");
+    let cached_etag = cached_etag_path.exists()
+        .then(|| std::fs::read_to_string(&cached_etag_path).ok())
+        .flatten();
+    let remote_etag = head_response.headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // ETag 比较结果：
+    // - 有缓存 ETag 且匹配：文件有效，可能跳过
+    // - 有缓存 ETag 但不匹配：远程文件已变，删除旧文件
+    // - 没有缓存 ETag：可能是中断的下载，保留文件尝试续传
+    let etag_mismatch = if let (Some(cached), Some(remote)) = (&cached_etag, &remote_etag) {
+        cached.as_str() != remote.as_str()
+    } else {
+        false // 没有缓存 ETag 视为不确定，不删除，留给后续逻辑处理
+    };
+
+    // 如果 ETag 明确不匹配（说明远程文件已变化），清理旧缓存
+    if existing_size > 0 && etag_mismatch {
+        log(&format!("ETag mismatch, remote file has changed, removing cached file ({} bytes)", existing_size));
+        std::fs::remove_file(download_path).ok();
+        std::fs::remove_file(&cached_etag_path).ok();
+        existing_size = 0;
+    } else if existing_size > 0 && existing_size >= remote_size && remote_size > 0 {
+        // 文件不完整但大小超过远程（可能是旧版本），清理
+        log(&format!("Cached file size exceeds remote, removing ({} bytes)", existing_size));
+        std::fs::remove_file(download_path).ok();
+        std::fs::remove_file(&cached_etag_path).ok();
+        existing_size = 0;
+    }
+
+    let start_byte = if supports_resume && existing_size > 0 && existing_size < remote_size {
+        log(&format!("Resuming download from byte {} (remote: {})", existing_size, remote_size));
         existing_size
     } else {
         if existing_size > 0 && !supports_resume {
@@ -818,6 +725,19 @@ async fn download_with_resume_background(
         .open(download_path)
         .map_err(|e| format!("打开文件失败：{}", e))?;
 
+    // 如果请求了 Range 但服务器返回 200（不是 PARTIAL_CONTENT），说明服务器忽略了 Range
+    // 此时需要删除旧文件，从头开始写入
+    if start_byte > 0 && final_response.status() == reqwest::StatusCode::OK {
+        log("Server ignored Range header, removing partial file and starting fresh");
+        std::fs::remove_file(download_path).ok();
+        std::fs::remove_file(&download_path.with_extension("etag")).ok();
+        file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(download_path)
+            .map_err(|e| format!("打开文件失败：{}", e))?;
+    }
+
     let mut downloaded: u64 = 0;
     let mut stream = final_response.bytes_stream();
 
@@ -832,7 +752,7 @@ async fn download_with_resume_background(
             return Err("下载已取消".to_string());
         }
 
-        let chunk = chunk.map_err(|e| format!("下载流错误：{}", e))?;
+        let chunk = chunk.map_err(|_e| "network_error".to_string())?;
         file.write_all(&chunk).map_err(|e| format!("写入文件失败：{}", e))?;
         downloaded += chunk.len() as u64;
 
@@ -859,6 +779,15 @@ async fn download_with_resume_background(
     }
 
     file.flush().map_err(|e| format!("刷新文件失败：{}", e))?;
+
+    // 保存 ETag 以便下次下载时校验
+    if let Some(etag) = &remote_etag {
+        let etag_path = download_path.with_extension("etag");
+        if let Err(e) = std::fs::write(&etag_path, etag) {
+            log(&format!("Warning: failed to save ETag: {}", e));
+        }
+    }
+
     log("Download completed");
     Ok(false)
 }
@@ -931,14 +860,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| { reset_download_state(&app); format!("网络错误：{}", e) })?;
+        .map_err(|_e| { reset_download_state(&app); "network_error".to_string() })?;
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| { reset_download_state(&app); format!("解析版本信息失败：{}", e) })?;
+        .map_err(|_e| { reset_download_state(&app); "network_error".to_string() })?;
 
-    let tag_name = json["tag_name"].as_str().unwrap_or("unknown");
+    let tag_name = json["tag_name"].as_str().unwrap_or("");
+    if tag_name.is_empty() || tag_name == "unknown" {
+        reset_download_state(&app);
+        return Err("network_error".to_string());
+    }
     log(&format!("Latest release: {}", tag_name));
 
     // 根据平台确定要下载的文件和签名 key
@@ -994,27 +927,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             "找不到适合当前平台的安装包".to_string()
         })?;
 
-    log(&format!("Download URL: {}", download_url));
     log(&format!("Filename: {}", filename));
-
-    // 获取签名信息（使用独立 client，不走代理，超时 5 秒）
-    let sig_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| { reset_download_state(&app); format!("创建签名请求客户端失败：{}", e) })?;
-    let expected_signature = match fetch_signature_from_latest(&sig_client, tag_name, target).await {
-        Ok(sig) => sig,
-        Err(e) => {
-            log(&format!("Warning: signature fetch skipped (will skip verification): {}", e));
-            String::new()
-        }
-    };
-
-    // 检查缓存的签名
-    let cached_signature = read_cached_signature(&cache_dir, &filename);
-    if let Some(ref sig) = cached_signature {
-        log(&format!("Cached signature: {}...", &sig[..20.min(sig.len())]));
-    }
 
     // 下载路径
     let download_path = cache_dir.join(&filename);
@@ -1026,27 +939,39 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         0
     };
 
-    // 为下载创建一个独立的 client（无代理、无超时限制）
+    // 为下载创建一个独立的 client（无代理、无超时限制，但有连接超时）
     let download_client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| { reset_download_state(&app); format!("创建下载客户端失败：{}", e) })?;
 
-    // 获取文件总大小（使用独立 client，不走代理）
-    let head_response = download_client
-        .get(&download_url)
-        .header("User-Agent", "kafka-manager")
-        .send()
-        .await
-        .map_err(|e| {
-            // 如果 HEAD 请求失败，确保清理下载状态
-            if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
-                if let Ok(mut guard) = state.lock() {
-                    guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
-                    guard.is_downloading = false;
-                }
+    // 获取文件总大小（使用独立 client，不走代理），重试 3 次
+    let head_response = {
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            match download_client
+                .get(&download_url)
+                .header("User-Agent", "kafka-manager")
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => break resp,
+                Ok(_) | Err(_) => {}
             }
-            format!("获取文件信息失败：{}", e)
-        })?;
+            if attempts >= 3 {
+                if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+                    if let Ok(mut guard) = state.lock() {
+                        guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                        guard.is_downloading = false;
+                    }
+                }
+                return Err("network_error".to_string());
+            }
+            log(&format!("HEAD request failed (attempt {attempts}/3), retrying in 2s..."));
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    };
 
     let total_size = head_response.content_length().unwrap_or(0);
     log(&format!("Remote file size: {} bytes", total_size));
@@ -1081,7 +1006,6 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 &download_client,
                 &download_url,
                 &download_path,
-                &expected_signature,
                 state.clone(),
                 total_size,
             ).await {
@@ -1108,26 +1032,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             }
 
             if skipped {
-                log("Using cached file (signature verified)");
-            } else {
-                // 下载完成后验证签名
-                if !expected_signature.is_empty() {
-                    match verify_signature(&download_path, &expected_signature) {
-                        Ok(true) => {
-                            log("Downloaded file signature verified");
-                            // 保存签名到缓存
-                            let _ = save_cached_signature(&cache_dir, &filename, &expected_signature);
-                        }
-                        Ok(false) => {
-                            log("Signature mismatch, removing file");
-                            std::fs::remove_file(&download_path).ok();
-                            return;
-                        }
-                        Err(e) => {
-                            log(&format!("Signature verification error: {}", e));
-                        }
-                    }
-                }
+                log("Using cached file");
             }
 
             log(&format!("File ready at: {:?}", download_path));
@@ -1138,10 +1043,33 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             #[cfg(target_os = "macos")]
             {
                 log("Opening DMG file and will exit app...");
-                std::process::Command::new("open")
+                let dmg_path_str = download_path.to_string_lossy();
+                log(&format!("DMG path: {}", dmg_path_str));
+
+                // 检查文件是否存在及其大小
+                if download_path.exists() {
+                    match std::fs::metadata(&download_path) {
+                        Ok(meta) => log(&format!("DMG file exists, size: {} bytes", meta.len())),
+                        Err(e) => log(&format!("ERROR: Cannot read DMG metadata: {}", e)),
+                    }
+                } else {
+                    log("ERROR: DMG file does not exist!");
+                }
+
+                // 使用 status() 同步等待 open 命令完成，以便捕获错误
+                match std::process::Command::new("open")
                     .arg(&download_path)
-                    .spawn()
-                    .ok();
+                    .status()
+                {
+                    Ok(status) => {
+                        if status.success() {
+                            log("Successfully opened DMG");
+                        } else {
+                            log(&format!("Failed to open DMG, exit status: {:?}", status.code()));
+                        }
+                    }
+                    Err(e) => log(&format!("Failed to execute open command: {}", e)),
+                }
 
                 // 通知用户即将退出
                 app_handle.dialog()

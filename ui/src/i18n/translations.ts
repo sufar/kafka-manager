@@ -403,6 +403,7 @@ export interface Translation {
     checkCompleteNoUpdate: string;
     checkFailed: string;
     installFailed: string;
+    networkError: string;
     downloadComplete: string;
     browserNotSupported: string;
     checkForUpdates: string;
@@ -971,6 +972,7 @@ export const translations: Record<Language, Translation> = {
       installing: '正在安装...',
       installed: '已安装',
       installFailed: '安装失败',
+      networkError: '网络请求失败，请检查网络连接后重试',
       updateAndRestart: '下载并安装',
       checkCompleteNoUpdate: '已是最新版本',
       checkFailed: '检查更新失败',
@@ -1540,6 +1542,7 @@ export const translations: Record<Language, Translation> = {
       installing: 'Installing...',
       installed: 'Installed',
       installFailed: 'Install Failed',
+      networkError: 'Network request failed, please check your connection and try again',
       updateAndRestart: 'Download & Install',
       checkCompleteNoUpdate: 'Already up to date',
       checkFailed: 'Failed to check for updates',
