@@ -880,21 +880,31 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-
+/// 重置下载状态，使前端可以重试
+fn reset_download_state(app: &tauri::AppHandle) {
+    if let Ok(mut state) = app.state::<Arc<Mutex<DownloadState>>>().lock() {
+        state.cancel_requested.store(true, std::sync::atomic::Ordering::Relaxed);
+        state.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+        state.is_downloading = false;
+    }
+}
 
 /// 下载并安装更新（支持签名验证和断点续传）- 后台线程运行
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     log("Downloading and installing update with signature verification...");
 
-    // 检查是否已在下载，如果是则取消旧下载
+    // 立即检查并设置下载状态，防止并发
     {
         let state = app.state::<Arc<Mutex<DownloadState>>>();
-        let guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
         if guard.is_downloading {
             log("Cancelling existing download to start a new one");
             guard.cancel_requested.store(true, std::sync::atomic::Ordering::Relaxed);
         }
+        // 立即标记为下载中，阻止后续并发调用
+        guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+        guard.is_downloading = true;
     }
 
     // 获取系统缓存目录
@@ -903,7 +913,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
 
     std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| format!("创建缓存目录失败：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("创建缓存目录失败：{}", e) })?;
 
     log(&format!("Cache directory: {:?}", cache_dir));
 
@@ -914,19 +924,19 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("创建 HTTP 客户端失败：{}", e) })?;
 
     let response = client
         .get(api_url)
         .header("User-Agent", "kafka-manager")
         .send()
         .await
-        .map_err(|e| format!("网络错误：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("网络错误：{}", e) })?;
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("解析版本信息失败：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("解析版本信息失败：{}", e) })?;
 
     let tag_name = json["tag_name"].as_str().unwrap_or("unknown");
     log(&format!("Latest release: {}", tag_name));
@@ -941,13 +951,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     } else if cfg!(target_os = "windows") {
         ("windows-x86_64", ".msi")
     } else {
+        reset_download_state(&app);
         return Err("不支持的平台".to_string());
     };
 
     log(&format!("Target platform: {}", target));
 
     // 从 assets 中找到对应的下载 URL
-    let assets = json["assets"].as_array().ok_or("找不到下载文件")?;
+    let assets = json["assets"].as_array().ok_or_else(|| {
+        reset_download_state(&app);
+        "找不到下载文件".to_string()
+    })?;
 
     // 先精确匹配目标平台+架构（优先），再回退到按扩展名匹配
     let (download_url, filename) = assets
@@ -975,7 +989,10 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 }
             })
         })
-        .ok_or_else(|| "找不到适合当前平台的安装包")?;
+        .ok_or_else(|| {
+            reset_download_state(&app);
+            "找不到适合当前平台的安装包".to_string()
+        })?;
 
     log(&format!("Download URL: {}", download_url));
     log(&format!("Filename: {}", filename));
@@ -984,7 +1001,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     let sig_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| format!("创建签名请求客户端失败：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("创建签名请求客户端失败：{}", e) })?;
     let expected_signature = match fetch_signature_from_latest(&sig_client, tag_name, target).await {
         Ok(sig) => sig,
         Err(e) => {
@@ -1012,7 +1029,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     // 为下载创建一个独立的 client（无代理、无超时限制）
     let download_client = reqwest::Client::builder()
         .build()
-        .map_err(|e| format!("创建下载客户端失败：{}", e))?;
+        .map_err(|e| { reset_download_state(&app); format!("创建下载客户端失败：{}", e) })?;
 
     // 获取文件总大小（使用独立 client，不走代理）
     let head_response = download_client
@@ -1034,11 +1051,10 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     let total_size = head_response.content_length().unwrap_or(0);
     log(&format!("Remote file size: {} bytes", total_size));
 
-    // 获取文件大小成功后，立即标记为下载中（避免并发下载）
+    // 更新下载状态
     {
         let state = app.state::<Arc<Mutex<DownloadState>>>();
         let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-        guard.is_downloading = true;
         guard.downloaded = existing_size;
         guard.total = total_size;
         guard.download_url = download_url.clone();
