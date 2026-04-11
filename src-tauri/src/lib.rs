@@ -677,8 +677,8 @@ async fn download_with_resume_background(
         std::fs::remove_file(download_path).ok();
         std::fs::remove_file(&cached_etag_path).ok();
         existing_size = 0;
-    } else if existing_size > 0 && existing_size >= remote_size && remote_size > 0 {
-        // 文件不完整但大小超过远程（可能是旧版本），清理
+    } else if etag_mismatch && existing_size > 0 && existing_size >= remote_size && remote_size > 0 {
+        // ETag 不匹配且文件大小超过远程（确定是旧版本文件），清理
         log(&format!("Cached file size exceeds remote, removing ({} bytes)", existing_size));
         std::fs::remove_file(download_path).ok();
         std::fs::remove_file(&cached_etag_path).ok();
