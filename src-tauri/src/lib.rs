@@ -428,6 +428,10 @@ pub struct UpdateResult {
     pub version: String,
     pub notes: Option<String>,
     pub date: Option<String>,
+    /// 是否为绿色免安装版（便携版）
+    pub is_portable: bool,
+    /// 便携版更新下载 URL（仅当 is_portable=true 时有效）
+    pub portable_download_url: Option<String>,
 }
 
 /// 检查更新 - 直接使用 GitHub API
@@ -447,6 +451,8 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
             version: current_version.to_string(),
             notes: None,
             date: None,
+            is_portable: false,
+            portable_download_url: None,
         });
     }
 
@@ -485,6 +491,8 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
             version: current_version.to_string(),
             notes: None,
             date: None,
+            is_portable: false,
+            portable_download_url: None,
         });
     }
 
@@ -505,6 +513,8 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
             version: current_version.to_string(),
             notes: None,
             date: None,
+            is_portable: is_portable_mode(),
+            portable_download_url: None,
         });
     }
 
@@ -563,7 +573,59 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
         version: remote_version.to_string(),
         notes: notes.clone(),
         date: if published_at.is_empty() { None } else { Some(published_at.to_string()) },
+        is_portable: is_portable_mode(),
+        portable_download_url: if is_portable_mode() {
+            // 从 assets 中查找便携版下载链接
+            find_portable_download_url(&json)
+        } else {
+            None
+        },
     })
+}
+
+/// 检测是否为绿色免安装版
+fn is_portable_mode() -> bool {
+    let exe_path = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return true,
+    };
+
+    // 检查是否在标准安装目录（Program Files, AppData 等）
+    let path_str = exe_path.to_string_lossy().to_lowercase();
+    let standard_locations = [
+        "program files",
+        "program files (x86)",
+        "appdata\\local",
+        "appdata\\roaming",
+    ];
+
+    for loc in &standard_locations {
+        if path_str.contains(loc) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// 从 GitHub release JSON 中提取便携版下载链接
+fn find_portable_download_url(json: &serde_json::Value) -> Option<String> {
+    let assets = json["assets"].as_array()?;
+    for asset in assets {
+        let name = asset["name"].as_str()?;
+        // 优先匹配 Portable.zip
+        if name.contains("Portable") || name.contains("portable") {
+            return asset["browser_download_url"].as_str().map(String::from);
+        }
+    }
+    // 回退：返回 .exe 下载链接（NSIS 单文件安装器）
+    for asset in assets {
+        let name = asset["name"].as_str()?;
+        if name.ends_with(".exe") {
+            return asset["browser_download_url"].as_str().map(String::from);
+        }
+    }
+    None
 }
 
 /// 获取下载状态
@@ -818,6 +880,123 @@ fn reset_download_state(app: &tauri::AppHandle) {
     }
 }
 
+/// 绿色便携版更新：解压并覆盖当前 exe
+fn install_portable_update(
+    app_handle: &tauri::AppHandle,
+    zip_path: &std::path::Path,
+    cache_dir: &std::path::Path,
+) -> Result<(), String> {
+    use std::io::Cursor;
+    use tauri_plugin_dialog::DialogExt;
+
+    log("Installing portable update...");
+
+    // 读取 zip 文件
+    let zip_data = std::fs::read(zip_path)
+        .map_err(|e| format!("读取更新文件失败：{}", e))?;
+
+    // 创建临时解压目录
+    let extract_dir = cache_dir.join("_portable_update");
+    if extract_dir.exists() {
+        std::fs::remove_dir_all(&extract_dir)
+            .map_err(|e| format!("清理旧解压目录失败：{}", e))?;
+    }
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| format!("创建解压目录失败：{}", e))?;
+
+    // 解压 zip
+    let cursor = Cursor::new(zip_data);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("解压更新包失败：{}", e))?;
+
+    log(&format!("Zip contains {} files", archive.len()));
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("解压文件失败：{}", e))?;
+        let outpath = extract_dir.join(file.name());
+
+        if file.name().ends_with('/') {
+            std::fs::create_dir_all(&outpath).ok();
+        } else {
+            if let Some(p) = outpath.parent() {
+                std::fs::create_dir_all(p).ok();
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| format!("创建文件失败：{}", e))?;
+            std::io::copy(&mut file, &mut outfile)
+                .map_err(|e| format!("写入文件失败：{}", e))?;
+        }
+    }
+
+    log(&format!("Extracted to {:?}", extract_dir));
+
+    // 找到当前 exe 的路径
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("获取当前程序路径失败：{}", e))?;
+    let exe_name = current_exe
+        .file_name()
+        .ok_or("无法获取程序文件名")?
+        .to_string_lossy()
+        .to_string();
+
+    // 在解压目录中找到同名的 exe
+    let new_exe = extract_dir.join(&exe_name);
+    if !new_exe.exists() {
+        // 尝试在解压目录中找唯一的 .exe 文件
+        let mut found_exe = None;
+        for entry in std::fs::read_dir(&extract_dir).map_err(|e| format!("读取解压目录失败：{}", e))? {
+            let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "exe") {
+                found_exe = Some(path);
+                break;
+            }
+        }
+        if let Some(p) = found_exe {
+            log(&format!("Found exe at: {:?}", p));
+            // 复制到当前 exe 路径
+            std::fs::copy(&p, &current_exe)
+                .map_err(|e| format!("覆盖程序文件失败：{}", e))?;
+            log("Successfully replaced current exe");
+        } else {
+            return Err("在更新包中找不到可执行文件".to_string());
+        }
+    } else {
+        // 找到同名 exe，直接覆盖
+        std::fs::copy(&new_exe, &current_exe)
+            .map_err(|e| format!("覆盖程序文件失败：{}", e))?;
+        log("Successfully replaced current exe with matching name");
+    }
+
+    // 清理临时文件（异步，不影响重启）
+    let extract_dir_clone = extract_dir.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&extract_dir_clone);
+    });
+
+    // 重启应用
+    app_handle.dialog()
+        .message("更新已完成，应用即将重启")
+        .title("更新成功")
+        .show(|_| {});
+
+    std::thread::spawn({
+        let app_handle = app_handle.clone();
+        move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            log("Restarting app for portable update...");
+            // 重新启动自己
+            let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+            let _ = std::process::Command::new(&current_exe)
+                .spawn();
+            app_handle.exit(0);
+        }
+    });
+
+    Ok(())
+}
+
 /// 下载并安装更新（支持签名验证和断点续传）- 后台线程运行
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
@@ -890,42 +1069,75 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
     log(&format!("Target platform: {}", target));
 
+    // 检测是否为绿色便携版
+    let portable = is_portable_mode();
+    log(&format!("Portable mode: {}", portable));
+
     // 从 assets 中找到对应的下载 URL
     let assets = json["assets"].as_array().ok_or_else(|| {
         reset_download_state(&app);
         "找不到下载文件".to_string()
     })?;
 
-    // 先精确匹配目标平台+架构（优先），再回退到按扩展名匹配
-    let (download_url, filename) = assets
-        .iter()
-        .find_map(|asset| {
-            let name = asset["name"].as_str()?;
-            // 精确匹配：文件名包含目标平台标识
-            if name.contains(target) {
-                return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
-            }
-            None
-        })
-        .or_else(|| {
-            // 回退：按扩展名匹配
-            assets.iter().find_map(|asset| {
+    // 根据模式选择不同的下载文件
+    let (download_url, filename) = if portable {
+        // 便携版：优先找 Portable.zip，其次是 .exe
+        assets
+            .iter()
+            .find_map(|asset| {
                 let name = asset["name"].as_str()?;
-                if cfg!(target_os = "macos") && name.ends_with(".dmg") {
-                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-                } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
-                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-                } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
-                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
-                } else {
-                    None
+                if name.contains("Portable") || name.contains("portable") || name.contains(".zip") {
+                    return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
                 }
+                None
             })
-        })
-        .ok_or_else(|| {
-            reset_download_state(&app);
-            "找不到适合当前平台的安装包".to_string()
-        })?;
+            .or_else(|| {
+                assets.iter().find_map(|asset| {
+                    let name = asset["name"].as_str()?;
+                    if name.ends_with(".exe") {
+                        Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| {
+                reset_download_state(&app);
+                "找不到适合当前平台的安装包".to_string()
+            })?
+    } else {
+        // 安装版：原有的逻辑
+        // 先精确匹配目标平台+架构（优先），再回退到按扩展名匹配
+        assets
+            .iter()
+            .find_map(|asset| {
+                let name = asset["name"].as_str()?;
+                // 精确匹配：文件名包含目标平台标识
+                if name.contains(target) {
+                    return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
+                }
+                None
+            })
+            .or_else(|| {
+                // 回退：按扩展名匹配
+                assets.iter().find_map(|asset| {
+                    let name = asset["name"].as_str()?;
+                    if cfg!(target_os = "macos") && name.ends_with(".dmg") {
+                        Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                    } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
+                        Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                    } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
+                        Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| {
+                reset_download_state(&app);
+                "找不到适合当前平台的安装包".to_string()
+            })?
+    };
 
     log(&format!("Filename: {}", filename));
 
@@ -994,6 +1206,8 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Arc<Mutex<DownloadState>>>().inner().clone();
     let app_handle = app.clone();
     let download_client = download_client.clone();
+    let portable = portable;
+    let cache_dir = cache_dir.clone();
 
     // 在独立线程中执行下载，不依赖前端生命周期
     std::thread::spawn(move || {
@@ -1036,6 +1250,25 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             }
 
             log(&format!("File ready at: {:?}", download_path));
+
+            // 绿色便携版：解压并覆盖当前 exe
+            if portable {
+                match install_portable_update(&app_handle, &download_path, &cache_dir) {
+                    Ok(()) => {
+                        log("Portable update completed successfully");
+                        let _ = app_handle.emit("update_complete", ());
+                        return;
+                    }
+                    Err(e) => {
+                        log(&format!("Portable update failed: {}", e));
+                        let mut guard = state.lock().expect("Lock error");
+                        guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                        guard.is_downloading = false;
+                        let _ = app_handle.emit("download_error", e);
+                        return;
+                    }
+                }
+            }
 
             // 使用系统对话框通知用户
             use tauri_plugin_dialog::DialogExt;

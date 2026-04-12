@@ -468,6 +468,7 @@ jobs:
           GITHUB_WORKSPACE="${{ github.workspace }}"
           MSI_PATH=$(find ${GITHUB_WORKSPACE}/target/release/bundle -type f -name '*.msi' 2>/dev/null | head -1)
           EXE_PATH=$(find ${GITHUB_WORKSPACE}/target/release/bundle -type f -name '*.exe' 2>/dev/null | head -1)
+          APP_DIR=$(find ${GITHUB_WORKSPACE}/target/release/bundle -maxdepth 1 -type d -name 'Kafka Manager*' 2>/dev/null | head -1)
           if [ -z "$MSI_PATH" ]; then
             echo "Error: No MSI file found!"
             echo "Debug: listing ${GITHUB_WORKSPACE}/target/release/bundle:"
@@ -480,8 +481,19 @@ jobs:
           fi
           echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
           echo "EXE_PATH=$EXE_PATH" >> $GITHUB_ENV
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
           echo "Found MSI: $MSI_PATH"
           echo "Found EXE: $EXE_PATH"
+          echo "Found APP bundle: $APP_DIR"
+
+          # 打包便携版为 zip
+          if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+            cd "${GITHUB_WORKSPACE}/target/release/bundle"
+            APP_ZIP="Kafka-Manager-Portable.zip"
+            zip -r "$APP_ZIP" "Kafka Manager" 2>/dev/null
+            echo "APP_ZIP=$(pwd)/$APP_ZIP" >> $GITHUB_ENV
+            echo "Created portable zip: $APP_ZIP"
+          fi
 
           # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
           SIG_PATH="${MSI_PATH}.sig"
@@ -513,6 +525,13 @@ jobs:
             ${{ env.MSI_PATH }}
             ${{ env.MSI_PATH }}.sig
             ${{ env.MSI_PATH }}.sig.json
+          if-no-files-found: warn
+
+      - name: Upload Windows Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: ${{ env.APP_ZIP }}
           if-no-files-found: warn
 
       - name: Upload Windows EXE
@@ -618,6 +637,7 @@ jobs:
             ./artifacts/*.deb
             ./artifacts/*.msi
             ./artifacts/*.exe
+            ./artifacts/*.zip
             ./artifacts/latest.json
           draft: false
         env:

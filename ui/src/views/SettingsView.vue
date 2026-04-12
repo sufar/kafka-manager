@@ -442,7 +442,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.46');
+const appVersion = ref('1.0.48');
 
 // 日志相关
 const logs = ref('');
@@ -543,7 +543,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.46');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.48');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -772,7 +772,7 @@ async function checkForUpdates(manual = false) {
       updateAvailable.value = true;
       updateInfo.value = {
         version: result.version,
-        notes: result.notes || ''
+        notes: result.notes || '',
       };
       if (manual) {
         showUpdateModal.value = true;
