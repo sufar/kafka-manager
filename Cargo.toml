@@ -1,6 +1,6 @@
 [package]
 name = "kafka-manager-api"
-version = "1.0.50"
+version = "1.0.53"
 edition = "2021"
 description = "A Kafka management tool with RESTful API"
 
