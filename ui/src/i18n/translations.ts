@@ -261,6 +261,7 @@ export interface Translation {
     hour: string;
     day: string;
     queryTimeout: string;
+    exportTip: string;
   };
   consumerGroups: {
     title: string;
@@ -833,6 +834,7 @@ export const translations: Record<Language, Translation> = {
       hour: '时',
       day: '天',
       queryTimeout: '查询超时，请重试',
+      exportTip: '查询数量为每分区的消息数量，条件过滤在查询数据后进行',
     },
     consumerGroups: {
       title: '消费者组',
@@ -1403,6 +1405,7 @@ export const translations: Record<Language, Translation> = {
       hour: 'hr',
       day: 'day',
       queryTimeout: 'Query timeout, please try again',
+      exportTip: 'Query count is per partition, filtering is applied after fetching',
     },
     consumerGroups: {
       title: 'Consumer Groups',

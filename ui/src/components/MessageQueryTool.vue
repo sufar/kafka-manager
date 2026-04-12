@@ -162,6 +162,11 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
           </button>
+          <span class="inline-flex items-center ml-1 cursor-help text-base-content/40 hover:text-base-content/70 transition-colors" :title="t.messages.exportTip">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M12 18.75h.008v.008H12v-.008Z" />
+            </svg>
+          </span>
           <span v-if="timestampSort" class="ml-2 badge badge-sm badge-info">
             {{ timestampSort === 'asc' ? '↑' : '↓' }} {{ t.messages.timestampLabel }}
           </span>
