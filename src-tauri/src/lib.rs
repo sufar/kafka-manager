@@ -880,7 +880,7 @@ fn reset_download_state(app: &tauri::AppHandle) {
     }
 }
 
-/// 绿色便携版更新：解压并覆盖当前 exe
+/// 绿色便携版更新：解压并覆盖当前目录的所有文件
 fn install_portable_update(
     app_handle: &tauri::AppHandle,
     zip_path: &std::path::Path,
@@ -930,43 +930,31 @@ fn install_portable_update(
 
     log(&format!("Extracted to {:?}", extract_dir));
 
-    // 找到当前 exe 的路径
+    // 找到当前 exe 所在目录（便携版所有文件都在此目录）
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("获取当前程序路径失败：{}", e))?;
-    let exe_name = current_exe
-        .file_name()
-        .ok_or("无法获取程序文件名")?
-        .to_string_lossy()
-        .to_string();
+    let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
 
-    // 在解压目录中找到同名的 exe
-    let new_exe = extract_dir.join(&exe_name);
-    if !new_exe.exists() {
-        // 尝试在解压目录中找唯一的 .exe 文件
-        let mut found_exe = None;
-        for entry in std::fs::read_dir(&extract_dir).map_err(|e| format!("读取解压目录失败：{}", e))? {
+    // 复制所有文件到当前目录（覆盖旧文件）
+    fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+        for entry in std::fs::read_dir(src).map_err(|e| format!("读取目录失败：{}", e))? {
             let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
-            let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "exe") {
-                found_exe = Some(path);
-                break;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+
+            if src_path.is_dir() {
+                std::fs::create_dir_all(&dst_path).ok();
+                copy_dir_contents(&src_path, &dst_path)?;
+            } else {
+                std::fs::copy(&src_path, &dst_path)
+                    .map_err(|e| format!("复制文件 {} 失败：{}", src_path.display(), e))?;
             }
         }
-        if let Some(p) = found_exe {
-            log(&format!("Found exe at: {:?}", p));
-            // 复制到当前 exe 路径
-            std::fs::copy(&p, &current_exe)
-                .map_err(|e| format!("覆盖程序文件失败：{}", e))?;
-            log("Successfully replaced current exe");
-        } else {
-            return Err("在更新包中找不到可执行文件".to_string());
-        }
-    } else {
-        // 找到同名 exe，直接覆盖
-        std::fs::copy(&new_exe, &current_exe)
-            .map_err(|e| format!("覆盖程序文件失败：{}", e))?;
-        log("Successfully replaced current exe with matching name");
+        Ok(())
     }
+
+    copy_dir_contents(&extract_dir, current_dir)?;
+    log(&format!("All files copied to {:?}", current_dir));
 
     // 清理临时文件（异步，不影响重启）
     let extract_dir_clone = extract_dir.clone();
@@ -986,10 +974,8 @@ fn install_portable_update(
         move || {
             std::thread::sleep(std::time::Duration::from_secs(2));
             log("Restarting app for portable update...");
-            // 重新启动自己
             let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-            let _ = std::process::Command::new(&current_exe)
-                .spawn();
+            let _ = std::process::Command::new(&current_exe).spawn();
             app_handle.exit(0);
         }
     });

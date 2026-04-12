@@ -489,18 +489,61 @@ jobs:
           echo "Found EXE: $EXE_PATH"
           echo "Found APP bundle: $APP_DIR"
 
-          # 打包便携版为 zip
-          if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
-            cd "${GITHUB_WORKSPACE}/target/release/bundle"
-            APP_ZIP="${GITHUB_WORKSPACE}/target/release/bundle/Kafka-Manager-Portable.zip"
-            zip -r "Kafka-Manager-Portable.zip" "${APP_DIR##*/}" 2>/dev/null
+          # Windows 上没有 app 目标，手动创建便携包
+          # 使用 tauri build 产出的原始 exe（在 target/release/ 中，包含所有嵌入资源）
+          echo "Creating portable package..."
+          APP_ZIP="${GITHUB_WORKSPACE}/target/release/bundle/Kafka-Manager-Portable.zip"
+
+          powershell -Command "
+            $bundleDir = '${GITHUB_WORKSPACE}/target/release/bundle'
+            $releaseDir = '${GITHUB_WORKSPACE}/target/release'
+            $portableDir = Join-Path $bundleDir 'portable-package'
+            New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
+
+            # 查找原始 exe（tauri build 产出的，包含所有嵌入资源）
+            $appExe = Get-ChildItem -Path $releaseDir -Filter 'Kafka Manager*.exe' -Exclude '*setup*', '*-unins*' | Select-Object -First 1
+            if ($appExe) {
+              Write-Host \"Found app exe: $($appExe.FullName)\"
+              Copy-Item $appExe.FullName $portableDir -Force
+            } else {
+              Write-Host 'Warning: Could not find app exe in release directory'
+              # 回退：列出目录
+              Get-ChildItem $releaseDir -Filter '*.exe' | ForEach-Object { Write-Host \"  $_\" }
+            }
+
+            # 复制 config.toml
+            $configFile = '${GITHUB_WORKSPACE}/config.toml'
+            if (Test-Path $configFile) {
+              Copy-Item $configFile $portableDir -Force
+              Write-Host 'Copied config.toml'
+            }
+
+            # 复制 migrations
+            $migrationsDir = '${GITHUB_WORKSPACE}/migrations'
+            if (Test-Path $migrationsDir) {
+              Copy-Item -Recurse $migrationsDir (Join-Path $portableDir 'migrations')
+              Write-Host 'Copied migrations'
+            }
+
+            # 打包为 zip
+            $items = Get-ChildItem $portableDir
+            if ($items) {
+              Write-Host \"Files in portable package:\"
+              $items | ForEach-Object { Write-Host \"  $_\" }
+              Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath '$APP_ZIP' -Force
+              $zipSize = (Get-Item $APP_ZIP).Length
+              Write-Host \"Created portable zip: $APP_ZIP ($([math]::Round($zipSize/1MB, 1)) MB)\"
+            } else {
+              Write-Host 'Warning: portable package directory is empty'
+            }
+            Remove-Item -Recurse -Force $portableDir -ErrorAction SilentlyContinue
+          "
+
+          if [ -f "$APP_ZIP" ]; then
             echo "APP_ZIP=$APP_ZIP" >> $GITHUB_ENV
-            echo "Created portable zip: $APP_ZIP"
+            ls -la "$APP_ZIP"
           else
-            echo "Warning: APP bundle directory not found, skipping portable zip"
-            echo "Listing bundle directory:"
-            ls -la "${GITHUB_WORKSPACE}/target/release/bundle/" 2>/dev/null || echo "bundle dir not found"
-            # 设置一个不存在的路径，让 upload 步骤跳过（if-no-files-found: warn）
+            echo "Warning: Failed to create portable zip"
             echo "APP_ZIP=/nonexistent/Kafka-Manager-Portable.zip" >> $GITHUB_ENV
           fi
 
@@ -647,6 +690,7 @@ jobs:
             ./artifacts/*.deb
             ./artifacts/*.msi
             ./artifacts/*.exe
+            ./artifacts/*.zip
             ./artifacts/*.zip
             ./artifacts/latest.json
           draft: false
