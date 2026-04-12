@@ -468,7 +468,10 @@ jobs:
           GITHUB_WORKSPACE="${{ github.workspace }}"
           MSI_PATH=$(find ${GITHUB_WORKSPACE}/target/release/bundle -type f -name '*.msi' 2>/dev/null | head -1)
           EXE_PATH=$(find ${GITHUB_WORKSPACE}/target/release/bundle -type f -name '*.exe' 2>/dev/null | head -1)
-          APP_DIR=$(find ${GITHUB_WORKSPACE}/target/release/bundle -maxdepth 1 -type d -name 'Kafka Manager*' 2>/dev/null | head -1)
+          APP_DIR=$(find ${GITHUB_WORKSPACE}/target/release/bundle -maxdepth 1 -type d -name '*app' 2>/dev/null | head -1)
+          if [ -z "$APP_DIR" ]; then
+            APP_DIR=$(find ${GITHUB_WORKSPACE}/target/release/bundle -maxdepth 1 -type d -name 'Kafka*' 2>/dev/null | head -1)
+          fi
           if [ -z "$MSI_PATH" ]; then
             echo "Error: No MSI file found!"
             echo "Debug: listing ${GITHUB_WORKSPACE}/target/release/bundle:"
@@ -489,10 +492,16 @@ jobs:
           # 打包便携版为 zip
           if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
             cd "${GITHUB_WORKSPACE}/target/release/bundle"
-            APP_ZIP="Kafka-Manager-Portable.zip"
-            zip -r "$APP_ZIP" "Kafka Manager" 2>/dev/null
-            echo "APP_ZIP=$(pwd)/$APP_ZIP" >> $GITHUB_ENV
+            APP_ZIP="${GITHUB_WORKSPACE}/target/release/bundle/Kafka-Manager-Portable.zip"
+            zip -r "Kafka-Manager-Portable.zip" "${APP_DIR##*/}" 2>/dev/null
+            echo "APP_ZIP=$APP_ZIP" >> $GITHUB_ENV
             echo "Created portable zip: $APP_ZIP"
+          else
+            echo "Warning: APP bundle directory not found, skipping portable zip"
+            echo "Listing bundle directory:"
+            ls -la "${GITHUB_WORKSPACE}/target/release/bundle/" 2>/dev/null || echo "bundle dir not found"
+            # 设置一个不存在的路径，让 upload 步骤跳过（if-no-files-found: warn）
+            echo "APP_ZIP=/nonexistent/Kafka-Manager-Portable.zip" >> $GITHUB_ENV
           fi
 
           # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
@@ -528,6 +537,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload Windows Portable
+        if: env.APP_ZIP != '' && env.APP_ZIP != '/nonexistent/Kafka-Manager-Portable.zip'
         uses: actions/upload-artifact@v4
         with:
           name: windows-portable
