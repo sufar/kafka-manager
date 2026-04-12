@@ -930,7 +930,7 @@ fn install_portable_update(
 
     log(&format!("Extracted to {:?}", extract_dir));
 
-    // 找到当前 exe 所在目录（便携版所有文件都在此目录）
+    // 找到当前 exe 所在目录
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("获取当前程序路径失败：{}", e))?;
     let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
@@ -953,8 +953,47 @@ fn install_portable_update(
         Ok(())
     }
 
-    copy_dir_contents(&extract_dir, current_dir)?;
-    log(&format!("All files copied to {:?}", current_dir));
+    #[cfg(target_os = "macos")]
+    {
+        // macOS 上需要替换整个 .app bundle
+        // 当前 exe 路径如: /path/to/Kafka Manager.app/Contents/MacOS/Kafka Manager
+        // .app bundle 路径: /path/to/Kafka Manager.app
+        let app_bundle = current_dir
+            .parent()  // Contents
+            .and_then(|p| p.parent())  // Kafka Manager.app
+            .ok_or("无法定位 .app bundle")?;
+
+        // 在解压目录中找到 .app bundle
+        let mut new_app = None;
+        for entry in std::fs::read_dir(&extract_dir).map_err(|e| format!("读取解压目录失败：{}", e))? {
+            let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "app") {
+                new_app = Some(path);
+                break;
+            }
+        }
+
+        if let Some(app_path) = new_app {
+            log(&format!("Replacing .app bundle: {:?}", app_bundle));
+            // 先删除旧的 .app bundle
+            std::fs::remove_dir_all(app_bundle)
+                .map_err(|e| format!("删除旧 .app bundle 失败：{}", e))?;
+            // 复制新的 .app bundle
+            copy_dir_contents(&app_path, app_bundle)?;
+            log("Successfully replaced .app bundle");
+        } else {
+            // 回退：直接覆盖当前目录
+            copy_dir_contents(&extract_dir, current_dir)?;
+            log(&format!("All files copied to {:?}", current_dir));
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        copy_dir_contents(&extract_dir, current_dir)?;
+        log(&format!("All files copied to {:?}", current_dir));
+    }
 
     // 清理临时文件（异步，不影响重启）
     let extract_dir_clone = extract_dir.clone();

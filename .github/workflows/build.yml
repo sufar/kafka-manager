@@ -121,7 +121,6 @@ jobs:
         working-directory: src-tauri
         run: |
           echo "=== Searching for DMG files ==="
-          # 使用绝对路径
           GITHUB_WORKSPACE="${{ github.workspace }}"
           DMG_PATH=$(find ${GITHUB_WORKSPACE}/target/universal-apple-darwin/release/bundle -type f -name '*.dmg' 2>/dev/null | head -1)
           if [ -z "$DMG_PATH" ]; then
@@ -132,6 +131,22 @@ jobs:
           fi
           echo "DMG_PATH=$DMG_PATH" >> $GITHUB_ENV
           echo "Found DMG: $DMG_PATH"
+
+          # 查找 .app 目录（便携版）
+          APP_DIR=$(find ${GITHUB_WORKSPACE}/target/universal-apple-darwin/release/bundle -maxdepth 1 -type d -name '*.app' 2>/dev/null | head -1)
+          echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
+          echo "Found APP bundle: $APP_DIR"
+
+          # 打包 .app 为便携 zip
+          if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+            APP_ZIP="${APP_DIR}.zip"
+            cd "$(dirname "$APP_DIR")"
+            zip -r "$(basename "$APP_ZIP")" "$(basename "$APP_DIR")"
+            echo "APP_ZIP=$APP_ZIP" >> $GITHUB_ENV
+            echo "Created portable zip: $APP_ZIP ($(du -h "$APP_ZIP" | cut -f1))"
+          else
+            echo "APP_ZIP=" >> $GITHUB_ENV
+          fi
 
           # 查找签名文件（Tauri 2.x 可能生成 .sig 或 .sig.json）
           SIG_PATH="${DMG_PATH}.sig"
@@ -163,6 +178,7 @@ jobs:
             ${{ env.DMG_PATH }}
             ${{ env.DMG_PATH }}.sig
             ${{ env.DMG_PATH }}.sig.json
+            ${{ env.APP_ZIP }}
           if-no-files-found: warn
 
   build-linux:
