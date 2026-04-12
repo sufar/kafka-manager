@@ -87,7 +87,7 @@
     </div>
 
     <!-- Topic History Panel -->
-    <div v-if="showHistory" class="flex-1 overflow-y-auto p-2 relative">
+    <div v-if="showHistory" class="flex-1 overflow-y-auto p-2 pb-2 relative">
       <TopicHistory :t="t" />
     </div>
 

@@ -163,3 +163,28 @@ pub async fn is_history_exists(
 
     Ok(count > 0)
 }
+
+/// 插入或更新历史记录，保留原始 viewed_at 时间（用于导入）
+pub async fn import_history(
+    pool: &DbPool,
+    cluster_id: &str,
+    topic_name: &str,
+    viewed_at: &str,
+) -> Result<TopicHistory, sqlx::Error> {
+    let history = sqlx::query_as::<_, TopicHistory>(
+        r#"
+        INSERT INTO topic_history (cluster_id, topic_name, viewed_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(cluster_id, topic_name) DO UPDATE SET viewed_at = ?
+        RETURNING *
+        "#,
+    )
+    .bind(cluster_id)
+    .bind(topic_name)
+    .bind(viewed_at)
+    .bind(viewed_at)
+    .fetch_one(pool.inner())
+    .await?;
+
+    Ok(history)
+}

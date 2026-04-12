@@ -351,7 +351,7 @@ pub(crate) async fn import_data(
         CreateGroupRequest, CreateFavoriteRequest,
     };
     use crate::db::topic::TopicStore;
-    use crate::db::topic_history::record_history;
+    use crate::db::topic_history::import_history;
 
     let mut cluster_groups_imported = 0;
     let mut cluster_groups_skipped = 0;
@@ -483,7 +483,7 @@ pub(crate) async fn import_data(
     // 5. 导入历史记录
     for history in &req.data.history {
         if req.strategy == "overwrite" {
-            if record_history(&state.db, &history.cluster_id, &history.topic_name).await.is_ok() {
+            if import_history(&state.db, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
                 history_imported += 1;
             } else {
                 history_skipped += 1;
@@ -495,7 +495,7 @@ pub(crate) async fn import_data(
                     history_skipped += 1;
                 }
                 Ok(false) | Err(_) => {
-                    if record_history(&state.db, &history.cluster_id, &history.topic_name).await.is_ok() {
+                    if import_history(&state.db, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
                         history_imported += 1;
                     } else {
                         history_skipped += 1;

@@ -210,12 +210,12 @@
   </div>
 
     <!-- Topic History Panel -->
-    <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2">
+    <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2 pb-2">
       <TopicHistory :t="t" />
     </div>
 
     <!-- Status Bar - Fixed at bottom -->
-    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
+    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 pb-2 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
           <span class="text-xs">Cluster:</span>

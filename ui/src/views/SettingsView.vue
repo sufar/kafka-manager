@@ -442,7 +442,7 @@ const t = computed(() => languageStore.t);
 const isTauriEnv = ref(isTauri());
 
 // App version
-const appVersion = ref('1.0.45');
+const appVersion = ref('1.0.46');
 
 // 日志相关
 const logs = ref('');
@@ -543,7 +543,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.45');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.46');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -669,9 +669,9 @@ async function handleExport() {
 
     const lang = languageStore.currentLanguage;
     if (lang === 'zh') {
-      toast.showSuccess(`导出成功：${data.cluster_groups.length} 个分组，${data.clusters.length} 个集群，${data.topics.length} 个 Topic，${data.favorites.length} 个收藏分组，${data.history.length} 条历史`);
+      toast.showSuccess(`导出成功：${data.cluster_groups.length} 个分组，${data.clusters.length} 个集群，${data.topics.length} 个 Topic，${data.favorites.length} 个收藏分组，${data.history.length} 条历史。文件已保存到下载目录`);
     } else {
-      toast.showSuccess(`Export successful: ${data.cluster_groups.length} groups, ${data.clusters.length} clusters, ${data.topics.length} topics, ${data.favorites.length} favorites, ${data.history.length} history records`);
+      toast.showSuccess(`Export successful: ${data.cluster_groups.length} groups, ${data.clusters.length} clusters, ${data.topics.length} topics, ${data.favorites.length} favorites, ${data.history.length} history records. File saved to downloads folder`);
     }
   } catch (e) {
     console.error('Export failed:', e);
