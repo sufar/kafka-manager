@@ -682,6 +682,19 @@ jobs:
           path: ./artifacts
           merge-multiple: true
 
+      # 展平 artifacts 目录（artifact 可能包含子目录结构）
+      - name: Flatten artifact files
+        run: |
+          echo "=== Before flatten ==="
+          find ./artifacts -type f | sort
+          # 将所有文件移动到 artifacts 根目录
+          find ./artifacts -type f -exec mv {} ./artifacts/ \;
+          # 清理空目录
+          find ./artifacts -mindepth 1 -type d -empty -delete 2>/dev/null || true
+          echo ""
+          echo "=== After flatten ==="
+          find ./artifacts -type f | sort
+
       - name: Extract version from tag
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
@@ -761,7 +774,6 @@ jobs:
             ./artifacts/*.deb
             ./artifacts/*.msi
             ./artifacts/*.exe
-            ./artifacts/*.zip
             ./artifacts/*.zip
             ./artifacts/latest.json
           draft: false

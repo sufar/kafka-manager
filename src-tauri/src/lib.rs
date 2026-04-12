@@ -934,27 +934,27 @@ fn install_portable_update(
         .map_err(|e| format!("获取当前程序路径失败：{}", e))?;
     let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
 
-    // 复制所有文件到当前目录（覆盖旧文件）
-    fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
-        for entry in std::fs::read_dir(src).map_err(|e| format!("读取目录失败：{}", e))? {
-            let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
-            let src_path = entry.path();
-            let dst_path = dst.join(entry.file_name());
-
-            if src_path.is_dir() {
-                std::fs::create_dir_all(&dst_path).ok();
-                copy_dir_contents(&src_path, &dst_path)?;
-            } else {
-                std::fs::copy(&src_path, &dst_path)
-                    .map_err(|e| format!("复制文件 {} 失败：{}", src_path.display(), e))?;
-            }
-        }
-        Ok(())
-    }
-
     #[cfg(target_os = "macos")]
     {
         use tauri_plugin_dialog::DialogExt;
+
+        // 复制所有文件到当前目录（覆盖旧文件）
+        fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+            for entry in std::fs::read_dir(src).map_err(|e| format!("读取目录失败：{}", e))? {
+                let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
+                let src_path = entry.path();
+                let dst_path = dst.join(entry.file_name());
+
+                if src_path.is_dir() {
+                    std::fs::create_dir_all(&dst_path).ok();
+                    copy_dir_contents(&src_path, &dst_path)?;
+                } else {
+                    std::fs::copy(&src_path, &dst_path)
+                        .map_err(|e| format!("复制文件 {} 失败：{}", src_path.display(), e))?;
+                }
+            }
+            Ok(())
+        }
 
         // macOS 上需要替换整个 .app bundle
         // 当前 exe 路径如: /path/to/Kafka Manager.app/Contents/MacOS/Kafka Manager
@@ -1060,7 +1060,6 @@ fn install_portable_update(
 
         let current_exe_clone = current_exe.clone();
         let extract_dir_clone = extract_dir.clone();
-        let cache_dir_clone = cache_dir.clone();
         let app_handle_clone = app_handle.clone();
 
         std::thread::spawn(move || {
