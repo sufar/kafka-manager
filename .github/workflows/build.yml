@@ -494,50 +494,55 @@ jobs:
           echo "Creating portable package..."
           APP_ZIP="${GITHUB_WORKSPACE}/target/release/bundle/Kafka-Manager-Portable.zip"
 
-          powershell -Command "
-            $bundleDir = '${GITHUB_WORKSPACE}/target/release/bundle'
-            $releaseDir = '${GITHUB_WORKSPACE}/target/release'
-            $portableDir = Join-Path $bundleDir 'portable-package'
-            New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
+          # 将 PowerShell 脚本写入临时文件，避免 bash 解释 $()
+          cat > "${GITHUB_WORKSPACE}/create_portable.ps1" << 'PSEOF'
+$bundleDir = "$env:GITHUB_WORKSPACE/target/release/bundle"
+$releaseDir = "$env:GITHUB_WORKSPACE/target/release"
+$portableDir = Join-Path $bundleDir 'portable-package'
+New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
 
-            # 查找原始 exe（tauri build 产出的，包含所有嵌入资源）
-            $appExe = Get-ChildItem -Path $releaseDir -Filter 'Kafka Manager*.exe' -Exclude '*setup*', '*-unins*' | Select-Object -First 1
-            if ($appExe) {
-              Write-Host \"Found app exe: $($appExe.FullName)\"
-              Copy-Item $appExe.FullName $portableDir -Force
-            } else {
-              Write-Host 'Warning: Could not find app exe in release directory'
-              # 回退：列出目录
-              Get-ChildItem $releaseDir -Filter '*.exe' | ForEach-Object { Write-Host \"  $_\" }
-            }
+# 查找原始 exe（tauri build 产出的，包含所有嵌入资源）
+$appExe = Get-ChildItem -Path $releaseDir -Filter 'Kafka Manager*.exe' -Exclude '*setup*', '*-unins*' | Select-Object -First 1
+if ($appExe) {
+    Write-Host "Found app exe: $($appExe.FullName)"
+    Copy-Item $appExe.FullName $portableDir -Force
+} else {
+    Write-Host 'Warning: Could not find app exe in release directory'
+    Get-ChildItem $releaseDir -Filter '*.exe' | ForEach-Object { Write-Host "  $_" }
+}
 
-            # 复制 config.toml
-            $configFile = '${GITHUB_WORKSPACE}/config.toml'
-            if (Test-Path $configFile) {
-              Copy-Item $configFile $portableDir -Force
-              Write-Host 'Copied config.toml'
-            }
+# 复制 config.toml
+$configFile = "$env:GITHUB_WORKSPACE/config.toml"
+if (Test-Path $configFile) {
+    Copy-Item $configFile $portableDir -Force
+    Write-Host 'Copied config.toml'
+}
 
-            # 复制 migrations
-            $migrationsDir = '${GITHUB_WORKSPACE}/migrations'
-            if (Test-Path $migrationsDir) {
-              Copy-Item -Recurse $migrationsDir (Join-Path $portableDir 'migrations')
-              Write-Host 'Copied migrations'
-            }
+# 复制 migrations
+$migrationsDir = "$env:GITHUB_WORKSPACE/migrations"
+if (Test-Path $migrationsDir) {
+    Copy-Item -Recurse $migrationsDir (Join-Path $portableDir 'migrations')
+    Write-Host 'Copied migrations'
+}
 
-            # 打包为 zip
-            $items = Get-ChildItem $portableDir
-            if ($items) {
-              Write-Host \"Files in portable package:\"
-              $items | ForEach-Object { Write-Host \"  $_\" }
-              Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath '$APP_ZIP' -Force
-              $zipSize = (Get-Item $APP_ZIP).Length
-              Write-Host \"Created portable zip: $APP_ZIP ($([math]::Round($zipSize/1MB, 1)) MB)\"
-            } else {
-              Write-Host 'Warning: portable package directory is empty'
-            }
-            Remove-Item -Recurse -Force $portableDir -ErrorAction SilentlyContinue
-          "
+# 打包为 zip
+$appZip = Join-Path $bundleDir 'Kafka-Manager-Portable.zip'
+$items = Get-ChildItem $portableDir
+if ($items) {
+    Write-Host "Files in portable package:"
+    $items | ForEach-Object { Write-Host "  $_" }
+    Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $appZip -Force
+    $zipSize = (Get-Item $appZip).Length
+    $sizeMB = [math]::Round($zipSize/1MB, 1)
+    Write-Host "Created portable zip: $appZip ($sizeMB MB)"
+} else {
+    Write-Host 'Warning: portable package directory is empty'
+    exit 1
+}
+Remove-Item -Recurse -Force $portableDir -ErrorAction SilentlyContinue
+PSEOF
+
+          powershell -ExecutionPolicy Bypass -File "${GITHUB_WORKSPACE}/create_portable.ps1" || true
 
           if [ -f "$APP_ZIP" ]; then
             echo "APP_ZIP=$APP_ZIP" >> $GITHUB_ENV
