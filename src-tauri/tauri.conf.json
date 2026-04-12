@@ -32,10 +32,7 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "app", "appimage", "deb", "msi", "nsis"],
-    "resources": [
-      "../config.toml",
-      "../migrations"
-    ],
+    "resources": [],
     "icon": [
       "icons/icon.png",
       "icons/icon.icns",

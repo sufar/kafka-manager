@@ -140,6 +140,19 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
+        // resource_tags 标签键值索引：优化按标签查询和标签键去重
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_resource_tags_key ON resource_tags(tag_key)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_resource_tags_key_value ON resource_tags(tag_key, tag_value)",
+        )
+        .execute(self.inner())
+        .await?;
+
         // 创建 Topic 模板表
         sqlx::query(
             r#"

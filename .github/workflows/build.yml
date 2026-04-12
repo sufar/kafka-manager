@@ -137,7 +137,7 @@ jobs:
           echo "APP_DIR=$APP_DIR" >> $GITHUB_ENV
           echo "Found APP bundle: $APP_DIR"
 
-          # 打包 .app 为便携 zip
+          # 打包 .app 为便携 zip（macOS 便携版就是 .app 目录）
           if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
             APP_ZIP="${APP_DIR}.zip"
             cd "$(dirname "$APP_DIR")"
@@ -569,18 +569,6 @@ jobs:
             Write-Host "App exe ready in portable package: $($copiedExe.Name) ($([math]::Round($copiedExe.Length/1MB, 1)) MB)"
           } else {
             Write-Host "Warning: No exe in portable package!"
-          }
-
-          # 复制 config.toml
-          $configFile = "$env:GITHUB_WORKSPACE/config.toml"
-          if (Test-Path $configFile) {
-            Copy-Item $configFile $portableDir -Force
-          }
-
-          # 复制 migrations
-          $migrationsDir = "$env:GITHUB_WORKSPACE/migrations"
-          if (Test-Path $migrationsDir) {
-            Copy-Item -Recurse $migrationsDir (Join-Path $portableDir 'migrations')
           }
 
           # 列出便携包内容
