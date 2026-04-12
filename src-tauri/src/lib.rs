@@ -887,7 +887,6 @@ fn install_portable_update(
     cache_dir: &std::path::Path,
 ) -> Result<(), String> {
     use std::io::Cursor;
-    use tauri_plugin_dialog::DialogExt;
 
     log("Installing portable update...");
 
@@ -955,6 +954,8 @@ fn install_portable_update(
 
     #[cfg(target_os = "macos")]
     {
+        use tauri_plugin_dialog::DialogExt;
+
         // macOS 上需要替换整个 .app bundle
         // 当前 exe 路径如: /path/to/Kafka Manager.app/Contents/MacOS/Kafka Manager
         // .app bundle 路径: /path/to/Kafka Manager.app
@@ -987,37 +988,111 @@ fn install_portable_update(
             copy_dir_contents(&extract_dir, current_dir)?;
             log(&format!("All files copied to {:?}", current_dir));
         }
-    }
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        copy_dir_contents(&extract_dir, current_dir)?;
-        log(&format!("All files copied to {:?}", current_dir));
-    }
+        // 重启应用
+        app_handle.dialog()
+            .message("更新已完成，应用即将重启")
+            .title("更新成功")
+            .show(|_| {});
 
-    // 清理临时文件（异步，不影响重启）
-    let extract_dir_clone = extract_dir.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let _ = std::fs::remove_dir_all(&extract_dir_clone);
-    });
-
-    // 重启应用
-    app_handle.dialog()
-        .message("更新已完成，应用即将重启")
-        .title("更新成功")
-        .show(|_| {});
-
-    std::thread::spawn({
-        let app_handle = app_handle.clone();
-        move || {
+        let app_handle_clone = app_handle.clone();
+        std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(2));
             log("Restarting app for portable update...");
             let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
             let _ = std::process::Command::new(&current_exe).spawn();
-            app_handle.exit(0);
+            app_handle_clone.exit(0);
+        });
+
+        // 清理临时目录
+        let extract_dir_clone = extract_dir.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let _ = std::fs::remove_dir_all(&extract_dir_clone);
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_dialog::DialogExt;
+
+        // 先复制除当前 exe 之外的所有文件
+        let exe_name = current_exe
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string());
+
+        fn copy_dir_contents_skip(
+            src: &std::path::Path,
+            dst: &std::path::Path,
+            skip_name: &Option<String>,
+        ) -> Result<(), String> {
+            for entry in std::fs::read_dir(src).map_err(|e| format!("读取目录失败：{}", e))? {
+                let entry = entry.map_err(|e| format!("读取条目失败：{}", e))?;
+                let src_path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                // 跳过当前正在运行的 exe
+                if skip_name.as_ref().map_or(false, |name| file_name == *name) {
+                    continue;
+                }
+
+                let dst_path = dst.join(&file_name);
+
+                if src_path.is_dir() {
+                    std::fs::create_dir_all(&dst_path).ok();
+                    copy_dir_contents_skip(&src_path, &dst_path, skip_name)?;
+                } else {
+                    std::fs::copy(&src_path, &dst_path)
+                        .map_err(|e| format!("复制文件 {} 失败：{}", src_path.display(), e))?;
+                }
+            }
+            Ok(())
         }
-    });
+
+        copy_dir_contents_skip(&extract_dir, current_dir, &exe_name)?;
+        log(&format!("All files copied to {:?} (except current exe)", current_dir));
+
+        // 退出应用，后台线程负责替换 exe 并重启
+        app_handle.dialog()
+            .message("文件已准备就绪，应用即将退出并完成更新")
+            .title("更新中")
+            .show(|_| {});
+
+        let current_exe_clone = current_exe.clone();
+        let extract_dir_clone = extract_dir.clone();
+        let cache_dir_clone = cache_dir.clone();
+        let app_handle_clone = app_handle.clone();
+
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            log("Exiting app for portable update...");
+            app_handle_clone.exit(0);
+
+            // 等待进程完全退出
+            std::thread::sleep(std::time::Duration::from_secs(3));
+
+            // 现在可以安全地替换 exe 了
+            if let Ok(exe_name) = current_exe_clone
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+            {
+                let new_exe = extract_dir_clone.join(&exe_name);
+                if new_exe.exists() {
+                    if let Err(e) = std::fs::copy(&new_exe, &current_exe_clone) {
+                        log(&format!("Failed to replace exe: {}", e));
+                    } else {
+                        log("Successfully replaced exe");
+                    }
+                }
+            }
+
+            // 清理临时目录
+            let _ = std::fs::remove_dir_all(&extract_dir_clone);
+
+            // 启动新版本
+            let _ = std::process::Command::new(&current_exe_clone).spawn();
+        });
+    }
 
     Ok(())
 }
