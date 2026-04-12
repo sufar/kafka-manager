@@ -1036,8 +1036,6 @@ onMounted(() => {
   }).catch((e) => {
     console.error('Failed to get download status:', e);
   });
-  // 延迟检查更新
-  setTimeout(() => checkForUpdates(false), 2000);
 });
 
 // 监听下载状态变化，自动开始/停止轮询
