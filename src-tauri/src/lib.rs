@@ -1088,13 +1088,34 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
             #[cfg(target_os = "windows")]
             {
-                log("Opening MSI/EXE file...");
-                let path_str = download_path.to_str().unwrap_or("");
-                // start 的第一个引号参数是窗口标题，需要传空标题 "" 后跟真实路径
-                std::process::Command::new("cmd")
-                    .args(["/c", "start", "\"\"", path_str])
+                log("Opening installer file...");
+                let path_str = download_path.to_string_lossy();
+                log(&format!("Installer path: {}", path_str));
+
+                if !download_path.exists() {
+                    log("ERROR: Installer file does not exist!");
+                } else {
+                    match std::fs::metadata(&download_path) {
+                        Ok(meta) => log(&format!("Installer file exists, size: {} bytes", meta.len())),
+                        Err(e) => log(&format!("ERROR: Cannot read file metadata: {}", e)),
+                    }
+                }
+
+                // 使用 explorer.exe 打开文件，对路径中的空格更友好
+                match std::process::Command::new("explorer")
+                    .arg(&download_path)
                     .spawn()
-                    .ok();
+                {
+                    Ok(_) => log("Explorer launched successfully"),
+                    Err(e) => {
+                        log(&format!("Failed to open with explorer: {}", e));
+                        // 回退到 cmd /c start
+                        std::process::Command::new("cmd")
+                            .args(["/c", "start", "\"\"", &path_str])
+                            .spawn()
+                            .ok();
+                    }
+                }
 
                 app_handle.dialog()
                     .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
