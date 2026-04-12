@@ -497,7 +497,7 @@ const downloadDetailText = computed(() => {
     return text;
   }
 
-  return t.update.downloading || '正在下载更新...';
+  return t.value.update.downloading || '正在下载更新...';
 });
 
 // 隐藏功能 - 查看日志按钮（2 秒内点击版本号 5 次显示）
