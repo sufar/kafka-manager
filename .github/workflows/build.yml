@@ -499,14 +499,60 @@ jobs:
 
           New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
 
-          # 查找原始 exe（tauri build 产出的，包含所有嵌入资源）
+          # 调试：列出所有可能的位置
+          Write-Host "=== Looking for exe in target/release ==="
+          Get-ChildItem $releaseDir -Filter '*.exe' -Recurse -Depth 1 | ForEach-Object { Write-Host "  $($_.FullName) ($([math]::Round($_.Length/1MB, 1)) MB)" }
+
+          # 尝试直接找原始 exe
           $appExe = Get-ChildItem -Path $releaseDir -Filter 'Kafka Manager*.exe' -Exclude '*setup*', '*-unins*' | Select-Object -First 1
           if ($appExe) {
-            Write-Host "Found app exe: $($appExe.FullName)"
+            Write-Host "Found app exe directly: $($appExe.FullName) ($([math]::Round($appExe.Length/1MB, 1)) MB)"
             Copy-Item $appExe.FullName $portableDir -Force
           } else {
-            Write-Host "Warning: Could not find app exe in release directory"
-            Get-ChildItem $releaseDir -Filter '*.exe' | ForEach-Object { Write-Host "  $_" }
+            # 从 NSIS 安装器中提取 app exe
+            $nsisExe = Get-ChildItem -Path $bundleDir/nsis -Filter '*.exe' | Select-Object -First 1
+            if ($nsisExe) {
+              Write-Host "Found NSIS installer: $($nsisExe.FullName)"
+              # NSIS 安装器内嵌的 exe 在 `$PLUGINSDIR\app-64.exe`
+              $tempDir = Join-Path $env:TEMP 'portable-extract'
+              if (Test-Path $tempDir) { Remove-Item -Recurse -Force $tempDir }
+              New-Item -ItemType Directory -Path $tempDir | Out-Null
+
+              $7zPath = "C:\Program Files\7-Zip\7z.exe"
+              if (Test-Path $7zPath) {
+                Write-Host "Extracting with 7z..."
+                & $7zPath x $nsisExe.FullName "-o$tempDir" "`$PLUGINSDIR\app-64.exe" -y 2>&1 | ForEach-Object { Write-Host "  $_" }
+                $extractedExe = Join-Path $tempDir '$PLUGINSDIR' 'app-64.exe'
+                if (Test-Path $extractedExe) {
+                  Write-Host "Extracted app exe: $extractedExe ($([math]::Round((Get-Item $extractedExe).Length/1MB, 1)) MB)"
+                  Copy-Item $extractedExe $portableDir -Force
+                } else {
+                  Write-Host "Failed to extract app-64.exe, trying full extraction..."
+                  Remove-Item -Recurse -Force $tempDir
+                  New-Item -ItemType Directory -Path $tempDir | Out-Null
+                  & $7zPath x $nsisExe.FullName "-o$tempDir" -y 2>&1 | Select-Object -Last 5 | ForEach-Object { Write-Host "  $_" }
+                  # 找最大的非安装器 exe
+                  $foundExe = Get-ChildItem -Path $tempDir -Filter '*.exe' -Recurse | Where-Object { $_.Name -notmatch 'setup|uninstall|7z' } | Sort-Object Length -Descending | Select-Object -First 1
+                  if ($foundExe) {
+                    Write-Host "Found app exe via full extraction: $($foundExe.FullName) ($([math]::Round($foundExe.Length/1MB, 1)) MB)"
+                    Copy-Item $foundExe.FullName $portableDir -Force
+                  }
+                }
+              } else {
+                Write-Host "7-Zip not found at $7zPath"
+              }
+              Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+            } else {
+              Write-Host "No NSIS installer found either"
+            }
+          }
+
+          # 确认 exe 已复制
+          $copiedExe = Get-ChildItem $portableDir -Filter '*.exe' | Select-Object -First 1
+          if ($copiedExe) {
+            Write-Host "App exe ready in portable package: $($copiedExe.Name) ($([math]::Round($copiedExe.Length/1MB, 1)) MB)"
+          } else {
+            Write-Host "Warning: No exe in portable package!"
           }
 
           # 复制 config.toml
@@ -521,11 +567,21 @@ jobs:
             Copy-Item -Recurse $migrationsDir (Join-Path $portableDir 'migrations')
           }
 
+          # 列出便携包内容
+          Write-Host "=== Portable package contents ==="
+          Get-ChildItem $portableDir -Recurse | ForEach-Object {
+            if ($_.PSIsContainer) {
+              Write-Host "  [DIR] $_"
+            } else {
+              Write-Host "  $_ ($([math]::Round($_.Length/1MB, 2)) MB)"
+            }
+          }
+
           # 打包为 zip
           $items = Get-ChildItem $portableDir
           if ($items) {
             Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $appZip -Force
-            Write-Host "Created portable zip: $appZip"
+            Write-Host "Created portable zip: $appZip ($([math]::Round((Get-Item $appZip).Length/1MB, 1)) MB)"
           } else {
             Write-Host "Warning: portable package directory is empty"
           }
