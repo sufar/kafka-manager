@@ -1072,7 +1072,7 @@ fn install_portable_update(
             std::thread::sleep(std::time::Duration::from_secs(3));
 
             // 现在可以安全地替换 exe 了
-            if let Ok(exe_name) = current_exe_clone
+            if let Some(exe_name) = current_exe_clone
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
             {
