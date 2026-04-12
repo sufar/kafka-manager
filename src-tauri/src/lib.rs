@@ -1014,8 +1014,6 @@ fn install_portable_update(
 
     #[cfg(not(target_os = "macos"))]
     {
-        use tauri_plugin_dialog::DialogExt;
-
         // 先复制除当前 exe 之外的所有文件
         let exe_name = current_exe
             .file_name()
@@ -1052,45 +1050,115 @@ fn install_portable_update(
         copy_dir_contents_skip(&extract_dir, current_dir, &exe_name)?;
         log(&format!("All files copied to {:?} (except current exe)", current_dir));
 
-        // 退出应用，后台线程负责替换 exe 并重启
-        app_handle.dialog()
-            .message("文件已准备就绪，应用即将退出并完成更新")
-            .title("更新中")
-            .show(|_| {});
+        #[cfg(target_os = "windows")]
+        {
+            use tauri_plugin_dialog::DialogExt;
 
-        let current_exe_clone = current_exe.clone();
-        let extract_dir_clone = extract_dir.clone();
-        let app_handle_clone = app_handle.clone();
+            // Windows 上进程退出后线程也会终止，需要用 cmd /c start 启动独立的批处理脚本
+            let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")));
+            let exe_path_str = current_exe.to_string_lossy().replace('/', "\\");
+            let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
+            let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            log("Exiting app for portable update...");
-            app_handle_clone.exit(0);
+            // 创建临时批处理脚本
+            let bat_path = cache_dir.join("update_portable.bat");
+            let bat_content = format!(
+                r#"@echo off
+echo Updating portable app...
+timeout /t 3 /nobreak >nul
+if exist "{new_exe_str}" (
+  echo Replacing exe...
+  copy /y "{new_exe_str}" "{exe_path_str}" >nul
+  if errorlevel 1 (
+    echo Failed to replace exe
+    pause
+    exit /b 1
+  )
+  echo Starting new version...
+  start "" "{exe_path_str}"
+) else (
+  echo New exe not found
+  pause
+  exit /b 1
+)
+echo Cleaning up...
+rmdir /s /q "{temp_dir_str}" >nul 2>&1
+del /q "{bat_path}" >nul 2>&1
+echo Done!
+"#,
+                bat_path = bat_path.to_string_lossy().replace('/', "\\"),
+            );
 
-            // 等待进程完全退出
-            std::thread::sleep(std::time::Duration::from_secs(3));
+            std::fs::write(&bat_path, bat_content)
+                .map_err(|e| format!("创建更新脚本失败：{}", e))?;
 
-            // 现在可以安全地替换 exe 了
-            if let Some(exe_name) = current_exe_clone
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
+            app_handle.dialog()
+                .message("文件已准备就绪，应用即将退出并完成更新")
+                .title("更新中")
+                .show(|_| {});
+
+            // 启动独立的批处理进程（detached）
+            // 注意：start 的第一个双引号是窗口标题（可为空），第二个是批处理文件路径
+            let bat_path_quoted = format!("\"{}\"", bat_path.to_string_lossy());
+            std::process::Command::new("cmd")
+                .args(["/c", "start", "/b", "\"update\"", &bat_path_quoted])
+                .spawn()
+                .map_err(|e| format!("启动更新脚本失败：{}", e))?;
+
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            app_handle.exit(0);
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            use tauri_plugin_dialog::DialogExt;
+
+            // Linux/macOS 上同样需要独立进程来替换文件
+            let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager")));
+            let exe_path = current_exe.to_string_lossy();
+            let new_exe_path = new_exe.to_string_lossy();
+            let temp_dir = extract_dir.to_string_lossy();
+
+            let sh_path = cache_dir.join("update_portable.sh");
+            let sh_content = format!(
+                r#"#!/bin/sh
+sleep 3
+if [ -f "{new_exe_path}" ]; then
+  cp -f "{new_exe_path}" "{exe_path}"
+  if [ $? -eq 0 ]; then
+    {exe_path} &
+  fi
+fi
+rm -rf "{temp_dir}"
+rm -f "{sh_path}"
+"#,
+                sh_path = sh_path.to_string_lossy(),
+            );
+
+            std::fs::write(&sh_path, sh_content)
+                .map_err(|e| format!("创建更新脚本失败：{}", e))?;
+            #[cfg(unix)]
             {
-                let new_exe = extract_dir_clone.join(&exe_name);
-                if new_exe.exists() {
-                    if let Err(e) = std::fs::copy(&new_exe, &current_exe_clone) {
-                        log(&format!("Failed to replace exe: {}", e));
-                    } else {
-                        log("Successfully replaced exe");
-                    }
-                }
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&sh_path).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&sh_path, perms).ok();
             }
 
-            // 清理临时目录
-            let _ = std::fs::remove_dir_all(&extract_dir_clone);
+            app_handle.dialog()
+                .message("文件已准备就绪，应用即将退出并完成更新")
+                .title("更新中")
+                .show(|_| {});
 
-            // 启动新版本
-            let _ = std::process::Command::new(&current_exe_clone).spawn();
-        });
+            // 启动独立的 shell 脚本（detached）
+            std::process::Command::new("sh")
+                .arg(sh_path.to_string_lossy().as_ref())
+                .spawn()
+                .map_err(|e| format!("启动更新脚本失败：{}", e))?;
+
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            app_handle.exit(0);
+        }
     }
 
     Ok(())
