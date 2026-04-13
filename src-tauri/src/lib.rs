@@ -1034,7 +1034,9 @@ fn install_portable_update(
 
             // Windows 上进程退出后线程也会终止，需要用独立的批处理脚本
             let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")));
+            let current_pid = std::process::id();
             let exe_path_str = current_exe.to_string_lossy().replace('/', "\\");
+            let exe_name = current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")).to_string_lossy();
             let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
@@ -1043,7 +1045,15 @@ fn install_portable_update(
             let bat_content = format!(
                 r#"@echo off
 cd /d "{exe_path_str}"
-timeout /t 3 /nobreak >nul
+REM 等待当前进程完全退出（最多10秒）
+:wait_loop
+timeout /t 1 /nobreak >nul
+tasklist /FI "PID eq {current_pid}" 2>nul | find /I "{exe_name}" >nul
+if not errorlevel 1 (
+  goto wait_loop
+)
+REM 确保端口已释放，额外等待1秒
+timeout /t 1 /nobreak >nul
 if exist "{new_exe_str}" (
   echo Replacing exe...
   copy /y "{new_exe_str}" "{exe_path_str}" >nul

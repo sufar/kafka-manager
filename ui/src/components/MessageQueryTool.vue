@@ -453,7 +453,7 @@ const keyPreRef = ref<HTMLElement | null>(null);
 const valuePreRef = ref<HTMLElement | null>(null);
 
 // 按时间戳排序状态：'asc' | 'desc' | null（null 表示按查询顺序）
-const timestampSort = ref<'asc' | 'desc' | null>(null);
+const timestampSort = ref<'asc' | 'desc' | null>('desc');
 
 // 计算属性：根据 timestamp 排序后的消息列表
 const sortedMessages = computed(() => {
