@@ -1043,8 +1043,8 @@ fn install_portable_update(
             let bat_content = format!(
                 r#"@echo off
 cd /d "{exe_path_str}"
-REM 循环尝试替换 exe（最多等15秒，直到当前进程退出释放文件锁）
-set retries=15
+REM 循环尝试替换 exe（最多等30秒，直到当前进程退出释放文件锁）
+set retries=30
 :retry_loop
 if %retries% LEQ 0 (
   echo Timeout waiting for exe to be released
@@ -1052,12 +1052,13 @@ if %retries% LEQ 0 (
   exit /b 1
 )
 if exist "{new_exe_str}" (
-  copy /y "{new_exe_str}" "{exe_path_str}" >nul 2>nul
+  copy /y "{new_exe_str}" "{exe_path_str}" >nul 2>&1
   if not errorlevel 1 (
     echo Replacing exe succeeded
     goto launch
   )
 )
+echo Waiting for process to exit... (%retries%s remaining)
 timeout /t 1 /nobreak >nul
 set /a retries-=1
 goto retry_loop
@@ -1066,7 +1067,9 @@ echo Starting new version...
 start "" "{exe_path_str}"
 timeout /t 2 /nobreak >nul
 rmdir /s /q "{temp_dir_str}" >nul 2>nul
+del /q "%~dp0\update_portable.bat" >nul 2>nul
 echo Done!
+timeout /t 3 /nobreak >nul
 "#,
             );
 
