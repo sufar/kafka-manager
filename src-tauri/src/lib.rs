@@ -1030,48 +1030,37 @@ fn install_portable_update(
 
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
             use tauri_plugin_dialog::DialogExt;
 
-            // Windows 上进程退出后线程也会终止，需要用独立的批处理脚本
             let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")));
             let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
-            let exe_path_str = current_exe.to_string_lossy().replace('/', "\\");
             let current_dir_str = current_dir.to_string_lossy().replace('/', "\\");
             let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
-            // 创建临时批处理脚本：循环尝试替换 exe，直到当前进程退出释放文件锁
+            // 批处理脚本：等待进程退出，然后替换 exe
             let bat_path = cache_dir.join("update_portable.bat");
             let bat_content = format!(
                 r#"@echo off
 cd /d "{current_dir_str}"
-REM 循环尝试替换 exe（最多等30秒，直到当前进程退出释放文件锁）
-set retries=30
-:retry_loop
-if %retries% LEQ 0 (
-  echo Timeout waiting for exe to be released
-  pause
-  exit /b 1
-)
+REM 等待进程完全退出释放文件锁
+timeout /t 2 /nobreak >nul
+REM 尝试替换 exe
 if exist "{new_exe_str}" (
-  copy /y "{new_exe_str}" "{exe_path_str}" >nul 2>&1
-  if not errorlevel 1 (
-    echo Replacing exe succeeded
-    goto launch
+  copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
+  if errorlevel 1 (
+    REM 第一次失败，再等3秒重试
+    timeout /t 3 /nobreak >nul
+    copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
   )
 )
-echo Waiting for process to exit... (%retries%s remaining)
-timeout /t 1 /nobreak >nul
-set /a retries-=1
-goto retry_loop
-:launch
 echo Starting new version...
-start "" "{exe_path_str}"
+start "" "{current_dir_str}\kafka-manager.exe"
 timeout /t 2 /nobreak >nul
 rmdir /s /q "{temp_dir_str}" >nul 2>nul
 del /q "%~dp0\update_portable.bat" >nul 2>nul
 echo Done!
-timeout /t 3 /nobreak >nul
 "#,
             );
 
@@ -1083,16 +1072,17 @@ timeout /t 3 /nobreak >nul
                 .title("更新中")
                 .show(|_| {});
 
-            // 启动独立的批处理进程
-            // 直接用 cmd /c 执行 .bat 文件（.bat 必须由 cmd.exe 解释，不能直接用 start /b）
+            // 使用 CREATE_NEW_PROCESS_GROUP 启动批处理脚本，确保进程退出后脚本仍在运行
             std::process::Command::new("cmd")
                 .arg("/c")
                 .arg(&bat_path)
+                .creation_flags(0x00000200) // CREATE_NEW_PROCESS_GROUP
                 .spawn()
                 .map_err(|e| format!("启动更新脚本失败：{}", e))?;
 
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            app_handle.exit(0);
+            // 强制退出进程，立即释放文件锁
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::process::exit(0);
         }
 
         #[cfg(not(target_os = "windows"))]
