@@ -1039,13 +1039,46 @@ fn install_portable_update(
             let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
-            // 批处理脚本：等待进程退出，然后替换 exe
+            // 从配置文件获取端口（如果有），默认9732
+            let server_port = {
+                let config_path = current_dir.join("config.toml");
+                if config_path.exists() {
+                    std::fs::read_to_string(&config_path)
+                        .ok()
+                        .and_then(|content| {
+                            content.lines()
+                                .find(|l| l.contains("port"))
+                                .and_then(|l| l.split('=').nth(1))
+                                .map(|v| v.trim().trim_matches('"'))
+                                .and_then(|v| v.parse::<u16>().ok())
+                        })
+                        .unwrap_or(9732)
+                } else {
+                    9732
+                }
+            };
+
+            // 批处理脚本：等待进程退出 + 端口释放，然后替换 exe
             let bat_path = cache_dir.join("update_portable.bat");
             let bat_content = format!(
                 r#"@echo off
 cd /d "{current_dir_str}"
 REM 等待进程完全退出释放文件锁
 timeout /t 2 /nobreak >nul
+REM 检查9732端口是否已释放，最多等30秒
+set retries=30
+:port_check
+netstat -ano | findstr ":{server_port} " | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 (
+  echo Port {server_port} is free
+  goto port_free
+)
+echo Waiting for port {server_port} to be released...
+timeout /t 1 /nobreak >nul
+set /a retries-=1
+if %retries% GTR 0 goto port_check
+echo Warning: port {server_port} still in use after timeout, continuing anyway
+:port_free
 REM 尝试替换 exe
 if exist "{new_exe_str}" (
   copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
