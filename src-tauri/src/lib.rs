@@ -1034,7 +1034,9 @@ fn install_portable_update(
 
             // Windows 上进程退出后线程也会终止，需要用独立的批处理脚本
             let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")));
+            let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
             let exe_path_str = current_exe.to_string_lossy().replace('/', "\\");
+            let current_dir_str = current_dir.to_string_lossy().replace('/', "\\");
             let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
@@ -1042,7 +1044,7 @@ fn install_portable_update(
             let bat_path = cache_dir.join("update_portable.bat");
             let bat_content = format!(
                 r#"@echo off
-cd /d "{exe_path_str}"
+cd /d "{current_dir_str}"
 REM 循环尝试替换 exe（最多等30秒，直到当前进程退出释放文件锁）
 set retries=30
 :retry_loop
