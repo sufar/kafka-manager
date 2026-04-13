@@ -709,12 +709,28 @@ async fn download_with_resume_background(
         existing_size = 0;
     }
 
+    // 检查文件是否已完整下载，避免重复下载
+    if existing_size > 0 && remote_size > 0 && existing_size == remote_size {
+        log(&format!("File already fully downloaded ({} bytes), skipping download", existing_size));
+        return Ok(true);
+    }
+
+    // 如果本地文件大于远程文件（可能是之前断点续传bug导致的追加文件），清理后重新下载
+    if existing_size > 0 && remote_size > 0 && existing_size > remote_size {
+        log(&format!("Local file ({} bytes) exceeds remote ({} bytes), removing corrupted file", existing_size, remote_size));
+        std::fs::remove_file(download_path).ok();
+        std::fs::remove_file(&cached_etag_path).ok();
+        existing_size = 0;
+    }
+
     let start_byte = if supports_resume && existing_size > 0 && existing_size < remote_size {
         log(&format!("Resuming download from byte {} (remote: {})", existing_size, remote_size));
         existing_size
     } else {
-        if existing_size > 0 && !supports_resume {
-            log("Server doesn't support resume, restarting download");
+        if existing_size > 0 {
+            if !supports_resume {
+                log("Server doesn't support resume, restarting download");
+            }
             std::fs::remove_file(download_path).ok();
         }
         0

@@ -157,15 +157,12 @@
         </span>
         <span v-if="messages.length > 0" class="text-base-content/70">
           {{ t.messages.totalMessages }} <span class="font-mono font-bold text-success">{{ messages.length.toLocaleString() }}</span> {{ t.messages.messages }}
-          <button class="btn btn-ghost btn-xs ml-2" :disabled="messages.length === 0" @click="exportMessages" :title="t.messages.exportMessages">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-          </button>
-          <span class="inline-flex items-center ml-1 cursor-help text-base-content/40 hover:text-base-content/70 transition-colors" :title="t.messages.exportTip">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M12 18.75h.008v.008H12v-.008Z" />
-            </svg>
+          <span class="tooltip tooltip-right ml-1" :data-tip="t.messages.exportTip">
+            <button class="btn btn-ghost btn-xs btn-circle" @click="exportMessages" :disabled="messages.length === 0" :title="t.messages.exportMessages">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+              </svg>
+            </button>
           </span>
           <span v-if="timestampSort" class="ml-2 badge badge-sm badge-info">
             {{ timestampSort === 'asc' ? '↑' : '↓' }} {{ t.messages.timestampLabel }}
