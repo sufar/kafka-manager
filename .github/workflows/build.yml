@@ -139,9 +139,12 @@ jobs:
 
           # 打包 .app 为便携 zip（macOS 便携版就是 .app 目录）
           if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
-            APP_ZIP="${APP_DIR}.zip"
+            # 从 Cargo.toml 读取版本号
+            VERSION=$(grep -E '^version\s*=' "$GITHUB_WORKSPACE/src-tauri/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            APP_BASENAME=$(basename "$APP_DIR" .app)
+            APP_ZIP="${GITHUB_WORKSPACE}/target/universal-apple-darwin/release/bundle/${APP_BASENAME}-v${VERSION}.zip"
             cd "$(dirname "$APP_DIR")"
-            zip -r "$(basename "$APP_ZIP")" "$(basename "$APP_DIR")"
+            zip -r "$APP_ZIP" "$(basename "$APP_DIR")"
             echo "APP_ZIP=$APP_ZIP" >> $GITHUB_ENV
             echo "Created portable zip: $APP_ZIP ($(du -h "$APP_ZIP" | cut -f1))"
           else
@@ -511,7 +514,9 @@ jobs:
           $bundleDir = "$env:GITHUB_WORKSPACE/target/release/bundle"
           $releaseDir = "$env:GITHUB_WORKSPACE/target/release"
           $portableDir = Join-Path $bundleDir 'portable-package'
-          $appZip = Join-Path $bundleDir 'Kafka-Manager-Portable.zip'
+          # 从 Cargo.toml 读取版本号
+          $version = (Select-String -Path "$env:GITHUB_WORKSPACE/src-tauri/Cargo.toml" -Pattern '^version\s*=\s*"([^"]+)"').Matches.Groups[1].Value
+          $appZip = Join-Path $bundleDir "Kafka-Manager-Portable-v${version}.zip"
 
           New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
 
@@ -594,8 +599,10 @@ jobs:
           # 设置环境变量
           if (Test-Path $appZip) {
             "APP_ZIP=$appZip" >> $env:GITHUB_ENV
+            "HAS_PORTABLE_ZIP=true" >> $env:GITHUB_ENV
           } else {
-            "APP_ZIP=/nonexistent/Kafka-Manager-Portable.zip" >> $env:GITHUB_ENV
+            "APP_ZIP=/nonexistent/placeholder.zip" >> $env:GITHUB_ENV
+            "HAS_PORTABLE_ZIP=false" >> $env:GITHUB_ENV
           }
 
       - name: Check portable zip
@@ -639,7 +646,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload Windows Portable
-        if: env.APP_ZIP != '' && env.APP_ZIP != '/nonexistent/Kafka-Manager-Portable.zip'
+        if: env.HAS_PORTABLE_ZIP == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-portable
