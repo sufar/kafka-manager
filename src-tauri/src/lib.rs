@@ -276,30 +276,14 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     }
     log("Database initialized OK");
 
-    // 创建 Kafka 客户端
-    log("Creating Kafka clients...");
-    let clients = match KafkaClients::new(&config.clusters) {
-        Ok(c) => {
-            log("Kafka clients created OK");
-            c
-        }
-        Err(e) => {
-            log(&format!("FATAL: Failed to create Kafka clients: {}", e));
-            let _ = ready_tx.send(false);
-            return;
-        }
-    };
+    // 创建空的 Kafka 客户端（不建立连接，先启动应用）
+    log("Creating empty Kafka clients (connections will be established in background)...");
+    let clients = KafkaClients::default();
     let clients = Arc::new(ArcSwap::new(Arc::new(clients)));
 
-    // 创建 Kafka 连接池
-    log("Creating Kafka connection pools...");
+    // 创建空的 Kafka 连接池（懒加载，首次使用时才连接）
+    log("Creating empty Kafka connection pools (will be initialized in background)...");
     let kafka_pools = ClusterPools::new();
-    if let Err(e) = kafka_pools.init(&config.clusters, &config.pool).await {
-        log(&format!("FATAL: Failed to init Kafka pools: {}", e));
-        let _ = ready_tx.send(false);
-        return;
-    }
-    log("Kafka pools initialized OK");
 
     // 创建其他组件
     let cache = MetadataCache::new();
@@ -310,9 +294,9 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     // 构建应用状态
     let state = AppState {
         db: pool,
-        clients,
+        clients: clients.clone(),
         config: config.clone(),
-        pools: kafka_pools,
+        pools: kafka_pools.clone(),
         cache,
         refresh_state,
     };
@@ -369,7 +353,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         }
     };
 
-    // 通知前端后端已启动
+    // 通知前端后端已启动（Kafka 连接在后台建立中）
     log("=========================================");
     log("SERVER READY - Starting HTTP service");
     log("=========================================");
@@ -378,10 +362,55 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         log(&format!("Warning: Failed to send ready signal: {:?}", e));
     }
 
-    // 启动服务器（阻塞）
-    if let Err(e) = axum::serve(listener, app).await {
-        log(&format!("Server error: {}", e));
+    // 启动服务器（在后台任务中阻塞）
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            log(&format!("Server error: {}", e));
+        }
+    });
+
+    // 后台异步建立 Kafka 连接
+    let cluster_count = config.clusters.len();
+    if cluster_count > 0 {
+        let clients_arc = clients.clone();
+        let pools_arc = kafka_pools.clone();
+        let clients_config = config.clusters.clone();
+        let pool_config = config.pool.clone();
+
+        tokio::spawn(async move {
+            log(&format!("Background: Creating Kafka clients for {cluster_count} cluster(s)..."));
+
+            // 并发创建 Kafka 客户端
+            let clients_config_clone = clients_config.clone();
+            let clients_result = tokio::task::spawn_blocking(move || {
+                KafkaClients::new(&clients_config_clone)
+            }).await;
+
+            match clients_result {
+                Ok(Ok(new_clients)) => {
+                    log(&format!("Background: Kafka clients created OK ({cluster_count} cluster(s))"));
+                    clients_arc.store(Arc::new(new_clients));
+                }
+                Ok(Err(e)) => {
+                    log(&format!("Background: Failed to create Kafka clients: {}", e));
+                }
+                Err(e) => {
+                    log(&format!("Background: Kafka client creation panicked: {}", e));
+                }
+            }
+
+            // 初始化 Kafka 连接池
+            log("Background: Initializing Kafka connection pools...");
+            if let Err(e) = pools_arc.init(&clients_config, &pool_config).await {
+                log(&format!("Background: Failed to init Kafka pools: {}", e));
+            } else {
+                log(&format!("Background: Kafka pools initialized OK ({cluster_count} cluster(s))"));
+            }
+        });
     }
+
+    // 等待服务器结束
+    let _ = server_handle.await;
 }
 
 #[tauri::command]

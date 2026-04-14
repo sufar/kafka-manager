@@ -46,15 +46,56 @@ pub struct KafkaClients {
 }
 
 impl KafkaClients {
-    /// 从配置创建多个 Kafka 客户端
+    /// 从配置创建多个 Kafka 客户端（并发创建）
     pub fn new(clusters: &HashMap<String, KafkaConfig>) -> Result<Self, AppError> {
-        let mut clients = HashMap::with_capacity(clusters.len());
+        use std::thread;
 
-        for (cluster_id, config) in clusters {
-            let admin = Arc::new(KafkaAdmin::new(config)?);
-            let consumer = Arc::new(KafkaConsumer::new(config)?);
-            let producer = Arc::new(KafkaProducer::new(config)?);
-            clients.insert(cluster_id.clone(), (admin, consumer, producer, Arc::new(config.clone())));
+        let cluster_configs: Vec<(String, KafkaConfig)> = clusters.iter()
+            .map(|(id, cfg)| (id.clone(), cfg.clone()))
+            .collect();
+
+        let cluster_count = cluster_configs.len();
+        let mut handles = Vec::with_capacity(cluster_count);
+
+        // 并发创建每个集群的客户端
+        for (cluster_id, config) in cluster_configs {
+            let handle = thread::spawn(move || {
+                let admin = KafkaAdmin::new(&config)?;
+                let consumer = KafkaConsumer::new(&config)?;
+                let producer = KafkaProducer::new(&config)?;
+                Ok::<_, AppError>((cluster_id, admin, consumer, producer, config))
+            });
+            handles.push(handle);
+        }
+
+        let mut clients = HashMap::with_capacity(cluster_count);
+        let mut errors = Vec::new();
+
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok((id, admin, consumer, producer, config))) => {
+                    clients.insert(id, (
+                        Arc::new(admin),
+                        Arc::new(consumer),
+                        Arc::new(producer),
+                        Arc::new(config),
+                    ));
+                }
+                Ok(Err(e)) => {
+                    errors.push(e.to_string());
+                }
+                Err(_) => {
+                    errors.push("Cluster creation panicked".to_string());
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(AppError::Internal(format!(
+                "Failed to create clients for {} cluster(s): {}",
+                errors.len(),
+                errors.join("; ")
+            )));
         }
 
         Ok(Self {
@@ -127,5 +168,13 @@ impl KafkaClients {
         Ok(Self {
             clients: Arc::new(new_clients),
         })
+    }
+}
+
+impl Default for KafkaClients {
+    fn default() -> Self {
+        Self {
+            clients: Arc::new(HashMap::new()),
+        }
     }
 }
