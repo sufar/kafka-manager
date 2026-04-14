@@ -1051,6 +1051,7 @@ fn install_portable_update(
             let old_exe = current_exe.with_extension("exe.old");
             let current_dir_str = current_dir.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
+            let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
 
             // 清理上次更新遗留的旧 exe（如果存在）
             if old_exe.exists() {
@@ -1062,56 +1063,98 @@ fn install_portable_update(
             }
 
             // Windows 允许重命名运行中的 exe，重命名后原路径即可用于写入新文件
-            match std::fs::rename(&current_exe, &old_exe) {
+            let rename_ok = match std::fs::rename(&current_exe, &old_exe) {
                 Ok(()) => {
                     log("Renamed current exe to .exe.old");
                     if let Err(e) = std::fs::copy(&new_exe, &current_exe) {
                         log(&format!("Failed to copy new exe: {}, reverting", e));
-                        // 回退：把旧 exe 重命名回来
                         let _ = std::fs::rename(&old_exe, &current_exe);
+                        false
                     } else {
                         log("New exe copied successfully");
+                        true
                     }
                 }
                 Err(e) => {
                     log(&format!("Failed to rename current exe: {}", e));
-                    // 回退：用批处理脚本等待进程退出后替换
-                    let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
-                    let bat_path = cache_dir.join("update_portable.bat");
-                    let bat_content = format!(
-                        r#"@echo off
+                    false
+                }
+            };
+
+            // 批处理脚本：关闭 9732 端口后启动应用
+            let bat_path = cache_dir.join("update_portable.bat");
+            let bat_content = if rename_ok {
+                // 文件已替换，只需关闭端口并启动
+                format!(
+                    r#"@echo off
 cd /d "{current_dir_str}"
-timeout /t 3 /nobreak >nul
+REM 关闭占用 9732 端口的进程（包括当前进程）
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":9732 " ^| findstr "LISTENING"') do (
+  echo Killing PID %%a on port 9732...
+  taskkill /F /PID %%a >nul 2>&1
+)
+REM 等待端口释放
+:wait_port
+netstat -ano | findstr ":9732 " | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto wait_port
+)
+timeout /t 1 /nobreak >nul
+echo Starting application...
+start "" "{current_dir_str}\kafka-manager.exe"
+timeout /t 2 /nobreak >nul
+rmdir /s /q "{temp_dir_str}" >nul 2>nul
+if exist "{old_exe}" (
+  del /f /q "{old_exe}" >nul 2>&1
+)
+del /q "%~dp0\update_portable.bat" >nul 2>nul
+echo Done!
+"#,
+                )
+            } else {
+                // 文件未替换，先替换再启动
+                format!(
+                    r#"@echo off
+cd /d "{current_dir_str}"
+timeout /t 2 /nobreak >nul
 if exist "{new_exe_str}" (
   copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
 )
+REM 关闭占用 9732 端口的进程（包括当前进程）
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":9732 " ^| findstr "LISTENING"') do (
+  echo Killing PID %%a on port 9732...
+  taskkill /F /PID %%a >nul 2>&1
+)
+REM 等待端口释放
+:wait_port
+netstat -ano | findstr ":9732 " | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto wait_port
+)
+timeout /t 1 /nobreak >nul
+echo Starting application...
 start "" "{current_dir_str}\kafka-manager.exe"
 timeout /t 2 /nobreak >nul
 rmdir /s /q "{temp_dir_str}" >nul 2>nul
 del /q "%~dp0\update_portable.bat" >nul 2>nul
+echo Done!
 "#,
-                    );
-                    let _ = std::fs::write(&bat_path, bat_content);
-                    std::process::Command::new("cmd")
-                        .arg("/c")
-                        .arg(&bat_path)
-                        .creation_flags(0x00000200)
-                        .spawn()
-                        .ok();
-                }
-            }
+                )
+            };
 
-            // 启动新进程：用 CREATE_NEW_PROCESS_GROUP 确保独立于父进程
-            let new_exe_path = current_exe.to_string_lossy().to_string();
-            std::process::Command::new(&current_exe)
-                .current_dir(&current_dir)
-                .creation_flags(0x00000200) // CREATE_NEW_PROCESS_GROUP
+            let _ = std::fs::write(&bat_path, bat_content);
+            std::process::Command::new("cmd")
+                .arg("/c")
+                .arg(&bat_path)
+                .creation_flags(0x00000200)
                 .spawn()
                 .ok();
 
-            log(&format!("Spawned new process: {}", new_exe_path));
+            log("Spawned batch script to kill port 9732 and start new process");
 
-            // 短暂等待确保新进程启动
+            // 短暂等待确保脚本执行
             std::thread::sleep(std::time::Duration::from_millis(1000));
 
             // 清理临时目录
