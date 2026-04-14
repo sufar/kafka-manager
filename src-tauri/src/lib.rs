@@ -1052,6 +1052,7 @@ fn install_portable_update(
             let current_dir_str = current_dir.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
             let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
+            let old_exe_str = old_exe.to_string_lossy().replace('/', "\\");
 
             // 清理上次更新遗留的旧 exe（如果存在）
             if old_exe.exists() {
@@ -1105,8 +1106,8 @@ echo Starting application...
 start "" "{current_dir_str}\kafka-manager.exe"
 timeout /t 2 /nobreak >nul
 rmdir /s /q "{temp_dir_str}" >nul 2>nul
-if exist "{old_exe}" (
-  del /f /q "{old_exe}" >nul 2>&1
+if exist "{old_exe_str}" (
+  del /f /q "{old_exe_str}" >nul 2>&1
 )
 del /q "%~dp0\update_portable.bat" >nul 2>nul
 echo Done!
