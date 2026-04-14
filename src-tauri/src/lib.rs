@@ -171,6 +171,19 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     });
     let exe_dir = exe_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
 
+    #[cfg(target_os = "windows")]
+    if !cfg!(debug_assertions) {
+        // 清理上次更新遗留的旧 exe（进程已退出，文件锁释放，可以删除）
+        let old_exe = exe_path.with_extension("exe.old");
+        if old_exe.exists() {
+            if let Err(e) = std::fs::remove_file(&old_exe) {
+                log(&format!("Warning: could not remove old exe from previous update: {}", e));
+            } else {
+                log(&format!("Cleaned up old exe: {:?}", old_exe));
+            }
+        }
+    }
+
     log(&format!("EXE path: {:?}", exe_path));
     log(&format!("EXE dir: {:?}", exe_dir));
     log(&format!("Current dir: {:?}", std::env::current_dir()));
@@ -1035,86 +1048,71 @@ fn install_portable_update(
 
             let new_exe = extract_dir.join(current_exe.file_name().unwrap_or_else(|| std::ffi::OsStr::new("kafka-manager.exe")));
             let current_dir = current_exe.parent().ok_or("无法获取程序所在目录")?;
+            let old_exe = current_exe.with_extension("exe.old");
             let current_dir_str = current_dir.to_string_lossy().replace('/', "\\");
-            let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
             let temp_dir_str = extract_dir.to_string_lossy().replace('/', "\\");
 
-            // 从配置文件获取端口（如果有），默认9732
-            let server_port = {
-                let config_path = current_dir.join("config.toml");
-                if config_path.exists() {
-                    std::fs::read_to_string(&config_path)
-                        .ok()
-                        .and_then(|content| {
-                            content.lines()
-                                .find(|l| l.contains("port"))
-                                .and_then(|l| l.split('=').nth(1))
-                                .map(|v| v.trim().trim_matches('"'))
-                                .and_then(|v| v.parse::<u16>().ok())
-                        })
-                        .unwrap_or(9732)
+            // 清理上次更新遗留的旧 exe（如果存在）
+            if old_exe.exists() {
+                if let Err(e) = std::fs::remove_file(&old_exe) {
+                    log(&format!("Warning: could not remove old exe from previous update: {}", e));
                 } else {
-                    9732
+                    log("Removed old exe from previous update");
                 }
-            };
+            }
 
-            // 批处理脚本：等待进程退出 + 端口释放，然后替换 exe
-            let bat_path = cache_dir.join("update_portable.bat");
-            let bat_content = format!(
-                r#"@echo off
+            // Windows 允许重命名运行中的 exe，重命名后原路径即可用于写入新文件
+            match std::fs::rename(&current_exe, &old_exe) {
+                Ok(()) => {
+                    log("Renamed current exe to .exe.old");
+                    if let Err(e) = std::fs::copy(&new_exe, &current_exe) {
+                        log(&format!("Failed to copy new exe: {}, reverting", e));
+                        // 回退：把旧 exe 重命名回来
+                        let _ = std::fs::rename(&old_exe, &current_exe);
+                    } else {
+                        log("New exe copied successfully");
+                    }
+                }
+                Err(e) => {
+                    log(&format!("Failed to rename current exe: {}", e));
+                    // 回退：用批处理脚本等待进程退出后替换
+                    let new_exe_str = new_exe.to_string_lossy().replace('/', "\\");
+                    let bat_path = cache_dir.join("update_portable.bat");
+                    let bat_content = format!(
+                        r#"@echo off
 cd /d "{current_dir_str}"
-REM 等待进程完全退出释放文件锁
-timeout /t 2 /nobreak >nul
-REM 检查9732端口是否已释放，最多等30秒
-set retries=30
-:port_check
-netstat -ano | findstr ":{server_port} " | findstr "LISTENING" >nul 2>&1
-if errorlevel 1 (
-  echo Port {server_port} is free
-  goto port_free
-)
-echo Waiting for port {server_port} to be released...
-timeout /t 1 /nobreak >nul
-set /a retries-=1
-if %retries% GTR 0 goto port_check
-echo Warning: port {server_port} still in use after timeout, continuing anyway
-:port_free
-REM 尝试替换 exe
+timeout /t 3 /nobreak >nul
 if exist "{new_exe_str}" (
   copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
-  if errorlevel 1 (
-    REM 第一次失败，再等3秒重试
-    timeout /t 3 /nobreak >nul
-    copy /y "{new_exe_str}" "{current_dir_str}\kafka-manager.exe" >nul 2>&1
-  )
 )
-echo Starting new version...
 start "" "{current_dir_str}\kafka-manager.exe"
 timeout /t 2 /nobreak >nul
 rmdir /s /q "{temp_dir_str}" >nul 2>nul
 del /q "%~dp0\update_portable.bat" >nul 2>nul
-echo Done!
 "#,
-            );
+                    );
+                    let _ = std::fs::write(&bat_path, bat_content);
+                    std::process::Command::new("cmd")
+                        .arg("/c")
+                        .arg(&bat_path)
+                        .creation_flags(0x00000200)
+                        .spawn()
+                        .ok();
+                }
+            }
 
-            std::fs::write(&bat_path, bat_content)
-                .map_err(|e| format!("创建更新脚本失败：{}", e))?;
-
-            app_handle.dialog()
-                .message("文件已准备就绪，应用即将退出并完成更新")
-                .title("更新中")
-                .show(|_| {});
-
-            // 使用 CREATE_NEW_PROCESS_GROUP 启动批处理脚本，确保进程退出后脚本仍在运行
-            std::process::Command::new("cmd")
-                .arg("/c")
-                .arg(&bat_path)
-                .creation_flags(0x00000200) // CREATE_NEW_PROCESS_GROUP
+            // 启动新进程（在退出当前进程之前，确保新 exe 已就位）
+            std::process::Command::new(&current_exe)
                 .spawn()
-                .map_err(|e| format!("启动更新脚本失败：{}", e))?;
+                .ok();
 
-            // 强制退出进程，立即释放文件锁
+            // 短暂等待确保新进程启动
             std::thread::sleep(std::time::Duration::from_millis(500));
+
+            // 清理临时目录
+            let _ = std::fs::remove_dir_all(&extract_dir);
+
+            // 强制退出
             std::process::exit(0);
         }
 
