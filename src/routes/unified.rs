@@ -5133,24 +5133,32 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let cg_manager = KafkaConsumerGroupManager::new(&config)?;
 
-    // 步骤 3: 从 Kafka 获取每个 group 的最新 offset 信息
-    let mut all_offsets: Vec<(String, PartitionOffsetDetail)> = Vec::new();
-
+    // 步骤 3: 并行从 Kafka 获取每个 group 的指定 topic offset 信息
+    // 使用新的 get_consumer_group_offsets_for_topic，跳过耗时的 topic 发现步骤
+    let mut futures = Vec::new();
     for group_name in &topic_groups {
-        let cg_manager_clone = cg_manager.clone();
-        let group_name_for_offsets = group_name.clone();
+        let cg = cg_manager.clone();
+        let group = group_name.clone();
+        let topic_clone = topic.clone();
+        futures.push(tokio::task::spawn_blocking(move || {
+            let result = cg.get_consumer_group_offsets_for_topic(&group, &topic_clone);
+            (group, result)
+        }));
+    }
 
-        let offsets_result = tokio::task::spawn_blocking(move || {
-            cg_manager_clone.get_consumer_group_offsets_auto(&group_name_for_offsets)
-        })
-        .await
-        .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))?
-        .unwrap_or_default();
-
-        // 过滤出当前 topic 的 offsets
-        for offset in offsets_result {
-            if offset.topic == topic {
-                all_offsets.push((group_name.clone(), offset));
+    let mut all_offsets: Vec<(String, PartitionOffsetDetail)> = Vec::new();
+    for future in futures {
+        match future.await {
+            Ok((group, Ok(offsets))) => {
+                for offset in offsets {
+                    all_offsets.push((group.clone(), offset));
+                }
+            }
+            Ok((group, Err(e))) => {
+                tracing::warn!("Failed to get offsets for group '{}': {}", group, e);
+            }
+            Err(e) => {
+                tracing::error!("Task failed for group offsets: {}", e);
             }
         }
     }
@@ -5166,22 +5174,29 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
 
     // 将 partitions 按 group 分组
     let mut group_partitions: std::collections::HashMap<String, Vec<(String, i32)>> = std::collections::HashMap::new();
-    for (group, topic, partition) in &partitions {
-        group_partitions.entry(group.clone()).or_default().push((topic.clone(), *partition));
+    for (group, topic_name, partition) in &partitions {
+        group_partitions.entry(group.clone()).or_default().push((topic_name.clone(), *partition));
     }
 
+    // 并行获取每个 group 的 last_commit_time
+    let mut lct_futures = Vec::new();
     for (group_name, group_parts) in &group_partitions {
-        match cg_manager.get_partitions_last_commit_time(group_name, group_parts) {
-            Ok(times) => {
-                for (i, time) in times.iter().enumerate() {
-                    if i < group_parts.len() {
-                        let key = (group_name.clone(), group_parts[i].0.clone(), group_parts[i].1);
-                        last_commit_times.insert(key, *time);
-                    }
+        let cg = cg_manager.clone();
+        let group = group_name.clone();
+        let parts = group_parts.clone();
+        lct_futures.push(tokio::task::spawn_blocking(move || {
+            let result = cg.get_partitions_last_commit_time(&group, &parts);
+            (group, parts, result)
+        }));
+    }
+
+    for future in lct_futures {
+        if let Ok((group, parts, Ok(times))) = future.await {
+            for (i, time) in times.iter().enumerate() {
+                if i < parts.len() {
+                    let key = (group.clone(), parts[i].0.clone(), parts[i].1);
+                    last_commit_times.insert(key, *time);
                 }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to get last_commit_time for group '{}': {}", group_name, e);
             }
         }
     }

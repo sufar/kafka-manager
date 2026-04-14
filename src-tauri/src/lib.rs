@@ -1101,13 +1101,18 @@ del /q "%~dp0\update_portable.bat" >nul 2>nul
                 }
             }
 
-            // 启动新进程（在退出当前进程之前，确保新 exe 已就位）
+            // 启动新进程：用 detached 完全独立启动，确保父进程退出后新进程仍在运行
+            let new_exe_path = current_exe.to_string_lossy().to_string();
             std::process::Command::new(&current_exe)
+                .current_dir(&current_dir)
+                .detach()
                 .spawn()
                 .ok();
 
+            log(&format!("Spawned new process: {}", new_exe_path));
+
             // 短暂等待确保新进程启动
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::thread::sleep(std::time::Duration::from_millis(1000));
 
             // 清理临时目录
             let _ = std::fs::remove_dir_all(&extract_dir);

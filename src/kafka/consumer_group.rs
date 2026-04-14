@@ -137,6 +137,12 @@ impl KafkaConsumerGroupManager {
         self.get_consumer_group_offsets(group_id, &topics)
     }
 
+    /// 获取 Consumer Group 在指定 topic 上的 offset 和 lag 信息
+    /// 跳过耗时的 topic 发现步骤，直接查询指定 topic 的 offsets
+    pub fn get_consumer_group_offsets_for_topic(&self, group_id: &str, topic: &str) -> Result<Vec<PartitionOffsetDetail>> {
+        self.get_consumer_group_offsets(group_id, &[topic.to_string()])
+    }
+
     /// 获取 Consumer Group 详情
     pub fn get_consumer_group_info(&self, group_id: &str, topics: &[String]) -> Result<ConsumerGroupInfo> {
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
