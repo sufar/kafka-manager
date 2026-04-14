@@ -197,6 +197,7 @@ body {
 .btn-primary {
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+  color: white;
 }
 
 .btn-primary:hover {
@@ -205,6 +206,7 @@ body {
     0 6px 25px rgba(99, 102, 241, 0.5),
     0 0 30px rgba(139, 92, 246, 0.3);
   transform: translateY(-2px);
+  color: white;
 }
 
 .btn-secondary {
@@ -787,6 +789,7 @@ aside .hover\:bg-base-200:hover {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+  z-index: 1;
 }
 
 :root[data-theme="dark"] .gradient-border::before {
