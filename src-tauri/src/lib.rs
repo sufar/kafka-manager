@@ -1101,11 +1101,11 @@ del /q "%~dp0\update_portable.bat" >nul 2>nul
                 }
             }
 
-            // 启动新进程：用 detached 完全独立启动，确保父进程退出后新进程仍在运行
+            // 启动新进程：用 CREATE_NEW_PROCESS_GROUP 确保独立于父进程
             let new_exe_path = current_exe.to_string_lossy().to_string();
             std::process::Command::new(&current_exe)
                 .current_dir(&current_dir)
-                .detach()
+                .creation_flags(0x00000200) // CREATE_NEW_PROCESS_GROUP
                 .spawn()
                 .ok();
 
