@@ -1,7 +1,7 @@
 <template>
-  <div class="p-3 overflow-y-auto min-h-full relative">
+  <div class="flex flex-col h-full overflow-hidden">
     <!-- Header -->
-    <div class="mb-4">
+    <div class="p-3 pb-2 flex-shrink-0">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
           <h1 class="text-xl font-bold flex items-center gap-2 flex-wrap">
@@ -62,6 +62,8 @@
       </div>
     </div>
 
+    <!-- Content Area (scrollable) -->
+    <div class="flex-1 overflow-y-auto px-3 pb-3">
     <!-- Loading state -->
     <div v-if="loading" class="flex justify-center py-8">
       <span class="loading loading-spinner loading-md text-primary"></span>
@@ -87,7 +89,7 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <div class="overflow-auto" style="max-height: calc(100vh - 280px);">
+      <div class="overflow-auto">
         <table class="table w-full">
           <thead>
             <tr class="bg-base-100 sticky top-0 z-10">
@@ -122,6 +124,7 @@
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   </div>
 </template>
