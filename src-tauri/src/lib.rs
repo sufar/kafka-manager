@@ -608,28 +608,42 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
 }
 
 /// 检测是否为绿色免安装版
+#[allow(unreachable_code)]
 fn is_portable_mode() -> bool {
-    let exe_path = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return true,
-    };
-
-    // 检查是否在标准安装目录（Program Files, AppData 等）
-    let path_str = exe_path.to_string_lossy().to_lowercase();
-    let standard_locations = [
-        "program files",
-        "program files (x86)",
-        "appdata\\local",
-        "appdata\\roaming",
-    ];
-
-    for loc in &standard_locations {
-        if path_str.contains(loc) {
-            return false;
-        }
+    // macOS: 从 DMG 安装的应用通常在 /Applications 目录
+    // macOS 上不存在绿色版概念，统一走 DMG 更新流程
+    #[cfg(target_os = "macos")]
+    {
+        return false;
     }
 
-    true
+    // 以下逻辑仅用于 Windows/Linux 等其他平台，保持不变
+    #[cfg(not(target_os = "macos"))]
+    {
+        let exe_path = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(_) => return true,
+        };
+
+        // 检查是否在标准安装目录（Program Files, AppData 等）
+        let path_str = exe_path.to_string_lossy().to_lowercase();
+        let standard_locations = [
+            "program files",
+            "program files (x86)",
+            "appdata\\local",
+            "appdata\\roaming",
+        ];
+
+        for loc in &standard_locations {
+            if path_str.contains(loc) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    unreachable!()
 }
 
 /// 从 GitHub release JSON 中提取便携版下载链接
@@ -1562,14 +1576,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
                 // 通知用户
                 app_handle.dialog()
-                    .message("安装包已挂载，请将 Kafka Manager 拖拽到 Applications 文件夹完成安装。应用将在 3 秒后退出。")
+                    .message("安装包已挂载，请将 Kafka Manager 拖拽到 Applications 文件夹完成安装。")
                     .title("下载完成")
                     .show(|_| {});
 
-                // 延迟退出应用
+                // 延迟退出应用（给用户充足时间拖拽安装）
                 let app_handle_clone = app_handle.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    std::thread::sleep(std::time::Duration::from_secs(120));
                     log("Exiting app for update installation...");
                     app_handle_clone.exit(0);
                 });
