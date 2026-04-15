@@ -124,7 +124,7 @@ impl ConsumerGroupStore {
     ) -> Result<Vec<ConsumerGroupMetadata>> {
         // topics 格式: ["topic-a","topic-b"]
         // 使用 '%"topic_name"%' 精确匹配 JSON 数组中的元素
-        let pattern = format!(r#"%\"{}\"%"#, topic);
+        let pattern = format!("%\"{}\"%", topic);
         tracing::info!("[ConsumerGroupStore::list_by_topic] cluster_id={}, topic={}, pattern={}", cluster_id, topic, pattern);
 
         let groups: Vec<ConsumerGroupMetadata> = sqlx::query_as(
