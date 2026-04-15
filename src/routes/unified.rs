@@ -64,7 +64,7 @@ struct RefreshGuard {
 
 impl Drop for RefreshGuard {
     fn drop(&mut self) {
-        let mut state = self.refresh_state.lock().unwrap();
+        let mut state = self.refresh_state.lock().expect("refresh state poisoned");
         state.refreshing_clusters.remove(&self.cluster_id);
     }
 }
@@ -516,18 +516,27 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
 
     // 返回 SSE 响应
     let stream = ReceiverStream::new(rx);
-    let sse_response = Sse::new(stream).into_response();
+    let sse_stream = Sse::new(stream);
 
-    // 监听客户端断开连接，取消后台任务
-    tokio::spawn(async move {
-        // 等待一小段时间后取消（简单实现，实际断开检测需要 axum body stream 完成）
-        tokio::time::sleep(Duration::from_secs(300)).await;
-        cancel_token.cancel();
-        task_handle.abort();
-        tracing::info!("[SSE] Cancelled query for topic {} after timeout", topic_for_log);
+    // 在单独 task 中运行查询 + 超时管理
+    // 使用 select! 避免 zombie task：查询正常完成时立即取消超时
+    let _timeout_guard = tokio::spawn(async move {
+        let mut task_ref = Box::pin(task_handle);
+        tokio::select! {
+            // 查询正常完成
+            _ = &mut task_ref => {
+                tracing::info!("[SSE] Query completed for topic {}", topic_for_log);
+            }
+            // 超时保护
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                cancel_token.cancel();
+                // task_ref is the task_handle itself (wrapped in Box), can't abort after consuming
+                tracing::info!("[SSE] Cancelled query for topic {} after timeout", topic_for_log);
+            }
+        }
     });
 
-    Ok(sse_response)
+    Ok(sse_stream.into_response())
 }
 
 // Dispatch function
@@ -1755,24 +1764,27 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
-    // 检查是否正在刷新
-    let refresh_state = state.refresh_state.lock().unwrap();
-    if let Some(ref cluster) = cluster_id {
-        if refresh_state.refreshing_clusters.contains(cluster) {
-            return Err(AppError::BadRequest(format!(
-                "Cluster '{}' is already being refreshed, please wait",
-                cluster
-            )));
-        }
-    } else {
-        // 刷新所有集群时，检查是否已有全局刷新任务在运行
-        if refresh_state.refreshing_all_topics {
-            return Err(AppError::BadRequest(
-                "All clusters topic refresh is already in progress, please wait".to_string(),
-            ));
+    // 检查并设置刷新状态
+    {
+        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
+        if let Some(ref cluster) = cluster_id {
+            if refresh_state.refreshing_clusters.contains(cluster) {
+                return Err(AppError::BadRequest(format!(
+                    "Cluster '{}' is already being refreshed, please wait",
+                    cluster
+                )));
+            }
+        } else {
+            // 刷新所有集群时，检查是否已有全局刷新任务在运行
+            if refresh_state.refreshing_all_topics {
+                return Err(AppError::BadRequest(
+                    "All clusters topic refresh is already in progress, please wait".to_string(),
+                ));
+            }
+            // 设置全局刷新标记，防止并发刷新所有集群
+            refresh_state.refreshing_all_topics = true;
         }
     }
-    drop(refresh_state);
 
     // 立即返回成功，后台异步同步
     // 这样不会阻塞后续的 topic.list 请求
@@ -1800,7 +1812,7 @@ async fn refresh_single_cluster(state: AppState, cluster_id: String) {
 
     // 标记为正在刷新
     {
-        let mut refresh_state = state.refresh_state.lock().unwrap();
+        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
         refresh_state.refreshing_clusters.insert(cluster_id.clone());
     }
 
@@ -1911,7 +1923,7 @@ async fn refresh_all_clusters(state: AppState) {
         Ok(clusters) => clusters,
         Err(e) => {
             tracing::error!("Failed to list clusters: {}", e);
-            state.refresh_state.lock().unwrap().refreshing_all_topics = false;
+            state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_topics = false;
             return;
         }
     };
@@ -1934,7 +1946,7 @@ async fn refresh_all_clusters(state: AppState) {
     }
 
     tracing::info!("Completed refreshing all clusters");
-    state.refresh_state.lock().unwrap().refreshing_all_topics = false;
+    state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_topics = false;
 }
 
 async fn handle_topic_search(state: AppState, body: Value) -> Result<Value> {
@@ -4819,9 +4831,9 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
-    // 检查是否正在刷新（使用作用域确保 MutexGuard 在 spawn 前完全释放）
+    // 检查并设置刷新状态
     {
-        let refresh_state = state.refresh_state.lock().unwrap();
+        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
         if let Some(ref cluster) = cluster_id {
             if refresh_state.refreshing_clusters.contains(cluster) {
                 return Err(AppError::BadRequest(format!(
@@ -4835,20 +4847,29 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
                     "All clusters consumer group refresh is already in progress, please wait".to_string(),
                 ));
             }
+            // 设置全局刷新标记，防止并发刷新所有集群
+            refresh_state.refreshing_all_consumer_groups = true;
         }
     }
 
     // 同步等待刷新完成（使用 mpsc channel）
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
+    let state_for_spawn = state.clone();
     tokio::spawn(async move {
         if let Some(cluster_id) = cluster_id {
-            refresh_single_consumer_group(state, cluster_id).await;
+            refresh_single_consumer_group(state_for_spawn, cluster_id).await;
         } else {
-            refresh_all_consumer_groups(state).await;
+            refresh_all_consumer_groups(state_for_spawn).await;
         }
         let _ = tx.send(()).await;
     });
     let _ = rx.recv().await;
+
+    // 清除全局刷新标记
+    {
+        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
+        refresh_state.refreshing_all_consumer_groups = false;
+    }
 
     Ok(serde_json::json!({
         "success": true,
@@ -4862,7 +4883,7 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
 
     // 标记为正在刷新
     {
-        let mut refresh_state = state.refresh_state.lock().unwrap();
+        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
         refresh_state.refreshing_clusters.insert(cluster_id.clone());
     }
 
@@ -4991,7 +5012,7 @@ async fn refresh_all_consumer_groups(state: AppState) {
         Ok(clusters) => clusters,
         Err(e) => {
             tracing::error!("Failed to list clusters: {}", e);
-            state.refresh_state.lock().unwrap().refreshing_all_consumer_groups = false;
+            state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_consumer_groups = false;
             return;
         }
     };
@@ -5014,7 +5035,7 @@ async fn refresh_all_consumer_groups(state: AppState) {
     }
 
     tracing::info!("Completed refreshing all clusters consumer groups");
-    state.refresh_state.lock().unwrap().refreshing_all_consumer_groups = false;
+    state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_consumer_groups = false;
 }
 
 /// 获取已保存的 Consumer Groups（从数据库）

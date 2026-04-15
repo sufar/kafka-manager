@@ -184,6 +184,7 @@ impl KafkaThroughputCalculator {
 /// 简单的内存缓存，用于存储之前的 offset 以计算实时速率
 pub struct OffsetCache {
     cache: HashMap<String, OffsetCacheEntry>,
+    max_size: usize,
 }
 
 struct OffsetCacheEntry {
@@ -195,6 +196,7 @@ impl OffsetCache {
     pub fn new() -> Self {
         Self {
             cache: HashMap::with_capacity(16),
+            max_size: 1000,
         }
     }
 
@@ -204,6 +206,15 @@ impl OffsetCache {
             .expect("SystemTime before UNIX epoch")
             .as_secs();
         self.cache.insert(key, OffsetCacheEntry { offset, timestamp: now });
+
+        // 超出容量时清理过期条目（>60秒）
+        if self.cache.len() > self.max_size {
+            self.purge_old_entries(60);
+        }
+        // 如果仍然超出，强制缩容到最大容量的 50%
+        if self.cache.len() > self.max_size {
+            self.force_shrink(500);
+        }
     }
 
     /// 计算速率（条/秒）
@@ -220,6 +231,27 @@ impl OffsetCache {
             }
         }
         None
+    }
+
+    /// 清理超过指定秒数的过期条目
+    fn purge_old_entries(&mut self, max_age_secs: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("SystemTime before UNIX epoch")
+            .as_secs();
+        self.cache.retain(|_, entry| now - entry.timestamp < max_age_secs);
+    }
+
+    /// 强制保留最新的 N 个条目
+    fn force_shrink(&mut self, keep: usize) {
+        if self.cache.len() <= keep {
+            return;
+        }
+        // 按 timestamp 排序，保留最新的 keep 个
+        let mut entries: Vec<_> = self.cache.drain().collect();
+        entries.sort_by_key(|(_, e)| std::cmp::Reverse(e.timestamp));
+        entries.truncate(keep);
+        self.cache = entries.into_iter().collect();
     }
 }
 

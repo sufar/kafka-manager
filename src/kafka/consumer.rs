@@ -6,6 +6,7 @@ use rdkafka::config::ClientConfig;
 use std::time::Duration;
 use futures::stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_util::sync::CancellationToken;
 use serde::{Serialize, Deserialize};
 use bytes::Bytes;
 
@@ -37,6 +38,30 @@ impl FetchCursor {
         use base64::Engine;
         let bytes = serde_json::to_vec(self).unwrap_or_default();
         base64::engine::general_purpose::STANDARD.encode(&bytes)
+    }
+}
+
+/// Wrapper stream that cancels a spawned task on drop
+struct CancellableStream<S> {
+    inner: S,
+    cancel: CancellationToken,
+}
+
+impl<S: Stream + Unpin> Stream for CancellableStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_next(cx)
+    }
+}
+
+impl<S> Drop for CancellableStream<S> {
+    fn drop(&mut self) {
+        self.cancel.cancel();
     }
 }
 
@@ -464,10 +489,18 @@ impl KafkaConsumer {
         max_messages: usize,
     ) -> impl Stream<Item = Result<KafkaMessage>> + Send {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = CancellationToken::new();
 
         let brokers = kafka_config.brokers.clone();
         let request_timeout = kafka_config.request_timeout_ms;
         let timeout = self.timeout;
+
+        // Drop guard: when stream is dropped, cancel the spawned task
+        let cancel_for_drop = cancel.clone();
+        let rx = CancellableStream {
+            inner: UnboundedReceiverStream::new(rx),
+            cancel,
+        };
 
         tokio::spawn(async move {
             let mut client_config = ClientConfig::new();
@@ -478,7 +511,7 @@ impl KafkaConsumer {
             client_config.set("enable.auto.commit", "false");
             client_config.set("auto.offset.reset", "earliest");
             client_config.set("request.timeout.ms", &request_timeout.to_string());
-    
+
             match client_config.create::<StreamConsumer>() {
                 Ok(consumer) => {
                     if let Err(e) = consumer.subscribe(&[&topic]) {
@@ -488,35 +521,42 @@ impl KafkaConsumer {
 
                     let mut count = 0;
                     while count < max_messages {
-                        match tokio::time::timeout(timeout, consumer.recv()).await {
-                            Ok(Ok(msg)) => {
-                                // 分区过滤
-                                if let Some(p) = partition {
-                                    if msg.partition() != p {
-                                        continue;
-                                    }
-                                }
-                                // offset 过滤
-                                if let Some(min_offset) = offset {
-                                    if msg.offset() < min_offset {
-                                        continue;
-                                    }
-                                }
-
-                                let kafka_msg = KafkaMessage {
-                                    partition: msg.partition(),
-                                    offset: msg.offset(),
-                                    key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
-                                    value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
-                                    timestamp: msg.timestamp().to_millis(),
-                                };
-
-                                if tx.send(Ok(kafka_msg)).is_err() {
-                                    break;
-                                }
-                                count += 1;
+                        tokio::select! {
+                            _ = cancel_for_drop.cancelled() => {
+                                break;
                             }
-                            Ok(Err(_)) | Err(_) => break,
+                            result = tokio::time::timeout(timeout, consumer.recv()) => {
+                                match result {
+                                    Ok(Ok(msg)) => {
+                                        // 分区过滤
+                                        if let Some(p) = partition {
+                                            if msg.partition() != p {
+                                                continue;
+                                            }
+                                        }
+                                        // offset 过滤
+                                        if let Some(min_offset) = offset {
+                                            if msg.offset() < min_offset {
+                                                continue;
+                                            }
+                                        }
+
+                                        let kafka_msg = KafkaMessage {
+                                            partition: msg.partition(),
+                                            offset: msg.offset(),
+                                            key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
+                                            value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
+                                            timestamp: msg.timestamp().to_millis(),
+                                        };
+
+                                        if tx.send(Ok(kafka_msg)).is_err() {
+                                            break;
+                                        }
+                                        count += 1;
+                                    }
+                                    Ok(Err(_)) | Err(_) => break,
+                                }
+                            }
                         }
                     }
                 }
@@ -526,7 +566,7 @@ impl KafkaConsumer {
             }
         });
 
-        UnboundedReceiverStream::new(rx)
+        rx
     }
 
     /// 消费消息

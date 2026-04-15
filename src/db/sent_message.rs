@@ -149,22 +149,22 @@ pub async fn get_sent_message_list(
 
     let messages = if cluster_id.is_some() && topic_name.is_some() {
         query
-            .bind(cluster_id.unwrap())
-            .bind(topic_name.unwrap())
+            .bind(cluster_id.expect("cluster_id is Some"))
+            .bind(topic_name.expect("topic_name is Some"))
             .bind(limit)
             .bind(offset)
             .fetch_all(pool.inner())
             .await?
     } else if cluster_id.is_some() {
         query
-            .bind(cluster_id.unwrap())
+            .bind(cluster_id.expect("cluster_id is Some"))
             .bind(limit)
             .bind(offset)
             .fetch_all(pool.inner())
             .await?
     } else if topic_name.is_some() {
         query
-            .bind(topic_name.unwrap())
+            .bind(topic_name.expect("topic_name is Some"))
             .bind(limit)
             .bind(offset)
             .fetch_all(pool.inner())
@@ -197,4 +197,23 @@ pub async fn clear_sent_message_history(pool: &DbPool) -> Result<i64, sqlx::Erro
         .await?;
 
     Ok(result.rows_affected() as i64)
+}
+
+/// 清理超过指定天数的旧发送历史记录
+pub async fn cleanup_old_sent_messages(pool: &sqlx::SqlitePool, retention_days: i64) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM sent_messages
+        WHERE sent_at < datetime('now', ? || ' days')
+        "#,
+    )
+    .bind(format!("-{}", retention_days))
+    .execute(pool)
+    .await?;
+
+    let deleted = result.rows_affected();
+    if deleted > 0 {
+        tracing::info!("Cleaned up {} sent message records older than {} days", deleted, retention_days);
+    }
+    Ok(deleted as i64)
 }

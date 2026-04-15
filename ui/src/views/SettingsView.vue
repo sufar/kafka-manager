@@ -441,8 +441,8 @@ const t = computed(() => languageStore.t);
 // Tauri 环境检测
 const isTauriEnv = ref(isTauri());
 
-// App version
-const appVersion = ref('1.1.0');
+// App version（初始值，onMounted 时会通过 getCurrentVersion() 从后端 Cargo.toml 读取覆盖）
+const appVersion = ref('0.0.0');
 
 // 日志相关
 const logs = ref('');
@@ -543,7 +543,7 @@ async function getCurrentVersion() {
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_version' : 'app.version';
     const result = await tauriInvoke<any>(cmd);
     // Tauri 返回纯字符串，HTTP API 返回{version}对象
-    appVersion.value = typeof result === 'string' ? result : (result.version || '1.1.0');
+    appVersion.value = typeof result === 'string' ? result : (result.version || '0.0.0');
   } catch (e) {
     console.error('Failed to get current version:', e);
   }
@@ -871,80 +871,71 @@ async function installUpdate() {
   }
 }
 
-// 轮询下载状态
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+// 轮询下载状态（使用自调度的 setTimeout，避免 setInterval + async 重叠问题）
 let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 let downloadEverStarted = false;
 let lastDownloadedBytes = 0; // 用于计算速度
 
 function startPollingDownloadStatus() {
-  // 清除之前的轮询（包括待执行的 setTimeout）
+  // 清除之前的轮询
   stopPolling();
   downloadEverStarted = false;
   lastDownloadedBytes = 0;
 
-  // 延迟 200ms 后开始首次轮询，给后端足够时间初始化下载状态
+  // 延迟 200ms 后开始首次轮询
   pollTimeout = setTimeout(() => {
     pollTimeout = null;
-    // 轮询期间每 500ms 检查一次下载状态
-    pollTimer = setInterval(async () => {
-      try {
-        const status = await tauriInvoke<any>('get_download_status');
-        if (status.is_downloading) {
-          const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
-          // 计算速度（bytes/s，轮询间隔 500ms）
-          const speed = status.downloaded - lastDownloadedBytes;
-          lastDownloadedBytes = status.downloaded;
-          updateStore.updateProgress(progress, status.downloaded, status.total, speed * 2); // *2 因为间隔是 500ms
-          downloadInterrupted.value = false;
-          downloadEverStarted = true;
-        } else {
-          // 下载完成或停止，停止轮询
-          if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
-            // 下载完成
-            updateStore.clearState();
-            downloadInterrupted.value = false;
-            toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
-          } else if (status.downloaded > 0 && status.total === 0) {
-            // 下载完成但无法获取总大小（HEAD 请求未返回 content-length）
-            // 认为下载已完成，不显示中断状态
-            updateStore.clearState();
-            downloadInterrupted.value = false;
-            toast.showInfo(t.value.update.downloadComplete || '下载完成，安装包已打开');
-          } else if (status.downloaded > 0 || status.total > 0) {
-            // 下载中断（有部分进度但没有完成）
-            // 清除 downloading 状态，允许用户重新点击下载
-            updateStore.setDownloading(false, 0);
-            downloadInterrupted.value = true;
-          } else if (status.downloaded === 0 && status.total === 0) {
-            // 后端没有在下载
-            if (downloadEverStarted) {
-              // 下载曾经开始但中断了
-              updateStore.setDownloading(false, 0);
-              downloadInterrupted.value = true;
-            } else if (downloading.value) {
-              // 下载从未开始，可能是后端初始化失败或状态不同步
-              updateStore.clearState();
-              downloadInterrupted.value = false;
-            }
-          }
-          stopPolling();
-        }
-      } catch (e) {
-        console.error('Failed to get download status:', e);
-      }
-    }, 500);
+    pollDownloadStatus();
   }, 200);
+}
+
+async function pollDownloadStatus() {
+  try {
+    const status = await tauriInvoke<any>('get_download_status');
+    if (status.is_downloading) {
+      const progress = status.total > 0 ? Math.round((status.downloaded / status.total) * 100) : 0;
+      const speed = status.downloaded - lastDownloadedBytes;
+      lastDownloadedBytes = status.downloaded;
+      updateStore.updateProgress(progress, status.downloaded, status.total, speed * 2);
+      downloadInterrupted.value = false;
+      downloadEverStarted = true;
+      // 500ms 后继续下一次轮询
+      pollTimeout = setTimeout(pollDownloadStatus, 500);
+    } else {
+      // 下载完成或停止
+      if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
+        updateStore.clearState();
+        downloadInterrupted.value = false;
+        toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+      } else if (status.downloaded > 0 && status.total === 0) {
+        updateStore.clearState();
+        downloadInterrupted.value = false;
+        toast.showInfo(t.value.update.downloadComplete || '下载完成，安装包已打开');
+      } else if (status.downloaded > 0 || status.total > 0) {
+        updateStore.setDownloading(false, 0);
+        downloadInterrupted.value = true;
+      } else if (status.downloaded === 0 && status.total === 0) {
+        if (downloadEverStarted) {
+          updateStore.setDownloading(false, 0);
+          downloadInterrupted.value = true;
+        } else if (downloading.value) {
+          updateStore.clearState();
+          downloadInterrupted.value = false;
+        }
+      }
+      stopPolling();
+    }
+  } catch (e) {
+    console.error('Failed to get download status:', e);
+    // 出错后 500ms 继续轮询
+    pollTimeout = setTimeout(pollDownloadStatus, 500);
+  }
 }
 
 function stopPolling() {
   if (pollTimeout) {
     clearTimeout(pollTimeout);
     pollTimeout = null;
-  }
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
   }
 }
 

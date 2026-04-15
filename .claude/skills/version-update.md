@@ -11,7 +11,8 @@
 | `Cargo.toml` | 主项目 Rust 包版本 | `version = "x.y.z"` |
 | `src-tauri/Cargo.toml` | Tauri 子项目版本 | `version = "x.y.z"` |
 | `src-tauri/tauri.conf.json` | Tauri 应用版本（用于构建和更新） | `"version": "x.y.z"` |
-| `ui/src/views/SettingsView.vue` | 前端显示的版本号 | `const appVersion = ref('x.y.z')` |
+
+> **注意**：前端 `SettingsView.vue` 中的版本号默认值为 `0.0.0`，不需要更新。`onMounted` 时会自动从后端读取 `Cargo.toml` 中的版本号覆盖默认值。
 
 ## 更新步骤
 
@@ -45,29 +46,15 @@ description = "A Kafka Manager tool built with Tauri 2"
 }
 ```
 
-### 3. 更新前端显示版本
-
-**ui/src/views/SettingsView.vue**
-
-两处需要修改：
-
-```typescript
-// 第 345 行附近 - 默认版本号
-const appVersion = ref('1.0.17');
-
-// 第 394 行附近 - fallback 版本号
-appVersion.value = typeof result === 'string' ? result : (result.version || '1.0.17');
-```
-
-### 4. 验证修改
+### 3. 验证修改
 
 运行以下命令确认所有版本号已更新：
 
 ```bash
-grep -r "1\.0\.17" Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json ui/src/views/SettingsView.vue
+grep -r "1\.0\.17" Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json
 ```
 
-### 5. 更新 Cargo.lock（可选）
+### 4. 更新 Cargo.lock（可选）
 
 ```bash
 cargo build
@@ -89,7 +76,7 @@ cargo build
 
 更新版本号后，确认以下内容：
 
-- [ ] 所有 4 个文件的版本号一致
+- [ ] 所有 3 个文件的版本号一致
 - [ ] `Cargo.lock` 已更新（运行 `cargo build`）
 - [ ] 设置页面的版本号显示正确
 - [ ] Git commit 信息包含版本号（例如：`升级 v1.0.17`）
@@ -99,11 +86,10 @@ cargo build
 - `/Cargo.toml` - 主项目配置
 - `/src-tauri/Cargo.toml` - Tauri 子项目配置
 - `/src-tauri/tauri.conf.json` - Tauri 应用配置
-- `/ui/src/views/SettingsView.vue` - 设置页面（显示版本号）
 
 ## 注意事项
 
-1. **版本号必须同步**：所有 4 个文件的版本号必须保持一致，否则可能导致构建或运行时问题
-2. **Tauri  updater**：`tauri.conf.json` 中的版本号用于 Tauri 的自动更新功能，必须正确设置
-3. **前端 fallback**：`SettingsView.vue` 中的 fallback 版本号确保在无法获取实际版本时显示正确的默认值
+1. **版本号必须同步**：所有 3 个配置文件的版本号必须保持一致，否则可能导致构建或运行时问题
+2. **Tauri updater**：`tauri.conf.json` 中的版本号用于 Tauri 的自动更新功能，必须正确设置
+3. **前端自动读取**：`SettingsView.vue` 中的版本号默认值为 `0.0.0`，运行时通过 `getCurrentVersion()` 从后端 `Cargo.toml` 读取实际版本号，不需要手动维护
 4. **Git 提交**：每次版本更新都应该有对应的 commit，commit message 格式：`升级 vX.Y.Z`

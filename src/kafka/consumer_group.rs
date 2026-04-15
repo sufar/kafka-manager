@@ -676,7 +676,7 @@ impl KafkaConsumerGroupManager {
             return Ok(None);
         }
 
-        let offsets_topic_meta = offsets_topic_meta.unwrap();
+        let offsets_topic_meta = offsets_topic_meta.expect("__consumer_offsets topic should exist after check");
         let num_partitions = offsets_topic_meta.partitions().len() as i32;
 
         tracing::info!(
@@ -967,19 +967,23 @@ fn parse_consumer_offset_message(
 ) -> Option<i64> {
     // 首先从 key 中解析 group_id, topic, partition
     let key = msg.key();
-    if key.is_none() || key.unwrap().is_empty() {
-        tracing::debug!("[parse_consumer_offset_message] No key or empty key");
-        return None;
-    }
-    let key = key.unwrap();
+    let key = match key.filter(|k| !k.is_empty()) {
+        Some(k) => k,
+        None => {
+            tracing::debug!("[parse_consumer_offset_message] No key or empty key");
+            return None;
+        }
+    };
 
     // 解析 key 获取 group_id, topic, partition
     let parse_result = parse_offset_key(key);
-    if parse_result.is_none() {
-        tracing::debug!("[parse_consumer_offset_message] Failed to parse key, len={}", key.len());
-        return None;
-    }
-    let (key_group, key_topic, key_partition) = parse_result?;
+    let (key_group, key_topic, key_partition) = match parse_result {
+        Some(result) => result,
+        None => {
+            tracing::debug!("[parse_consumer_offset_message] Failed to parse key, len={}", key.len());
+            return None;
+        }
+    };
 
     tracing::debug!("[parse_consumer_offset_message] Parsed key: group={}, topic={}, partition={}", key_group, key_topic, key_partition);
 
@@ -990,11 +994,13 @@ fn parse_consumer_offset_message(
 
     // 从 value 中解析时间戳
     let payload = msg.payload();
-    if payload.is_none() || payload.unwrap().is_empty() {
-        tracing::debug!("[parse_consumer_offset_message] No payload or empty payload");
-        return None;
-    }
-    let payload = payload.unwrap();
+    let payload = match payload.filter(|p| !p.is_empty()) {
+        Some(p) => p,
+        None => {
+            tracing::debug!("[parse_consumer_offset_message] No payload or empty payload");
+            return None;
+        }
+    };
 
     tracing::debug!("[parse_consumer_offset_message] Payload len={}", payload.len());
 

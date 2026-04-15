@@ -133,6 +133,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.init().await?;
     tracing::info!("Database initialized: kafka_manager.db");
 
+    // 清理过期的发送历史记录（保留最近 30 天）
+    match crate::db::sent_message::cleanup_old_sent_messages(db.inner(), 30).await {
+        Ok(count) => tracing::info!("Startup cleanup: cleaned up {} expired message records", count),
+        Err(e) => tracing::warn!("Failed to cleanup old sent messages: {}", e),
+    }
+
     // 从数据库加载集群配置并创建 Kafka 客户端
     let clusters = load_clusters_from_db(db.inner()).await?;
     let clients = KafkaClients::new(&clusters)?;

@@ -231,9 +231,10 @@ pub async fn update_group(
         return Ok(None);
     }
 
-    let name = req.name.as_ref().unwrap_or(&current.as_ref().unwrap().name);
-    let description = req.description.as_ref().or(current.as_ref().unwrap().description.as_ref());
-    let sort_order = req.sort_order.unwrap_or(current.as_ref().unwrap().sort_order);
+    let current = current.as_ref().expect("current should exist after is_none check");
+    let name = req.name.as_ref().unwrap_or(&current.name);
+    let description = req.description.as_ref().or(current.description.as_ref());
+    let sort_order = req.sort_order.unwrap_or(current.sort_order);
 
     let group = sqlx::query_as::<_, FavoriteGroup>(
         r#"
@@ -360,9 +361,10 @@ pub async fn update_favorite(
         return Ok(None);
     }
 
-    let group_id = req.group_id.unwrap_or(current.as_ref().unwrap().group_id);
-    let description = req.description.as_ref().or(current.as_ref().unwrap().description.as_ref());
-    let sort_order = req.sort_order.unwrap_or(current.as_ref().unwrap().sort_order);
+    let current = current.as_ref().expect("current should exist after is_none check");
+    let group_id = req.group_id.unwrap_or(current.group_id);
+    let description = req.description.as_ref().or(current.description.as_ref());
+    let sort_order = req.sort_order.unwrap_or(current.sort_order);
 
     let item = sqlx::query_as::<_, FavoriteItem>(
         r#"

@@ -154,7 +154,7 @@ impl managed::Manager for KafkaConsumerManager {
         // 使用唯一的 group.id，避免 Kafka 记住 offset 导致查询问题
         let unique_id = format!("kafka-manager-pool-{}", std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos());
         let client_config = self.create_client_config(&unique_id);
         let consumer: StreamConsumer = client_config
