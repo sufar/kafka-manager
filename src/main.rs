@@ -139,33 +139,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::warn!("Failed to cleanup old sent messages: {}", e),
     }
 
-    // 从数据库加载集群配置并创建 Kafka 客户端
+    // 从数据库加载集群配置
     let clusters = load_clusters_from_db(db.inner()).await?;
-    let clients = KafkaClients::new(&clusters)?;
+
+    // 创建空的 KafkaClients 和 ClusterPools，立即启动 HTTP 服务
+    // Kafka 连接在后台异步建立，不阻塞服务启动
+    let empty_clusters = std::collections::HashMap::new();
+    let clients = KafkaClients::new(&empty_clusters)
+        .expect("Failed to create empty KafkaClients");
     let clients: Arc<ArcSwap<KafkaClients>> = Arc::new(ArcSwap::new(clients.into()));
-    tracing::info!(
-        "Connected to Kafka clusters: {:?}",
-        clients.load_full().cluster_ids()
-    );
+    tracing::info!("KafkaClients initialized (empty, connections will be established in background)");
 
-    // 初始化连接池
     let pools = ClusterPools::new();
-    pools.init(&clusters, &config.pool).await?;
-    tracing::info!("Kafka connection pools initialized");
-
-    // 预热 Consumer Pool（可选配置）
-    let warmup_size = config.pool.min_size;
-    if warmup_size > 0 {
-        for (cluster_id, _) in &clusters {
-            if let Some(consumer_pool) = pools.get_consumer_pool(cluster_id).await {
-                let size = warmup_size as usize;
-                tokio::spawn(async move {
-                    let _ = crate::pool::kafka_consumer::warmup_consumer_pool(&consumer_pool, size).await;
-                });
-            }
-        }
-        tracing::info!("Consumer pool warmup started for {} clusters (size: {} per cluster)", clusters.len(), warmup_size);
-    }
+    tracing::info!("Kafka connection pools initialized (empty)");
 
     // 初始化缓存
     let cache = MetadataCache::new();
@@ -194,13 +180,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
-    // 启动服务器
+    // 启动服务器（不等 Kafka 连接）
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port)
         .parse()
         .expect("Invalid address");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Listening on {}", addr);
+
+    // 服务启动后，后台任务：
+    // 1. 逐个建立 Kafka 连接（客户端 + 连接池）
+    // 2. 所有连接就绪后，并行同步所有集群的 topic 列表
+    if !clusters.is_empty() {
+        let state_for_bg = state.clone();
+        let pool_config = config.pool.clone();
+        let warmup_size = config.pool.min_size;
+        tokio::spawn(async move {
+            let mut connected = Vec::new();
+            let mut failed = Vec::new();
+
+            // 阶段 1：逐个建立 Kafka 连接
+            for (cluster_id, kafka_config) in &clusters {
+                // 创建 Kafka 客户端
+                let new_clients = match state_for_bg.get_clients().with_added_cluster(cluster_id, kafka_config) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to create clients for cluster '{}': {}", cluster_id, e);
+                        failed.push((cluster_id.clone(), e.to_string()));
+                        continue;
+                    }
+                };
+
+                // 建立连接池
+                if let Err(e) = state_for_bg.pools.add_cluster(cluster_id, kafka_config, &pool_config).await {
+                    tracing::warn!("Failed to create pool for cluster '{}': {}", cluster_id, e);
+                    failed.push((cluster_id.clone(), e.to_string()));
+                    continue;
+                }
+
+                state_for_bg.set_clients(new_clients);
+                connected.push(cluster_id.clone());
+                tracing::info!("Connected to cluster: {}", cluster_id);
+            }
+
+            // 预热 Consumer Pool
+            if warmup_size > 0 {
+                for cluster_id in &connected {
+                    if let Some(consumer_pool) = state_for_bg.pools.get_consumer_pool(cluster_id).await {
+                        let size = warmup_size as usize;
+                        let cid = cluster_id.clone();
+                        tokio::spawn(async move {
+                            let _ = crate::pool::kafka_consumer::warmup_consumer_pool(&consumer_pool, size).await;
+                            tracing::debug!("Consumer pool warmup completed for {}", cid);
+                        });
+                    }
+                }
+            }
+
+            if !connected.is_empty() {
+                tracing::info!("Background Kafka connection completed: {} connected, {} failed", connected.len(), failed.len());
+            }
+            if !failed.is_empty() {
+                for (id, err) in &failed {
+                    tracing::warn!("Cluster '{}' connection failed: {}", id, err);
+                }
+            }
+
+            // 阶段 2：所有连接就绪后，并行同步 topic 列表
+            if !connected.is_empty() {
+                use crate::routes::unified::refresh_single_cluster;
+
+                tracing::info!("Starting background topic sync for {} clusters", connected.len());
+
+                let mut tasks = Vec::with_capacity(connected.len());
+                for cluster_name in &connected {
+                    let state = state_for_bg.clone();
+                    let name = cluster_name.clone();
+                    tasks.push(tokio::spawn(async move {
+                        refresh_single_cluster(state, name).await;
+                    }));
+                }
+
+                for task in tasks {
+                    let _ = task.await;
+                }
+
+                tracing::info!("Background topic sync completed for all clusters");
+            }
+        });
+    }
 
     axum::serve(listener, app).await?;
 

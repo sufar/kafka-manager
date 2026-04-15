@@ -1190,16 +1190,9 @@ async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
     // 首先尝试从数据库获取（最快）
     let db_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await.ok();
 
-    // 如果有数据库缓存，先返回（快速响应）
+    // 从数据库获取（纯读，不触发 Kafka 同步）
     if let Some(topics) = db_topics {
         if !topics.is_empty() {
-            // 后台异步同步 Kafka（不阻塞响应）
-            let state_clone = state.clone();
-            let cluster_id_clone = cluster_id.clone();
-            tokio::spawn(async move {
-                let _ = sync_topics_from_kafka(state_clone, &cluster_id_clone).await;
-            });
-            // 只返回 topic 名称字符串数组
             let topic_names: Vec<String> = topics.into_iter().map(|t| t.topic_name).collect();
             return Ok(serde_json::json!({ "topics": topic_names }));
         }
@@ -1319,13 +1312,6 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
                 });
             }
         }
-
-        // Background sync
-        let state_clone = state.clone();
-        let cluster_name_clone = cluster_name.clone();
-        tokio::spawn(async move {
-            let _ = sync_topics_from_kafka(state_clone, &cluster_name_clone).await;
-        });
     }
 
     // Sort by cluster then by name
@@ -1364,19 +1350,11 @@ async fn handle_topic_list_all_clusters(state: AppState) -> Result<Value> {
     for cluster in clusters {
         let cluster_name = &cluster.name;
 
-        // Try to get topics from database first
         if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
             for topic in topics {
                 all_topics.push(topic.topic_name);
             }
         }
-
-        // Background sync for this cluster (non-blocking)
-        let state_clone = state.clone();
-        let cluster_name_clone = cluster_name.clone();
-        tokio::spawn(async move {
-            let _ = sync_topics_from_kafka(state_clone, &cluster_name_clone).await;
-        });
     }
 
     // Remove duplicates and sort
@@ -1806,7 +1784,7 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
 }
 
 /// 刷新单个集群的 Topic 列表
-async fn refresh_single_cluster(state: AppState, cluster_id: String) {
+pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     use crate::db::cluster::ClusterStore;
     use crate::db::topic::TopicStore;
 
