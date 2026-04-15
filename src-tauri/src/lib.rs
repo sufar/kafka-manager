@@ -1518,7 +1518,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
             #[cfg(target_os = "macos")]
             {
-                log("Opening DMG file and will exit app...");
+                log("Opening DMG file...");
                 let dmg_path_str = download_path.to_string_lossy();
                 log(&format!("DMG path: {}", dmg_path_str));
 
@@ -1532,28 +1532,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     log("ERROR: DMG file does not exist!");
                 }
 
-                // 使用 status() 同步等待 open 命令完成，以便捕获错误
-                match std::process::Command::new("open")
+                // 使用 spawn() 立即返回，不阻塞后续对话框
+                let _ = std::process::Command::new("open")
                     .arg(&download_path)
-                    .status()
-                {
-                    Ok(status) => {
-                        if status.success() {
-                            log("Successfully opened DMG");
-                        } else {
-                            log(&format!("Failed to open DMG, exit status: {:?}", status.code()));
-                        }
-                    }
-                    Err(e) => log(&format!("Failed to execute open command: {}", e)),
-                }
+                    .spawn();
 
-                // 通知用户即将退出
+                // 通知用户
                 app_handle.dialog()
-                    .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+                    .message("安装包已挂载，请将 Kafka Manager 拖拽到 Applications 文件夹完成安装。应用将在 3 秒后退出。")
                     .title("下载完成")
                     .show(|_| {});
 
-                // 延迟退出应用，让用户看到提示
+                // 延迟退出应用
                 let app_handle_clone = app_handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
