@@ -116,6 +116,26 @@ impl ConsumerGroupStore {
         Ok(group)
     }
 
+    /// 按 topic 查询 consumer groups（topics 字段为 JSON 数组，用 LIKE 匹配）
+    pub async fn list_by_topic(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        topic: &str,
+    ) -> Result<Vec<ConsumerGroupMetadata>> {
+        // topics 格式: ["topic-a","topic-b"]
+        // 使用 '%"topic_name"%' 精确匹配 JSON 数组中的元素
+        let pattern = format!(r#"%\"{}\"%"#, topic);
+        let groups = sqlx::query_as(
+            "SELECT * FROM consumer_group_metadata WHERE cluster_id = ? AND topics LIKE ?",
+        )
+        .bind(cluster_id)
+        .bind(&pattern)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(groups)
+    }
+
     /// 删除 Consumer Group 元数据
     pub async fn delete(
         pool: &sqlx::SqlitePool,

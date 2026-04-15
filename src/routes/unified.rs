@@ -5110,23 +5110,17 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     let cluster_id = get_cluster_id_param(&body)?;
     let topic = get_string_param(&body, "topic")?;
 
-    // 步骤 1: 从数据库获取所有 consumer groups，过滤出订阅了该 topic 的 groups
-    let all_groups = crate::db::consumer_group::ConsumerGroupStore::list_by_cluster(
+    // 步骤 1: 从数据库用 SQL LIKE 查询订阅了该 topic 的 consumer groups
+    // topics 字段为 JSON 数组 ["topic-a","topic-b"]，用 '%"topic_name"%' 匹配
+    let topic_groups = crate::db::consumer_group::ConsumerGroupStore::list_by_topic(
         state.db.inner(),
         &cluster_id,
+        &topic,
     )
     .await
     .unwrap_or_default();
 
-    // 过滤出订阅了该 topic 的 group names（使用数据库中缓存的 topics）
-    let topic_groups: Vec<String> = all_groups
-        .iter()
-        .filter(|g| {
-            let topics: Vec<String> = serde_json::from_str(&g.topics).unwrap_or_default();
-            topics.contains(&topic)
-        })
-        .map(|g| g.group_name.clone())
-        .collect();
+    let group_names: Vec<String> = topic_groups.iter().map(|g| g.group_name.clone()).collect();
 
     // 步骤 2: 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
@@ -5135,7 +5129,7 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     // 步骤 3: 并行从 Kafka 获取每个 group 的指定 topic offset 信息
     // 使用新的 get_consumer_group_offsets_for_topic，跳过耗时的 topic 发现步骤
     let mut futures = Vec::new();
-    for group_name in &topic_groups {
+    for group_name in &group_names {
         let cg = cg_manager.clone();
         let group = group_name.clone();
         let topic_clone = topic.clone();
