@@ -125,13 +125,20 @@ impl ConsumerGroupStore {
         // topics 格式: ["topic-a","topic-b"]
         // 使用 '%"topic_name"%' 精确匹配 JSON 数组中的元素
         let pattern = format!(r#"%\"{}\"%"#, topic);
-        let groups = sqlx::query_as(
+        tracing::info!("[ConsumerGroupStore::list_by_topic] cluster_id={}, topic={}, pattern={}", cluster_id, topic, pattern);
+
+        let groups: Vec<ConsumerGroupMetadata> = sqlx::query_as(
             "SELECT * FROM consumer_group_metadata WHERE cluster_id = ? AND topics LIKE ?",
         )
         .bind(cluster_id)
         .bind(&pattern)
         .fetch_all(pool)
         .await?;
+
+        tracing::info!("[ConsumerGroupStore::list_by_topic] found {} groups", groups.len());
+        for g in &groups {
+            tracing::info!("[ConsumerGroupStore::list_by_topic] group={}, topics={}", g.group_name, g.topics);
+        }
 
         Ok(groups)
     }

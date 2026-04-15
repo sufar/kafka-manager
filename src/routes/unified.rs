@@ -5121,6 +5121,7 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     .unwrap_or_default();
 
     let group_names: Vec<String> = topic_groups.iter().map(|g| g.group_name.clone()).collect();
+    tracing::info!("[handle_consumer_group_list_by_topic] found {} groups from DB: {:?}", group_names.len(), group_names);
 
     // 步骤 2: 确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
@@ -5221,6 +5222,8 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
         }
         a["partition"].as_i64().cmp(&b["partition"].as_i64())
     });
+
+    tracing::info!("[handle_consumer_group_list_by_topic] returning {} offsets", topic_offsets.len());
 
     Ok(serde_json::json!({
         "offsets": topic_offsets,
