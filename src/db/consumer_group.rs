@@ -336,6 +336,102 @@ impl ConsumerGroupStore {
 
         Ok(groups)
     }
+
+    // ==================== Consumer Group <-> Topic 多对多关系 ====================
+
+    /// 插入或忽略 consumer group 与 topic 的关系（INSERT OR IGNORE）
+    pub async fn upsert_topic_relation(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        group_name: &str,
+        topic_name: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO consumer_group_topics (cluster_id, group_name, topic_name, fetched_at)
+            VALUES (?, ?, ?, ?)
+            "#,
+        )
+        .bind(cluster_id)
+        .bind(group_name)
+        .bind(topic_name)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// 清理指定 groups 的旧 topic 关系
+    pub async fn cleanup_topic_relations(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        group_names: &[&str],
+    ) -> Result<()> {
+        if group_names.is_empty() {
+            return Ok(());
+        }
+        let placeholders: Vec<&str> = group_names.iter().map(|_| "?").collect();
+        let sql = format!(
+            "DELETE FROM consumer_group_topics WHERE cluster_id = ? AND group_name IN ({})",
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query(&sql).bind(cluster_id);
+        for name in group_names {
+            query = query.bind(name);
+        }
+        query.execute(pool).await?;
+
+        Ok(())
+    }
+
+    /// 清理某个集群下所有 group-topic 关系
+    pub async fn cleanup_all_cluster_topic_relations(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM consumer_group_topics WHERE cluster_id = ?")
+            .bind(cluster_id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// 按 topic 查询 consumer group names
+    pub async fn list_group_names_by_topic(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        topic: &str,
+    ) -> Result<Vec<String>> {
+        let groups: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT group_name FROM consumer_group_topics WHERE cluster_id = ? AND topic_name = ?",
+        )
+        .bind(cluster_id)
+        .bind(topic)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(groups.into_iter().map(|(name,)| name).collect())
+    }
+
+    /// 按 group 查询其关联的 topics
+    pub async fn list_topics_by_group(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        group_name: &str,
+    ) -> Result<Vec<String>> {
+        let topics: Vec<(String,)> = sqlx::query_as(
+            "SELECT topic_name FROM consumer_group_topics WHERE cluster_id = ? AND group_name = ? ORDER BY topic_name",
+        )
+        .bind(cluster_id)
+        .bind(group_name)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(topics.into_iter().map(|(t,)| t).collect())
+    }
 }
 
 /// 同步结果

@@ -65,7 +65,28 @@ impl KafkaConsumerGroupManager {
         Ok(groups)
     }
 
-    /// 获取 Consumer Group 关联的所有 topics（从 committed offsets 获取）
+    /// 获取集群所有 topic 名称列表
+    pub fn get_cluster_topics(&self) -> Result<Vec<String>> {
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", "kafka-manager-temp-cluster-topics");
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = client_config.create()?;
+
+        let metadata = consumer.fetch_metadata(None, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch cluster metadata: {}", e)))?;
+
+        let topics: Vec<String> = metadata.topics()
+            .iter()
+            .map(|t| t.name().to_string())
+            .filter(|t| !t.starts_with("__")) // 跳过内部 topic
+            .collect();
+
+        Ok(topics)
+    }
+
+    /// 获取 Consumer Group 关联的所有 topics（从 active members 的 protocol metadata 提取）
+    /// 只返回有活跃 consumer 的 group 的 topics，没有活跃 consumer 的 group 返回空列表
     pub fn get_consumer_group_topics(&self, group_id: &str) -> Result<Vec<String>> {
         let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
         client_config.set("group.id", group_id);
@@ -75,7 +96,7 @@ impl KafkaConsumerGroupManager {
 
         let mut topics: Vec<String> = Vec::with_capacity(20);
 
-        // 方法 1：尝试从 active members 的 metadata 获取 topics（适用于有 active consumer 的情况）
+        // 从 active members 的 protocol metadata 获取 topics
         let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)
             .map_err(|e| AppError::Internal(format!("Failed to fetch consumer group info: {}", e)))?;
 
@@ -88,36 +109,6 @@ impl KafkaConsumerGroupManager {
                                 topics.push(topic);
                             }
                         }
-                    }
-                }
-            }
-        }
-
-        // 方法 2：如果从 member metadata 没获取到 topics，尝试从 committed offsets 获取
-        // 这需要知道所有可能的 topics，所以我们先尝试从 broker 获取所有 topics
-        if topics.is_empty() {
-            let metadata = consumer.fetch_metadata(None, self.timeout)?;
-            for topic_meta in metadata.topics() {
-                let topic_name = topic_meta.name();
-                // 跳过内部 topics
-                if topic_name.starts_with("__") {
-                    continue;
-                }
-
-                // 检查这个 topic 是否有 committed offsets
-                let mut tpl = TopicPartitionList::new();
-                for partition_meta in topic_meta.partitions() {
-                    tpl.add_partition(topic_name, partition_meta.id());
-                }
-
-                let committed = consumer.committed_offsets(tpl, self.timeout)?;
-                // 如果有任何 partition 有有效的 committed offset，说明这个 topic 被 consumer group 订阅过
-                for elem in committed.elements() {
-                    if matches!(elem.offset(), Offset::Offset(_)) {
-                        if !topics.contains(&topic_name.to_string()) {
-                            topics.push(topic_name.to_string());
-                        }
-                        break;
                     }
                 }
             }

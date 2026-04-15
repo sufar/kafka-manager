@@ -236,6 +236,34 @@ impl DbPool {
         .execute(self.inner())
         .await?;
 
+        // 创建 Consumer Group 与 Topic 多对多关系表
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS consumer_group_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id TEXT NOT NULL,
+                group_name TEXT NOT NULL,
+                topic_name TEXT NOT NULL,
+                fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(cluster_id, group_name, topic_name)
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_topics_cluster_topic ON consumer_group_topics(cluster_id, topic_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_consumer_group_topics_cluster_group ON consumer_group_topics(cluster_id, group_name)",
+        )
+        .execute(self.inner())
+        .await?;
+
         // 创建 Consumer Group Offset 缓存表
         sqlx::query(
             r#"
