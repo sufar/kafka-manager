@@ -2,6 +2,13 @@
   <div class="message-query-tool flex-1 flex flex-col min-h-0">
     <!-- 简洁搜索栏 -->
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
+      <!-- 返回按钮 -->
+      <button class="btn btn-ghost btn-sm p-1" @click="goBack" title="返回">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+        </svg>
+      </button>
+
       <!-- 分区选择 -->
       <select v-model="selectedPartition" class="select select-bordered select-sm w-28">
         <option value="all">{{ t.messages.allPartitions }}</option>
@@ -394,7 +401,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick, reactive } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
@@ -410,6 +417,11 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 type NavigationDirection = 'up' | 'down';
 
 const route = useRoute();
+const router = useRouter();
+
+function goBack() {
+  router.back();
+}
 const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
