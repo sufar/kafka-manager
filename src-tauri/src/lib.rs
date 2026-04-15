@@ -803,13 +803,26 @@ async fn download_with_resume_background(
         request = request.header("Range", format!("bytes={}-", start_byte));
     }
 
-    let response = request.send().await.map_err(|e| format!("下载失败：{}", e))?;
+    let response = request.send().await.map_err(|e| {
+        let mut msg = e.to_string();
+        // 隐藏 URL 信息
+        if let Some(pos) = msg.find("url (") {
+            msg = msg[..pos].trim_end().to_string();
+        }
+        format!("下载失败：{}", msg)
+    })?;
 
     let final_response = if response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         log("Received 416, removing and retrying");
         std::fs::remove_file(download_path).ok();
         let retry = client.get(url).header("User-Agent", "kafka-manager").send().await
-            .map_err(|e| format!("下载失败：{}", e))?;
+            .map_err(|e| {
+                let mut msg = e.to_string();
+                if let Some(pos) = msg.find("url (") {
+                    msg = msg[..pos].trim_end().to_string();
+                }
+                format!("下载失败：{}", msg)
+            })?;
         if !retry.status().is_success() {
             return Err(format!("下载失败：HTTP {}", retry.status()));
         }
@@ -1476,7 +1489,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                         guard.is_downloading = false;
                     }
                     // 向前端发送错误事件
-                    let _ = app_handle.emit("download_error", error_msg);
+                    // 网络错误使用 network_error 标识，前端可以显示翻译后的提示
+                    let emit_msg = if error_msg.contains("error sending request")
+                        || error_msg.contains("network")
+                        || error_msg.contains("timeout")
+                        || error_msg.contains("connection")
+                    {
+                        "network_error"
+                    } else {
+                        &error_msg
+                    };
+                    let _ = app_handle.emit("download_error", emit_msg);
                     return;
                 }
             };
