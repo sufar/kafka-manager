@@ -895,7 +895,7 @@ export const translations: Record<Language, Translation> = {
       refreshAllConsumerGroup: '刷新集群 Consumer Group',
       refreshed: 'Consumer Groups 已刷新',
       dataNoticeTitle: '数据来源说明',
-      dataNotice: '此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。如发现遗漏，请点击页面上的 "刷新集群 Consumer Group" 按钮刷新同步。',
+      dataNotice: '此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。',
       topicNamePrefix: 'Topic：',
     },
     settings: {
@@ -1466,7 +1466,7 @@ export const translations: Record<Language, Translation> = {
       refreshAllConsumerGroup: 'Refresh Cluster Consumer Groups',
       refreshed: 'Consumer Groups refreshed',
       dataNoticeTitle: 'Data Source Notice',
-      dataNotice: 'Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time. If data is missing, please click the "Refresh Cluster Consumer Groups" button on this page to refresh and sync.',
+      dataNotice: 'Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time.',
       topicNamePrefix: 'Topic: ',
     },
     settings: {

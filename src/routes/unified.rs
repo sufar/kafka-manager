@@ -4852,7 +4852,21 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         }
     };
 
-    let cg_manager = match KafkaConsumerGroupManager::new(&config) {
+    // 创建一个复用的 consumer，整个刷新过程复用同一个连接
+    let reusable_consumer = {
+        let mut client_config = crate::kafka::create_client_config(&config);
+        client_config.set("group.id", "kafka-manager-cg-refresh");
+        client_config.set("enable.auto.commit", "false");
+        match client_config.create::<rdkafka::consumer::BaseConsumer>() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to create reusable consumer for {}: {}", cluster_id, e);
+                return;
+            }
+        }
+    };
+
+    let cg_manager = match KafkaConsumerGroupManager::with_consumer(&config, reusable_consumer) {
         Ok(m) => m,
         Err(e) => {
             tracing::error!("Failed to create ConsumerGroupManager for {}: {}", cluster_id, e);
@@ -4889,42 +4903,37 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         tracing::warn!("Failed to cleanup topic relations for {}: {}", cluster_id, e);
     }
 
-    // 步骤 4: 分批查询每个 group 的 topics 并写入多对多关系表
-    const CG_MAX_CONCURRENT: usize = 20;
-
-    for chunk in current_groups.chunks(CG_MAX_CONCURRENT) {
-        let chunk_futures: Vec<_> = chunk
-            .iter()
-            .map(|group| {
-                let cg = cg_manager.clone();
-                let group = group.clone();
-                tokio::task::spawn_blocking(move || {
-                    let result = cg.get_consumer_group_topics(&group);
-                    (group, result)
-                })
-            })
-            .collect();
-
-        for future in chunk_futures {
-            match future.await {
-                Ok((group, Ok(group_topics))) => {
-                    // 将 group-topic 关系写入多对多表
-                    for topic in &group_topics {
-                        let _ = ConsumerGroupStore::upsert_topic_relation(
-                            state.db.inner(),
-                            &cluster_id,
-                            &group,
-                            topic,
-                        ).await;
+    // 步骤 4: 顺序查询每个 group 的 topics（复用同一个 Kafka 连接）
+    let group_topics_results = tokio::task::spawn_blocking({
+        let cg = cg_manager.clone();
+        let groups = current_groups.clone();
+        move || {
+            let mut results = Vec::with_capacity(groups.len());
+            for group in groups {
+                let topics = match cg.get_consumer_group_topics(&group) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::warn!("Failed to get topics for group '{}': {}", group, e);
+                        Vec::new()
                     }
-                }
-                Ok((group, Err(e))) => {
-                    tracing::warn!("Failed to get topics for group '{}': {}", group, e);
-                }
-                Err(e) => {
-                    tracing::error!("Task failed for getting topics: {}", e);
-                }
+                };
+                results.push((group, topics));
             }
+            results
+        }
+    })
+    .await
+    .expect("spawn_blocking task panicked");
+
+    // 步骤 5: 将 group-topic 关系写入多对多表
+    for (group, topics) in group_topics_results {
+        for topic in &topics {
+            let _ = ConsumerGroupStore::upsert_topic_relation(
+                state.db.inner(),
+                &cluster_id,
+                &group,
+                topic,
+            ).await;
         }
     }
 
@@ -5084,91 +5093,67 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
 
     tracing::info!("[handle_consumer_group_list_by_topic] found {} groups from DB for topic '{}'", group_names.len(), topic);
 
-    // 步骤 2: 确保集群客户端已创建
+    // 步骤 2: 确保集群客户端已创建，并复用同一个 consumer 连接
     let config = ensure_cluster_client(&state, &cluster_id).await?;
-    let cg_manager = KafkaConsumerGroupManager::new(&config)?;
 
-    // 步骤 3: 分批从 Kafka 获取每个 group 的指定 topic offset 信息（限制并发数）
-    // 使用新的 get_consumer_group_offsets_for_topic，跳过耗时的 topic 发现步骤
+    let reusable_consumer = {
+        let mut client_config = crate::kafka::create_client_config(&config);
+        client_config.set("group.id", "kafka-manager-cg-list-by-topic");
+        client_config.set("enable.auto.commit", "false");
+        match client_config.create::<rdkafka::consumer::BaseConsumer>() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to create reusable consumer for {}: {}", cluster_id, e);
+                return Err(e.into());
+            }
+        }
+    };
+
+    let cg_manager = KafkaConsumerGroupManager::with_consumer(&config, reusable_consumer)?;
+
+    // 步骤 3: 顺序获取每个 group 的指定 topic offset 信息（复用同一个 Kafka 连接）
     let mut all_offsets: Vec<(String, PartitionOffsetDetail)> = Vec::new();
-    const CG_MAX_CONCURRENT: usize = 20;
 
-    for chunk in group_names.chunks(CG_MAX_CONCURRENT) {
-        let chunk_futures: Vec<_> = chunk
-            .iter()
-            .map(|group_name| {
-                let cg = cg_manager.clone();
-                let group = group_name.clone();
-                let topic_clone = topic.clone();
-                tokio::task::spawn_blocking(move || {
-                    let result = cg.get_consumer_group_offsets_for_topic(&group, &topic_clone);
-                    (group, result)
-                })
-            })
-            .collect();
-
-        for future in chunk_futures {
-            match future.await {
-                Ok((group, Ok(offsets))) => {
-                    for offset in offsets {
-                        all_offsets.push((group.clone(), offset));
-                    }
+    for group_name in &group_names {
+        match cg_manager.get_consumer_group_offsets_for_topic(group_name, &topic) {
+            Ok(offsets) => {
+                for offset in offsets {
+                    all_offsets.push((group_name.clone(), offset));
                 }
-                Ok((group, Err(e))) => {
-                    tracing::warn!("Failed to get offsets for group '{}': {}", group, e);
-                }
-                Err(e) => {
-                    tracing::error!("Task failed for group offsets: {}", e);
-                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get offsets for group '{}': {}", group_name, e);
             }
         }
     }
 
-    // 步骤 4: 批量获取所有分区的最后提交时间
-    let mut partitions: Vec<(String, String, i32)> = Vec::new(); // (group, topic, partition)
-    for (group_name, offset) in &all_offsets {
-        partitions.push((group_name.clone(), offset.topic.clone(), offset.partition));
-    }
-
-    // 按 group 分组获取 last_commit_time
+    // 步骤 4: 顺序获取所有分区的最后提交时间（复用同一个 Kafka 连接）
     let mut last_commit_times: std::collections::HashMap<(String, String, i32), Option<i64>> = std::collections::HashMap::new();
 
-    // 将 partitions 按 group 分组
-    let mut group_partitions: std::collections::HashMap<String, Vec<(String, i32)>> = std::collections::HashMap::new();
-    for (group, topic_name, partition) in &partitions {
-        group_partitions.entry(group.clone()).or_default().push((topic_name.clone(), *partition));
-    }
-
-    // 并行获取每个 group 的 last_commit_time（分批限制并发）
-    let mut lct_batch = std::collections::HashMap::new();
-    let cg_groups: Vec<_> = group_partitions.into_iter().collect();
-
-    for chunk in cg_groups.chunks(CG_MAX_CONCURRENT) {
-        let lct_futures: Vec<_> = chunk
+    for group_name in &group_names {
+        let group_parts: Vec<(String, i32)> = all_offsets
             .iter()
-            .map(|(group_name, group_parts)| {
-                let cg = cg_manager.clone();
-                let group = group_name.clone();
-                let parts = group_parts.clone();
-                tokio::task::spawn_blocking(move || {
-                    let result = cg.get_partitions_last_commit_time(&group, &parts);
-                    (group, parts, result)
-                })
-            })
+            .filter(|(g, _)| g.as_str() == group_name.as_str())
+            .map(|(_, o)| (o.topic.clone(), o.partition))
             .collect();
 
-        for future in lct_futures {
-            if let Ok((group, parts, Ok(times))) = future.await {
+        if group_parts.is_empty() {
+            continue;
+        }
+
+        match cg_manager.get_partitions_last_commit_time(group_name, &group_parts) {
+            Ok(times) => {
                 for (i, time) in times.iter().enumerate() {
-                    if i < parts.len() {
-                        let key = (group.clone(), parts[i].0.clone(), parts[i].1);
-                        lct_batch.insert(key, *time);
+                    if i < group_parts.len() {
+                        let key = (group_name.clone(), group_parts[i].0.clone(), group_parts[i].1);
+                        last_commit_times.insert(key, *time);
                     }
                 }
             }
+            Err(e) => {
+                tracing::warn!("Failed to get last commit time for group '{}': {}", group_name, e);
+            }
         }
-
-        last_commit_times.extend(lct_batch.drain());
     }
 
     // 步骤 5: 构建返回结果

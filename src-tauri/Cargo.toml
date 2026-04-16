@@ -1,6 +1,6 @@
 [package]
 name = "kafka-manager"
-version = "1.1.8"
+version = "1.1.9"
 description = "A Kafka Manager tool built with Tauri 2"
 authors = ["your name"]
 edition = "2021"
@@ -27,6 +27,7 @@ tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.5", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+tracing-appender = "0.2"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"] }
 rdkafka = { version = "0.39", features = ["tokio"] }
 thiserror = "2"

@@ -296,6 +296,25 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         refresh_state,
     };
 
+    // 初始化 tracing 日志（与 Tauri 写入同一个日志文件）
+    let log_path_tauri = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    if let Ok(log_file) = OpenOptions::new().create(true).append(true).open(&log_path_tauri) {
+        let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
+        let _ = tracing_subscriber::fmt()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
+                "%Y-%m-%d %H:%M:%S".to_string()
+            ))
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "kafka_manager_api=info,tower_http=info,rdkafka=warn".into())
+            )
+            .try_init(); // 用 try_init 避免已存在 subscriber 时 panic
+    }
+
     // 创建路由
     let app = create_router(state)
         .layer(TraceLayer::new_for_http())

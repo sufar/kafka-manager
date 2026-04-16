@@ -6,6 +6,7 @@ use crate::error::{AppError, Result};
 use rdkafka::consumer::{BaseConsumer, Consumer, CommitMode};
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use rdkafka::Message;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Consumer Group 详情
@@ -33,6 +34,8 @@ pub struct PartitionOffsetDetail {
 pub struct KafkaConsumerGroupManager {
     consumer_config: KafkaConfig,
     timeout: Duration,
+    /// 可选的内部复用的 consumer，None 表示每次操作创建新连接
+    inner: Option<Arc<BaseConsumer>>,
 }
 
 impl KafkaConsumerGroupManager {
@@ -40,20 +43,43 @@ impl KafkaConsumerGroupManager {
         Ok(Self {
             consumer_config: config.clone(),
             timeout: Duration::from_millis(config.operation_timeout_ms as u64),
+            inner: None,
         })
+    }
+
+    /// 创建一个复用指定 consumer 的 Manager（用于批量操作时复用连接）
+    pub fn with_consumer(config: &KafkaConfig, consumer: BaseConsumer) -> Result<Self> {
+        Ok(Self {
+            consumer_config: config.clone(),
+            timeout: Duration::from_millis(config.operation_timeout_ms as u64),
+            inner: Some(Arc::new(consumer)),
+        })
+    }
+
+    /// 获取复用的 consumer，如果没有则创建临时的
+    fn get_consumer(&self, group_id: &str) -> Result<Arc<BaseConsumer>> {
+        if let Some(ref c) = self.inner {
+            Ok(c.clone())
+        } else {
+            let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+            client_config.set("group.id", group_id);
+            client_config.set("enable.auto.commit", "false");
+            let consumer: BaseConsumer = client_config.create()?;
+            Ok(Arc::new(consumer))
+        }
     }
 
     /// 列出所有 Consumer Groups
     pub fn list_consumer_groups(&self) -> Result<Vec<String>> {
-        // 使用 rdkafka 的 fetch_group_list API 获取所有 consumer groups
-        // 创建一个临时的 client 来获取 group 列表
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", "kafka-manager-temp-group");
-        client_config.set("enable.auto.commit", "false");
+        let consumer = if let Some(ref c) = self.inner {
+            c.clone()
+        } else {
+            let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+            client_config.set("group.id", "kafka-manager-temp-group");
+            client_config.set("enable.auto.commit", "false");
+            Arc::new(client_config.create()?)
+        };
 
-        let consumer: BaseConsumer = client_config.create()?;
-
-        // 使用 fetch_group_list API，None 表示获取所有组
         let group_list = consumer.fetch_group_list(None, self.timeout)
             .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
 
@@ -67,11 +93,14 @@ impl KafkaConsumerGroupManager {
 
     /// 获取集群所有 topic 名称列表
     pub fn get_cluster_topics(&self) -> Result<Vec<String>> {
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", "kafka-manager-temp-cluster-topics");
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        let consumer = if let Some(ref c) = self.inner {
+            c.clone()
+        } else {
+            let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+            client_config.set("group.id", "kafka-manager-temp-cluster-topics");
+            client_config.set("enable.auto.commit", "false");
+            Arc::new(client_config.create()?)
+        };
 
         let metadata = consumer.fetch_metadata(None, self.timeout)
             .map_err(|e| AppError::Internal(format!("Failed to fetch cluster metadata: {}", e)))?;
@@ -88,11 +117,7 @@ impl KafkaConsumerGroupManager {
     /// 获取 Consumer Group 关联的所有 topics（从 active members 的 protocol metadata 提取）
     /// 只返回有活跃 consumer 的 group 的 topics，没有活跃 consumer 的 group 返回空列表
     pub fn get_consumer_group_topics(&self, group_id: &str) -> Result<Vec<String>> {
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", group_id);
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        let consumer = self.get_consumer(group_id)?;
 
         let mut topics: Vec<String> = Vec::with_capacity(20);
 
@@ -136,11 +161,7 @@ impl KafkaConsumerGroupManager {
 
     /// 获取 Consumer Group 详情
     pub fn get_consumer_group_info(&self, group_id: &str, topics: &[String]) -> Result<ConsumerGroupInfo> {
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", group_id);
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        let consumer = self.get_consumer(group_id)?;
 
         // 使用 fetch_group_list API 获取消费者组的真实状态
         let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)?;
@@ -172,11 +193,7 @@ impl KafkaConsumerGroupManager {
     pub fn get_consumer_group_offsets(&self, group_id: &str, topics: &[String]) -> Result<Vec<PartitionOffsetDetail>> {
         use rdkafka::topic_partition_list::Offset;
 
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", group_id);
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        let consumer = self.get_consumer(group_id)?;
 
         // 预分配容量：假设每个 topic 平均 4 个分区
         let mut result = Vec::with_capacity(topics.len() * 4);
@@ -264,12 +281,8 @@ impl KafkaConsumerGroupManager {
             return Ok(vec![]);
         }
 
-        // 创建一个 consumer 获取所有 committed offsets
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", group_id);
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        // 复用内部 consumer 获取所有 committed offsets
+        let consumer = self.get_consumer(group_id)?;
 
         // 构建 TopicPartitionList 包含所有分区
         let mut tpl = TopicPartitionList::new();
@@ -370,12 +383,8 @@ impl KafkaConsumerGroupManager {
         topic: &str,
         partition: i32,
     ) -> Result<Option<i64>> {
-        // 创建一个临时 consumer 来获取 committed offset
-        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
-        client_config.set("group.id", group_id);
-        client_config.set("enable.auto.commit", "false");
-
-        let consumer: BaseConsumer = client_config.create()?;
+        // 复用内部 consumer 来获取 committed offset
+        let consumer = self.get_consumer(group_id)?;
 
         // 构建 TopicPartitionList
         let mut tpl = TopicPartitionList::new();
