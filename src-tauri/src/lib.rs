@@ -6,10 +6,9 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 use std::fs::OpenOptions;
-use std::io::Write;
 
 use arc_swap::ArcSwap;
-use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
+use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
@@ -49,25 +48,10 @@ impl Default for DownloadState {
     }
 }
 
-/// 简单的日志函数，确保在 Windows 上也能看到输出
+/// 简单的日志函数，通过 tracing 写入日志文件
 fn log(msg: &str) {
     eprintln!("[KAFKA-MANAGER] {}", msg);
-    write_log(msg);
-}
-
-/// 写入日志到文件
-fn write_log(msg: &str) {
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
-
-    if let Some(parent) = log_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&log_path) {
-        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
-    }
+    tracing::info!("[tauri] {msg}");
 }
 
 /// 清理日志文件，只保留指定天数内的日志
@@ -296,12 +280,19 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         refresh_state,
     };
 
-    // 初始化 tracing 日志（与 Tauri 写入同一个日志文件）
+    // 初始化 tracing 日志（统一通过 tracing 写入日志文件）
     let log_path_tauri = dirs::cache_dir()
         .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
         .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+
+    // 确保日志目录存在
+    if let Some(parent) = log_path_tauri.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
     if let Ok(log_file) = OpenOptions::new().create(true).append(true).open(&log_path_tauri) {
         let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
+
         let _ = tracing_subscriber::fmt()
             .with_writer(non_blocking)
             .with_ansi(false)
@@ -310,14 +301,26 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
             ))
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "kafka_manager_api=info,tower_http=info,rdkafka=warn".into())
+                    .unwrap_or_else(|_| "info,rdkafka=warn".into())
             )
-            .try_init(); // 用 try_init 避免已存在 subscriber 时 panic
+            .try_init();
     }
+
+    // 自定义 TraceLayer：请求和响应都在 INFO 级别记录
+    let trace_layer = tower_http::trace::TraceLayer::new_for_http()
+        .on_request(|req: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
+            tracing::info!("[http] {} {}", req.method(), req.uri().path());
+        })
+        .on_response(|res: &axum::http::Response<_>, _latency: Duration, _span: &tracing::Span| {
+            tracing::info!("[http] response {} ({:?})", res.status(), _latency);
+        })
+        .on_failure(|_error: tower_http::classify::ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
+            tracing::warn!("[http] failure ({:?})", _latency);
+        });
 
     // 创建路由
     let app = create_router(state)
-        .layer(TraceLayer::new_for_http())
+        .layer(trace_layer)
         .layer(TimeoutLayer::new(Duration::from_secs(60)))
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive());

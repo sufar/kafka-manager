@@ -193,7 +193,17 @@ impl KafkaConsumerGroupManager {
     pub fn get_consumer_group_offsets(&self, group_id: &str, topics: &[String]) -> Result<Vec<PartitionOffsetDetail>> {
         use rdkafka::topic_partition_list::Offset;
 
-        let consumer = self.get_consumer(group_id)?;
+        // 创建专用 consumer 获取 committed offsets（必须使用正确的 group.id）
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = match client_config.create() {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(AppError::Internal(format!("Failed to create consumer for {}: {}", group_id, e)));
+            }
+        };
 
         // 预分配容量：假设每个 topic 平均 4 个分区
         let mut result = Vec::with_capacity(topics.len() * 4);
@@ -281,8 +291,18 @@ impl KafkaConsumerGroupManager {
             return Ok(vec![]);
         }
 
-        // 复用内部 consumer 获取所有 committed offsets
-        let consumer = self.get_consumer(group_id)?;
+        // 创建专用 consumer 获取 committed offsets（必须使用正确的 group.id，不能用复用的 consumer）
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = match client_config.create() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to create consumer for committed offsets: {}", e);
+                return Ok(vec![None; partitions.len()]);
+            }
+        };
 
         // 构建 TopicPartitionList 包含所有分区
         let mut tpl = TopicPartitionList::new();
@@ -383,8 +403,18 @@ impl KafkaConsumerGroupManager {
         topic: &str,
         partition: i32,
     ) -> Result<Option<i64>> {
-        // 复用内部 consumer 来获取 committed offset
-        let consumer = self.get_consumer(group_id)?;
+        // 创建专用 consumer 获取 committed offset（必须使用正确的 group.id）
+        let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+        client_config.set("group.id", group_id);
+        client_config.set("enable.auto.commit", "false");
+
+        let consumer: BaseConsumer = match client_config.create() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("Failed to create consumer for committed offset: {}", e);
+                return Ok(None);
+            }
+        };
 
         // 构建 TopicPartitionList
         let mut tpl = TopicPartitionList::new();
