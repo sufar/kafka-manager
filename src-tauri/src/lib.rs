@@ -1580,10 +1580,10 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     .title("下载完成")
                     .show(|_| {});
 
-                // 延迟退出应用（给用户充足时间拖拽安装）
+                // 立即退出应用，用户可继续在安装界面拖拽图标安装
                 let app_handle_clone = app_handle.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(120));
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                     log("Exiting app for update installation...");
                     app_handle_clone.exit(0);
                 });
