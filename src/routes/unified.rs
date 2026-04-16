@@ -706,23 +706,16 @@ async fn handle_app_logs() -> Result<Value> {
     use std::fs;
     use dirs::cache_dir;
     use std::path::PathBuf;
-    use chrono::Local;
 
-    let log_dir = cache_dir()
-        .map(|d| d.join("kafka-manager").join("logs"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
+    let log_path = cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
 
-    let today = Local::now().format("%Y-%m-%d").to_string();
-    // 日志文件名格式：kafka-manager.YYYY-MM-DD.log (RollingFileAppender 使用点号分隔)
-    let today_log_file = format!("kafka-manager.{}.log", today);
-
-    // 只读取今天的日志文件
-    let log_file_path = log_dir.join(&today_log_file);
-    let logs_content = fs::read_to_string(&log_file_path).unwrap_or_default();
+    let logs_content = fs::read_to_string(&log_path).unwrap_or_default();
 
     Ok(serde_json::json!({
         "logs": logs_content,
-        "log_file": log_file_path.to_string_lossy()
+        "log_file": log_path.to_string_lossy()
     }))
 }
 
@@ -731,11 +724,17 @@ async fn handle_app_logs_clear() -> Result<Value> {
     use dirs::cache_dir;
     use std::path::PathBuf;
 
+    // 清空 Tauri 日志文件
+    let tauri_log_path = cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let _ = fs::write(&tauri_log_path, "");
+
+    // 清空 Rolling 日志目录中的所有文件
     let log_dir = cache_dir()
         .map(|d| d.join("kafka-manager").join("logs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
 
-    // 删除所有日志文件
     if let Ok(entries) = fs::read_dir(&log_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();

@@ -92,8 +92,6 @@ fn cleanup_log(max_days: u32) {
         .map(|dt| dt.naive_local())
         .unwrap_or_else(|| chrono::Local::now().naive_local());
 
-    // 过滤出指定天数内的日志行
-    // 日志格式: [2026-04-09 12:00:00] message
     let kept_lines: Vec<&str> = content.lines().filter(|line| {
         if let Some(ts_start) = line.find('[') {
             if let Some(ts_end) = line.find(']') {
@@ -105,7 +103,6 @@ fn cleanup_log(max_days: u32) {
                 }
             }
         }
-        // 无法解析日期的行也保留（可能是启动日志等）
         true
     }).collect();
 
@@ -132,10 +129,8 @@ fn cleanup_today_start() {
 
     let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    // 只保留今天的日志（按日期前缀过滤）
     let today_lines: Vec<&str> = content.lines()
         .skip_while(|line| {
-            // 跳过日志开头直到遇到今天的第一条日志
             !line.contains(&today_str)
         })
         .collect();

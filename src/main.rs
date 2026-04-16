@@ -19,10 +19,10 @@ use std::time::Duration;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::path::PathBuf;
+use std::fs::OpenOptions;
 use arc_swap::ArcSwap;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 use crate::config::Config;
 use crate::db::DbPool;
@@ -72,27 +72,27 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化日志文件目录
-    let log_dir = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("logs"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager/logs"));
+    // 与 Tauri 共用同一个日志文件
+    let log_path = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
 
     // 确保日志目录存在
-    let _ = std::fs::create_dir_all(&log_dir);
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
-    // 启动时删除今天之前的旧日志
-    cleanup_old_logs(&log_dir);
+    // 启动时清理今天之前的旧日志
+    cleanup_old_logs(&log_path);
 
-    // 按天滚动的日志文件配置
-    let file_appender = RollingFileAppender::builder()
-        .rotation(Rotation::DAILY)
-        .filename_prefix("kafka-manager")
-        .filename_suffix("log")
-        .max_log_files(7)  // 保留最近 7 天的日志
-        .build(&log_dir)
-        .expect("Failed to create rolling file appender");
+    // 追加写入同一个日志文件
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .expect("Failed to open log file");
 
-    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(log_file);
 
     // 初始化日志（同时输出到控制台和文件）
     tracing_subscriber::registry()
@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 测试日志是否正常工作
     tracing::info!("=== Kafka Manager API starting ===");
     tracing::debug!("Debug logging enabled");
-    tracing::info!("Log directory: {:?}", log_dir);
+    tracing::info!("Log file: {:?}", log_path);
 
     // 加载配置
     let config = Config::load("config.toml")?;
@@ -297,38 +297,20 @@ async fn load_clusters_from_db(
     Ok(clusters)
 }
 
-/// 清理今天之前的旧日志文件
-fn cleanup_old_logs(log_dir: &std::path::Path) {
-    use std::fs;
-    use chrono::NaiveDate;
+/// 清理今天之前的旧日志（单文件模式：截断文件只保留今天的行）
+fn cleanup_old_logs(log_path: &std::path::Path) {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    let today = chrono::Local::now().date_naive();
+    if let Ok(content) = std::fs::read_to_string(log_path) {
+        let today_lines: Vec<&str> = content.lines()
+            .skip_while(|line| !line.contains(&today))
+            .collect();
 
-    if let Ok(entries) = fs::read_dir(log_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            // 检查文件名格式：kafka-manager.YYYY-MM-DD.log (RollingFileAppender 使用点号分隔)
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if file_name.starts_with("kafka-manager.") && file_name.ends_with(".log") {
-                    // 提取日期部分
-                    let date_str = file_name
-                        .trim_start_matches("kafka-manager.")
-                        .trim_end_matches(".log");
-
-                    // 解析日期
-                    if let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                        // 如果文件日期早于今天，删除
-                        if file_date < today {
-                            let _ = fs::remove_file(&path);
-                            tracing::debug!("Deleted old log file: {:?}", path);
-                        }
-                    }
-                }
-            }
+        if today_lines.len() < content.lines().count() {
+            let _ = std::fs::write(log_path, today_lines.join("\n"));
+            tracing::debug!("Startup log cleanup: kept {} lines, removed {} lines",
+                today_lines.len(),
+                content.lines().count() - today_lines.len());
         }
     }
 }
