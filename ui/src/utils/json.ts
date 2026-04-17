@@ -14,16 +14,13 @@ export function highlightJson(json: string): string {
     .replace(/>/g, '&gt;');
 
   // 使用单个正则表达式处理所有情况
-  // 注意：数字前面的空格会保留，不会被匹配进去
   escaped = escaped.replace(
     /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+\.?\d*)|\b(true|false|null)\b/g,
     (match, string, colon, number, bool) => {
       if (string) {
         if (colon) {
-          // 键名
           return `<span class="json-key">${string}</span>${colon}`;
         } else {
-          // 字符串值
           return `<span class="json-string">${string}</span>`;
         }
       }
@@ -60,100 +57,132 @@ export function isValidJson(str: string): boolean {
 
 /**
  * 格式化 JSON 字符串，保留超过 Number.MAX_SAFE_INTEGER 的整数精度
- * 通过 token 化方式重建格式化结果，不依赖 JSON.parse 处理数字
+ * 递归解析 JSON，数字保持原始字符串形式
  */
 export function formatJson(str: string): string {
   if (!str) return '';
   try {
-    // 先用 JSON.parse 验证有效性
     JSON.parse(str);
   } catch {
     return str;
   }
 
-  // Token 化：提取所有 JSON token，保留数字原始字符串
-  const tokens: string[] = [];
   let i = 0;
   const len = str.length;
 
-  while (i < len) {
-    const ch = str[i];
-
-    // 跳过空白
-    if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') {
-      i++;
-      continue;
-    }
-
-    // 字符串
-    if (ch === '"') {
-      let j = i + 1;
-      while (j < len) {
-        if (str[j] === '\\') {
-          j += 2;
-        } else if (str[j] === '"') {
-          j++;
-          break;
-        } else {
-          j++;
-        }
-      }
-      tokens.push(str.slice(i, j));
-      i = j;
-      continue;
-    }
-
-    // 结构字符和数字
-    if (ch !== undefined && ('{}[],:'.includes(ch) || ch === '-' || (ch >= '0' && ch <= '9'))) {
-      let j = i + 1;
-      while (j < len) {
-        const nextCh = str[j];
-        if (nextCh === undefined || '{}[],: \n\r\t'.includes(nextCh)) break;
-        j++;
-      }
-      tokens.push(str.slice(i, j));
-      i = j;
-      continue;
-    }
-
-    i++;
+  function skipWhitespace() {
+    while (i < len && /\s/.test(str[i]!)) i++;
   }
 
-  // 从 tokens 重建格式化 JSON
-  let result = '';
-  let indent = 0;
-  const pad = () => '  '.repeat(indent);
+  function parseValue(indent: number): string {
+    skipWhitespace();
+    const ch = str[i] ?? '';
 
-  for (let idx = 0; idx < tokens.length; idx++) {
-    const token = tokens[idx];
-    const nextToken = idx < tokens.length - 1 ? tokens[idx + 1] : '';
-
-    switch (token) {
-      case '{':
-      case '[':
-        result += token + '\n';
-        indent++;
-        result += pad();
-        break;
-      case '}':
-      case ']':
-        indent--;
-        result += '\n' + pad() + token;
-        if (nextToken && nextToken !== ',' && nextToken !== '}' && nextToken !== ']') {
-          // 这种情况不应该发生，因为逗号是独立 token
-        }
-        break;
-      case ':':
-        result += ': ';
-        break;
-      case ',':
-        result += ',\n' + pad();
-        break;
-      default:
-        result += token;
-        break;
-    }
+    if (ch === '"') return parseString();
+    if (ch === '{') return parseObject(indent + 1);
+    if (ch === '[') return parseArray(indent + 1);
+    if (ch === '-' || (ch >= '0' && ch <= '9')) return parseNumber();
+    return parseKeyword();
   }
 
-  return result;
+  function parseString(): string {
+    let j = i + 1;
+    while (j < len) {
+      if (str[j] === '\\') { j += 2; }
+      else if (str[j] === '"') { j++; break; }
+      else { j++; }
+    }
+    const result = str.slice(i, j);
+    i = j;
+    return result;
+  }
+
+  function parseNumber(): string {
+    let j = i;
+    if (str[j] === '-') j++;
+    while (j < len && str[j]! >= '0' && str[j]! <= '9') j++;
+    if (j < len && str[j] === '.') {
+      j++;
+      while (j < len && str[j]! >= '0' && str[j]! <= '9') j++;
+    }
+    if (j < len && (str[j] === 'e' || str[j] === 'E')) {
+      j++;
+      if (j < len && (str[j] === '+' || str[j] === '-')) j++;
+      while (j < len && str[j]! >= '0' && str[j]! <= '9') j++;
+    }
+    const result = str.slice(i, j);
+    i = j;
+    return result;
+  }
+
+  function parseKeyword(): string {
+    let j = i;
+    while (j < len && /[a-zA-Z]/.test(str[j]!)) j++;
+    const result = str.slice(i, j);
+    i = j;
+    return result;
+  }
+
+  function parseObject(indent: number): string {
+    i++; // skip '{'
+    skipWhitespace();
+    if (str[i] === '}') { i++; return '{}'; }
+
+    const contentPad = '  '.repeat(indent);
+    const closePad = '  '.repeat(indent - 1);
+    let result = '{\n';
+    let first = true;
+
+    while (true) {
+      if (!first && str[i] === ',') { i++; }
+      first = false;
+      skipWhitespace();
+      if (str[i] === '}') { i++; result += closePad + '}'; break; }
+
+      const key = parseString();
+      skipWhitespace();
+      i++; // skip ':'
+      const val = parseValue(indent);
+      result += contentPad + key + ': ' + val;
+
+      skipWhitespace();
+      if (str[i] === ',') {
+        result += ',\n';
+      } else {
+        result += '\n';
+      }
+    }
+    return result;
+  }
+
+  function parseArray(indent: number): string {
+    i++; // skip '['
+    skipWhitespace();
+    if (str[i] === ']') { i++; return '[]'; }
+
+    const contentPad = '  '.repeat(indent);
+    const closePad = '  '.repeat(indent - 1);
+    let result = '[\n';
+    let first = true;
+
+    while (true) {
+      if (!first && str[i] === ',') { i++; }
+      first = false;
+      skipWhitespace();
+      if (str[i] === ']') { i++; result += closePad + ']'; break; }
+
+      const val = parseValue(indent);
+      result += contentPad + val;
+
+      skipWhitespace();
+      if (str[i] === ',') {
+        result += ',\n';
+      } else {
+        result += '\n';
+      }
+    }
+    return result;
+  }
+
+  return parseValue(0);
 }
