@@ -164,6 +164,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useLanguageStore } from '@/stores/language';
 import JsonEditor from '@/components/JsonEditor.vue';
+import { formatJson } from '@/utils/json';
 
 const languageStore = useLanguageStore();
 const jsonEditorRef = ref<InstanceType<typeof JsonEditor> | null>(null);
@@ -245,8 +246,8 @@ watch(() => props.modelValue, async (newVal) => {
     // 如果 initialValue 存在且是有效 JSON，自动格式化
     if (props.initialValue) {
       try {
-        const parsed = JSON.parse(props.initialValue);
-        form.value = JSON.stringify(parsed, null, 2);
+        const formatted = formatJson(props.initialValue);
+        form.value = formatted || props.initialValue;
       } catch {
         // 不是有效 JSON，保持原样
       }
