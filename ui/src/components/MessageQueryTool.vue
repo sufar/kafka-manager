@@ -407,6 +407,7 @@ import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
 import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
+import { formatJson } from '@/utils/json';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
 import SentMessageHistory from '@/components/SentMessageHistory.vue';
@@ -1145,12 +1146,7 @@ function formatValue(value: string | null, format: 'json' | 'raw' | 'hex'): stri
   if (!value) return 'null';
 
   if (format === 'json') {
-    try {
-      const parsed = JSON.parse(value);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return value;
-    }
+    return formatJson(value);
   } else if (format === 'hex') {
     try {
       const bytes = new TextEncoder().encode(value);
