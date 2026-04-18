@@ -46,7 +46,6 @@ async fn get_settings(
         .unwrap_or_default();
 
     let settings = if keys.is_empty() {
-        // 获取所有设置
         let all: Vec<(String, String)> = sqlx::query_as(
             "SELECT key, value FROM user_settings ORDER BY key"
         )
@@ -56,7 +55,6 @@ async fn get_settings(
             .map(|(k, v)| SettingValue { key: k, value: v })
             .collect()
     } else {
-        // 获取指定的设置
         let mut result = Vec::with_capacity(keys.len());
         for key in keys {
             if let Some(value) = SettingStore::get(state.db.inner(), key).await? {
@@ -248,7 +246,6 @@ pub(crate) async fn export_data(
     use crate::db::topic::TopicStore;
     use crate::db::topic_history::get_history_list;
 
-    // 获取所有集群分组
     let cluster_groups_db = ClusterGroupStore::list(state.db.inner()).await?;
     let cluster_groups: Vec<ExportClusterGroup> = cluster_groups_db
         .iter()
@@ -259,12 +256,10 @@ pub(crate) async fn export_data(
         })
         .collect();
 
-    // 获取所有集群
     let clusters_db = ClusterStore::list(state.db.inner()).await?;
     let clusters: Vec<ExportCluster> = clusters_db
         .into_iter()
         .map(|c| {
-            // 通过 group_id 查找分组名称
             let group_name = c.group_id.and_then(|gid| {
                 cluster_groups_db.iter().find(|g| g.id == gid).map(|g| g.name.clone())
             });
@@ -278,7 +273,6 @@ pub(crate) async fn export_data(
         })
         .collect();
 
-    // 获取所有 Topic 元数据
     let topics_db = TopicStore::list_all(state.db.inner()).await?;
     let topics: Vec<ExportTopicMetadata> = topics_db
         .into_iter()
@@ -295,7 +289,6 @@ pub(crate) async fn export_data(
         })
         .collect();
 
-    // 获取所有收藏
     let favorites_with_groups = get_all_favorites_with_groups(&state.db).await?;
     let favorites: Vec<ExportFavoriteGroup> = favorites_with_groups
         .into_iter()
@@ -315,7 +308,6 @@ pub(crate) async fn export_data(
         })
         .collect();
 
-    // 获取所有历史记录
     let histories = get_history_list(&state.db, None, None).await?;
     let history: Vec<ExportTopicHistory> = histories
         .into_iter()
@@ -339,11 +331,11 @@ pub(crate) async fn export_data(
     Ok(Json(export_data))
 }
 
-/// 导入数据
-pub(crate) async fn import_data(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ImportDataRequest>,
-) -> Result<Json<ImportResult>> {
+/// 核心导入逻辑（被 HTTP handler 和 Tauri command 共用）
+pub async fn import_data_from_request(
+    pool: &crate::db::DbPool,
+    req: &ImportDataRequest,
+) -> Result<ImportResult> {
     use crate::db::cluster::{ClusterStore, CreateClusterRequest};
     use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest};
     use crate::db::favorite::{
@@ -366,7 +358,7 @@ pub(crate) async fn import_data(
 
     // 1. 导入集群分组
     for group in &req.data.cluster_groups {
-        match ClusterGroupStore::get_by_name(state.db.inner(), &group.name).await {
+        match ClusterGroupStore::get_by_name(pool.inner(), &group.name).await {
             Ok(Some(_)) => {
                 cluster_groups_skipped += 1;
             }
@@ -376,7 +368,7 @@ pub(crate) async fn import_data(
                     description: group.description.clone(),
                     sort_order: group.sort_order,
                 };
-                if ClusterGroupStore::create(state.db.inner(), &create_req).await.is_ok() {
+                if ClusterGroupStore::create(pool.inner(), &create_req).await.is_ok() {
                     cluster_groups_imported += 1;
                 } else {
                     cluster_groups_skipped += 1;
@@ -385,15 +377,15 @@ pub(crate) async fn import_data(
         }
     }
 
-    // 2. 导入集群（先获取分组名称到 ID 的映射）
-    let all_groups = ClusterGroupStore::list(state.db.inner()).await?;
+    // 2. 导入集群
+    let all_groups = ClusterGroupStore::list(pool.inner()).await?;
     let group_name_to_id: std::collections::HashMap<String, i64> = all_groups
         .iter()
         .map(|g| (g.name.clone(), g.id))
         .collect();
 
     for cluster in &req.data.clusters {
-        match ClusterStore::get_by_name(state.db.inner(), &cluster.name).await {
+        match ClusterStore::get_by_name(pool.inner(), &cluster.name).await {
             Ok(Some(_)) => {
                 clusters_skipped += 1;
             }
@@ -406,7 +398,7 @@ pub(crate) async fn import_data(
                     operation_timeout_ms: cluster.operation_timeout_ms,
                     group_id,
                 };
-                if ClusterStore::create(state.db.inner(), &create_req).await.is_ok() {
+                if ClusterStore::create(pool.inner(), &create_req).await.is_ok() {
                     clusters_imported += 1;
                 } else {
                     clusters_skipped += 1;
@@ -418,7 +410,7 @@ pub(crate) async fn import_data(
     // 3. 导入 Topic 元数据
     for topic in &req.data.topics {
         match TopicStore::upsert(
-            state.db.inner(),
+            pool.inner(),
             &topic.cluster_name,
             &topic.topic_name,
             topic.partition_count,
@@ -431,7 +423,7 @@ pub(crate) async fn import_data(
     }
 
     // 4. 导入收藏分组和收藏项
-    let existing_groups = get_all_groups(&state.db).await?;
+    let existing_groups = get_all_groups(pool).await?;
     let mut group_name_to_id: std::collections::HashMap<String, i64> = existing_groups
         .iter()
         .map(|g| (g.name.clone(), g.id))
@@ -451,7 +443,7 @@ pub(crate) async fn import_data(
                     description: fav_group.description.clone(),
                     sort_order: Some(max_sort_order),
                 };
-                match create_group(&state.db, &create_group_req).await {
+                match create_group(pool, &create_group_req).await {
                     Ok(group) => {
                         group_name_to_id.insert(fav_group.name.clone(), group.id);
                         group.id
@@ -472,7 +464,7 @@ pub(crate) async fn import_data(
                 description: item.description.clone(),
                 sort_order: Some(item.sort_order),
             };
-            if create_favorite(&state.db, &create_item_req).await.is_ok() {
+            if create_favorite(pool, &create_item_req).await.is_ok() {
                 favorites_imported += 1;
             } else {
                 favorites_skipped += 1;
@@ -483,19 +475,19 @@ pub(crate) async fn import_data(
     // 5. 导入历史记录
     for history in &req.data.history {
         if req.strategy == "overwrite" {
-            if import_history(&state.db, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
+            if import_history(pool, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
                 history_imported += 1;
             } else {
                 history_skipped += 1;
             }
         } else {
             use crate::db::topic_history::is_history_exists;
-            match is_history_exists(&state.db, &history.cluster_id, &history.topic_name).await {
+            match is_history_exists(pool, &history.cluster_id, &history.topic_name).await {
                 Ok(true) => {
                     history_skipped += 1;
                 }
                 Ok(false) | Err(_) => {
-                    if import_history(&state.db, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
+                    if import_history(pool, &history.cluster_id, &history.topic_name, &history.viewed_at).await.is_ok() {
                         history_imported += 1;
                     } else {
                         history_skipped += 1;
@@ -505,7 +497,7 @@ pub(crate) async fn import_data(
         }
     }
 
-    Ok(Json(ImportResult {
+    Ok(ImportResult {
         cluster_groups_imported,
         cluster_groups_skipped,
         clusters_imported,
@@ -516,5 +508,14 @@ pub(crate) async fn import_data(
         favorites_skipped,
         history_imported,
         history_skipped,
-    }))
+    })
+}
+
+/// HTTP handler：导入数据
+pub(crate) async fn import_data(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ImportDataRequest>,
+) -> Result<Json<ImportResult>> {
+    let result = import_data_from_request(&state.db, &req).await?;
+    Ok(Json(result))
 }

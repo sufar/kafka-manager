@@ -216,12 +216,12 @@
               <span v-else class="loading loading-spinner loading-xs mr-1"></span>
               {{ exporting ? t.settings.exporting : t.settings.exportData }}
             </button>
-            <label class="btn btn-sm btn-secondary flex-1 cursor-pointer" :class="{ 'opacity-50': importing }">
+            <label class="btn btn-sm btn-secondary flex-1 cursor-pointer" :class="{ 'opacity-50': importing }" @click.prevent="handleImportClick">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
               </svg>
               {{ importing ? t.settings.importing : t.settings.importData }}
-              <input type="file" accept=".json" @change="handleImport" :disabled="importing" class="hidden" />
+              <input ref="importFileInput" type="file" accept=".json" @change="handleImport" :disabled="importing" class="hidden" />
             </label>
           </div>
         </div>
@@ -392,6 +392,7 @@ import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
 import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
+import { open as tauriOpen } from '@tauri-apps/plugin-dialog';
 
 // 检测是否在 Tauri 环境下运行
 function isTauri(): boolean {
@@ -689,6 +690,18 @@ async function handleExport() {
 }
 
 // 导入数据
+const importFileInput = ref<HTMLInputElement>();
+
+// 导入按钮点击：Tauri 模式使用系统文件选择对话框，浏览器模式触发隐藏的文件输入
+function handleImportClick(event: Event) {
+  if (importing.value) return;
+  if (isTauri()) {
+    event.preventDefault();
+    handleImportTauri();
+  }
+  // 浏览器模式：不阻止默认行为，让 label 自动触发隐藏的 file input
+}
+
 async function handleImport(event: Event) {
   if (importing.value) return;
 
@@ -699,6 +712,73 @@ async function handleImport(event: Event) {
   // 重置 input，允许重复选择同一文件
   target.value = '';
 
+  await doImport(file);
+}
+
+// Tauri 环境下的导入（使用文件选择对话框，绕过 HTTP 层）
+async function handleImportTauri() {
+  if (importing.value) return;
+
+  importing.value = true;
+  try {
+    const filePath = await tauriOpen({
+      multiple: false,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (!filePath) return;
+
+    const result = await tauriInvoke<{
+      cluster_groups_imported: number;
+      cluster_groups_skipped: number;
+      clusters_imported: number;
+      clusters_skipped: number;
+      topics_imported: number;
+      topics_skipped: number;
+      favorites_imported: number;
+      favorites_skipped: number;
+      history_imported: number;
+      history_skipped: number;
+    }>('import_settings_from_file', { file_path: filePath, strategy: 'skip' });
+
+    const lang = languageStore.currentLanguage;
+    const skippedParts = [];
+    if (result.cluster_groups_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.cluster_groups_skipped} 个分组` : `${result.cluster_groups_skipped} groups skipped`);
+    }
+    if (result.clusters_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.clusters_skipped} 个集群` : `${result.clusters_skipped} clusters skipped`);
+    }
+    if (result.topics_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.topics_skipped} 个 Topic` : `${result.topics_skipped} topics skipped`);
+    }
+    if (result.favorites_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.favorites_skipped} 个收藏` : `${result.favorites_skipped} favorites skipped`);
+    }
+    if (result.history_skipped > 0) {
+      skippedParts.push(lang === 'zh' ? `跳过 ${result.history_skipped} 条历史` : `${result.history_skipped} history records skipped`);
+    }
+
+    if (lang === 'zh') {
+      toast.showSuccess(
+        `导入完成：${result.cluster_groups_imported} 个分组，${result.clusters_imported} 个集群，${result.topics_imported} 个 Topic，${result.favorites_imported} 个收藏，${result.history_imported} 条历史` +
+        (skippedParts.length > 0 ? `（${skippedParts.join('，')}）` : '')
+      );
+    } else {
+      toast.showSuccess(
+        `Import completed: ${result.cluster_groups_imported} groups, ${result.clusters_imported} clusters, ${result.topics_imported} topics, ${result.favorites_imported} favorites, ${result.history_imported} history records` +
+        (skippedParts.length > 0 ? ` (${skippedParts.join(', ')})` : '')
+      );
+    }
+  } catch (e) {
+    console.error('Import failed:', e);
+    toast.showError((e as Error).message);
+  } finally {
+    importing.value = false;
+  }
+}
+
+// 执行导入的核心逻辑（浏览器环境，通过 HTTP）
+async function doImport(file: File) {
   importing.value = true;
   try {
     const text = await file.text();

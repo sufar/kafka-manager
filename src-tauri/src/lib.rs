@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -47,6 +47,9 @@ impl Default for DownloadState {
         }
     }
 }
+
+/// 共享数据库连接池（供 Tauri command 使用）
+static DB_POOL: OnceLock<DbPool> = OnceLock::new();
 
 /// 简单的日志函数，通过 tracing 写入日志文件
 fn log(msg: &str) {
@@ -255,6 +258,11 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     }
     log("Database initialized OK");
 
+    // 共享数据库连接池（供 Tauri command 使用）
+    if DB_POOL.set(pool.clone()).is_err() {
+        log("Warning: DB_POOL was already set");
+    }
+
     // 创建空的 Kafka 客户端（不建立连接，先启动应用）
     log("Creating empty Kafka clients (connections will be established in background)...");
     let clients = KafkaClients::default();
@@ -455,6 +463,35 @@ fn clear_app_logs() -> Result<(), String> {
 
     std::fs::write(&log_path, "")
         .map_err(|e| format!("清除日志失败：{}", e))
+}
+
+/// 从文件导入设置（绕过 HTTP 层，支持大文件）
+#[tauri::command]
+async fn import_settings_from_file(file_path: String, strategy: String) -> Result<String, String> {
+    use kafka_manager_api::routes::settings::{import_data_from_request, ImportDataRequest};
+
+    let pool = DB_POOL.get().ok_or("数据库未初始化")?;
+
+    // 读取文件内容
+    let content = std::fs::read_to_string(&file_path)
+        .map_err(|e| format!("读取文件失败：{}", e))?;
+
+    // 解析 JSON（文件本身不包含 strategy，由参数传入）
+    let import_data: kafka_manager_api::routes::settings::ImportData = serde_json::from_str(&content)
+        .map_err(|e| format!("JSON 解析失败：{}", e))?;
+
+    let req = ImportDataRequest {
+        data: import_data,
+        strategy,
+    };
+
+    // 执行导入
+    let result = import_data_from_request(pool, &req)
+        .await
+        .map_err(|e| format!("导入失败：{}", e))?;
+
+    // 返回 JSON 格式的结果
+    serde_json::to_string(&result).map_err(|e| format!("序列化结果失败：{}", e))
 }
 
 #[tauri::command]
@@ -1750,7 +1787,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, import_settings_from_file])
         .setup(|app| {
             // 启动时清理今天之前的日志
             cleanup_today_start();
