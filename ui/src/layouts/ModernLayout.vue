@@ -378,23 +378,15 @@ async function refreshClusterTopics(cluster: string) {
   }
 
   contextMenusRef.value!.refreshingCluster = cluster;
-  try {
-    await apiClient.refreshTopics(cluster);
-    window.dispatchEvent(new CustomEvent('cluster-topics-refreshed', { detail: { cluster } }));
-  } catch (e: any) {
-    const error = e as { message: string };
-    if (error.message.includes('aborted')) {
-      return;
-    }
-    // 检查是否是"正在刷新中"错误
-    if (error.message.includes('already being refreshed')) {
-      toastRef.value?.showToast('warning', 'Topic refresh is already in progress, please wait');
-    } else {
-      toastRef.value?.showToast('error', `${t.value.layout.refreshFailed}: ${error.message}`);
-    }
-  } finally {
-    contextMenusRef.value!.refreshingCluster = null;
-  }
+
+  // 立即提示，不等待后端响应
+  toastRef.value?.showToast('success', t.value.clusters.refreshingBg, 3000);
+
+  // Fire-and-forget
+  apiClient.refreshTopics(cluster).catch(() => {});
+
+  // 立即释放按钮状态
+  contextMenusRef.value!.refreshingCluster = null;
 }
 
 async function handleTopicAction(action: string, topic: string, cluster: string) {

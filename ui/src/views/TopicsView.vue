@@ -684,24 +684,20 @@ async function refreshAllTopics() {
   if (!clusterParam.value) return;
 
   refreshing.value = true;
-  try {
-    await apiClient.refreshTopics(clusterParam.value);
 
-    // 等待后台同步完成
-    await new Promise(resolve => setTimeout(resolve, 500));
+  // 立即提示，不等待后端响应
+  showSuccess(t.value.topics.refreshingBg, 3000);
 
+  // Fire-and-forget
+  apiClient.refreshTopics(clusterParam.value).catch(() => {});
+
+  // 立即释放按钮状态
+  refreshing.value = false;
+
+  // 短暂延迟后重新加载
+  setTimeout(async () => {
     await fetchTopics();
-    showSuccess(t.value.topics.refreshed);
-  } catch (e: any) {
-    // 检查是否是"正在刷新中"错误
-    if (e.message?.includes('already being refreshed')) {
-      showError('Topic refresh is already in progress, please wait');
-    } else {
-      showError(`Refresh failed: ${e.message}`);
-    }
-  } finally {
-    refreshing.value = false;
-  }
+  }, 500);
 }
 
 // Create Topic Dialog methods

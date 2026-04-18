@@ -504,7 +504,7 @@ import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
 import TopicHistory from '@/components/TopicHistory.vue';
 
-const { showWarning } = useToast();
+const { showSuccess, showInfo } = useToast();
 
 interface TopicInfo {
   name: string;
@@ -1103,24 +1103,16 @@ async function refreshTopics() {
 
   refreshing.value = true;
 
-  const selectedClustersList = getAllSelectedClusterNames();
+  // 立即提示，不等待后端响应
+  showSuccess(t.value.topics.refreshingBg, 3000);
 
   // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
+  const selectedClustersList = getAllSelectedClusterNames();
   if (selectedClustersList.length === 0) {
-    apiClient.refreshTopics()
-      .catch((e: any) => {
-        if (e.message?.includes('already in progress')) {
-          showWarning('Topic refresh is already in progress in the background, please wait');
-        }
-      });
+    apiClient.refreshTopics().catch(() => {});
   } else {
     selectedClustersList.forEach((clusterName) => {
-      apiClient.refreshTopics(clusterName)
-        .catch((e: any) => {
-          if (e.message?.includes('already being refreshed')) {
-            showWarning(`Topic refresh is already in progress for cluster ${clusterName}, please wait`);
-          }
-        });
+      apiClient.refreshTopics(clusterName).catch(() => {});
     });
   }
 
@@ -1235,24 +1227,16 @@ async function refreshConsumerGroups() {
 
   refreshingGroups.value = true;
 
-  const selectedClustersList = getAllSelectedClusterNames();
+  // 立即提示，不等待后端响应
+  showSuccess(t.value.consumerGroups.refreshingBg, 3000);
 
   // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
+  const selectedClustersList = getAllSelectedClusterNames();
   if (selectedClustersList.length === 0) {
-    apiClient.refreshConsumerGroups()
-      .catch((e: any) => {
-        if (e.message?.includes('already in progress') || e.message?.includes('in background')) {
-          showWarning('Consumer group refresh is already in progress in the background, please wait');
-        }
-      });
+    apiClient.refreshConsumerGroups().catch(() => {});
   } else {
     selectedClustersList.forEach((clusterName) => {
-      apiClient.refreshConsumerGroups(clusterName)
-        .catch((e: any) => {
-          if (e.message?.includes('already being refreshed')) {
-            showWarning(`Consumer group refresh is already in progress for cluster ${clusterName}, please wait`);
-          }
-        });
+      apiClient.refreshConsumerGroups(clusterName).catch(() => {});
     });
   }
 

@@ -74,6 +74,7 @@ export interface Translation {
     connected: string;
     refreshed: string;
     topicsRefreshed: string;
+    refreshingBg: string;
     reconnected: string;
     topics: string;
     partitions: string;
@@ -156,6 +157,7 @@ export interface Translation {
     partitions: string;
     settings: string;
     refreshed: string;
+    refreshingBg: string;
     confirmDeleteTitle: string;
     confirmDeleteHint: string;
     confirmDeleteInput: string;
@@ -289,6 +291,7 @@ export interface Translation {
     noData: string;
     emptyHelp: string;
     refreshed: string;
+    refreshingBg: string;
     deleteGroup: string;
     deleted: string;
     offsets: string;
@@ -649,6 +652,7 @@ export const translations: Record<Language, Translation> = {
       connected: '连接成功',
       refreshed: 'Topic 刷新成功',
       topicsRefreshed: '已刷新集群 Topic',
+      refreshingBg: '已在后台重新刷新 Topic',
       reconnected: '重连成功',
       topics: '主题',
       partitions: '分区',
@@ -731,6 +735,7 @@ export const translations: Record<Language, Translation> = {
       partitions: '分区',
       settings: '设置',
       refreshed: 'Topic 已刷新',
+      refreshingBg: '已在后台重新刷新 Topic',
       confirmDeleteTitle: '删除主题',
       confirmDeleteHint: '删除后无法恢复',
       confirmDeleteInput: '输入主题名称以确认',
@@ -864,6 +869,7 @@ export const translations: Record<Language, Translation> = {
       noData: '暂无消费者组',
       emptyHelp: '点击上方刷新按钮从 Kafka 集群同步消费者组',
       refreshed: '消费者组已刷新',
+      refreshingBg: '已在后台重新刷新消费者组',
       deleteGroup: '删除消费者组',
       deleted: '消费者组已删除',
       offsets: '偏移量详情',
@@ -1222,6 +1228,7 @@ export const translations: Record<Language, Translation> = {
       connected: 'Connection successful',
       refreshed: 'Topics refreshed',
       topicsRefreshed: 'Topics refreshed for cluster',
+      refreshingBg: 'Topic refresh restarted in background',
       reconnected: 'Reconnected successfully',
       topics: 'Topics',
       partitions: 'Partitions',
@@ -1304,6 +1311,7 @@ export const translations: Record<Language, Translation> = {
       partitions: 'Partitions',
       settings: 'Settings',
       refreshed: 'Topics refreshed',
+      refreshingBg: 'Topic refresh restarted in background',
       confirmDeleteTitle: 'Delete Topic',
       confirmDeleteHint: 'This action cannot be undone',
       confirmDeleteInput: 'Type the topic name to confirm',
@@ -1437,6 +1445,7 @@ export const translations: Record<Language, Translation> = {
       noData: 'No consumer groups',
       emptyHelp: 'Click the refresh button above to sync consumer groups from the Kafka cluster',
       refreshed: 'Consumer groups refreshed',
+      refreshingBg: 'Consumer group refresh restarted in background',
       deleteGroup: 'Delete Group',
       deleted: 'Consumer group deleted',
       offsets: 'Offset Details',

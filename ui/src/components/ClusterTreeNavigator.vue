@@ -442,6 +442,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import { apiClient } from '@/api/client';
 import TopicHistory from '@/components/TopicHistory.vue';
 
@@ -823,42 +824,30 @@ async function loadClusterTopics(clusterName: string) {
 }
 
 async function refreshClusterTopics(clusterName: string) {
-  if (refreshingTopics.value.has(clusterName)) return;
+  if (refreshingTopics.value.has(clusterName)) {
+    emit('toast', 'info', t.value.clusters.refreshingBg, 3000);
+    return;
+  }
 
   refreshingTopics.value = new Set(refreshingTopics.value.add(clusterName));
-  try {
-    // 调用后端 API 刷新 topics（从 Kafka 集群同步到数据库）
-    // 后端现在异步执行，立即返回
-    await apiClient.refreshTopics(clusterName);
+  emit('toast', 'success', t.value.clusters.refreshingBg, 3000);
 
-    // 等待后台同步完成
-    await new Promise(resolve => setTimeout(resolve, 500));
+  // Fire-and-forget: 立即返回，不等待后端响应
+  apiClient.refreshTopics(clusterName).catch(() => {});
 
-    // 刷新后重新获取完整的 topics 列表
-    const savedTopics = await apiClient.getSavedTopics(clusterName);
-    // 只存储 topic 名称，分区信息在展开时懒加载
+  // 等待一小段时间后重新加载 topics
+  setTimeout(async () => {
+    const savedTopics = await apiClient.getSavedTopics(clusterName).catch(() => []);
     clusterTopics[clusterName] = (savedTopics || []).map((name: string) => ({
       name,
-      partitions: [] // 初始为空，展开时再加载
+      partitions: []
     }));
     topicCounts[clusterName] = savedTopics?.length || 0;
-
-    // 重置分页限制
     topicDisplayLimits[clusterName] = VISIBLE_ITEMS;
-
-    // 自动展开 Topics 文件夹（重新赋值触发响应式更新）
     expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
-  } catch (error: any) {
-    // 检查是否是"正在刷新中"错误
-    if (error.message?.includes('already being refreshed')) {
-      console.warn('Topic refresh is already in progress, please wait');
-    } else {
-      console.error('Failed to refresh topics:', error);
-    }
-  } finally {
     refreshingTopics.value.delete(clusterName);
     refreshingTopics.value = new Set(refreshingTopics.value);
-  }
+  }, 500);
 }
 
 // 虚拟滚动相关

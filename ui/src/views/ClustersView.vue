@@ -971,21 +971,15 @@ function viewClusterTopics(clusterName: string) {
 // Refresh cluster topics metadata
 async function refreshClusterTopics(clusterName: string) {
   refreshingTopics.value.add(clusterName);
-  try {
-    const result = await apiClient.refreshTopics(clusterName);
-    if (result.success) {
-      showSuccess(t.value.clusters.refreshed);
-    }
-  } catch (e: any) {
-    // 检查是否是"正在刷新中"错误
-    if (e.message?.includes('already being refreshed')) {
-      showError('Topic refresh is already in progress, please wait');
-    } else {
-      showError(`${t.value.clusters.refreshFailed}: ${e.message}`);
-    }
-  } finally {
-    refreshingTopics.value.delete(clusterName);
-  }
+
+  // 立即提示，不等待后端响应
+  showSuccess(t.value.clusters.refreshingBg, 3000);
+
+  // Fire-and-forget
+  apiClient.refreshTopics(clusterName).catch(() => {});
+
+  // 立即释放按钮状态
+  refreshingTopics.value.delete(clusterName);
 }
 
 async function refreshClusters() {
