@@ -4912,10 +4912,10 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         }
     };
 
-    // 步骤 1: 从 Kafka 获取所有 consumer group 名称
-    let current_groups = match tokio::task::spawn_blocking({
+    // 步骤 1: 一次 fetch_group_list 同时获取 group 名称和 topics
+    let groups_with_topics = match tokio::task::spawn_blocking({
         let cg_manager = cg_manager.clone();
-        move || cg_manager.list_consumer_groups()
+        move || cg_manager.list_consumer_groups_with_topics()
     })
     .await
     {
@@ -4930,41 +4930,22 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         }
     };
 
-    // 步骤 2: 同步 group 名称到元数据表（不再插入 topics 字段）
-    if let Err(e) = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &current_groups).await {
+    let group_names: Vec<String> = groups_with_topics.iter().map(|(name, _)| name.clone()).collect();
+
+    // 步骤 2: 同步 group 名称到元数据表
+    if let Err(e) = ConsumerGroupStore::sync_consumer_groups(state.db.inner(), &cluster_id, &group_names).await {
         tracing::error!("Failed to sync consumer groups for {}: {}", cluster_id, e);
         return;
     }
 
-    // 步骤 3: 清理该集群下所有旧的 group-topic 关系（后续会重新插入）
+    // 步骤 3: 清理该集群下所有旧的 group-topic 关系
     if let Err(e) = ConsumerGroupStore::cleanup_all_cluster_topic_relations(state.db.inner(), &cluster_id).await {
         tracing::warn!("Failed to cleanup topic relations for {}: {}", cluster_id, e);
     }
 
-    // 步骤 4: 顺序查询每个 group 的 topics（复用同一个 Kafka 连接）
-    let group_topics_results = tokio::task::spawn_blocking({
-        let cg = cg_manager.clone();
-        let groups = current_groups.clone();
-        move || {
-            let mut results = Vec::with_capacity(groups.len());
-            for group in groups {
-                let topics = match cg.get_consumer_group_topics(&group) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        tracing::warn!("Failed to get topics for group '{}': {}", group, e);
-                        Vec::new()
-                    }
-                };
-                results.push((group, topics));
-            }
-            results
-        }
-    })
-    .await
-    .expect("spawn_blocking task panicked");
-
-    // 步骤 5: 将 group-topic 关系写入多对多表
-    for (group, topics) in group_topics_results {
+    // 步骤 4: 将 group-topic 关系写入多对多表（使用步骤 1 已提取的 topics）
+    let group_count = groups_with_topics.len();
+    for (group, topics) in groups_with_topics {
         for topic in &topics {
             let _ = ConsumerGroupStore::upsert_topic_relation(
                 state.db.inner(),
@@ -4975,7 +4956,7 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         }
     }
 
-    tracing::info!("Refreshed {} consumer groups for cluster {}", current_groups.len(), cluster_id);
+    tracing::info!("Refreshed {} consumer groups for cluster {}", group_count, cluster_id);
 }
 
 /// 刷新所有集群的 Consumer Group 列表（在单个任务中，各集群并行刷新）

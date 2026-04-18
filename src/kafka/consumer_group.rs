@@ -69,7 +69,7 @@ impl KafkaConsumerGroupManager {
         }
     }
 
-    /// 列出所有 Consumer Groups
+    /// 列出所有 Consumer Groups（仅名称）
     pub fn list_consumer_groups(&self) -> Result<Vec<String>> {
         let consumer = if let Some(ref c) = self.inner {
             c.clone()
@@ -89,6 +89,42 @@ impl KafkaConsumerGroupManager {
             .collect();
 
         Ok(groups)
+    }
+
+    /// 列出所有 Consumer Groups，同时提取每个 group 关联的 topics
+    /// 一次 fetch_group_list 调用同时返回名称和 topics，避免逐个查询
+    pub fn list_consumer_groups_with_topics(&self) -> Result<Vec<(String, Vec<String>)>> {
+        let consumer = if let Some(ref c) = self.inner {
+            c.clone()
+        } else {
+            let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+            client_config.set("group.id", "kafka-manager-temp-group");
+            client_config.set("enable.auto.commit", "false");
+            Arc::new(client_config.create()?)
+        };
+
+        let group_list = consumer.fetch_group_list(None, self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer groups: {}", e)))?;
+
+        let mut groups_with_topics = Vec::new();
+        for group in group_list.groups() {
+            let group_name = group.name().to_string();
+            let mut topics: Vec<String> = Vec::new();
+            for member in group.members() {
+                if let Some(metadata) = member.metadata() {
+                    if let Some(group_topics) = parse_consumer_protocol_metadata(metadata) {
+                        for topic in group_topics {
+                            if !topics.contains(&topic) {
+                                topics.push(topic);
+                            }
+                        }
+                    }
+                }
+            }
+            groups_with_topics.push((group_name, topics));
+        }
+
+        Ok(groups_with_topics)
     }
 
     /// 获取集群所有 topic 名称列表
