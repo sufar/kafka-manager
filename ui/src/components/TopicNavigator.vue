@@ -501,7 +501,10 @@ import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
+import { useToast } from '@/composables/useToast';
 import TopicHistory from '@/components/TopicHistory.vue';
+
+const { showWarning } = useToast();
 
 interface TopicInfo {
   name: string;
@@ -1099,62 +1102,36 @@ async function refreshTopics() {
   if (refreshing.value || isUnmounted.value) return;
 
   refreshing.value = true;
-  try {
-    const selectedClustersList = getAllSelectedClusterNames();
 
-    // If all clusters are selected, call "refresh all" in one request
-    if (selectedClustersList.length === 0) {
-      try {
-        await apiClient.refreshTopics();
-      } catch (e: any) {
+  const selectedClustersList = getAllSelectedClusterNames();
+
+  // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
+  if (selectedClustersList.length === 0) {
+    apiClient.refreshTopics()
+      .catch((e: any) => {
         if (e.message?.includes('already in progress')) {
-          console.warn('Topic refresh already in progress for all clusters');
-        } else {
-          console.warn('Failed to refresh all topics:', e);
-        }
-      }
-    } else {
-      // 并行刷新选中的集群，遇到正在刷新的集群直接跳过
-      const refreshPromises = selectedClustersList.map(async (clusterName) => {
-        try {
-          await apiClient.refreshTopics(clusterName);
-        } catch (e: any) {
-          // 正在刷新中，直接跳过
-          if (e.message?.includes('already being refreshed')) {
-            console.warn(`Topic refresh already in progress for cluster ${clusterName}, skipping`);
-            return;
-          }
-          console.warn(`Failed to refresh topics for cluster ${clusterName}:`, e);
+          showWarning('Topic refresh is already in progress in the background, please wait');
         }
       });
-      await Promise.allSettled(refreshPromises);
-    }
+  } else {
+    selectedClustersList.forEach((clusterName) => {
+      apiClient.refreshTopics(clusterName)
+        .catch((e: any) => {
+          if (e.message?.includes('already being refreshed')) {
+            showWarning(`Topic refresh is already in progress for cluster ${clusterName}, please wait`);
+          }
+        });
+    });
+  }
 
-    // Cleanup orphan topics
-    try {
-      const result = await apiClient.cleanupOrphanTopics();
-      if (isUnmounted.value) return;
-      if (result.count > 0) {
-        console.log(`Cleaned up ${result.count} orphan topics:`, result.removed);
-      }
-    } catch (e) {
-      if (!isUnmounted.value) {
-        console.warn('Failed to cleanup orphan topics:', e);
-      }
-    }
+  // 立即释放按钮状态
+  refreshing.value = false;
 
-    // Reload topics after refresh
-    if (!isUnmounted.value) {
+  // 短暂延迟后重新加载 topic 列表，显示已缓存的数据
+  if (!isUnmounted.value) {
+    setTimeout(async () => {
       await loadAllTopics();
-    }
-  } catch (e) {
-    if (!isUnmounted.value) {
-      console.error('Failed to refresh topics:', e);
-    }
-  } finally {
-    if (!isUnmounted.value) {
-      refreshing.value = false;
-    }
+    }, 500);
   }
 }
 
@@ -1257,52 +1234,36 @@ async function refreshConsumerGroups() {
   if (refreshingGroups.value || isUnmounted.value) return;
 
   refreshingGroups.value = true;
-  try {
-    const selectedClustersList = getAllSelectedClusterNames();
 
-    // If all clusters are selected, call "refresh all" in one request
-    if (selectedClustersList.length === 0) {
-      try {
-        await apiClient.refreshConsumerGroups();
-      } catch (e: any) {
+  const selectedClustersList = getAllSelectedClusterNames();
+
+  // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
+  if (selectedClustersList.length === 0) {
+    apiClient.refreshConsumerGroups()
+      .catch((e: any) => {
         if (e.message?.includes('already in progress') || e.message?.includes('in background')) {
-          console.warn('Consumer group refresh already in progress for all clusters');
-        } else {
-          console.warn('Failed to refresh all consumer groups:', e);
-        }
-      }
-    } else {
-      // 并行刷新选中的集群，遇到正在刷新的集群直接跳过
-      const refreshPromises = selectedClustersList.map(async (clusterName) => {
-        try {
-          await apiClient.refreshConsumerGroups(clusterName);
-        } catch (e: any) {
-          // 正在刷新中，直接跳过
-          if (e.message?.includes('already being refreshed')) {
-            console.warn(`Consumer group refresh already in progress for cluster ${clusterName}, skipping`);
-            return;
-          }
-          console.warn(`Failed to refresh consumer groups for cluster ${clusterName}:`, e);
+          showWarning('Consumer group refresh is already in progress in the background, please wait');
         }
       });
-      await Promise.allSettled(refreshPromises);
-    }
+  } else {
+    selectedClustersList.forEach((clusterName) => {
+      apiClient.refreshConsumerGroups(clusterName)
+        .catch((e: any) => {
+          if (e.message?.includes('already being refreshed')) {
+            showWarning(`Consumer group refresh is already in progress for cluster ${clusterName}, please wait`);
+          }
+        });
+    });
+  }
 
-    // 短暂延迟后重新加载数据（后端异步刷新，不需要等待完成）
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  // 立即释放按钮状态
+  refreshingGroups.value = false;
 
-    // Reload consumer groups after refresh
-    if (!isUnmounted.value) {
+  // 短暂延迟后重新加载 consumer group 列表，显示已缓存的数据
+  if (!isUnmounted.value) {
+    setTimeout(async () => {
       await loadAllConsumerGroups();
-    }
-  } catch (e) {
-    if (!isUnmounted.value) {
-      console.error('Failed to refresh consumer groups:', e);
-    }
-  } finally {
-    if (!isUnmounted.value) {
-      refreshingGroups.value = false;
-    }
+    }, 1000);
   }
 }
 
