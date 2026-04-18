@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use std::path::PathBuf;
 use std::fs::OpenOptions;
 use arc_swap::ArcSwap;
+use axum::extract::DefaultBodyLimit;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -171,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 构建路由
     let app = routes::create_router(state.clone())
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(TimeoutLayer::new(Duration::from_secs(300)))
         .layer(CompressionLayer::new()
             .gzip(true)

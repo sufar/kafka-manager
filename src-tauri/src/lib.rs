@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::fs::OpenOptions;
 
 use arc_swap::ArcSwap;
+use axum::extract::DefaultBodyLimit;
 use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 
 // 引用主项目的 kafka-manager-api crate
@@ -320,6 +321,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
 
     // 创建路由
     let app = create_router(state)
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(trace_layer)
         .layer(TimeoutLayer::new(Duration::from_secs(60)))
         .layer(CompressionLayer::new())
