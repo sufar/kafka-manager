@@ -825,12 +825,12 @@ async function loadClusterTopics(clusterName: string) {
 
 async function refreshClusterTopics(clusterName: string) {
   if (refreshingTopics.value.has(clusterName)) {
-    emit('toast', 'info', t.value.clusters.refreshingBg, 3000);
+    emit('toast', 'info', t.value.clusters.refreshingBg);
     return;
   }
 
   refreshingTopics.value = new Set(refreshingTopics.value.add(clusterName));
-  emit('toast', 'success', t.value.clusters.refreshingBg, 3000);
+  emit('toast', 'success', t.value.clusters.refreshingBg);
 
   // Fire-and-forget: 立即返回，不等待后端响应
   apiClient.refreshTopics(clusterName).catch(() => {});
