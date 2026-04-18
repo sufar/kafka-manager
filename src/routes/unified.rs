@@ -1381,12 +1381,6 @@ async fn sync_topics_from_kafka(state: AppState, cluster_id: &str) -> Result<Val
                 // 同步到数据库
                 let _ = TopicStore::sync_topics(state.db.inner(), cluster_id, &topics).await;
 
-                // 写入内存缓存
-                state
-                    .cache
-                    .set_topic_list(cluster_id, topics.clone())
-                    .await;
-
                 return Ok(serde_json::json!({ "topics": topics }));
             }
             Err(e) => {
@@ -1443,9 +1437,6 @@ async fn handle_topic_create(state: AppState, body: Value) -> Result<Value> {
         .create_topic(&name, num_partitions, replication_factor, config)
         .await?;
 
-    // Invalidate cache
-    state.cache.invalidate_topic_list(&cluster_id).await;
-
     Ok(serde_json::json!({ "name": name }))
 }
 
@@ -1458,9 +1449,6 @@ async fn handle_topic_delete(state: AppState, body: Value) -> Result<Value> {
     let admin = get_or_create_admin_client(&state, &cluster_id).await?;
 
     admin.delete_topic(&name).await?;
-
-    // Invalidate cache
-    state.cache.invalidate_topic_list(&cluster_id).await;
 
     Ok(serde_json::json!({ "success": true }))
 }
@@ -1561,9 +1549,6 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
         }
     }
 
-    // Invalidate cache
-    state.cache.invalidate_topic_list(&cluster_id).await;
-
     Ok(serde_json::json!({
         "success": failed.is_empty(),
         "deleted": deleted,
@@ -1595,9 +1580,6 @@ async fn handle_topic_delete_all(state: AppState, body: Value) -> Result<Value> 
     for topic_name in &topic_names {
         let _ = TopicStore::delete(state.db.inner(), &cluster_id, topic_name).await;
     }
-
-    // Invalidate cache
-    state.cache.invalidate_topic_list(&cluster_id).await;
 
     Ok(serde_json::json!({
         "success": true,
@@ -1743,7 +1725,7 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
 
     // 检查并设置刷新状态
     {
-        let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
+        let refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
         if let Some(ref cluster) = cluster_id {
             if refresh_state.refreshing_clusters.contains(cluster) {
                 return Err(AppError::BadRequest(format!(
@@ -1751,15 +1733,6 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
                     cluster
                 )));
             }
-        } else {
-            // 刷新所有集群时，检查是否已有全局刷新任务在运行
-            if refresh_state.refreshing_all_topics {
-                return Err(AppError::BadRequest(
-                    "All clusters topic refresh is already in progress, please wait".to_string(),
-                ));
-            }
-            // 设置全局刷新标记，防止并发刷新所有集群
-            refresh_state.refreshing_all_topics = true;
         }
     }
 
@@ -1799,45 +1772,63 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
         refresh_state: state.refresh_state.clone(),
     };
 
-    // 首先尝试从内存中获取 admin 客户端
+    // 从数据库获取集群配置
+    let cluster = match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+        Ok(Some(cluster)) => cluster,
+        Ok(None) => {
+            tracing::error!("Cluster '{}' not found in database", cluster_id);
+            return;
+        }
+        Err(e) => {
+            tracing::error!("Failed to get cluster config: {}", e);
+            return;
+        }
+    };
+
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    // 重连集群（创建新的客户端连接）
     let clients = state.get_clients();
-    let admin = clients.get_admin(&cluster_id);
-
-    // 如果不存在，尝试从数据库获取集群配置并建立连接
-    let admin = if let Some(existing_admin) = admin {
-        existing_admin
-    } else {
-        match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
-            Ok(Some(cluster)) => {
-                let config = crate::config::KafkaConfig {
-                    brokers: cluster.brokers,
-                    request_timeout_ms: cluster.request_timeout_ms as u32,
-                    operation_timeout_ms: cluster.operation_timeout_ms as u32,
-                };
-
-                // 建立连接池连接
-                let _ = state.pools.add_cluster(&cluster_id, &config, &state.config.pool).await;
-
-                // 获取新的客户端（包含刚添加的集群）
-                let new_clients = state.get_clients();
-                match new_clients.get_admin(&cluster_id) {
-                    Some(admin) => admin,
-                    None => {
-                        tracing::error!("Failed to get admin client for cluster '{}'", cluster_id);
-                        return;
-                    }
-                }
-            }
-            Ok(None) => {
-                tracing::error!("Cluster '{}' not found in database", cluster_id);
-                return;
+    let clients = if clients.get_admin(&cluster_id).is_some() {
+        // 已存在则重连
+        match clients.reconnect_cluster(&cluster_id, &config) {
+            Ok(new_clients) => {
+                state.set_clients(new_clients.clone());
+                new_clients
             }
             Err(e) => {
-                tracing::error!("Failed to get cluster config: {}", e);
+                tracing::error!("Failed to reconnect cluster '{}': {}", cluster_id, e);
+                return;
+            }
+        }
+    } else {
+        // 不存在则添加
+        match clients.with_added_cluster(&cluster_id, &config) {
+            Ok(new_clients) => {
+                state.set_clients(new_clients.clone());
+                new_clients
+            }
+            Err(e) => {
+                tracing::error!("Failed to add cluster '{}': {}", cluster_id, e);
                 return;
             }
         }
     };
+
+    let admin = match clients.get_admin(&cluster_id) {
+        Some(admin) => admin,
+        None => {
+            tracing::error!("Failed to get admin client for cluster '{}'", cluster_id);
+            return;
+        }
+    };
+
+    // 同时重连连接池
+    let _ = state.pools.reconnect(&cluster_id, &config, &state.config.pool).await;
 
     // Get current topics from Kafka (blocking operation)
     let current_topics = {
@@ -1881,9 +1872,6 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
                     }
                 }).await;
             }
-
-            // Update cache
-            state.cache.set_topic_list(&cluster_id, current_topics).await;
         }
         Err(e) => {
             tracing::error!("Failed to sync topics: {}", e);
@@ -1900,7 +1888,6 @@ async fn refresh_all_clusters(state: AppState) {
         Ok(clusters) => clusters,
         Err(e) => {
             tracing::error!("Failed to list clusters: {}", e);
-            state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_topics = false;
             return;
         }
     };
@@ -1922,8 +1909,7 @@ async fn refresh_all_clusters(state: AppState) {
         let _ = task.await;
     }
 
-    tracing::info!("Completed refreshing all clusters");
-    state.refresh_state.lock().expect("refresh state poisoned").refreshing_all_topics = false;
+    tracing::info!("Completed refreshed all clusters");
 }
 
 async fn handle_topic_search(state: AppState, body: Value) -> Result<Value> {
@@ -4808,33 +4794,46 @@ async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<V
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
-    // 同步等待刷新完成（使用 mpsc channel）
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
-    let state_for_spawn = state.clone();
+    // 检查并设置刷新状态
+    {
+        let refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
+        if let Some(ref cluster) = cluster_id {
+            if refresh_state.refreshing_clusters.contains(cluster) {
+                return Err(AppError::BadRequest(format!(
+                    "Cluster '{}' is already being refreshed, please wait",
+                    cluster
+                )));
+            }
+        }
+    }
+
+    // 立即返回，后台异步刷新
     tokio::spawn(async move {
         if let Some(cluster_id) = cluster_id {
-            refresh_single_consumer_group(state_for_spawn, cluster_id).await;
+            refresh_single_consumer_group(state, cluster_id).await;
         } else {
-            refresh_all_consumer_groups(state_for_spawn).await;
+            refresh_all_consumer_groups(state).await;
         }
-        let _ = tx.send(()).await;
     });
-    let _ = rx.recv().await;
 
     Ok(serde_json::json!({
         "success": true,
-        "message": "Consumer group refresh completed",
+        "message": "Consumer group refresh started in background",
     }))
 }
 
 /// 刷新单个集群的 Consumer Group 列表
 async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
+    use crate::db::cluster::ClusterStore;
     use crate::db::consumer_group::ConsumerGroupStore;
 
-    // 标记为正在刷新
+    // 标记为正在刷新（如果已在刷新则直接返回）
     {
         let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
-        refresh_state.refreshing_clusters.insert(cluster_id.clone());
+        if !refresh_state.refreshing_clusters.insert(cluster_id.clone()) {
+            tracing::info!("Cluster '{}' consumer group refresh already in progress, skipping", cluster_id);
+            return;
+        }
     }
 
     // 确保退出时清除标记
@@ -4843,19 +4842,58 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         refresh_state: state.refresh_state.clone(),
     };
 
-    // 确保集群客户端已创建
-    let config = match ensure_cluster_client(&state, &cluster_id).await {
-        Ok(c) => c,
+    // 从数据库获取集群配置
+    let cluster = match ClusterStore::get_by_name(state.db.inner(), &cluster_id).await {
+        Ok(Some(cluster)) => cluster,
+        Ok(None) => {
+            tracing::error!("Cluster '{}' not found in database", cluster_id);
+            return;
+        }
         Err(e) => {
-            tracing::error!("Failed to ensure cluster client for {}: {}", cluster_id, e);
+            tracing::error!("Failed to get cluster config: {}", e);
             return;
         }
     };
 
+    let config = crate::config::KafkaConfig {
+        brokers: cluster.brokers,
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    };
+
+    // 重连集群（创建新的客户端连接）
+    let clients = state.get_clients();
+    if clients.get_admin(&cluster_id).is_some() {
+        match clients.reconnect_cluster(&cluster_id, &config) {
+            Ok(new_clients) => {
+                state.set_clients(new_clients.clone());
+            }
+            Err(e) => {
+                tracing::error!("Failed to reconnect cluster '{}': {}", cluster_id, e);
+                return;
+            }
+        }
+    } else {
+        match clients.with_added_cluster(&cluster_id, &config) {
+            Ok(new_clients) => {
+                state.set_clients(new_clients.clone());
+            }
+            Err(e) => {
+                tracing::error!("Failed to add cluster '{}': {}", cluster_id, e);
+                return;
+            }
+        }
+    };
+
+    // 同时重连连接池
+    let _ = state.pools.reconnect(&cluster_id, &config, &state.config.pool).await;
+
     // 创建一个复用的 consumer，整个刷新过程复用同一个连接
+    // 使用随机 group.id 避免多个刷新任务冲突
+    let unique_suffix = format!("{}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), rand::random::<u32>());
     let reusable_consumer = {
         let mut client_config = crate::kafka::create_client_config(&config);
-        client_config.set("group.id", "kafka-manager-cg-refresh");
+        client_config.set("group.id", &format!("kafka-manager-cg-refresh-{}", unique_suffix));
         client_config.set("enable.auto.commit", "false");
         match client_config.create::<rdkafka::consumer::BaseConsumer>() {
             Ok(c) => c,
@@ -5096,9 +5134,11 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
     // 步骤 2: 确保集群客户端已创建，并复用同一个 consumer 连接
     let config = ensure_cluster_client(&state, &cluster_id).await?;
 
+    // 使用随机 group.id 避免冲突
+    let unique_suffix = format!("{}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), rand::random::<u32>());
     let reusable_consumer = {
         let mut client_config = crate::kafka::create_client_config(&config);
-        client_config.set("group.id", "kafka-manager-cg-list-by-topic");
+        client_config.set("group.id", &format!("kafka-manager-cg-list-by-topic-{}", unique_suffix));
         client_config.set("enable.auto.commit", "false");
         match client_config.create::<rdkafka::consumer::BaseConsumer>() {
             Ok(c) => c,

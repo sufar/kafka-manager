@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-mod cache;
 mod config;
 mod db;
 mod error;
@@ -29,7 +28,6 @@ use crate::config::Config;
 use crate::db::DbPool;
 use crate::kafka::KafkaClients;
 use crate::pool::ClusterPools;
-use crate::cache::MetadataCache;
 
 /// 应用状态
 #[derive(Clone)]
@@ -39,10 +37,10 @@ pub struct AppState {
     pub config: Config,
     /// Kafka 连接池
     pub pools: ClusterPools,
-    /// 元数据缓存
-    pub cache: MetadataCache,
     /// 刷新状态跟踪（用于防止重复刷新）
     pub refresh_state: Arc<Mutex<RefreshState>>,
+    /// 导入导出全局锁（同一时间只能有一个导入或导出在进行）
+    pub import_export_lock: Arc<Mutex<ImportExportLock>>,
 }
 
 /// 刷新状态跟踪结构
@@ -52,6 +50,15 @@ pub struct RefreshState {
     pub refreshing_clusters: HashSet<String>,
     /// 是否正在刷新所有集群的 topic
     pub refreshing_all_topics: bool,
+    /// 是否正在刷新所有集群的 consumer group
+    pub refreshing_all_consumer_groups: bool,
+}
+
+/// 导入导出全局状态（同一时间只能有一个导入或导出在进行）
+#[derive(Debug, Default)]
+pub struct ImportExportLock {
+    pub is_busy: bool,
+    pub operation: Option<String>, // "import" 或 "export"
 }
 
 impl AppState {
@@ -152,13 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pools = ClusterPools::new();
     tracing::info!("Kafka connection pools initialized (empty)");
 
-    // 初始化缓存
-    let cache = MetadataCache::new();
-    tracing::info!("Metadata cache initialized");
-
     // 初始化刷新状态跟踪
     let refresh_state = Arc::new(Mutex::new(RefreshState::default()));
     tracing::info!("Refresh state tracking initialized");
+
+    // 初始化导入导出全局锁
+    let import_export_lock = Arc::new(Mutex::new(ImportExportLock::default()));
 
     // 应用状态
     let state = AppState {
@@ -166,8 +172,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         clients,
         config: config.clone(),
         pools: pools.clone(),
-        cache: cache.clone(),
         refresh_state,
+        import_export_lock,
     };
 
     // 构建路由

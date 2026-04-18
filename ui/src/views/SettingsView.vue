@@ -682,7 +682,12 @@ async function handleExport() {
     }
   } catch (e) {
     console.error('Export failed:', e);
-    toast.showError((e as Error).message);
+    const msg = (e as Error).message || '';
+    if (msg.includes('操作正在进行中') || msg.toLowerCase().includes('operation') && msg.toLowerCase().includes('progress')) {
+      toast.showError(t.value.settings.operationInProgress);
+    } else {
+      toast.showError(msg);
+    }
   } finally {
     exporting.value = false;
   }
@@ -717,38 +722,24 @@ async function handleImport(event: Event) {
       history: data.history || [],
     }, 'skip');
 
+    // 异步导入：后端立即返回 "Import started in background"
     const lang = languageStore.currentLanguage;
-    const skippedParts = [];
-    if (result.cluster_groups_skipped > 0) {
-      skippedParts.push(lang === 'zh' ? `跳过 ${result.cluster_groups_skipped} 个分组` : `${result.cluster_groups_skipped} groups skipped`);
-    }
-    if (result.clusters_skipped > 0) {
-      skippedParts.push(lang === 'zh' ? `跳过 ${result.clusters_skipped} 个集群` : `${result.clusters_skipped} clusters skipped`);
-    }
-    if (result.topics_skipped > 0) {
-      skippedParts.push(lang === 'zh' ? `跳过 ${result.topics_skipped} 个 Topic` : `${result.topics_skipped} topics skipped`);
-    }
-    if (result.favorites_skipped > 0) {
-      skippedParts.push(lang === 'zh' ? `跳过 ${result.favorites_skipped} 个收藏` : `${result.favorites_skipped} favorites skipped`);
-    }
-    if (result.history_skipped > 0) {
-      skippedParts.push(lang === 'zh' ? `跳过 ${result.history_skipped} 条历史` : `${result.history_skipped} history records skipped`);
+    if (lang === 'zh') {
+      toast.showSuccess(t.value.settings.importStarted);
+    } else {
+      toast.showSuccess(t.value.settings.importStarted);
     }
 
-    if (lang === 'zh') {
-      toast.showSuccess(
-        `导入完成：${result.cluster_groups_imported} 个分组，${result.clusters_imported} 个集群，${result.topics_imported} 个 Topic，${result.favorites_imported} 个收藏，${result.history_imported} 条历史` +
-        (skippedParts.length > 0 ? `（${skippedParts.join('，')}）` : '')
-      );
-    } else {
-      toast.showSuccess(
-        `Import completed: ${result.cluster_groups_imported} groups, ${result.clusters_imported} clusters, ${result.topics_imported} topics, ${result.favorites_imported} favorites, ${result.history_imported} history records` +
-        (skippedParts.length > 0 ? ` (${skippedParts.join(', ')})` : '')
-      );
-    }
+    // 短暂锁定按钮，避免用户重复点击
+    await new Promise(resolve => setTimeout(resolve, 2000));
   } catch (e) {
     console.error('Import failed:', e);
-    toast.showError((e as Error).message);
+    const msg = (e as Error).message || '';
+    if (msg.includes('操作正在进行中') || msg.toLowerCase().includes('operation') && msg.toLowerCase().includes('progress')) {
+      toast.showError(t.value.settings.operationInProgress);
+    } else {
+      toast.showError(msg);
+    }
   } finally {
     importing.value = false;
   }

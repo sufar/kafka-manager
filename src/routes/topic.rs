@@ -108,21 +108,12 @@ async fn list_topics(
     Path(cluster_id): Path<String>,
 ) -> impl IntoResponse {
     let result = async {
-        // 先尝试从缓存获取
-        if let Some(cached_topics) = state.cache.get_topic_list(&cluster_id).await {
-            return Ok(serde_json::json!({ "topics": cached_topics }));
-        }
-
-        // 缓存未命中，从 Kafka 集群实时获取 topics
         let clients = state.get_clients();
         let admin = clients
             .get_admin(&cluster_id)
             .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
         let topics = admin.list_topics()?;
-
-        // 写入缓存
-        state.cache.set_topic_list(&cluster_id, topics.clone()).await;
 
         Ok(serde_json::json!({ "topics": topics }))
     }.await;
@@ -177,9 +168,6 @@ async fn create_topic(
         )
         .await?;
 
-    // 使缓存失效
-    state.cache.invalidate_topic_list(&cluster_id).await;
-
     Ok(Json(CreateTopicResponse { name: req.name }))
 }
 
@@ -221,9 +209,6 @@ async fn delete_topic(
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
     admin.delete_topic(&name).await?;
-
-    // 使缓存失效
-    state.cache.invalidate_topic_list(&cluster_id).await;
 
     Ok(())
 }
@@ -435,9 +420,6 @@ async fn batch_delete_topics(
             }
         }
 
-        // 使缓存失效
-        state.cache.invalidate_topic_list(&cluster_id).await;
-
         return Ok(Json(BatchDeleteTopicsResponse {
             success: failed.is_empty(),
             deleted,
@@ -469,9 +451,6 @@ async fn batch_delete_topics(
             BatchDeleteResult::Failed(failure) => failed.push(failure),
         }
     }
-
-    // 使缓存失效
-    state.cache.invalidate_topic_list(&cluster_id).await;
 
     Ok(Json(BatchDeleteTopicsResponse {
         success: failed.is_empty(),

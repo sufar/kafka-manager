@@ -1,7 +1,7 @@
 /// 全局用户设置路由
 
 use crate::db::settings::SettingStore;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -242,6 +242,38 @@ pub struct ImportResult {
 pub(crate) async fn export_data(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ExportData>> {
+    // 检查是否有其他导入导出正在进行
+    {
+        let lock = state.import_export_lock.lock().unwrap();
+        if lock.is_busy {
+            let op = lock.operation.as_deref().unwrap_or("unknown");
+            return Err(AppError::BadRequest(format!(
+                "已有{}操作正在进行中，请等待完成后再试",
+                if op == "import" { "导入" } else { "导出" }
+            )));
+        }
+    }
+
+    // 设置导出锁
+    {
+        let mut lock = state.import_export_lock.lock().unwrap();
+        lock.is_busy = true;
+        lock.operation = Some("export".to_string());
+    }
+
+    let result = do_export(&state).await;
+
+    // 释放导出锁
+    {
+        let mut lock = state.import_export_lock.lock().unwrap();
+        lock.is_busy = false;
+        lock.operation = None;
+    }
+
+    result
+}
+
+async fn do_export(state: &AppState) -> Result<Json<ExportData>> {
     use crate::db::cluster::ClusterStore;
     use crate::db::cluster_group::ClusterGroupStore;
     use crate::db::favorite::get_all_favorites_with_groups;
@@ -343,7 +375,43 @@ pub(crate) async fn export_data(
 pub(crate) async fn import_data(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ImportDataRequest>,
-) -> Result<Json<ImportResult>> {
+) -> Result<Json<serde_json::Value>> {
+    // 检查是否有其他导入导出正在进行
+    {
+        let lock = state.import_export_lock.lock().unwrap();
+        if lock.is_busy {
+            let op = lock.operation.as_deref().unwrap_or("unknown");
+            return Err(AppError::BadRequest(format!(
+                "已有{}操作正在进行中，请等待完成后再试",
+                if op == "import" { "导入" } else { "导出" }
+            )));
+        }
+    }
+
+    // 设置导入锁
+    {
+        let mut lock = state.import_export_lock.lock().unwrap();
+        lock.is_busy = true;
+        lock.operation = Some("import".to_string());
+    }
+
+    // 立即返回，后台异步导入
+    tokio::spawn(async move {
+        let _ = do_import(&state, req).await;
+
+        // 释放导入锁
+        let mut lock = state.import_export_lock.lock().unwrap();
+        lock.is_busy = false;
+        lock.operation = None;
+    });
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Import started in background",
+    })))
+}
+
+async fn do_import(state: &AppState, req: ImportDataRequest) -> Result<Json<ImportResult>> {
     use crate::db::cluster::{ClusterStore, CreateClusterRequest};
     use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest};
     use crate::db::favorite::{

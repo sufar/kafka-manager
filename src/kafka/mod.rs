@@ -169,6 +169,40 @@ impl KafkaClients {
             clients: Arc::new(new_clients),
         })
     }
+
+    /// 重连指定集群（创建新的客户端实例，替换旧的连接）
+    pub fn reconnect_cluster(&self, cluster_id: &str, config: &KafkaConfig) -> Result<Self, AppError> {
+        let new_admin = Arc::new(KafkaAdmin::new(config)?);
+        let new_consumer = Arc::new(KafkaConsumer::new(config)?);
+        let new_producer = Arc::new(KafkaProducer::new(config)?);
+        let new_config = Arc::new(config.clone());
+
+        let mut new_clients = HashMap::with_capacity(self.clients.len());
+
+        for (id, (admin, consumer, producer, cfg)) in self.clients.iter() {
+            if id == cluster_id {
+                // 用新的客户端替换
+                new_clients.insert(
+                    id.clone(),
+                    (
+                        Arc::clone(&new_admin),
+                        Arc::clone(&new_consumer),
+                        Arc::clone(&new_producer),
+                        Arc::clone(&new_config),
+                    ),
+                );
+            } else {
+                new_clients.insert(
+                    id.clone(),
+                    (Arc::clone(admin), Arc::clone(consumer), Arc::clone(producer), Arc::clone(cfg)),
+                );
+            }
+        }
+
+        Ok(Self {
+            clients: Arc::new(new_clients),
+        })
+    }
 }
 
 impl Default for KafkaClients {

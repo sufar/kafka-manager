@@ -14,7 +14,7 @@ use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, compression::Compressio
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
     Config, DbPool, KafkaClients, ClusterPools,
-    MetadataCache, RefreshState,
+    RefreshState, ImportExportLock,
     AppState, create_router,
 };
 use tauri::Manager;
@@ -265,11 +265,11 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     log("Creating empty Kafka connection pools (will be initialized in background)...");
     let kafka_pools = ClusterPools::new();
 
-    // 创建其他组件
-    let cache = MetadataCache::new();
-
     // 初始化刷新状态跟踪
     let refresh_state = Arc::new(Mutex::new(RefreshState::default()));
+
+    // 初始化导入导出全局锁
+    let import_export_lock = Arc::new(Mutex::new(ImportExportLock::default()));
 
     // 构建应用状态
     let state = AppState {
@@ -277,8 +277,8 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         clients: clients.clone(),
         config: config.clone(),
         pools: kafka_pools.clone(),
-        cache,
         refresh_state,
+        import_export_lock,
     };
 
     // 初始化 tracing 日志（统一通过 tracing 写入日志文件）

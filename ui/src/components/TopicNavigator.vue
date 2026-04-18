@@ -1265,7 +1265,7 @@ async function refreshConsumerGroups() {
       try {
         await apiClient.refreshConsumerGroups();
       } catch (e: any) {
-        if (e.message?.includes('already in progress')) {
+        if (e.message?.includes('already in progress') || e.message?.includes('in background')) {
           console.warn('Consumer group refresh already in progress for all clusters');
         } else {
           console.warn('Failed to refresh all consumer groups:', e);
@@ -1288,8 +1288,8 @@ async function refreshConsumerGroups() {
       await Promise.allSettled(refreshPromises);
     }
 
-    // Wait for sync to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // 短暂延迟后重新加载数据（后端异步刷新，不需要等待完成）
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Reload consumer groups after refresh
     if (!isUnmounted.value) {

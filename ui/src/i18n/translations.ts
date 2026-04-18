@@ -369,6 +369,8 @@ export interface Translation {
     importData: string;
     importing: string;
     importSuccess: string;
+    operationInProgress: string;
+    importStarted: string;
     viewLogs: string;
     appLogs: string;
     refreshLogs: string;
@@ -942,6 +944,8 @@ export const translations: Record<Language, Translation> = {
       importData: '导入数据',
       importing: '导入中...',
       importSuccess: '导入完成',
+      operationInProgress: '已有其他导入/导出操作正在进行中，请等待完成后再试',
+      importStarted: '导入已在后台启动，完成后会自动释放',
       viewLogs: '查看日志',
       appLogs: '应用日志',
       refreshLogs: '刷新日志',
@@ -1513,6 +1517,8 @@ export const translations: Record<Language, Translation> = {
       importData: 'Import Data',
       importing: 'Importing...',
       importSuccess: 'Import completed',
+      operationInProgress: 'Another import/export operation is already in progress, please wait and try again',
+      importStarted: 'Import started in background, will complete automatically',
       viewLogs: 'View Logs',
       appLogs: 'Application Logs',
       refreshLogs: 'Refresh Logs',

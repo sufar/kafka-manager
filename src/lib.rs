@@ -11,7 +11,6 @@ pub mod middleware;
 pub mod models;
 pub mod pool;
 pub mod routes;
-pub mod cache;
 
 use std::sync::Arc;
 use std::collections::HashSet;
@@ -22,7 +21,6 @@ pub use config::Config;
 pub use db::DbPool;
 pub use kafka::KafkaClients;
 pub use pool::ClusterPools;
-pub use cache::MetadataCache;
 
 /// 应用状态
 #[derive(Clone)]
@@ -31,18 +29,24 @@ pub struct AppState {
     pub clients: Arc<ArcSwap<KafkaClients>>,
     pub config: Config,
     pub pools: ClusterPools,
-    pub cache: MetadataCache,
     /// 刷新状态跟踪（用于防止重复刷新）
     pub refresh_state: Arc<Mutex<RefreshState>>,
+    /// 导入导出全局锁（同一时间只能有一个导入或导出在进行）
+    pub import_export_lock: Arc<Mutex<ImportExportLock>>,
 }
 
 /// 刷新状态跟踪结构
 #[derive(Debug, Default)]
 pub struct RefreshState {
-    /// 正在刷新的集群（每个集群同一时间只能有一个 consumer group 刷新）
+    /// 正在刷新的集群（每个集群同一时间只能有一个 topic/consumer group 刷新）
     pub refreshing_clusters: HashSet<String>,
-    /// 是否正在刷新所有集群的 topic
-    pub refreshing_all_topics: bool,
+}
+
+/// 导入导出全局状态（同一时间只能有一个导入或导出在进行）
+#[derive(Debug, Default)]
+pub struct ImportExportLock {
+    pub is_busy: bool,
+    pub operation: Option<String>, // "import" 或 "export"
 }
 
 impl AppState {
