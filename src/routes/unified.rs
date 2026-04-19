@@ -1723,6 +1723,17 @@ async fn handle_topic_refresh(state: AppState, body: Value) -> Result<Value> {
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
 
+    // 如果有导入导出正在进行，跳过刷新
+    {
+        let lock = state.import_export_lock.lock().expect("import_export_lock poisoned");
+        if lock.is_busy {
+            return Ok(serde_json::json!({
+                "success": true,
+                "message": "Import/export in progress, skipping refresh",
+            }));
+        }
+    }
+
     // 检查并设置刷新状态
     {
         let refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
@@ -4793,6 +4804,17 @@ use crate::kafka::consumer_group::{KafkaConsumerGroupManager, PartitionOffsetDet
 async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<Value> {
     // cluster_id 是可选参数，未指定时刷新所有集群
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(String::from);
+
+    // 如果有导入导出正在进行，跳过刷新
+    {
+        let lock = state.import_export_lock.lock().expect("import_export_lock poisoned");
+        if lock.is_busy {
+            return Ok(serde_json::json!({
+                "success": true,
+                "message": "Import/export in progress, skipping refresh",
+            }));
+        }
+    }
 
     // 检查并设置刷新状态
     {
