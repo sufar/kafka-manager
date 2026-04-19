@@ -5043,6 +5043,9 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
 
     let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+    // Get search query for filtering
+    let search_query: Option<String> = body.get("search").and_then(|v| v.as_str()).map(|s| s.to_string());
+
     // Determine which clusters to fetch consumer groups from
     let clusters_to_fetch: Vec<String> = if let Some(ref ids) = cluster_ids {
         if ids.is_empty() {
@@ -5079,6 +5082,16 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
                 }));
             }
         }
+    }
+
+    // Apply search filter if provided
+    if let Some(ref query) = search_query {
+        let q = query.to_lowercase();
+        all_groups.retain(|g| {
+            let name = g["group_name"].as_str().map(|s| s.to_lowercase()).unwrap_or_default();
+            let cluster = g["cluster_id"].as_str().map(|s| s.to_lowercase()).unwrap_or_default();
+            name.contains(&q) || cluster.contains(&q)
+        });
     }
 
     // Sort by cluster then by group name

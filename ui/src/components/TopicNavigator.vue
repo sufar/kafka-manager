@@ -1148,30 +1148,20 @@ async function loadAllConsumerGroups() {
     const result = await apiClient.getConsumerGroupsList(
       clusterIdsParam,
       offsetGroups.value,
-      limitGroups.value
+      limitGroups.value,
+      searchQueryValue || undefined
     );
     console.log('[loadAllConsumerGroups] API result:', result);
 
     if (isUnmounted.value) return;
 
-    const groups: ConsumerGroupInfo[] = result.groups.map((g) => ({
+    allConsumerGroups.value = result.groups.map((g) => ({
       name: g.group_name,
       cluster: g.cluster_id,
     }));
 
     totalGroups.value = result.total;
     hasMoreGroups.value = result.has_more;
-
-    // Local search filter if needed
-    if (searchQueryValue) {
-      const query = searchQueryValue.toLowerCase();
-      allConsumerGroups.value = groups.filter(g =>
-        g.name.toLowerCase().includes(query) ||
-        g.cluster.toLowerCase().includes(query)
-      );
-    } else {
-      allConsumerGroups.value = groups;
-    }
     console.log('[loadAllConsumerGroups] allConsumerGroups:', allConsumerGroups.value.length);
   } catch (e) {
     if (!isUnmounted.value) {
@@ -1194,10 +1184,12 @@ async function loadMoreConsumerGroups() {
   try {
     const selectedClustersList = getAllSelectedClusterNames();
     const clusterIdsParam = selectedClustersList.length > 0 ? selectedClustersList : undefined;
+    const searchQueryValue = searchQuery.value.trim();
     const result = await apiClient.getConsumerGroupsList(
       clusterIdsParam,
       offsetGroups.value,
-      limitGroups.value
+      limitGroups.value,
+      searchQueryValue || undefined
     );
 
     if (isUnmounted.value) return;

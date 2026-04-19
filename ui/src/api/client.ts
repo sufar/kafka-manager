@@ -412,7 +412,7 @@ class ApiClient {
    * Get consumer groups list with topics information from database
    * Returns paginated results with total, offset, limit, and has_more
    */
-  async getConsumerGroupsList(clusterIds?: string[], offset: number = 0, limit: number = 10000): Promise<{
+  async getConsumerGroupsList(clusterIds?: string[], offset: number = 0, limit: number = 10000, search?: string): Promise<{
     groups: Array<{
       id: number;
       cluster_id: string;
@@ -428,6 +428,9 @@ class ApiClient {
     const params: any = { offset, limit };
     if (clusterIds) {
       params.cluster_ids = clusterIds;
+    }
+    if (search) {
+      params.search = search;
     }
     return await this.request<{
       groups: Array<{
