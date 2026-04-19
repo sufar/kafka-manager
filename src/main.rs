@@ -4,7 +4,6 @@ mod config;
 mod db;
 mod error;
 mod kafka;
-mod middleware;
 mod models;
 mod pool;
 mod routes;

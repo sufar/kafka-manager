@@ -176,38 +176,6 @@ impl ClusterPools {
             .map(|(cluster_id, _)| (cluster_id.clone(), ConnectionStatus::Connected))
             .collect()
     }
-
-    /// 健康检查所有集群（重量级，实际连接 Kafka 检查，可能很慢）
-    pub async fn health_check_all(&self) -> Vec<(String, ConnectionStatus)> {
-        let cluster_ids: Vec<String> = {
-            let pools = self.pools.read().await;
-            pools.keys().cloned().collect()
-        };
-
-        let cluster_count = cluster_ids.len();
-
-        // 并行检查所有集群
-        let mut tasks = Vec::with_capacity(cluster_count);
-        for cluster_id in cluster_ids {
-            let this = self.clone();
-            let task = tokio::spawn(async move {
-                let status = this.check_connection(&cluster_id).await
-                    .unwrap_or(ConnectionStatus::Disconnected);
-                (cluster_id, status)
-            });
-            tasks.push(task);
-        }
-
-        let mut statuses = Vec::with_capacity(cluster_count);
-        for task in tasks {
-            match task.await {
-                Ok(status) => statuses.push(status),
-                Err(e) => tracing::error!("Health check task failed: {}", e),
-            }
-        }
-
-        statuses
-    }
 }
 
 /// 构建连接池的辅助函数 - 性能优化版

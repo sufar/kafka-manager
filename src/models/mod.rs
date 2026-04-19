@@ -88,47 +88,6 @@ pub struct TopicPartitionDetail {
     pub last_commit_time: Option<i64>,   // 最新消息的时间戳 (毫秒)
 }
 
-// 集群监控相关模型
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ClusterInfoResponse {
-    pub brokers: Vec<BrokerInfo>,
-    pub controller_id: Option<i32>,
-    pub cluster_id: Option<String>,
-    pub topic_count: i32,
-    pub total_partitions: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BrokerInfo {
-    pub id: i32,
-    pub host: String,
-    pub port: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BrokerListResponse {
-    pub brokers: Vec<BrokerInfo>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BrokerDetailResponse {
-    pub id: i32,
-    pub host: String,
-    pub port: i32,
-    pub is_controller: bool,
-    pub leader_partitions: i32,
-    pub replica_partitions: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ClusterMetricsResponse {
-    pub broker_count: i32,
-    pub controller_id: Option<i32>,
-    pub topic_count: i32,
-    pub partition_count: i32,
-    pub under_replicated_partitions: i32,
-}
-
 /// 吞吐量统计（消息/秒）
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ThroughputStats {
