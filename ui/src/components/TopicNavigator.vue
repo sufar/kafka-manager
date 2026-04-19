@@ -1085,6 +1085,7 @@ async function loadMoreTopics() {
     }
 
     offset.value = nextOffset;
+    total.value = result.total;
     hasMore.value = result.has_more;
   } catch (e) {
     if (!isUnmounted.value) {

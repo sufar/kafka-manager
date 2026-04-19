@@ -59,9 +59,7 @@ fn log(msg: &str) {
 fn cleanup_log(max_days: u32) {
     use chrono::NaiveDateTime;
 
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = kafka_manager_api::utils::app_log_path();
 
     if !log_path.exists() {
         return;
@@ -99,9 +97,7 @@ fn cleanup_log(max_days: u32) {
 
 /// 启动时清理：只保留今天的日志
 fn cleanup_today_start() {
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = kafka_manager_api::utils::app_log_path();
 
     if !log_path.exists() {
         return;
@@ -282,9 +278,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     };
 
     // 初始化 tracing 日志（统一通过 tracing 写入日志文件）
-    let log_path_tauri = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path_tauri = kafka_manager_api::utils::app_log_path();
 
     // 确保日志目录存在
     if let Some(parent) = log_path_tauri.parent() {
@@ -440,9 +434,7 @@ fn greet(name: &str) -> String {
 /// 获取日志内容
 #[tauri::command]
 fn get_app_logs() -> Result<String, String> {
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = kafka_manager_api::utils::app_log_path();
 
     std::fs::read_to_string(&log_path)
         .or_else(|_| Ok(String::new()))
@@ -451,9 +443,7 @@ fn get_app_logs() -> Result<String, String> {
 /// 清除日志
 #[tauri::command]
 fn clear_app_logs() -> Result<(), String> {
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = kafka_manager_api::utils::app_log_path();
 
     std::fs::write(&log_path, "")
         .map_err(|e| format!("清除日志失败：{}", e))

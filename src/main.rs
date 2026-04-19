@@ -8,6 +8,7 @@ mod middleware;
 mod models;
 mod pool;
 mod routes;
+mod utils;
 
 #[cfg(test)]
 mod tests;
@@ -17,7 +18,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::collections::HashSet;
 use std::sync::Mutex;
-use std::path::PathBuf;
 use std::fs::OpenOptions;
 use arc_swap::ArcSwap;
 use axum::extract::DefaultBodyLimit;
@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::db::DbPool;
 use crate::kafka::KafkaClients;
 use crate::pool::ClusterPools;
+use kafka_manager_api::utils::{app_log_path, ensure_log_dir};
 
 /// 应用状态
 #[derive(Clone)]
@@ -81,14 +82,10 @@ impl AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 与 Tauri 共用同一个日志文件
-    let log_path = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = app_log_path();
 
     // 确保日志目录存在
-    if let Some(parent) = log_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    ensure_log_dir();
 
     // 启动时清理今天之前的旧日志
     cleanup_old_logs(&log_path);

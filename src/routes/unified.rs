@@ -704,12 +704,9 @@ async fn handle_app_version() -> Result<Value> {
 
 async fn handle_app_logs() -> Result<Value> {
     use std::fs;
-    use dirs::cache_dir;
-    use std::path::PathBuf;
+    use crate::utils::app_log_path;
 
-    let log_path = cache_dir()
-        .map(|d| d.join("kafka-manager").join("kafka-manager.log"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/kafka-manager.log"));
+    let log_path = app_log_path();
 
     let logs_content = fs::read_to_string(&log_path).unwrap_or_default();
 
