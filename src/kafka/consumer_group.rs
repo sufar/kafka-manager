@@ -150,6 +150,40 @@ impl KafkaConsumerGroupManager {
         Ok(topics)
     }
 
+    /// 获取单个 Consumer Group 的详细信息（状态 + topics）
+    pub fn get_single_consumer_group(&self, group_id: &str) -> Result<(String, Vec<String>)> {
+        let consumer = if let Some(ref c) = self.inner {
+            c.clone()
+        } else {
+            let mut client_config = crate::kafka::create_client_config(&self.consumer_config);
+            client_config.set("group.id", "kafka-manager-temp-group");
+            client_config.set("enable.auto.commit", "false");
+            Arc::new(client_config.create()?)
+        };
+
+        let group_list = consumer.fetch_group_list(Some(group_id), self.timeout)
+            .map_err(|e| AppError::Internal(format!("Failed to fetch consumer group info: {}", e)))?;
+
+        let mut topics: Vec<String> = Vec::with_capacity(20);
+        let mut state_str = "Unknown".to_string();
+        for group in group_list.groups() {
+            state_str = group.state().to_string();
+            for member in group.members() {
+                if let Some(metadata) = member.metadata() {
+                    if let Some(group_topics) = parse_consumer_protocol_metadata(metadata) {
+                        for t in group_topics {
+                            if !topics.contains(&t) {
+                                topics.push(t);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((state_str, topics))
+    }
+
     /// 获取 Consumer Group 关联的所有 topics（从 active members 的 protocol metadata 提取）
     /// 只返回有活跃 consumer 的 group 的 topics，没有活跃 consumer 的 group 返回空列表
     pub fn get_consumer_group_topics(&self, group_id: &str) -> Result<Vec<String>> {

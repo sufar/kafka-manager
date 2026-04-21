@@ -399,6 +399,16 @@ impl ConsumerGroupStore {
         Ok(())
     }
 
+    /// 清理指定 group 的 topic 关系
+    pub async fn cleanup_group(pool: &sqlx::SqlitePool, cluster_id: &str, group_name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM consumer_group_topics WHERE cluster_id = ? AND group_name = ?")
+            .bind(cluster_id)
+            .bind(group_name)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// 按 topic 查询 consumer group names
     pub async fn list_group_names_by_topic(
         pool: &sqlx::SqlitePool,

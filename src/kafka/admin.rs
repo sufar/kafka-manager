@@ -36,9 +36,9 @@ impl KafkaAdmin {
             .collect())
     }
 
-    /// 获取 Topic 详情
+    /// 获取 Topic 详情（只拉取指定 topic 的元数据）
     pub fn get_topic_info(&self, topic_name: &str) -> Result<TopicInfo> {
-        let metadata = self.client.inner().fetch_metadata(None, self.timeout)?;
+        let metadata = self.client.inner().fetch_metadata(Some(topic_name), self.timeout)?;
 
         let topic_metadata = metadata
             .topics()

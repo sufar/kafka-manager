@@ -322,11 +322,15 @@ class ApiClient {
     return this.request('topic.partitions.add', { cluster_id: clusterId, topic: topicName, new_partitions: newPartitions });
   }
 
-  async refreshTopics(clusterId?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
+  async refreshTopics(clusterId?: string, topicName?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
     // 如果不传 clusterId，则刷新所有集群
+    // 如果传入 topicName，则只刷新该单个 topic
     const params: Record<string, any> = {};
     if (clusterId) {
       params.cluster_id = clusterId;
+    }
+    if (topicName) {
+      params.topic_name = topicName;
     }
     return this.request('topic.refresh', params);
   }
@@ -464,10 +468,13 @@ class ApiClient {
     return data.groups || [];
   }
 
-  async refreshConsumerGroups(clusterId?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
+  async refreshConsumerGroups(clusterId?: string, groupName?: string): Promise<{ success: boolean; added: string[]; removed: string[]; total: number }> {
     const params: Record<string, any> = {};
     if (clusterId) {
       params.cluster_id = clusterId;
+    }
+    if (groupName) {
+      params.group_name = groupName;
     }
     return this.request('consumer_group.refresh', params);
   }

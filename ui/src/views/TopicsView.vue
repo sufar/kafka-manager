@@ -685,11 +685,19 @@ async function refreshAllTopics() {
 
   refreshing.value = true;
 
+  // 如果搜索框有内容，只刷新该单个 topic
+  const topicQuery = searchQuery.value.trim();
+  const isSingleTopic = topicQuery !== '';
+
   // 立即提示，不等待后端响应
-  showSuccess(t.value.topics.refreshingBg, 3000);
+  if (isSingleTopic) {
+    showSuccess(`Refreshing topic "${topicQuery}"...`, 3000);
+  } else {
+    showSuccess(t.value.topics.refreshingBg, 3000);
+  }
 
   // Fire-and-forget
-  apiClient.refreshTopics(clusterParam.value).catch(() => {});
+  apiClient.refreshTopics(clusterParam.value, isSingleTopic ? topicQuery : undefined).catch(() => {});
 
   // 立即释放按钮状态
   refreshing.value = false;

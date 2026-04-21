@@ -830,10 +830,19 @@ async function refreshClusterTopics(clusterName: string) {
   }
 
   refreshingTopics.value = new Set(refreshingTopics.value.add(clusterName));
-  emit('toast', 'success', t.value.clusters.refreshingBg);
+
+  // 如果搜索框有内容，只刷新该单个 topic
+  const searchQuery = topicSearchQuery[clusterName];
+  const isSingleTopic = searchQuery && searchQuery.trim() !== '';
+
+  if (isSingleTopic) {
+    emit('toast', 'success', `Refreshing topic "${searchQuery.trim()}"...`);
+  } else {
+    emit('toast', 'success', t.value.clusters.refreshingBg);
+  }
 
   // Fire-and-forget: 立即返回，不等待后端响应
-  apiClient.refreshTopics(clusterName).catch(() => {});
+  apiClient.refreshTopics(clusterName, isSingleTopic ? searchQuery.trim() : undefined).catch(() => {});
 
   // 等待一小段时间后重新加载 topics
   setTimeout(async () => {
@@ -993,10 +1002,14 @@ async function loadClusterConsumerGroups(clusterName: string) {
 async function refreshClusterConsumerGroups(clusterName: string) {
   if (refreshingConsumerGroups.value.has(clusterName)) return;
 
+  // 如果搜索框有内容，只刷新该单个 consumer group
+  const searchQuery = consumerGroupSearchQuery[clusterName];
+  const isSingleGroup = searchQuery && searchQuery.trim() !== '';
+
   refreshingConsumerGroups.value = new Set(refreshingConsumerGroups.value.add(clusterName));
   try {
     // 调用后端 API 刷新 consumer groups（从 Kafka 集群同步到数据库）
-    await apiClient.refreshConsumerGroups(clusterName);
+    apiClient.refreshConsumerGroups(clusterName, isSingleGroup ? searchQuery.trim() : undefined).catch(() => {});
 
     // 等待后台同步完成
     await new Promise(resolve => setTimeout(resolve, 500));
