@@ -232,32 +232,44 @@
           key-field="uid"
           :buffer="500"
           v-slot="{ item }"
+          @scroll="closeAllSwipes"
         >
-          <div
-            class="flex items-center px-2 py-0.5 transition-colors border-b border-base-200/30 cursor-pointer w-full"
-            :class="[
-              selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item)
-                ? 'bg-primary/30 border-l-2 border-l-primary shadow-sm'
-                : 'hover:bg-base-200/50'
-            ]"
-            style="height: 24px;"
-            @click="selectedMessage = (item as any)"
-          >
-            <div class="w-12 flex-shrink-0 text-[10px]">
-              <span class="badge badge-ghost badge-xs scale-90">{{ getMsgPartition(item) }}</span>
-            </div>
-            <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
-            <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
-            <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
-            <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;" :title="getMsgValue(item) || ''">{{ getMsgValue(item) }}</div>
-            <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
-              <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+          <SwipeableMessageItem :ref="(el: any) => registerSwipeable((item as any).uid, el)">
+            <template #right>
+              <button class="btn btn-sm rounded-none w-full bg-primary/80 hover:bg-primary text-white border-0" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
                 </svg>
               </button>
+            </template>
+            <template #content>
+            <div
+              class="swipeable-row flex items-center px-2 py-0.5 transition-colors border-b border-base-200/30 cursor-pointer w-full"
+              :class="[
+                selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item)
+                  ? 'bg-primary/30 border-l-2 border-l-primary shadow-sm'
+                  : 'hover:bg-base-200/50'
+              ]"
+              style="height: 24px;"
+              @click="selectedMessage = (item as any)"
+            >
+              <div class="w-12 flex-shrink-0 text-[10px]">
+                <span class="badge badge-ghost badge-xs scale-90">{{ getMsgPartition(item) }}</span>
+              </div>
+              <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
+              <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
+              <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
+              <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;" :title="getMsgValue(item) || ''">{{ getMsgValue(item) }}</div>
+              <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
+                <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
+          </template>
+        </SwipeableMessageItem>
         </RecycleScroller>
         <div v-if="sortedMessages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
@@ -278,7 +290,17 @@
           key-field="uid"
           :buffer="300"
           v-slot="{ item }"
+          @scroll="closeAllSwipes"
         >
+          <SwipeableMessageItem :ref="(el: any) => registerSwipeable((item as any).uid, el)">
+            <template #right>
+              <button class="btn btn-sm rounded-none w-full bg-primary/80 hover:bg-primary text-white border-0" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                </svg>
+              </button>
+            </template>
+            <template #content>
           <div
             class="card bg-base-100 border border-base-200 p-2 shadow-sm mb-0 cursor-pointer"
             :class="{ 'border-l-2 border-l-primary shadow-primary/30 ring-1 ring-primary/20': selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item) }"
@@ -300,6 +322,8 @@
               {{ truncate(getMsgValue(item), 100) }}
             </div>
           </div>
+            </template>
+          </SwipeableMessageItem>
         </RecycleScroller>
         <div v-if="sortedMessages.length === 0 && !loading" class="flex-1 flex flex-col items-center justify-center text-base-content/50 p-2">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 opacity-50 mb-2">
@@ -411,6 +435,7 @@ import { formatJson } from '@/utils/json';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
 import SentMessageHistory from '@/components/SentMessageHistory.vue';
+import SwipeableMessageItem from '@/components/SwipeableMessageItem.vue';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 
@@ -458,6 +483,15 @@ const jsonHighlightRefresh = ref(0);
 // 虚拟滚动 ref
 const scrollerRef = ref<any>(null);
 const scrollerRefMobile = ref<any>(null);
+// 滑动操作 refs
+const swipeableRefs = ref<Map<string, InstanceType<typeof SwipeableMessageItem>>>(new Map());
+function registerSwipeable(uid: string, el: any) {
+  if (el) swipeableRefs.value.set(uid, el);
+  else swipeableRefs.value.delete(uid);
+}
+function closeAllSwipes() {
+  swipeableRefs.value.forEach((el) => el.close());
+}
 // 详情面板 ref
 const keyPreRef = ref<HTMLElement | null>(null);
 const valuePreRef = ref<HTMLElement | null>(null);
