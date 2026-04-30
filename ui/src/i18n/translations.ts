@@ -264,6 +264,9 @@ export interface Translation {
     day: string;
     queryTimeout: string;
     exportTip: string;
+    confirmDeleteTopic: string;
+    deleteTopic: string;
+    topicDeleted: string;
   };
   consumerGroups: {
     title: string;
@@ -842,6 +845,9 @@ export const translations: Record<Language, Translation> = {
       day: '天',
       queryTimeout: '查询超时，请重试',
       exportTip: '查询数量为每分区的消息数量，条件过滤在查询数据后进行',
+      confirmDeleteTopic: '确定要删除主题 "{topic}" 吗？此操作不可撤销',
+      deleteTopic: '删除主题',
+      topicDeleted: '主题已删除',
     },
     consumerGroups: {
       title: '消费者组',
@@ -1418,6 +1424,9 @@ export const translations: Record<Language, Translation> = {
       day: 'day',
       queryTimeout: 'Query timeout, please try again',
       exportTip: 'Query count is per partition, filtering is applied after fetching',
+      confirmDeleteTopic: 'Are you sure you want to delete topic "{topic}"? This action cannot be undone',
+      deleteTopic: 'Delete Topic',
+      topicDeleted: 'Topic deleted successfully',
     },
     consumerGroups: {
       title: 'Consumer Groups',
