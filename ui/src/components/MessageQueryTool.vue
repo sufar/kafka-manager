@@ -407,6 +407,14 @@
     <div v-show="showHistory" class="absolute inset-0 top-[41px] overflow-y-auto bg-base-100 z-20">
       <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" />
     </div>
+
+    <!-- Delete Topic Dialog -->
+    <DeleteTopicDialog
+      ref="deleteTopicDialogRef"
+      :cluster="selectedCluster || ''"
+      :topic="selectedTopic || ''"
+      @deleted="handleTopicDeleted"
+    />
   </div>
 </template>
 
@@ -422,6 +430,7 @@ import { formatJson } from '@/utils/json';
 import FavoriteButton from '@/components/FavoriteButton.vue';
 import SendMessageModal from '@/components/SendMessageModal.vue';
 import SentMessageHistory from '@/components/SentMessageHistory.vue';
+import DeleteTopicDialog from '@/components/DeleteTopicDialog.vue';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
 
@@ -434,7 +443,7 @@ const router = useRouter();
 function goBack() {
   router.back();
 }
-const { showSuccess, showError, confirm } = useToast();
+const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
 
@@ -595,19 +604,15 @@ function viewTopicConsumerGroups() {
 }
 
 // 删除当前 Topic
-async function handleDeleteTopic() {
+const deleteTopicDialogRef = ref<InstanceType<typeof DeleteTopicDialog> | null>(null);
+
+function handleDeleteTopic() {
   if (!selectedCluster.value || !selectedTopic.value) return;
+  deleteTopicDialogRef.value?.open();
+}
 
-  const confirmed = await confirm(t.value.messages.confirmDeleteTopic.replace('{topic}', selectedTopic.value));
-  if (!confirmed) return;
-
-  try {
-    await apiClient.deleteTopic(selectedCluster.value, selectedTopic.value);
-    showSuccess(t.value.messages.topicDeleted);
-    window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster: selectedCluster.value, topic: selectedTopic.value } }));
-  } catch (e) {
-    showError(`${t.value.toast.operationFailed}: ${(e as { message?: string }).message}`);
-  }
+function handleTopicDeleted(cluster: string, topic: string) {
+  window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster, topic } }));
 }
 
 // 处理选择历史消息
