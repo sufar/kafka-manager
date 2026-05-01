@@ -45,6 +45,7 @@ use serde_json::Value;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio::sync::Semaphore;
 use std::cmp::Reverse;
 use tokio_util::sync::CancellationToken;
 use std::time::Duration;
@@ -4913,7 +4914,7 @@ async fn handle_cluster_group_assign_cluster(state: AppState, body: Value) -> Re
 // ==================== Consumer Group ====================
 
 use crate::db::consumer_group::ConsumerGroupStore;
-use crate::kafka::consumer_group::{KafkaConsumerGroupManager, PartitionOffsetDetail};
+use crate::kafka::consumer_group::KafkaConsumerGroupManager;
 
 /// 刷新 Consumer Group 列表（从 Kafka 集群同步到数据库）
 async fn handle_consumer_group_refresh(state: AppState, body: Value) -> Result<Value> {
@@ -5401,26 +5402,56 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
 
     let cg_manager = KafkaConsumerGroupManager::with_consumer(&config, reusable_consumer)?;
 
-    // 步骤 3: 顺序获取每个 group 的指定 topic offset 信息（复用同一个 Kafka 连接）
-    let mut all_offsets: Vec<(String, PartitionOffsetDetail)> = Vec::new();
+    // 步骤 3: 有界并发获取每个 group 的指定 topic offset 信息
+    const CONCURRENCY_LIMIT: usize = 3;
+    let semaphore = Arc::new(Semaphore::new(CONCURRENCY_LIMIT));
+    let cg_manager = Arc::new(cg_manager);
 
+    let mut handles: Vec<_> = Vec::new();
     for group_name in &group_names {
-        match cg_manager.get_consumer_group_offsets_for_topic(group_name, &topic) {
-            Ok(offsets) => {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let mgr = cg_manager.clone();
+        let group_name = group_name.clone();
+        let topic = topic.clone();
+
+        let handle = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            mgr.get_consumer_group_offsets_for_topic(&group_name, &topic)
+                .map(|offsets| (group_name, offsets))
+        });
+        handles.push(handle);
+    }
+
+    let mut all_offsets: Vec<(String, crate::kafka::consumer_group::PartitionOffsetDetail)> = Vec::new();
+
+    for handle in handles {
+        match handle.await {
+            Ok(Ok((group_name, offsets))) => {
                 for offset in offsets {
                     all_offsets.push((group_name.clone(), offset));
                 }
             }
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to get offsets for group: {}", e);
+            }
             Err(e) => {
-                tracing::warn!("Failed to get offsets for group '{}': {}", group_name, e);
+                tracing::warn!("Task panicked while getting offsets: {}", e);
             }
         }
     }
 
-    // 步骤 4: 顺序获取所有分区的最后提交时间（复用同一个 Kafka 连接）
+    // 步骤 4: 有界并发获取所有分区的最后提交时间
     let mut last_commit_times: std::collections::HashMap<(String, String, i32), Option<i64>> = std::collections::HashMap::new();
 
-    for group_name in &group_names {
+    // 只对有 offset 数据的 group 获取 last_commit_time
+    let groups_with_offsets: Vec<String> = group_names
+        .iter()
+        .filter(|g| all_offsets.iter().any(|(group, _)| group.as_str() == g.as_str()))
+        .cloned()
+        .collect();
+
+    let mut commit_handles: Vec<_> = Vec::new();
+    for group_name in &groups_with_offsets {
         let group_parts: Vec<(String, i32)> = all_offsets
             .iter()
             .filter(|(g, _)| g.as_str() == group_name.as_str())
@@ -5431,8 +5462,21 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
             continue;
         }
 
-        match cg_manager.get_partitions_last_commit_time(group_name, &group_parts) {
-            Ok(times) => {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let mgr = cg_manager.clone();
+        let group_name = group_name.clone();
+
+        let handle = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            mgr.get_partitions_last_commit_time(&group_name, &group_parts)
+                .map(|times| (group_name, group_parts, times))
+        });
+        commit_handles.push(handle);
+    }
+
+    for handle in commit_handles {
+        match handle.await {
+            Ok(Ok((group_name, group_parts, times))) => {
                 for (i, time) in times.iter().enumerate() {
                     if i < group_parts.len() {
                         let key = (group_name.clone(), group_parts[i].0.clone(), group_parts[i].1);
@@ -5440,8 +5484,11 @@ async fn handle_consumer_group_list_by_topic(state: AppState, body: Value) -> Re
                     }
                 }
             }
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to get last commit time for group: {}", e);
+            }
             Err(e) => {
-                tracing::warn!("Failed to get last commit time for group '{}': {}", group_name, e);
+                tracing::warn!("Task panicked while getting last commit time: {}", e);
             }
         }
     }
