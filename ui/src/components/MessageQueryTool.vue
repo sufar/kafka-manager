@@ -78,7 +78,7 @@
           class="btn btn-ghost btn-sm"
           :disabled="!selectedCluster || !selectedTopic"
           title="更多操作"
-          @click="showMoreMenu = !showMoreMenu"
+          @click="handleMoreMenuClick"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
@@ -267,7 +267,7 @@
               <span class="badge badge-ghost badge-xs scale-90">{{ getMsgPartition(item) }}</span>
             </div>
             <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
-            <div class="w-28 flex-shrink-0 text-[10px] text-base-content/60 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
+            <div class="w-28 flex-shrink-0 text-[10px] whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
             <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
             <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;" :title="getMsgValue(item) || ''">{{ getMsgValue(item) }}</div>
             <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
@@ -309,7 +309,7 @@
                 <span class="badge badge-ghost badge-xs">P{{ getMsgPartition(item) }}</span>
                 <span class="text-xs font-mono text-base-content/70">#{{ getMsgOffset(item) }}</span>
               </div>
-              <span class="text-[10px] text-base-content/50 whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</span>
+              <span class="text-[10px] whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</span>
             </div>
             <div class="h-4 mb-1 overflow-hidden">
               <div v-if="getMsgKey(item)" class="text-[10px] font-mono text-secondary truncate">
@@ -349,7 +349,7 @@
             <h4 class="text-xs font-bold">{{ t.messages.messageDetail }}</h4>
             <span class="text-[10px] text-base-content/50">{{ t.messages.partition }}: <span class="font-mono">{{ selectedMessage.p }}</span></span>
             <span class="text-[10px] text-base-content/50">{{ t.messages.offset }}: <span class="font-mono">{{ selectedMessage.o }}</span></span>
-            <span class="text-[10px] text-base-content/50">{{ formatTime(selectedMessage.ts) }}</span>
+            <span class="text-[10px]">{{ formatTime(selectedMessage.ts) }}</span>
           </div>
           <div class="flex items-center gap-1">
             <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">{{ t.messages.close }}</button>
@@ -595,17 +595,25 @@ const messageFormValue = ref('');
 // 发送历史状态
 const showHistory = ref(false);
 const showMoreMenu = ref(false);
+let moreMenuButtonClicked = false;
 
 function toggleHistory() {
   showHistory.value = !showHistory.value;
 }
 
 function handleMoreMenuFocusOut(event: FocusEvent) {
+  if (moreMenuButtonClicked) return;
   const target = event.relatedTarget as Node | null;
   const dropdown = (event.target as HTMLElement).closest('.dropdown');
   if (dropdown && !dropdown?.contains(target)) {
     showMoreMenu.value = false;
   }
+}
+
+function handleMoreMenuClick() {
+  moreMenuButtonClicked = true;
+  showMoreMenu.value = !showMoreMenu.value;
+  setTimeout(() => { moreMenuButtonClicked = false; }, 100);
 }
 
 // 查看 Topic 的消费者组
