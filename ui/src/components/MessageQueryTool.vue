@@ -224,9 +224,23 @@
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
         <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
-          <div class="w-12 flex-shrink-0">{{ t.messages.partitionLabel2 }}</div>
-          <div class="w-16 flex-shrink-0">{{ t.messages.offsetLabel }}</div>
-          <div class="w-28 flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors" @click="toggleTimestampSort">
+          <div class="flex-shrink-0" :style="{ width: columnWidths.partition + 'px' }">
+            {{ t.messages.partitionLabel2 }}
+          </div>
+          <div
+            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('partition', $event)"
+          ></div>
+          <div class="flex-shrink-0" :style="{ width: columnWidths.offset + 'px' }">
+            {{ t.messages.offsetLabel }}
+          </div>
+          <div
+            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('offset', $event)"
+          ></div>
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+            :style="{ width: columnWidths.timestamp + 'px' }"
+            @click="toggleTimestampSort">
             {{ t.messages.timestampLabel }}
             <svg v-if="timestampSort === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
@@ -238,9 +252,20 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
             </svg>
           </div>
-          <div class="w-20 flex-shrink-0">{{ t.messages.key }}</div>
-          <div class="flex-1">{{ t.messages.value }}</div>
-          <div class="w-10 flex-shrink-0 text-center">{{ t.messages.actions }}</div>
+          <div
+            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('timestamp', $event)"
+          ></div>
+          <div class="flex-shrink-0" :style="{ width: columnWidths.key + 'px' }">{{ t.messages.key }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('key', $event)"
+          ></div>
+          <div class="flex-1" :style="{ minWidth: columnWidths.value + 'px' }">{{ t.messages.value }}</div>
+          <div class="flex-shrink-0 text-center" :style="{ width: columnWidths.actions + 'px' }">{{ t.messages.actions }}</div>
+          <div
+            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('actions', $event)"
+          ></div>
         </div>
         <!-- Virtual Scroll List -->
         <RecycleScroller
@@ -263,14 +288,14 @@
             style="height: 24px;"
             @click="selectedMessage = (item as any)"
           >
-            <div class="w-12 flex-shrink-0 text-[10px]">
+            <div class="flex-shrink-0 text-[10px]" :style="{ width: columnWidths.partition + 'px' }">
               <span class="badge badge-ghost badge-xs scale-90">{{ getMsgPartition(item) }}</span>
             </div>
-            <div class="w-16 flex-shrink-0 text-[10px] font-mono">{{ getMsgOffset(item) }}</div>
-            <div class="w-28 flex-shrink-0 text-[10px] whitespace-nowrap">{{ formatTime(getMsgTimestamp(item)) }}</div>
-            <div class="w-20 flex-shrink-0 text-[10px] font-mono truncate">{{ getMsgKey(item) || '-' }}</div>
+            <div class="flex-shrink-0 text-[10px] font-mono" :style="{ width: columnWidths.offset + 'px' }">{{ getMsgOffset(item) }}</div>
+            <div class="flex-shrink-0 text-[10px] whitespace-nowrap" :style="{ width: columnWidths.timestamp + 'px' }">{{ formatTime(getMsgTimestamp(item)) }}</div>
+            <div class="flex-shrink-0 text-[10px] font-mono truncate" :style="{ width: columnWidths.key + 'px' }">{{ getMsgKey(item) || '-' }}</div>
             <div class="flex-1 text-[10px] font-mono truncate pr-2" style="min-width: 0;" :title="getMsgValue(item) || ''">{{ getMsgValue(item) }}</div>
-            <div class="w-10 flex-shrink-0 text-[10px] flex items-center justify-center">
+            <div class="flex-shrink-0 text-[10px] flex items-center justify-center" :style="{ width: columnWidths.actions + 'px' }">
               <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click.stop="copyMessageValue(item as any)" :title="t.messages.copyValue">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
@@ -338,7 +363,43 @@
       tabindex="-1"
       @keydown.ctrl.a.prevent="handleSelectAll"
       @keydown.meta.a.prevent="handleSelectAll"
+      @keydown.ctrl.f.prevent="handleDetailSearch"
+      @keydown.meta.f.prevent="handleDetailSearch"
     >
+      <!-- Search Bar -->
+      <div v-if="detailSearchActive" class="flex items-center gap-1 px-2 py-1 bg-base-100 border-b border-base-200">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input
+          ref="detailSearchInputRef"
+          v-model="detailSearchQuery"
+          type="text"
+          class="input input-bordered input-xs flex-1 min-w-0"
+          placeholder="搜索详情内容..."
+          @input="updateDetailSearch"
+          @keydown.escape="closeDetailSearch"
+        />
+        <span v-if="detailSearchQuery && detailMatchCount > 0" class="text-[10px] text-base-content/50 flex-shrink-0 whitespace-nowrap">
+          {{ detailMatchIndex }}/{{ detailMatchCount }}
+        </span>
+        <span v-else-if="detailSearchQuery && detailMatchCount === 0" class="text-[10px] text-error flex-shrink-0">0 匹配</span>
+        <button v-if="detailSearchQuery && detailMatchCount > 0" class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="detailSearchPrev" title="上一个">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+          </svg>
+        </button>
+        <button v-if="detailSearchQuery && detailMatchCount > 0" class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="detailSearchNext" title="下一个">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
+        <button class="btn btn-ghost btn-xs px-1 min-h-[18px] h-[18px]" @click="closeDetailSearch" title="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
       <!-- Resize Handle -->
       <div class="resize-handle h-1 cursor-row-resize bg-base-300 hover:bg-primary/50 transition-colors flex items-center justify-center" @mousedown="startResize">
         <div class="w-8 h-0.5 bg-base-content/20 rounded-full"></div>
@@ -355,7 +416,7 @@
             <button class="btn btn-ghost btn-xs px-1" @click="selectedMessage = null">{{ t.messages.close }}</button>
           </div>
         </div>
-        <div class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
+        <div ref="detailContentRef" class="space-y-1.5 text-[10px] h-[calc(100%-32px)] overflow-auto flex flex-col">
           <div v-if="selectedMessage.k" class="mb-1">
             <div class="flex items-center justify-between mb-0.5">
               <div class="text-base-content/50 text-[10px] font-semibold">{{ t.messages.key }}:</div>
@@ -596,6 +657,58 @@ const messageFormValue = ref('');
 const showHistory = ref(false);
 const showMoreMenu = ref(false);
 let moreMenuButtonClicked = false;
+
+// Column widths for the message table (in px)
+type ColumnKey = 'partition' | 'offset' | 'timestamp' | 'key' | 'value' | 'actions';
+const columnWidths = ref<Record<ColumnKey, number>>({
+  partition: 48,
+  offset: 64,
+  timestamp: 112,
+  key: 80,
+  value: 200,
+  actions: 40,
+});
+const columnResizing = ref(false);
+const resizeColumn = ref<ColumnKey | null>(null);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
+
+// Detail panel search
+const detailSearchActive = ref(false);
+const detailSearchQuery = ref('');
+const detailSearchInputRef = ref<HTMLInputElement | null>(null);
+const detailContentRef = ref<HTMLElement | null>(null);
+const detailMatchIndex = ref(0);
+const detailMatchCount = ref(0);
+
+function startColumnResize(col: ColumnKey, e: MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  columnResizing.value = true;
+  resizeColumn.value = col;
+  resizeStartX.value = e.clientX;
+  resizeStartWidth.value = columnWidths.value[col];
+  document.addEventListener('mousemove', onColumnResize);
+  document.addEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onColumnResize(e: MouseEvent) {
+  if (!resizeColumn.value) return;
+  const delta = e.clientX - resizeStartX.value;
+  const newWidth = Math.max(30, resizeStartWidth.value + delta);
+  columnWidths.value[resizeColumn.value] = newWidth;
+}
+
+function stopColumnResize() {
+  columnResizing.value = false;
+  resizeColumn.value = null;
+  document.removeEventListener('mousemove', onColumnResize);
+  document.removeEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
 
 function toggleHistory() {
   showHistory.value = !showHistory.value;
@@ -1226,6 +1339,143 @@ function highlightJson(json: string): string {
   return highlightJsonWithTemplate(json);
 }
 
+// Detail panel Ctrl+F search
+function handleDetailSearch() {
+  detailSearchActive.value = true;
+  detailSearchQuery.value = '';
+  detailMatchIndex.value = 0;
+  detailMatchCount.value = 0;
+  // Wait for DOM update then focus input
+  setTimeout(() => {
+    detailSearchInputRef.value?.focus();
+  }, 50);
+}
+
+function closeDetailSearch() {
+  detailSearchActive.value = false;
+  detailSearchQuery.value = '';
+  // Remove all highlights
+  if (detailContentRef.value) {
+    removeSearchHighlights(detailContentRef.value);
+  }
+}
+
+function removeSearchHighlights(container: HTMLElement) {
+  // Restore original text by unwrapping all <mark> elements
+  const marks = container.querySelectorAll('mark.search-highlight');
+  marks.forEach((mark) => {
+    const text = document.createTextNode(mark.textContent || '');
+    mark.parentNode?.replaceChild(text, mark);
+  });
+  // Also remove any selection class
+  const selected = container.querySelectorAll('.search-match-active');
+  selected.forEach((el) => el.classList.remove('search-match-active'));
+}
+
+function highlightTextInElement(container: HTMLElement, query: string) {
+  removeSearchHighlights(container);
+  if (!query) {
+    detailMatchCount.value = 0;
+    detailMatchIndex.value = 0;
+    return;
+  }
+
+  const lowerQuery = query.toLowerCase();
+  // Only search within leaf text nodes that are not inside <button>, <input>, <select>
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      // Skip buttons, inputs, and already-highlighted content
+      if (parent.closest('button, input, select, textarea')) return NodeFilter.FILTER_REJECT;
+      if (parent.classList.contains('search-highlight-processed')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode as Text);
+  }
+
+  let matchIndex = 0;
+  let totalMatches = 0;
+  const ranges: Range[] = [];
+
+  textNodes.forEach((node) => {
+    const text = node.textContent || '';
+    const lowerText = text.toLowerCase();
+    let startIndex = 0;
+    while (true) {
+      const pos = lowerText.indexOf(lowerQuery, startIndex);
+      if (pos === -1) break;
+      const range = document.createRange();
+      range.setStart(node, pos);
+      range.setEnd(node, pos + query.length);
+      ranges.push(range);
+      totalMatches++;
+      startIndex = pos + 1;
+    }
+  });
+
+  // Wrap matches in <mark> elements (reverse order to not break positions)
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    const range = ranges[i];
+    const mark = document.createElement('mark');
+    mark.className = 'search-highlight search-highlight-processed';
+    mark.style.cssText = 'background:#fde68a;color:inherit;border-radius:1px;padding:0;';
+    try {
+      range.surroundContents(mark);
+    } catch {
+      // If range spans multiple nodes, skip
+    }
+  }
+
+  detailMatchCount.value = totalMatches;
+  if (totalMatches > 0) {
+    detailMatchIndex.value = 1;
+    highlightActiveMatch(container, 0);
+  }
+}
+
+function highlightActiveMatch(container: HTMLElement, index: number) {
+  // Remove previous active highlight
+  const prev = container.querySelector('.search-match-active');
+  prev?.classList.remove('search-match-active');
+
+  const marks = container.querySelectorAll('mark.search-highlight');
+  if (marks.length === 0) return;
+
+  const activeMark = marks[index % marks.length];
+  activeMark.style.background = '#f59e0b';
+  activeMark.style.color = '#fff';
+  activeMark.classList.add('search-match-active');
+  activeMark.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function updateDetailSearch() {
+  if (!detailContentRef.value) return;
+  if (!detailSearchQuery.value) {
+    removeSearchHighlights(detailContentRef.value);
+    detailMatchCount.value = 0;
+    detailMatchIndex.value = 0;
+    return;
+  }
+  highlightTextInElement(detailContentRef.value, detailSearchQuery.value);
+}
+
+function detailSearchNext() {
+  if (!detailContentRef.value || detailMatchCount.value === 0) return;
+  detailMatchIndex.value = (detailMatchIndex.value % detailMatchCount.value) + 1;
+  highlightActiveMatch(detailContentRef.value, detailMatchIndex.value - 1);
+}
+
+function detailSearchPrev() {
+  if (!detailContentRef.value || detailMatchCount.value === 0) return;
+  detailMatchIndex.value = detailMatchIndex.value <= 1 ? detailMatchCount.value : detailMatchIndex.value - 1;
+  highlightActiveMatch(detailContentRef.value, detailMatchIndex.value - 1);
+}
+
 // 监听模板变化事件
 function handleTemplateChange(_event: CustomEvent) {
   clearTemplateCache();
@@ -1368,10 +1618,17 @@ onUnmounted(() => {
     stopQuery();
   }
   stopResize();
+  stopColumnResize();
+  closeDetailSearch();
   // 移除键盘事件监听
   document.removeEventListener('keydown', handleKeyNavigation);
   // 移除模板变化事件监听
   window.removeEventListener('json-highlight-changed', handleTemplateChange as EventListener);
+});
+
+// Close detail search when selected message changes
+watch(selectedMessage, () => {
+  closeDetailSearch();
 });
 
 // 加载设置（从数据库）
@@ -1455,6 +1712,22 @@ function stopResize() {
 
 .resize-handle {
   user-select: none;
+}
+
+.resizer {
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 4px;
+  transform: translateX(-50%);
 }
 
 pre {
