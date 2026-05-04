@@ -414,7 +414,7 @@
 
     <!-- Sent Message History Panel -->
     <div v-show="showHistory" class="absolute inset-0 top-[41px] overflow-y-auto bg-base-100 z-20">
-      <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" />
+      <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" @close="showHistory = false" />
     </div>
 
     <!-- Delete Topic Dialog -->

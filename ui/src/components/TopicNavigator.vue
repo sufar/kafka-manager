@@ -211,7 +211,7 @@
 
     <!-- Topic History Panel -->
     <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2 pb-2">
-      <TopicHistory :t="t" />
+      <TopicHistory :t="t" @close="showHistory = false" />
     </div>
 
     <!-- Status Bar - Fixed at bottom -->
