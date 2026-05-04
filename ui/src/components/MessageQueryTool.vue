@@ -1420,12 +1420,13 @@ function highlightTextInElement(container: HTMLElement, query: string) {
 
   // Wrap matches in <mark> elements (reverse order to not break positions)
   for (let i = ranges.length - 1; i >= 0; i--) {
-    const range = ranges[i];
+    const r = ranges[i];
+    if (!r) continue;
     const mark = document.createElement('mark');
     mark.className = 'search-highlight search-highlight-processed';
     mark.style.cssText = 'background:#fde68a;color:inherit;border-radius:1px;padding:0;';
     try {
-      range.surroundContents(mark);
+      r.surroundContents(mark);
     } catch {
       // If range spans multiple nodes, skip
     }
@@ -1446,11 +1447,11 @@ function highlightActiveMatch(container: HTMLElement, index: number) {
   const marks = container.querySelectorAll('mark.search-highlight');
   if (marks.length === 0) return;
 
-  const activeMark = marks[index % marks.length];
-  activeMark.style.background = '#f59e0b';
-  activeMark.style.color = '#fff';
-  activeMark.classList.add('search-match-active');
-  activeMark.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const mark = marks[index % marks.length] as HTMLElement;
+  mark.style.background = '#f59e0b';
+  mark.style.color = '#fff';
+  mark.classList.add('search-match-active');
+  mark.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function updateDetailSearch() {
