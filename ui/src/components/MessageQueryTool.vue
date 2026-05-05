@@ -752,6 +752,12 @@ function handleDeleteTopic() {
 
 function handleTopicDeleted(cluster: string, topic: string) {
   window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster, topic } }));
+  // 如果删除的是当前正在查看的 topic，清空右侧界面
+  if (cluster === selectedCluster.value && topic === selectedTopic.value) {
+    selectedTopic.value = '';
+    messages.value = [];
+    selectedMessage.value = null;
+  }
 }
 
 // 处理选择历史消息

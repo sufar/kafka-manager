@@ -680,6 +680,8 @@ onMounted(() => {
   updateMobileState();
   // Listen for navigation from history
   window.addEventListener('navigate-to-topic-from-history', handleNavigateFromHistory);
+  // Listen for topic deletion from other components
+  window.addEventListener('topic-deleted', handleTopicDeleted);
 });
 
 onUnmounted(() => {
@@ -692,6 +694,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
   window.removeEventListener('resize', updateMobileState);
   window.removeEventListener('navigate-to-topic-from-history', handleNavigateFromHistory);
+  window.removeEventListener('topic-deleted', handleTopicDeleted);
 });
 
 function handleOutsideClick(event: MouseEvent) {
@@ -1363,6 +1366,18 @@ function handleNavigateFromHistory(event: Event) {
       path: '/messages',
       query: { cluster: clusterId, topic: topicName }
     });
+  }
+}
+
+// Handle topic deletion from TopicsView/MessageQueryTool
+function handleTopicDeleted(event: Event) {
+  const customEvent = event as CustomEvent<{ cluster: string; topic: string }>;
+  const { cluster, topic } = customEvent.detail;
+  // Remove topic from local cache to avoid full reload
+  const group = topicCache.value.groups.find(g => g.clusterId === cluster);
+  if (group) {
+    group.topics = group.topics.filter((t: { name: string }) => t.name !== topic);
+    group.totalCount = group.topics.length;
   }
 }
 

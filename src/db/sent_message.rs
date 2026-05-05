@@ -190,6 +190,21 @@ pub async fn delete_sent_message(pool: &DbPool, id: i64) -> Result<bool, sqlx::E
     Ok(result.rows_affected() > 0)
 }
 
+/// 删除指定 cluster 和 topic 的发送历史
+pub async fn delete_sent_messages_by_topic(
+    pool: &DbPool,
+    cluster_id: &str,
+    topic_name: &str,
+) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM sent_messages WHERE cluster_id = ? AND topic_name = ?")
+        .bind(cluster_id)
+        .bind(topic_name)
+        .execute(pool.inner())
+        .await?;
+
+    Ok(result.rows_affected() as i64)
+}
+
 /// 清空所有发送历史记录
 pub async fn clear_sent_message_history(pool: &DbPool) -> Result<i64, sqlx::Error> {
     let result = sqlx::query("DELETE FROM sent_messages")

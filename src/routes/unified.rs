@@ -14,7 +14,7 @@ use crate::db::topic_history::{
     record_history,
 };
 use crate::db::sent_message::{
-    clear_sent_message_history, delete_sent_message, get_sent_message_list, record_sent_message,
+    clear_sent_message_history, delete_sent_message, delete_sent_messages_by_topic, get_sent_message_list, record_sent_message,
 };
 use crate::db::settings::SettingStore;
 use crate::routes::settings::ImportDataRequest;
@@ -1448,6 +1448,12 @@ async fn handle_topic_delete(state: AppState, body: Value) -> Result<Value> {
 
     admin.delete_topic(&name).await?;
 
+    // 清理 SQLite 中该 topic 的所有关联数据
+    let _ = TopicStore::delete(state.db.inner(), &cluster_id, &name).await;
+    let _ = delete_history_by_topic(&state.db, &cluster_id, &name).await;
+    let _ = delete_favorite_by_topic(&state.db, &cluster_id, &name).await;
+    let _ = delete_sent_messages_by_topic(&state.db, &cluster_id, &name).await;
+
     Ok(serde_json::json!({ "success": true }))
 }
 
@@ -1530,7 +1536,14 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
 
     for topic_name in topics {
         match admin.delete_topic(&topic_name).await {
-            Ok(_) => deleted.push(topic_name),
+            Ok(_) => {
+                // 清理 SQLite 中该 topic 的所有关联数据
+                let _ = TopicStore::delete(state.db.inner(), &cluster_id, &topic_name).await;
+                let _ = delete_history_by_topic(&state.db, &cluster_id, &topic_name).await;
+                let _ = delete_favorite_by_topic(&state.db, &cluster_id, &topic_name).await;
+                let _ = delete_sent_messages_by_topic(&state.db, &cluster_id, &topic_name).await;
+                deleted.push(topic_name);
+            }
             Err(e) => {
                 failed.push(serde_json::json!({
                     "name": topic_name,
@@ -1574,9 +1587,12 @@ async fn handle_topic_delete_all(state: AppState, body: Value) -> Result<Value> 
         }));
     }
 
-    // 从数据库删除所有 topic 元数据
+    // 从数据库删除所有 topic 元数据及关联数据
     for topic_name in &topic_names {
         let _ = TopicStore::delete(state.db.inner(), &cluster_id, topic_name).await;
+        let _ = delete_history_by_topic(&state.db, &cluster_id, topic_name).await;
+        let _ = delete_favorite_by_topic(&state.db, &cluster_id, topic_name).await;
+        let _ = delete_sent_messages_by_topic(&state.db, &cluster_id, topic_name).await;
     }
 
     Ok(serde_json::json!({
