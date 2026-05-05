@@ -335,6 +335,10 @@ class ApiClient {
     return this.request('topic.refresh', params);
   }
 
+  async getRefreshStatus(): Promise<{ refreshing_clusters: string[] }> {
+    return this.request('refresh.status', {});
+  }
+
   async cleanupOrphanTopics(): Promise<{ success: boolean; removed: [string, string][]; count: number }> {
     return this.request('topic.cleanup_orphans', {});
   }

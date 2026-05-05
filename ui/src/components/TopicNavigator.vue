@@ -95,8 +95,9 @@
     <!-- Topic List with Virtual Scroll -->
     <div v-show="!showHistory" class="flex-1 flex flex-col min-h-0 px-2 relative">
       <!-- Loading -->
-      <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10 bg-base-100">
+      <div v-if="loading || refreshing" class="absolute inset-0 flex flex-col items-center justify-center z-10 bg-base-100/80">
         <span class="loading loading-spinner loading-sm"></span>
+        <span class="text-xs text-base-content/60 mt-1">{{ t.navigator?.refreshing || '正在刷新...' }}</span>
       </div>
 
       <!-- Empty - Topics -->
@@ -1106,8 +1107,6 @@ async function refreshTopics() {
   if (refreshing.value || isUnmounted.value) return;
 
   refreshing.value = true;
-
-  // 立即提示，不等待后端响应
   showSuccess(t.value.topics.refreshingBg, 3000);
 
   // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
@@ -1120,15 +1119,13 @@ async function refreshTopics() {
     });
   }
 
-  // 立即释放按钮状态
-  refreshing.value = false;
+  // 轮询等待所有选中集群刷新完成
+  await waitForRefresh(selectedClustersList, 120_000);
 
-  // 短暂延迟后重新加载 topic 列表，显示已缓存的数据
   if (!isUnmounted.value) {
-    setTimeout(async () => {
-      await loadAllTopics();
-    }, 500);
+    await loadAllTopics();
   }
+  refreshing.value = false;
 }
 
 // ==================== Consumer Groups Functions ====================
@@ -1222,8 +1219,6 @@ async function refreshConsumerGroups() {
   if (refreshingGroups.value || isUnmounted.value) return;
 
   refreshingGroups.value = true;
-
-  // 立即提示，不等待后端响应
   showSuccess(t.value.consumerGroups.refreshingBg, 3000);
 
   // Fire-and-forget: 发送刷新请求后不等待，由后端异步处理
@@ -1236,14 +1231,46 @@ async function refreshConsumerGroups() {
     });
   }
 
-  // 立即释放按钮状态
-  refreshingGroups.value = false;
+  // 轮询等待所有选中集群刷新完成
+  await waitForRefresh(selectedClustersList, 180_000);
 
-  // 短暂延迟后重新加载 consumer group 列表，显示已缓存的数据
   if (!isUnmounted.value) {
-    setTimeout(async () => {
-      await loadAllConsumerGroups();
-    }, 1000);
+    await loadAllConsumerGroups();
+  }
+  refreshingGroups.value = false;
+}
+
+// Poll refresh status until all target clusters are done or timeout
+async function waitForRefresh(targetClusters: string[], timeoutMs: number) {
+  if (targetClusters.length === 0) {
+    // 刷新所有集群：等待 refreshing_clusters 变空
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (isUnmounted.value) return;
+      try {
+        const status = await apiClient.getRefreshStatus();
+        if (status.refreshing_clusters.length === 0) return;
+      } catch {
+        // 查询失败，继续等待
+      }
+    }
+    return;
+  }
+
+  // 刷新指定集群：等待这些集群都不在 refreshing_clusters 中
+  const targetSet = new Set(targetClusters);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (isUnmounted.value) return;
+    try {
+      const status = await apiClient.getRefreshStatus();
+      const stillRefreshing = status.refreshing_clusters.some(c => targetSet.has(c));
+      if (!stillRefreshing) return;
+    } catch {
+      // 查询失败，继续等待
+    }
   }
 }
 

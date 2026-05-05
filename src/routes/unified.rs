@@ -581,6 +581,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "topic.partition.watermarks" => handle_topic_partition_watermarks(state, body).await,
         "topic.throughput" => handle_topic_throughput(state, body).await,
         "topic.refresh" => handle_topic_refresh(state, body).await,
+        "refresh.status" => handle_refresh_status(state).await,
         "topic.saved" => handle_topic_saved(state, body).await,
         "topic.search" => handle_topic_search(state, body).await,
         "topic.count" => handle_topic_count(state, body).await,
@@ -1730,6 +1731,15 @@ async fn handle_topic_throughput(state: AppState, body: Value) -> Result<Value> 
             "first_message_time": p.first_message_time,
             "last_message_time": p.last_message_time,
         })).collect::<Vec<_>>(),
+    }))
+}
+
+/// 查询当前正在刷新的集群列表
+async fn handle_refresh_status(state: AppState) -> Result<Value> {
+    let refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
+    let clusters: Vec<String> = refresh_state.refreshing_clusters.iter().cloned().collect();
+    Ok(serde_json::json!({
+        "refreshing_clusters": clusters
     }))
 }
 

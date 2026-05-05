@@ -472,6 +472,7 @@ export interface Translation {
     clusters: string;
     deselectAll: string;
     selectClusters: string;
+    refreshing: string;
   };
   favorites: {
     title: string;
@@ -1053,6 +1054,7 @@ export const translations: Record<Language, Translation> = {
       clusters: '集群',
       deselectAll: '取消全选',
       selectClusters: '选择集群',
+      refreshing: '正在刷新...',
     },
     favorites: {
       title: 'Topic 收藏',
@@ -1632,6 +1634,7 @@ export const translations: Record<Language, Translation> = {
       clusters: 'Clusters',
       deselectAll: 'Deselect All',
       selectClusters: 'Select Clusters',
+      refreshing: 'Refreshing...',
     },
     favorites: {
       title: 'Topic Favorites',
