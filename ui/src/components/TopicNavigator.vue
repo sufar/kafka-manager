@@ -95,9 +95,8 @@
     <!-- Topic List with Virtual Scroll -->
     <div v-show="!showHistory" class="flex-1 flex flex-col min-h-0 px-2 relative">
       <!-- Loading -->
-      <div v-if="loading || refreshing" class="absolute inset-0 flex flex-col items-center justify-center z-10 bg-base-100/80">
+      <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10 bg-base-100">
         <span class="loading loading-spinner loading-sm"></span>
-        <span class="text-xs text-base-content/60 mt-1">{{ t.navigator?.refreshing || '正在刷新...' }}</span>
       </div>
 
       <!-- Empty - Topics -->
