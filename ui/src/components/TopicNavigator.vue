@@ -1374,11 +1374,7 @@ function handleTopicDeleted(event: Event) {
   const customEvent = event as CustomEvent<{ cluster: string; topic: string }>;
   const { cluster, topic } = customEvent.detail;
   // Remove topic from local cache to avoid full reload
-  const group = topicCache.value.groups.find(g => g.clusterId === cluster);
-  if (group) {
-    group.topics = group.topics.filter((t: { name: string }) => t.name !== topic);
-    group.totalCount = group.topics.length;
-  }
+  allTopics.value = allTopics.value.filter((t) => !(t.cluster === cluster && t.name === topic));
 }
 
 // Handle scroll to load more automatically
