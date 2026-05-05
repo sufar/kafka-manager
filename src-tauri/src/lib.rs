@@ -470,6 +470,31 @@ pub struct UpdateResult {
 /// 检查更新 - 直接使用 GitHub API
 #[tauri::command]
 async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, String> {
+    do_check_updates().await
+}
+
+/// 后台检查更新（启动时自动执行），有更新时通知前端
+async fn auto_check_updates(app: &tauri::AppHandle) {
+    log("Auto-checking for updates...");
+    match do_check_updates().await {
+        Ok(result) => {
+            if result.available {
+                log(&format!("Auto-check: update available v{}", result.version));
+                // 通知前端有新版本
+                let _ = app.emit("update-available", &result);
+            } else {
+                log("Auto-check: no updates available");
+            }
+        }
+        Err(e) => {
+            // 静默忽略网络错误、403 等
+            log(&format!("Auto-check failed: {}", e));
+        }
+    }
+}
+
+/// 核心更新检查逻辑
+async fn do_check_updates() -> Result<UpdateResult, String> {
     log("=========================================");
     log("Checking for updates via GitHub API...");
 
@@ -1752,6 +1777,14 @@ pub fn run() {
 
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
+
+            // 启动时自动检查更新（后台静默，有更新时通知前端）
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // 延迟 3 秒，等 UI 完全加载
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                auto_check_updates(&app_handle).await;
+            });
 
             // 创建托盘图标菜单
             let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;

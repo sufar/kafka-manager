@@ -57,3 +57,25 @@ document.addEventListener('contextmenu', (event) => {
 });
 
 app.mount('#app');
+
+// 监听后端启动时自动检查更新的结果
+import { listen } from '@tauri-apps/api/event';
+
+listen('update-available', (event) => {
+  const payload = event.payload as { version: string; notes?: string };
+  const isZh = languageStore.currentLanguage === 'zh';
+
+  const el = document.createElement('div');
+  el.className = 'fixed top-4 right-4 z-[9999] max-w-sm bg-warning/90 backdrop-blur rounded-lg px-4 py-3 shadow-lg text-sm text-base-content';
+  if (isZh) {
+    el.innerHTML = `<div class="font-bold mb-1">🔄 发现新版本 v${payload.version}</div><div class="text-xs text-base-content/80">请前往 <b>设置</b> 页面进行更新</div>`;
+  } else {
+    el.innerHTML = `<div class="font-bold mb-1">🔄 New version v${payload.version} available</div><div class="text-xs text-base-content/80">Please go to <b>Settings</b> to update</div>`;
+  }
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.3s';
+    setTimeout(() => el.remove(), 300);
+  }, 8000);
+}).catch(() => {});
