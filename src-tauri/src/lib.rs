@@ -473,6 +473,243 @@ async fn check_for_updates(_app: tauri::AppHandle) -> Result<UpdateResult, Strin
     do_check_updates().await
 }
 
+/// 后台自动下载更新（静默，不安装）
+/// 每小时调用一次，有新版本时自动下载安装包到缓存目录
+async fn auto_download_update(app: &tauri::AppHandle) {
+    // 开发模式下跳过
+    if cfg!(debug_assertions) {
+        return;
+    }
+
+    log("Auto-download: checking for updates...");
+    let update_result = match do_check_updates().await {
+        Ok(r) => r,
+        Err(e) => {
+            log(&format!("Auto-download: check failed, {}", e));
+            return;
+        }
+    };
+
+    if !update_result.available {
+        log("Auto-download: no updates available");
+        return;
+    }
+
+    log(&format!("Auto-download: update available v{}, starting download", update_result.version));
+
+    // 如果已经在下载中，跳过
+    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        if let Ok(guard) = state.lock() {
+            if guard.is_downloading {
+                log("Auto-download: already downloading, skipping");
+                return;
+            }
+        }
+    }
+
+    // 获取缓存目录
+    let cache_dir = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager"))
+        .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
+
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        log(&format!("Auto-download: failed to create cache dir: {}", e));
+        return;
+    }
+
+    // 从 GitHub API 获取最新版本信息以确定下载 URL
+    let api_url = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
+    let client = match reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log(&format!("Auto-download: failed to create client: {}", e));
+            return;
+        }
+    };
+
+    let response = match client.get(api_url).header("User-Agent", "kafka-manager").send().await {
+        Ok(r) => r,
+        Err(e) => {
+            log(&format!("Auto-download: failed to fetch release info: {}", e));
+            return;
+        }
+    };
+
+    let json: serde_json::Value = match response.json().await {
+        Ok(j) => j,
+        Err(e) => {
+            log(&format!("Auto-download: failed to parse response: {}", e));
+            return;
+        }
+    };
+
+    let tag_name = json["tag_name"].as_str().unwrap_or("");
+    if tag_name.is_empty() {
+        log("Auto-download: empty tag_name, skipping");
+        return;
+    }
+
+    // 根据平台确定文件
+    let target = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+        "darwin-aarch64"
+    } else if cfg!(target_os = "macos") {
+        "darwin-x86_64"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
+    } else if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else {
+        return;
+    };
+
+    let portable = is_portable_mode();
+    let assets = match json["assets"].as_array() {
+        Some(a) => a,
+        None => {
+            log("Auto-download: no assets found");
+            return;
+        }
+    };
+
+    let (download_url, filename) = if portable {
+        assets.iter().find_map(|asset| {
+            let name = asset["name"].as_str()?;
+            if name.contains("Portable") || name.contains("portable") || name.contains(".zip") {
+                return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
+            }
+            None
+        }).or_else(|| {
+            assets.iter().find_map(|asset| {
+                let name = asset["name"].as_str()?;
+                if name.ends_with(".exe") {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else { None }
+            })
+        }).unwrap_or_else(|| {
+            log("Auto-download: no suitable asset found for portable mode");
+            (String::new(), String::new())
+        })
+    } else {
+        assets.iter().find_map(|asset| {
+            let name = asset["name"].as_str()?;
+            if name.contains(target) {
+                return Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()));
+            }
+            None
+        }).or_else(|| {
+            assets.iter().find_map(|asset| {
+                let name = asset["name"].as_str()?;
+                if cfg!(target_os = "macos") && name.ends_with(".dmg") {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else if cfg!(target_os = "linux") && (name.ends_with(".AppImage") || name.ends_with(".deb")) {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else if cfg!(target_os = "windows") && (name.ends_with(".msi") || name.ends_with(".exe")) {
+                    Some((asset["browser_download_url"].as_str()?.to_string(), name.to_string()))
+                } else { None }
+            })
+        }).unwrap_or_else(|| {
+            log(&format!("Auto-download: no suitable asset found for {}", target));
+            (String::new(), String::new())
+        })
+    };
+
+    if filename.is_empty() {
+        return;
+    }
+
+    let download_path = cache_dir.join(&filename);
+
+    // 如果文件已存在，后续会通过 download_with_resume_background 自动续传
+
+    // 获取总大小
+    let head_response = match client.get(&download_url).header("User-Agent", "kafka-manager").send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(_) | Err(_) => {
+            log("Auto-download: HEAD request failed");
+            return;
+        }
+    };
+
+    let total_size = head_response.content_length().unwrap_or(0);
+
+    // 检查是否已完整下载
+    if let Ok(meta) = std::fs::metadata(&download_path) {
+        if meta.len() == total_size && total_size > 0 {
+            log(&format!("Auto-download: file already downloaded ({} bytes), skipping", meta.len()));
+            return;
+        }
+    }
+
+    log(&format!("Auto-download: downloading {} ({})", filename, format_size(total_size)));
+
+    // 设置下载状态
+    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        if let Ok(mut guard) = state.lock() {
+            guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+            guard.is_downloading = true;
+            guard.downloaded = 0;
+            guard.total = total_size;
+            guard.download_url = download_url.clone();
+            guard.filename = filename.clone();
+            guard.download_path = Some(download_path.clone());
+        }
+    }
+
+    // 执行下载
+    let download_client = match reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log(&format!("Auto-download: failed to create download client: {}", e));
+            if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+                if let Ok(mut guard) = state.lock() {
+                    guard.is_downloading = false;
+                }
+            }
+            return;
+        }
+    };
+
+    let download_state = match app.try_state::<Arc<Mutex<DownloadState>>>() {
+        Some(s) => s.inner().clone(),
+        None => {
+            log("Auto-download: DownloadState not managed");
+            return;
+        }
+    };
+
+    match download_with_resume_background(
+        &download_client,
+        &download_url,
+        &download_path,
+        download_state.clone(),
+        total_size,
+    ).await {
+        Ok(skipped) => {
+            if let Ok(mut guard) = download_state.lock() {
+                guard.is_downloading = false;
+            }
+            if skipped {
+                log("Auto-download: using cached file");
+            } else {
+                log(&format!("Auto-download: {} downloaded successfully", filename));
+            }
+        }
+        Err(e) => {
+            log(&format!("Auto-download: download failed: {}", e));
+            if let Ok(mut guard) = download_state.lock() {
+                guard.is_downloading = false;
+            }
+        }
+    }
+}
+
 /// 后台检查更新（启动时自动执行），有更新时通知前端
 async fn auto_check_updates(app: &tauri::AppHandle) {
     log("Auto-checking for updates...");
@@ -1784,6 +2021,17 @@ pub fn run() {
                 // 延迟 3 秒，等 UI 完全加载
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 auto_check_updates(&app_handle).await;
+                // 启动时自动下载更新（如果有的话）
+                auto_download_update(&app_handle).await;
+            });
+
+            // 每小时自动检查并下载更新
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                    auto_download_update(&app_handle).await;
+                }
             });
 
             // 创建托盘图标菜单
