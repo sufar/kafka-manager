@@ -78,40 +78,55 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <div class="overflow-auto">
-        <table class="table w-full">
-          <thead>
-            <tr class="bg-base-100 sticky top-0 z-10">
-              <th class="p-2">{{ t.topicConsumerGroups.groupName }}</th>
-              <th class="p-2">{{ t.consumerGroups.partition }}</th>
-              <th class="p-2 text-right">{{ t.consumerGroups.startOffset }}</th>
-              <th class="p-2 text-right">{{ t.consumerGroups.endOffset }}</th>
-              <th class="p-2 text-right">{{ t.consumerGroups.committedOffset }}</th>
-              <th class="p-2 text-right">{{ t.consumerGroups.lag }}</th>
-              <th class="p-2 text-right">{{ t.consumerGroups.lastCommit }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in offsets" :key="`${item.group}-${item.partition}`" class="hover">
-              <td class="p-2">
-                <div class="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
-                  </svg>
-                  {{ item.group }}
-                </div>
-              </td>
-              <td class="p-2"><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
-              <td class="p-2 text-right font-mono text-sm">{{ item.start_offset }}</td>
-              <td class="p-2 text-right font-mono text-sm">{{ item.end_offset }}</td>
-              <td class="p-2 text-right font-mono text-sm">{{ item.committed_offset }}</td>
-              <td class="p-2 text-right">
-                <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
-              </td>
-              <td class="p-2 text-right text-xs text-base-content/60">{{ formatLastCommitTime(item.last_commit_time) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="flex flex-col h-full">
+        <!-- Table Header -->
+        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
+          <div class="flex-shrink-0" :style="{ width: columnWidths.group + 'px' }">{{ t.topicConsumerGroups.groupName }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('group', $event)"></div>
+          <div class="flex-shrink-0 text-center" :style="{ width: columnWidths.partition + 'px' }">{{ t.consumerGroups.partition }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('partition', $event)"></div>
+          <div class="flex-shrink-0 text-right" :style="{ width: columnWidths.startOffset + 'px' }">{{ t.consumerGroups.startOffset }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('startOffset', $event)"></div>
+          <div class="flex-shrink-0 text-right" :style="{ width: columnWidths.endOffset + 'px' }">{{ t.consumerGroups.endOffset }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('endOffset', $event)"></div>
+          <div class="flex-shrink-0 text-right" :style="{ width: columnWidths.committedOffset + 'px' }">{{ t.consumerGroups.committedOffset }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('committedOffset', $event)"></div>
+          <div class="flex-shrink-0 text-right" :style="{ width: columnWidths.lag + 'px' }">{{ t.consumerGroups.lag }}</div>
+          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            @mousedown="startColumnResize('lag', $event)"></div>
+          <div class="flex-1 text-right" :style="{ minWidth: columnWidths.lastCommit + 'px' }">{{ t.consumerGroups.lastCommit }}</div>
+        </div>
+        <!-- Table Body -->
+        <div class="flex-1 overflow-auto">
+          <div v-for="item in offsets" :key="`${item.group}-${item.partition}`"
+            class="flex items-center px-2 py-1 border-b border-base-200 hover:bg-base-200/50">
+            <div class="flex-shrink-0 flex items-center gap-2" :style="{ width: columnWidths.group + 'px' }">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-secondary flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
+              </svg>
+              <span class="truncate text-xs">{{ item.group }}</span>
+            </div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-shrink-0 text-center text-xs" :style="{ width: columnWidths.partition + 'px' }"><span class="badge badge-ghost badge-xs">{{ item.partition }}</span></div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-shrink-0 text-right font-mono text-xs" :style="{ width: columnWidths.startOffset + 'px' }">{{ item.start_offset }}</div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-shrink-0 text-right font-mono text-xs" :style="{ width: columnWidths.endOffset + 'px' }">{{ item.end_offset }}</div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-shrink-0 text-right font-mono text-xs" :style="{ width: columnWidths.committedOffset + 'px' }">{{ item.committed_offset }}</div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-shrink-0 text-right" :style="{ width: columnWidths.lag + 'px' }">
+              <span :class="getLagClass(item.lag)" class="font-mono text-xs">{{ item.lag }}</span>
+            </div>
+            <div class="w-1 flex-shrink-0"></div>
+            <div class="flex-1 text-right text-xs text-base-content/60 truncate" :style="{ minWidth: columnWidths.lastCommit + 'px' }">{{ formatLastCommitTime(item.last_commit_time) }}</div>
+          </div>
+        </div>
       </div>
     </div>
     </div>
@@ -160,6 +175,51 @@ interface OffsetRow {
 }
 
 const offsets = ref<OffsetRow[]>([]);
+
+// Column widths for the offsets table
+type ColumnKey = 'group' | 'partition' | 'startOffset' | 'endOffset' | 'committedOffset' | 'lag' | 'lastCommit';
+const columnWidths = ref<Record<ColumnKey, number>>({
+  group: 120,
+  partition: 60,
+  startOffset: 80,
+  endOffset: 80,
+  committedOffset: 90,
+  lag: 70,
+  lastCommit: 120,
+});
+const columnResizing = ref(false);
+const resizeColumn = ref<ColumnKey | null>(null);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
+
+function startColumnResize(col: ColumnKey, e: MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  columnResizing.value = true;
+  resizeColumn.value = col;
+  resizeStartX.value = e.clientX;
+  resizeStartWidth.value = columnWidths.value[col];
+  document.addEventListener('mousemove', onColumnResize);
+  document.addEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onColumnResize(e: MouseEvent) {
+  if (!resizeColumn.value) return;
+  const delta = e.clientX - resizeStartX.value;
+  const newWidth = Math.max(30, resizeStartWidth.value + delta);
+  columnWidths.value[resizeColumn.value] = newWidth;
+}
+
+function stopColumnResize() {
+  columnResizing.value = false;
+  resizeColumn.value = null;
+  document.removeEventListener('mousemove', onColumnResize);
+  document.removeEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
 
 // Go back to messages page
 function goBack() {
@@ -266,19 +326,19 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.table :deep(tbody tr) {
-  height: 40px;
+.resizer {
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
 }
 
-.table :deep(td) {
-  padding: 0.25rem 0.5rem;
-  vertical-align: middle;
-}
-
-.table :deep(th) {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
-  text-transform: none;
-  letter-spacing: normal;
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 4px;
+  transform: translateX(-50%);
 }
 </style>
