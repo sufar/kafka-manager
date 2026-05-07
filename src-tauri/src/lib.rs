@@ -95,35 +95,6 @@ fn cleanup_log(max_days: u32) {
         content.lines().count().saturating_sub(kept_lines.len())));
 }
 
-/// 启动时清理：只保留今天的日志
-fn cleanup_today_start() {
-    let log_path = kafka_manager_api::utils::app_log_path();
-
-    if !log_path.exists() {
-        return;
-    }
-
-    let content = match std::fs::read_to_string(&log_path) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-
-    let today_str = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-    let today_lines: Vec<&str> = content.lines()
-        .skip_while(|line| {
-            !line.contains(&today_str)
-        })
-        .collect();
-
-    if today_lines.len() < content.lines().count() {
-        let _ = std::fs::write(&log_path, today_lines.join("\n"));
-        log(&format!("Startup log cleanup: today's lines={}, removed={} lines",
-            today_lines.len(),
-            content.lines().count().saturating_sub(today_lines.len())));
-    }
-}
-
 /// 启动定时日志清理任务（每小时检查，清理3天前的日志）
 fn spawn_periodic_log_cleanup() {
     std::thread::spawn(|| {
@@ -286,7 +257,10 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     }
 
     if let Ok(log_file) = OpenOptions::new().create(true).append(true).open(&log_path_tauri) {
-        let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
+        let (non_blocking, guard) = tracing_appender::non_blocking(log_file);
+        // 将 guard 存入 static，防止被 drop 导致日志丢失
+        static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> = std::sync::OnceLock::new();
+        LOG_GUARD.set(guard).ok();
 
         let _ = tracing_subscriber::fmt()
             .with_writer(non_blocking)
@@ -2006,8 +1980,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
         .setup(|app| {
-            // 启动时清理今天之前的日志
-            cleanup_today_start();
+            // 启动时清理3天前的日志（与定时清理保持一致）
+            cleanup_log(3);
 
             // 注册下载状态到 app state
             app.manage(Arc::new(Mutex::new(DownloadState::default())));
