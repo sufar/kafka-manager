@@ -471,14 +471,26 @@ async fn auto_download_update(app: &tauri::AppHandle) {
 
     log(&format!("Auto-download: update available v{}, starting download", update_result.version));
 
-    // 如果已经在下载中，跳过
-    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
-        if let Ok(guard) = state.lock() {
+    // 原子地检查并设置下载状态，防止与手动下载并发
+    let can_download = if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        if let Ok(mut guard) = state.lock() {
             if guard.is_downloading {
                 log("Auto-download: already downloading, skipping");
-                return;
+                false
+            } else {
+                guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                guard.is_downloading = true;
+                true
             }
+        } else {
+            true // 锁获取失败，继续下载
         }
+    } else {
+        true // 状态不存在，继续下载
+    };
+
+    if !can_download {
+        return;
     }
 
     // 获取缓存目录
@@ -614,17 +626,20 @@ async fn auto_download_update(app: &tauri::AppHandle) {
     if let Ok(meta) = std::fs::metadata(&download_path) {
         if meta.len() == total_size && total_size > 0 {
             log(&format!("Auto-download: file already downloaded ({} bytes), skipping", meta.len()));
+            if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+                if let Ok(mut guard) = state.lock() {
+                    guard.is_downloading = false;
+                }
+            }
             return;
         }
     }
 
     log(&format!("Auto-download: downloading {} ({})", filename, format_size(total_size)));
 
-    // 设置下载状态
+    // 更新下载状态详情（is_downloading 已在顶部原子设置）
     if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
         if let Ok(mut guard) = state.lock() {
-            guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
-            guard.is_downloading = true;
             guard.downloaded = 0;
             guard.total = total_size;
             guard.download_url = download_url.clone();
