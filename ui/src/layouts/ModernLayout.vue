@@ -172,21 +172,21 @@ async function handleSearchTopicSelect(cluster: string, topic: string) {
 }
 
 // Handle topic selection in tree mode
-function handleSelectTopicInTree(topicName: string, clusterName: string) {
+function handleSelectTopicInTree(cluster: string, topic: string) {
   if (sidebarMode.value === 'tree') {
     if (clusterTreeNavigatorRef.value) {
-      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterName);
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
     } else {
       // Fallback: directly navigate if clusterTreeNavigatorRef is not available
       router.push({
         path: '/messages',
-        query: { cluster: clusterName, topic: topicName },
+        query: { cluster, topic },
       });
     }
   } else {
     router.push({
       path: '/messages',
-      query: { cluster: clusterName, topic: topicName },
+      query: { cluster, topic },
     });
   }
 }
@@ -516,7 +516,7 @@ onMounted(async () => {
   window.addEventListener('select-topic-in-tree', ((e: Event) => {
     const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
     const { topicName, clusterName } = event.detail;
-    handleSelectTopicInTree(topicName, clusterName);
+    handleSelectTopicInTree(clusterName, topicName);
   }) as EventListener);
 
   window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
@@ -538,7 +538,7 @@ onUnmounted(() => {
   window.removeEventListener('select-topic-in-tree', ((e: Event) => {
     const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
     const { topicName, clusterName } = event.detail;
-    handleSelectTopicInTree(topicName, clusterName);
+    handleSelectTopicInTree(clusterName, topicName);
   }) as EventListener);
   window.removeEventListener('settings-changed', ((e: Event) => {
     const event = e as CustomEvent<{ key: string; value: any }>;
