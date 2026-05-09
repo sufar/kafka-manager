@@ -977,10 +977,18 @@ async fn handle_cluster_test_with_config(_state: AppState, body: Value) -> Resul
     };
 
     match KafkaAdmin::new(&config) {
-        Ok(_) => Ok(serde_json::json!({ "success": true })),
+        Ok(admin) => {
+            match admin.list_topics() {
+                Ok(_) => Ok(serde_json::json!({ "success": true })),
+                Err(e) => Ok(serde_json::json!({
+                    "success": false,
+                    "error": format!("Connected, but failed to list topics: {}", e)
+                })),
+            }
+        }
         Err(e) => Ok(serde_json::json!({
             "success": false,
-            "error": e.to_string()
+            "error": format!("Failed to create connection: {}", e)
         })),
     }
 }
