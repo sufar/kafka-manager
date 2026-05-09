@@ -67,7 +67,6 @@ body::before {
     radial-gradient(circle at 60% 60%, var(--gradient-4) 0%, transparent 45%);
   opacity: 0.15;
   z-index: -1;
-  animation: meshFloat 20s ease-in-out infinite;
   pointer-events: none;
 }
 

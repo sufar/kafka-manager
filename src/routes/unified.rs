@@ -968,8 +968,18 @@ async fn handle_cluster_test_with_config(_state: AppState, body: Value) -> Resul
     let operation_timeout_ms = get_optional_i64_param(&body, "operation_timeout_ms").unwrap_or(5000);
 
     use crate::config::KafkaConfig;
-    use crate::kafka::KafkaAdmin;
+    use crate::kafka::{KafkaAdmin, test_brokers_connectivity};
 
+    // 1. 先用 TCP 快速探测 broker 是否可达（控制 DNS + TCP 超时）
+    let tcp_timeout = std::cmp::min(request_timeout_ms as u64, 5000);
+    if !test_brokers_connectivity(&brokers, tcp_timeout).await {
+        return Ok(serde_json::json!({
+            "success": false,
+            "error": format!("无法连接到 broker: {}", brokers)
+        }));
+    }
+
+    // 2. TCP 连通后再做 Kafka 协议级验证
     let config = KafkaConfig {
         brokers,
         request_timeout_ms: request_timeout_ms as u32,

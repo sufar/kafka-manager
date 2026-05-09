@@ -17,7 +17,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
               </svg>
             </button>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 animate-float">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
             {{ t.clusters.title }}
@@ -179,7 +179,7 @@
               <div
                 class="w-1.5 h-1.5 rounded-full"
                 :class="{
-                  'bg-success animate-pulse': getConnectionStatus(cluster.name)?.status === 'connected',
+                  'bg-success': getConnectionStatus(cluster.name)?.status === 'connected',
                   'bg-error': getConnectionStatus(cluster.name)?.status === 'error',
                 }"
               ></div>

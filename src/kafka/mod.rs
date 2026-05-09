@@ -32,10 +32,51 @@ pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
         "socket.timeout.ms",
         &kafka_config.request_timeout_ms.to_string(),
     );
+    // 连接建立超时（DNS + TCP），避免无效地址等待过久
+    let connect_timeout = (kafka_config.request_timeout_ms / 2).max(1000).min(3000);
+    client_config.set(
+        "socket.connection.setup.timeout.ms",
+        &connect_timeout.to_string(),
+    );
+    // 限制最大重试次数，避免长时间重试等待
+    client_config.set("retries", "3");
+    client_config.set("retry.backoff.ms", "200");
     // 强制使用 IPv4，避免 IPv6 连接问题
     client_config.set("broker.address.family", "v4");
 
     client_config
+}
+
+/// 快速 TCP 探测 broker 是否可达（不依赖 Kafka 协议）
+pub async fn test_brokers_connectivity(brokers: &str, timeout_ms: u64) -> bool {
+    use std::time::Duration;
+
+    let timeout = Duration::from_millis(timeout_ms);
+    let broker_list: Vec<String> = brokers
+        .split(',')
+        .filter_map(|b| {
+            let b = b.trim();
+            if b.is_empty() { None } else { Some(b.to_string()) }
+        })
+        .collect();
+
+    if broker_list.is_empty() {
+        return false;
+    }
+
+    // 并行尝试所有 broker，只要有一个成功即可
+    let mut handles = Vec::new();
+    for broker in broker_list {
+        handles.push(tokio::spawn(async move {
+            match tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&broker)).await {
+                Ok(Ok(_stream)) => true,
+                _ => false,
+            }
+        }));
+    }
+
+    let results = futures::future::join_all(handles).await;
+    results.into_iter().any(|r| r.unwrap_or(false))
 }
 
 /// 管理多个 Kafka 集群的客户端
