@@ -197,8 +197,6 @@ body {
    ============================================ */
 
 .navbar {
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--glass-border);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
@@ -216,8 +214,6 @@ body {
    ============================================ */
 
 aside {
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: none;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
@@ -253,8 +249,6 @@ aside .hover\:bg-base-200:hover {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -496,8 +490,6 @@ aside .hover\:bg-base-200:hover {
    ============================================ */
 
 .badge {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 12px;
 }
@@ -608,8 +600,6 @@ aside .hover\:bg-base-200:hover {
 .search-box {
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -630,30 +620,6 @@ aside .hover\:bg-base-200:hover {
   box-shadow:
     0 0 0 2px rgba(99, 102, 241, 0.05),
     0 0 20px rgba(99, 102, 241, 0.1);
-}
-
-/* ============================================
-   UTILITIES
-   ============================================ */
-
-.backdrop-blur-xl {
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-}
-
-.backdrop-blur-lg {
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-.backdrop-blur-md {
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-
-.backdrop-blur-sm {
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 /* Gradient borders */
