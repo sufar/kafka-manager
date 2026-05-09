@@ -275,11 +275,11 @@
           :items="sortedMessages"
           :item-size="24"
           key-field="uid"
-          :buffer="500"
+          :buffer-size="5"
           v-slot="{ item }"
         >
           <div
-            class="flex items-center px-2 py-0.5 transition-colors border-b border-base-200/30 cursor-pointer w-full"
+            class="flex items-center px-2 py-0.5 border-b border-base-200/30 cursor-pointer w-full"
             :class="[
               selectedMessage?.p === getMsgPartition(item) && selectedMessage?.o === getMsgOffset(item)
                 ? 'bg-primary/30 border-l-2 border-l-primary shadow-sm'
@@ -321,7 +321,7 @@
           :items="sortedMessages"
           :item-size="76"
           key-field="uid"
-          :buffer="300"
+          :buffer-size="5"
           v-slot="{ item }"
         >
           <div
@@ -555,17 +555,28 @@ const valuePreRef = ref<HTMLElement | null>(null);
 // 按时间戳排序状态：'asc' | 'desc' | null（null 表示按查询顺序）
 const timestampSort = ref<'asc' | 'desc' | null>('desc');
 
-// 计算属性：根据 timestamp 排序后的消息列表
-const sortedMessages = computed(() => {
+// 排序后的消息数组 - 维护单一引用避免重复创建副本
+const sortedMessages = shallowRef<Message[]>([]);
+
+// 重新计算排序结果
+function recomputeSortedMessages() {
+  const src = messages.value;
   if (!timestampSort.value) {
-    return messages.value;
+    sortedMessages.value = src;
+    return;
   }
-  return [...messages.value].sort((a, b) => {
+  // 复用同一数组引用，避免 shallowRef 每次都触发新订阅者
+  const result = [...src];
+  result.sort((a, b) => {
     const tsA = a.ts ?? 0;
     const tsB = b.ts ?? 0;
     return timestampSort.value === 'asc' ? tsA - tsB : tsB - tsA;
   });
-});
+  sortedMessages.value = result;
+}
+
+// 监听 messages 和 timestampSort 变化，按需重算
+watch([messages, timestampSort], recomputeSortedMessages);
 
 // 切换时间戳排序
 function toggleTimestampSort() {
@@ -1768,7 +1779,6 @@ pre {
   position: absolute;
   top: 0;
   left: 0;
-  will-change: transform;
 }
 </style>
 

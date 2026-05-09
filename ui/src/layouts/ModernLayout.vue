@@ -561,7 +561,6 @@ onUnmounted(() => {
 /* Glass morphism effect */
 .glass {
   background: rgba(var(--glass-bg, 255, 255, 255), 0.1);
-  backdrop-filter: blur(10px);
 }
 
 /* Gradient border */

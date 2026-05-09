@@ -125,15 +125,13 @@
           :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
           :item-size="28"
           key-field="uid"
-          :buffer-size="10"
+          :buffer-size="5"
           v-slot="{ item, index }"
           @scroll="handleScroll"
         >
           <div
-          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
-          :class="{ 'bg-primary/10': hoveredIndex === index }"
+          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
           @click="selectTopic((item as TopicItem).topic)"
-          @mouseenter="hoveredIndex = index"
         >
           <!-- Cluster Health Indicator -->
           <div
@@ -170,15 +168,13 @@
         :items="filteredConsumerGroupsWithUid"
         :item-size="28"
         key-field="uid"
-        :buffer-size="10"
+        :buffer-size="5"
         v-slot="{ item, index }"
         @scroll="handleScroll"
       >
         <div
-          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
-          :class="{ 'bg-primary/10': hoveredIndex === index }"
+          class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
           @click="selectConsumerGroup((item as ConsumerGroupItem).group)"
-          @mouseenter="hoveredIndex = index"
         >
           <!-- Cluster Health Indicator -->
           <div
@@ -640,7 +636,7 @@ watch(() => clusterStore.clusters, (newClusters) => {
 
   // Update selectedGroups based on current cluster selection
   updateSelectedGroups();
-}, { deep: true });
+}, { deep: false });
 
 // Watch for route changes to sync currentView
 watch(() => route.path, (newPath) => {
@@ -1501,6 +1497,5 @@ watch(
   position: absolute;
   top: 0;
   left: 0;
-  will-change: transform;
 }
 </style>

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kafka Manager",
-  "version": "1.1.31",
+  "version": "1.1.32",
   "identifier": "com.kafka-manager",
   "build": {
     "frontendDist": "../ui/dist",
@@ -20,7 +20,7 @@
         "fullscreen": false,
         "minWidth": 1024,
         "minHeight": 768,
-        "devtools": true
+        "devtools": false
       }
     ],
     "security": {

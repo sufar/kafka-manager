@@ -1187,7 +1187,7 @@ watch(() => clusterStore.groups, (newGroups) => {
       saveGroupSelection();
     }
   }
-}, { deep: true });
+}, { deep: false });
 
 onMounted(() => {
   // 加载分组
