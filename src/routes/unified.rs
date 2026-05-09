@@ -1,6 +1,7 @@
 /// 统一 API 路由处理器
 /// 所有 API 请求都通过 POST /api 发送，method 放在 header 中，参数放在 body 中
 
+use crate::config::KafkaConfig;
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
 use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest, UpdateClusterGroupRequest};
 use crate::db::favorite::{
@@ -813,8 +814,12 @@ async fn handle_cluster_create(state: AppState, body: Value) -> Result<Value> {
 
     let cluster = ClusterStore::create(state.db.inner(), &req).await?;
 
-    // Reload Kafka clients
-    reload_clients(&state).await?;
+    // Incremental: add only the new cluster without rebuilding all connections
+    add_client_for_cluster(&state, &cluster.name, KafkaConfig {
+        brokers: cluster.brokers.clone(),
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    }).await?;
 
     Ok(serde_json::json!({
         "id": cluster.id,
@@ -860,8 +865,12 @@ async fn handle_cluster_update(state: AppState, body: Value) -> Result<Value> {
 
     let cluster = ClusterStore::update(state.db.inner(), id, &req).await?;
 
-    // Reload Kafka clients
-    reload_clients(&state).await?;
+    // Incremental: reconnect only the updated cluster without rebuilding all connections
+    reconnect_client_for_cluster(&state, &cluster.name, KafkaConfig {
+        brokers: cluster.brokers.clone(),
+        request_timeout_ms: cluster.request_timeout_ms as u32,
+        operation_timeout_ms: cluster.operation_timeout_ms as u32,
+    }).await?;
 
     Ok(serde_json::json!({
         "id": cluster.id,
@@ -944,9 +953,12 @@ async fn handle_cluster_delete(state: AppState, body: Value) -> Result<Value> {
 
 async fn handle_cluster_test(state: AppState, body: Value) -> Result<Value> {
     let id = get_i64_param(&body, "id")?;
-    let success = ClusterStore::test_connection(state.db.inner(), id).await?;
+    let (success, error_msg) = ClusterStore::test_connection(state.db.inner(), id).await?;
 
-    Ok(serde_json::json!({ "success": success }))
+    Ok(serde_json::json!({
+        "success": success,
+        "error": error_msg
+    }))
 }
 
 /// Test cluster connection with temporary configuration (without saving to database)
@@ -1107,8 +1119,73 @@ async fn handle_cluster_stats(state: AppState, body: Value) -> Result<Value> {
     }))
 }
 
+/// Incremental: add a single cluster's clients without rebuilding all connections
+async fn add_client_for_cluster(state: &AppState, cluster_name: &str, config: KafkaConfig) -> Result<()> {
+    use crate::db::topic::TopicStore;
+
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.with_added_cluster(cluster_name, &config)?;
+    state.set_clients(new_clients);
+
+    // Sync topics in background
+    let db = state.db.inner().clone();
+    let cluster_name_owned = cluster_name.to_string();
+    if let Some(admin) = state.get_clients().get_admin(cluster_name) {
+        let admin = admin.clone();
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || admin.list_topics()).await {
+                Ok(Ok(topics)) => {
+                    let _ = TopicStore::sync_topics(&db, &cluster_name_owned, &topics).await;
+                    tracing::info!("Synced {} topics for new cluster '{}'", topics.len(), cluster_name_owned);
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Failed to list topics for cluster '{}': {}", cluster_name_owned, e);
+                }
+                Err(e) => {
+                    tracing::warn!("Topic list task panicked for cluster '{}': {}", cluster_name_owned, e);
+                }
+            }
+        });
+    }
+
+    tracing::info!("Added Kafka client for cluster '{}'", cluster_name);
+    Ok(())
+}
+
+/// Incremental: reconnect a single cluster's clients without rebuilding all connections
+async fn reconnect_client_for_cluster(state: &AppState, cluster_name: &str, config: KafkaConfig) -> Result<()> {
+    use crate::db::topic::TopicStore;
+
+    let current_clients = state.get_clients();
+    let new_clients = current_clients.reconnect_cluster(cluster_name, &config)?;
+    state.set_clients(new_clients);
+
+    // Sync topics in background
+    let db = state.db.inner().clone();
+    let cluster_name_owned = cluster_name.to_string();
+    if let Some(admin) = state.get_clients().get_admin(cluster_name) {
+        let admin = admin.clone();
+        tokio::spawn(async move {
+            match tokio::task::spawn_blocking(move || admin.list_topics()).await {
+                Ok(Ok(topics)) => {
+                    let _ = TopicStore::sync_topics(&db, &cluster_name_owned, &topics).await;
+                    tracing::info!("Synced {} topics for reconnected cluster '{}'", topics.len(), cluster_name_owned);
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Failed to list topics for cluster '{}': {}", cluster_name_owned, e);
+                }
+                Err(e) => {
+                    tracing::warn!("Topic list task panicked for cluster '{}': {}", cluster_name_owned, e);
+                }
+            }
+        });
+    }
+
+    tracing::info!("Reconnected Kafka client for cluster '{}'", cluster_name);
+    Ok(())
+}
+
 async fn reload_clients(state: &AppState) -> Result<()> {
-    use crate::config::KafkaConfig;
 
     // Get all clusters from database
     let clusters = ClusterStore::list(state.db.inner()).await?;

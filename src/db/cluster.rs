@@ -164,8 +164,8 @@ impl ClusterStore {
         Ok(())
     }
 
-    /// 测试集群连接
-    pub async fn test_connection(pool: &sqlx::SqlitePool, id: i64) -> Result<bool> {
+    /// 测试集群连接（返回结果和错误信息）
+    pub async fn test_connection(pool: &sqlx::SqlitePool, id: i64) -> Result<(bool, Option<String>)> {
         let cluster = Self::get(pool, id).await?;
 
         // 尝试创建临时客户端测试连接
@@ -179,8 +179,14 @@ impl ClusterStore {
         };
 
         match KafkaAdmin::new(&config) {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(admin) => {
+                // 执行实际 Kafka 操作验证连接，而不仅是创建客户端
+                match admin.list_topics() {
+                    Ok(_topics) => Ok((true, None)),
+                    Err(e) => Ok((false, Some(format!("Connected, but failed to list topics: {}", e)))),
+                }
+            }
+            Err(e) => Ok((false, Some(format!("Failed to create connection: {}", e)))),
         }
     }
 }

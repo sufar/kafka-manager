@@ -37,6 +37,7 @@ pub struct ClusterListResponse {
 #[derive(Debug, Serialize)]
 pub struct TestConnectionResponse {
     pub success: bool,
+    pub error: Option<String>,
 }
 
 async fn list_clusters(State(state): State<AppState>) -> Result<Json<ClusterListResponse>> {
@@ -184,9 +185,9 @@ async fn test_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<TestConnectionResponse>> {
-    let success = ClusterStore::test_connection(state.db.inner(), id).await?;
+    let (success, error) = ClusterStore::test_connection(state.db.inner(), id).await?;
 
-    Ok(Json(TestConnectionResponse { success }))
+    Ok(Json(TestConnectionResponse { success, error }))
 }
 
 /// 重新加载 Kafka 客户端
