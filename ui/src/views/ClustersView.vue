@@ -1,12 +1,6 @@
 <template>
   <div class="flex flex-col h-full overflow-hidden">
     <div class="p-3 relative flex-1 flex flex-col min-h-0">
-    <!-- Animated background particles -->
-    <div class="absolute inset-0 pointer-events-none">
-      <div class="particle particle-1"></div>
-      <div class="particle particle-2"></div>
-    </div>
-
     <!-- Page Header -->
     <div class="mb-4 relative">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
