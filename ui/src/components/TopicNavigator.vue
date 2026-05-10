@@ -131,6 +131,7 @@
         >
           <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
+          :class="{ 'bg-primary/10': hoveredIndex === index }"
           @click="selectTopic((item as TopicItem).topic)"
         >
           <!-- Cluster Health Indicator -->

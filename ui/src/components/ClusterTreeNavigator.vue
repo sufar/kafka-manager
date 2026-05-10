@@ -439,7 +439,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, shallowReactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
@@ -547,15 +547,15 @@ const filteredClusters = computed(() => {
 const selectedTopic = ref<{ name: string; cluster: string } | null>(null);
 const selectedPartition = ref<{ topic: string; partition: number; cluster: string } | null>(null);
 
-const topicCounts = reactive<Record<string, number>>({});
-const clusterTopics = reactive<Record<string, Topic[]>>({});
+const topicCounts = shallowReactive<Record<string, number>>({});
+const clusterTopics = shallowReactive<Record<string, Topic[]>>({});
 
 // Consumer Groups state
-const consumerGroupCounts = reactive<Record<string, number>>({});
-const clusterConsumerGroups = reactive<Record<string, { name: string }[]>>({});
-const consumerGroupSearchQuery = reactive<Record<string, string>>({});
+const consumerGroupCounts = shallowReactive<Record<string, number>>({});
+const clusterConsumerGroups = shallowReactive<Record<string, { name: string }[]>>({});
+const consumerGroupSearchQuery = shallowReactive<Record<string, string>>({});
 const selectedConsumerGroup = ref<{ name: string; cluster: string } | null>(null);
-const consumerGroupElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
+const consumerGroupElementRefs = shallowReactive<Record<string, HTMLDivElement | null>>({});
 
 // 错误对话框状态
 const errorDialogRef = ref<HTMLDialogElement | null>(null);
@@ -667,7 +667,7 @@ function handleErrorDialogRetry() {
 }
 
 // 存储正在加载分区的 topic
-const loadingTopicPartitions = reactive<Set<string>>(new Set());
+const loadingTopicPartitions = shallowReactive<Set<string>>(new Set());
 
 function toggleTopic(topicName: string, clusterName: string) {
   const key = `${clusterName}:${topicName}`;
@@ -695,9 +695,14 @@ async function loadTopicPartitions(clusterName: string, topicName: string) {
 
   try {
     const detail = await apiClient.getTopicDetail(clusterName, topicName);
-    const topicData = clusterTopics[clusterName]?.find(t => t.name === topicName);
-    if (topicData) {
-      topicData.partitions = detail.partitions.map(p => ({ id: p.id }));
+    const clusterTopicsList = clusterTopics[clusterName];
+    if (clusterTopicsList) {
+      // 替换整个集群数组以触发 shallowReactive 更新
+      clusterTopics[clusterName] = clusterTopicsList.map(t =>
+        t.name === topicName
+          ? { ...t, partitions: detail.partitions.map(p => ({ id: p.id })) }
+          : t
+      );
     }
   } catch (e) {
     console.warn(`Failed to get partitions for topic ${topicName}:`, e);
@@ -861,13 +866,13 @@ async function refreshClusterTopics(clusterName: string) {
 
 // 虚拟滚动相关
 const VISIBLE_ITEMS = 1000; // 默认显示 1000 个 topic，超过的需要搜索
-const topicSearchQuery = reactive<Record<string, string>>({});
+const topicSearchQuery = shallowReactive<Record<string, string>>({});
 
 // 存储每个 cluster 的 topic 显示数量（用于分页加载）
-const topicDisplayLimits = reactive<Record<string, number>>({});
+const topicDisplayLimits = shallowReactive<Record<string, number>>({});
 
 // 存储每个 topic 元素的 ref
-const topicElementRefs = reactive<Record<string, HTMLDivElement | null>>({});
+const topicElementRefs = shallowReactive<Record<string, HTMLDivElement | null>>({});
 
 // @ts-ignore - used in template
 function setTopicElementRef(key: string, el: HTMLDivElement | null) {
