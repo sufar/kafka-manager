@@ -139,7 +139,7 @@
           <!-- Topics Folder -->
           <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 flex-shrink-0">
             <div
-              class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
+              class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-secondary/5 relative"
               :class="{ 'bg-secondary/10': expandedTopicsFolders.has(cluster.name) }"
               @click.stop="handleTopicsFolderClickAndExpand(cluster.name)"
             >
@@ -220,7 +220,7 @@
               >
                 <!-- Topic Node -->
                 <div
-                  class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-accent/5"
+                  class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-accent/5"
                   :class="{ 'bg-accent/10 text-accent': selectedTopic?.name === topic.name && selectedTopic?.cluster === cluster.name }"
                   @click="selectTopic(topic, cluster.name)"
                 >
@@ -261,7 +261,7 @@
                     v-else
                     v-for="partition in topic.partitions || []"
                     :key="partition.id"
-                    class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-base-200/50"
+                    class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-base-200/50"
                     :class="{ 'bg-accent/10 text-accent': selectedPartition?.topic === topic.name && selectedPartition?.partition === partition.id && selectedPartition?.cluster === cluster.name }"
                     @click="selectPartition(partition.id, topic, cluster.name)"
                   >
@@ -293,7 +293,7 @@
             <!-- Consumer Groups Folder -->
             <div class="mb-0.5 sticky top-0 z-20 bg-base-100/95 flex-shrink-0">
               <div
-                class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-secondary/5 relative"
+                class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-secondary/5 relative"
                 :class="{ 'bg-secondary/10': expandedConsumerGroupsFolders.has(cluster.name) }"
                 @click.stop="handleConsumerGroupsFolderClickAndExpand(cluster.name)"
               >
@@ -374,7 +374,7 @@
                 >
                   <!-- Consumer Group Node -->
                   <div
-                    class="flex items-center p-1.5 rounded-lg cursor-pointer transition-all duration-300 hover:bg-accent/5"
+                    class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-accent/5"
                     :class="{ 'bg-accent/10 text-accent': selectedConsumerGroup?.name === group.name && selectedConsumerGroup?.cluster === cluster.name }"
                     @click="selectConsumerGroup(group, cluster.name)"
                   >

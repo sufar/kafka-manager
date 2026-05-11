@@ -20,11 +20,12 @@
       :items="itemsWithUid"
       :item-size="28"
       key-field="uid"
+      :buffer-size="5"
       v-slot="{ item, index }"
       @scroll="$emit('scroll', $event)"
     >
       <div
-        class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer transition-all duration-200 hover:bg-base-200"
+        class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-base-200"
         :class="{ 'bg-primary/10': hoveredIndex === index }"
         @click="handleClick((item as TopicItem).topic)"
         @mouseenter="hoveredIndex = index"
