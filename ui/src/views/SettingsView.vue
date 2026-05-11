@@ -249,7 +249,10 @@
             </div>
           </div>
           <div ref="logsContainerRef" class="bg-base-200 rounded-lg p-3 max-h-[60vh] overflow-auto">
-            <pre class="text-xs font-mono whitespace-pre-wrap">{{ logs }}</pre>
+            <div v-if="logLines.length === 0" class="text-xs text-base-content/50 text-center py-8">{{ t.settings.noLogs || '暂无日志' }}</div>
+            <div v-else class="text-xs font-mono">
+              <div v-for="(line, idx) in logLines" :key="idx" class="whitespace-pre-wrap leading-5">{{ line }}</div>
+            </div>
           </div>
           <div class="modal-action">
             <form method="dialog">
@@ -375,7 +378,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useThemeStore } from '@/stores/theme';
@@ -444,8 +447,9 @@ const isTauriEnv = ref(isTauri());
 // App version（初始值，onMounted 时会通过 getCurrentVersion() 从后端 Cargo.toml 读取覆盖）
 const appVersion = ref('0.0.0');
 
-// 日志相关
-const logs = ref('');
+// 日志相关 — 用 shallowRef + 行数组，避免大字符串 reactive 开销
+const logLines = shallowRef<string[]>([]);
+const logs = computed(() => logLines.value.join(''));
 const showLogsModal = ref(false);
 const logsModalRef = ref<HTMLDialogElement>();
 const logsContainerRef = ref<HTMLDivElement>();
@@ -581,15 +585,14 @@ function handleVersionClick() {
 async function viewLogs() {
   try {
     const win = window as any;
-    // Tauri 环境使用 get_app_logs（返回字符串），浏览器环境使用 app.logs（返回{logs}）
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
     const result = await tauriInvoke<any>(cmd);
-    // Tauri 返回纯字符串，HTTP API 返回{logs}对象
-    logs.value = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
+    const logText = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
+    logLines.value = logText ? logText.split('\n') : [];
     showLogsModal.value = true;
   } catch (e) {
     console.error('Failed to get logs:', e);
-    logs.value = t.value.settings.noLogs;
+    logLines.value = [];
     showLogsModal.value = true;
   }
 }
@@ -617,7 +620,8 @@ async function refreshLogs() {
     const win = window as any;
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'get_app_logs' : 'app.logs';
     const result = await tauriInvoke<any>(cmd);
-    logs.value = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
+    const logText = typeof result === 'string' ? result : (result.logs || t.value.settings.noLogs);
+    logLines.value = logText ? logText.split('\n') : [];
     toast.showSuccess(t.value.settings.logsRefreshed);
   } catch (e) {
     console.error('Failed to refresh logs:', e);
@@ -629,10 +633,9 @@ async function refreshLogs() {
 async function clearLogs() {
   try {
     const win = window as any;
-    // Tauri 环境使用 clear_app_logs，浏览器环境使用 app.logs.clear
     const cmd = win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke ? 'clear_app_logs' : 'app.logs.clear';
     await tauriInvoke(cmd);
-    logs.value = t.value.settings.noLogs;
+    logLines.value = [];
     toast.showSuccess(t.value.settings.logsCleared);
   } catch (e) {
     toast.showError(t.value.settings.clearLogs + t.value.common.failed);

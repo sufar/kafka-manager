@@ -1,15 +1,16 @@
 use crate::config::KafkaConfig;
 use crate::error::{AppError, Result};
+use crate::kafka::KafkaClientContext;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
 pub struct KafkaProducer {
-    producer: FutureProducer,
+    producer: FutureProducer<KafkaClientContext>,
 }
 
 impl KafkaProducer {
     pub fn new(kafka_config: &KafkaConfig) -> Result<Self> {
         let client_config = super::create_client_config(kafka_config);
-        let producer: FutureProducer = client_config.create()?;
+        let producer: FutureProducer<KafkaClientContext> = client_config.create_with_context(KafkaClientContext)?;
 
         Ok(Self { producer })
     }

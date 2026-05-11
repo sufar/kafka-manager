@@ -277,53 +277,184 @@ impl TopicStore {
         Ok((topics, total))
     }
 
-    /// 返回新增和删除的 topic 名称列表
+    /// 返回新增和删除的 topic 名称列表（批量 SQL 优化）
     pub async fn sync_topics(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
         current_topics: &[String],
     ) -> Result<SyncResult> {
-        // 获取数据库中已存在的 Topic
-        let existing_topics = Self::list_by_cluster(pool, cluster_id).await?;
-        let existing_names: std::collections::HashSet<_> = existing_topics
-            .iter()
-            .map(|t| t.topic_name.as_str())
-            .collect();
+        // 获取数据库中已存在的 Topic（只查名称，减少数据传输）
+        let existing_names: std::collections::HashSet<String> = sqlx::query_scalar::<_, String>(
+            "SELECT topic_name FROM topic_metadata WHERE cluster_id = ?",
+        )
+        .bind(cluster_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
 
-        let current_names: std::collections::HashSet<_> = current_topics
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
+        let current_names: std::collections::HashSet<_> = current_topics.iter().cloned().collect();
 
         // 新增的 Topic
         let added: Vec<String> = current_topics
             .iter()
-            .filter(|t| !existing_names.contains(t.as_str()))
+            .filter(|t| !existing_names.contains(*t))
             .cloned()
             .collect();
 
         // 已删除的 Topic
-        let removed: Vec<String> = existing_topics
-            .iter()
-            .filter(|t| !current_names.contains(t.topic_name.as_str()))
-            .map(|t| t.topic_name.clone())
+        let removed: Vec<String> = existing_names
+            .into_iter()
+            .filter(|t| !current_names.contains(t))
             .collect();
 
-        // 删除已不存在的 Topic 记录
-        for topic_name in &removed {
-            Self::delete(pool, cluster_id, topic_name).await?;
+        // 批量删除不存在的 Topic
+        if !removed.is_empty() {
+            Self::batch_delete(pool, cluster_id, &removed).await?;
         }
 
-        // 保存新增的 Topic 记录（仅保存名称，其他字段在后续获取）
-        for topic_name in &added {
-            let config = std::collections::HashMap::with_capacity(0);
-            let _ = Self::upsert(pool, cluster_id, topic_name, 1, 1, &config).await;
+        // 批量保存新增的 Topic
+        if !added.is_empty() {
+            Self::batch_upsert_names(pool, cluster_id, &added).await?;
         }
 
         Ok(SyncResult { added, removed })
     }
 
-    /// 保存 Topic 列表到数据库（用于批量保存）
+    /// 批量 upsert topic 名称（仅名称 + 默认值，1 条 SQL）
+    pub async fn batch_upsert_names(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        topic_names: &[String],
+    ) -> Result<()> {
+        if topic_names.is_empty() {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let empty_config = "{}";
+
+        // 构建批量 VALUES: (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?), ...
+        let placeholders: Vec<String> = topic_names
+            .iter()
+            .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
+            .collect();
+
+        let sql = format!(
+            r#"
+            INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
+            VALUES {}
+            ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
+                partition_count = excluded.partition_count,
+                replication_factor = excluded.replication_factor,
+                config_json = excluded.config_json,
+                fetched_at = excluded.fetched_at
+            "#,
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query(&sql);
+        for name in topic_names {
+            query = query
+                .bind(cluster_id)
+                .bind(name)
+                .bind(1) // partition_count 默认值
+                .bind(1) // replication_factor 默认值
+                .bind(empty_config)
+                .bind(&now);
+        }
+
+        query.execute(pool).await?;
+        Ok(())
+    }
+
+    /// 批量 upsert topic 详情（名称 + 分区数，1 条 SQL）
+    pub async fn batch_upsert_details(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        topic_details: &[(String, i32)], // (topic_name, partition_count)
+    ) -> Result<()> {
+        if topic_details.is_empty() {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let empty_config = "{}";
+
+        let placeholders: Vec<String> = topic_details
+            .iter()
+            .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
+            .collect();
+
+        let sql = format!(
+            r#"
+            INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
+            VALUES {}
+            ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
+                partition_count = excluded.partition_count,
+                replication_factor = excluded.replication_factor,
+                config_json = excluded.config_json,
+                fetched_at = excluded.fetched_at
+            "#,
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query(&sql);
+        for (name, partition_count) in topic_details {
+            query = query
+                .bind(cluster_id)
+                .bind(name)
+                .bind(partition_count)
+                .bind(1) // replication_factor 默认值
+                .bind(empty_config)
+                .bind(&now);
+        }
+
+        query.execute(pool).await?;
+        Ok(())
+    }
+
+    /// 批量删除 topic（1 条 SQL）
+    pub async fn batch_delete(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        topic_names: &[String],
+    ) -> Result<()> {
+        if topic_names.is_empty() {
+            return Ok(());
+        }
+
+        let placeholders: String = topic_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "DELETE FROM topic_metadata WHERE cluster_id = ? AND topic_name IN ({})",
+            placeholders
+        );
+
+        let mut query = sqlx::query(&sql).bind(cluster_id);
+        for name in topic_names {
+            query = query.bind(name);
+        }
+
+        query.execute(pool).await?;
+        Ok(())
+    }
+
+    /// 按集群统计 topic 数量（用 COUNT 替代全量查询）
+    pub async fn count_by_cluster(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+    ) -> Result<u32> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM topic_metadata WHERE cluster_id = ?",
+        )
+        .bind(cluster_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(count.0 as u32)
+    }
+
+    /// 保存 Topic 列表到数据库（用于批量保存）— 已废弃，使用 batch_upsert_names
     #[allow(dead_code)]
     pub async fn save_topics(
         pool: &sqlx::SqlitePool,

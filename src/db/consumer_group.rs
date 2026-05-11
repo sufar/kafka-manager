@@ -186,45 +186,106 @@ impl ConsumerGroupStore {
         Ok(groups)
     }
 
-    /// 返回新增和删除的 group 名称列表
+    /// 返回新增和删除的 group 名称列表（批量 SQL 优化）
     pub async fn sync_consumer_groups(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
         current_groups: &[String],
     ) -> Result<SyncResult> {
-        let existing_groups = Self::list_by_cluster(pool, cluster_id).await?;
-        let existing_names: std::collections::HashSet<_> = existing_groups
-            .iter()
-            .map(|g| g.group_name.as_str())
-            .collect();
+        // 只查名称，减少数据传输
+        let existing_names: std::collections::HashSet<String> = sqlx::query_scalar::<_, String>(
+            "SELECT group_name FROM consumer_group_metadata WHERE cluster_id = ?",
+        )
+        .bind(cluster_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
 
-        let current_names: std::collections::HashSet<_> = current_groups
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
+        let current_names: std::collections::HashSet<_> = current_groups.iter().cloned().collect();
 
         let added: Vec<String> = current_groups
             .iter()
-            .filter(|g| !existing_names.contains(g.as_str()))
+            .filter(|g| !existing_names.contains(*g))
             .cloned()
             .collect();
 
-        let removed: Vec<String> = existing_groups
-            .iter()
-            .filter(|g| !current_names.contains(g.group_name.as_str()))
-            .map(|g| g.group_name.clone())
+        let removed: Vec<String> = existing_names
+            .into_iter()
+            .filter(|g| !current_names.contains(g))
             .collect();
 
-        for group_name in &removed {
-            Self::delete(pool, cluster_id, group_name).await?;
+        // 批量删除
+        if !removed.is_empty() {
+            Self::batch_delete_groups(pool, cluster_id, &removed).await?;
         }
 
-        for group_name in &added {
-            let topics = vec![];
-            let _ = Self::upsert(pool, cluster_id, group_name, &topics).await;
+        // 批量新增
+        if !added.is_empty() {
+            Self::batch_upsert_groups(pool, cluster_id, &added).await?;
         }
 
         Ok(SyncResult { added, removed })
+    }
+
+    /// 批量 upsert group 名称（1 条 SQL）
+    pub async fn batch_upsert_groups(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        group_names: &[String],
+    ) -> Result<()> {
+        if group_names.is_empty() {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let empty_topics = "[]";
+
+        let placeholders: String = group_names.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
+
+        let sql = format!(
+            r#"
+            INSERT INTO consumer_group_metadata (cluster_id, group_name, topics, fetched_at)
+            VALUES {}
+            ON CONFLICT(cluster_id, group_name) DO UPDATE SET
+                topics = excluded.topics,
+                fetched_at = excluded.fetched_at
+            "#,
+            placeholders
+        );
+
+        let mut query = sqlx::query(&sql);
+        for name in group_names {
+            query = query.bind(cluster_id).bind(name).bind(empty_topics).bind(&now);
+        }
+
+        query.execute(pool).await?;
+        Ok(())
+    }
+
+    /// 批量删除 group（1 条 SQL）
+    pub async fn batch_delete_groups(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        group_names: &[String],
+    ) -> Result<()> {
+        if group_names.is_empty() {
+            return Ok(());
+        }
+
+        let placeholders: String = group_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "DELETE FROM consumer_group_metadata WHERE cluster_id = ? AND group_name IN ({})",
+            placeholders
+        );
+
+        let mut query = sqlx::query(&sql).bind(cluster_id);
+        for name in group_names {
+            query = query.bind(name);
+        }
+
+        query.execute(pool).await?;
+        Ok(())
     }
 
     // ==================== Consumer Group Offsets ====================

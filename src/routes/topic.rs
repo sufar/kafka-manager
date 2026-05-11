@@ -527,30 +527,20 @@ async fn refresh_topics(
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
-    // 同步到数据库（删除已不存在的 topics，添加新增的 topics）
+    // 同步到数据库（批量 SQL 优化）
     let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
 
-    // 更新新增 topic 的详细信息（分区数等）
-    for (topic_name, partition_count) in topic_details {
-        let config = std::collections::HashMap::with_capacity(0);
-        let _ = TopicStore::upsert(
-            state.db.inner(),
-            &cluster_id,
-            &topic_name,
-            partition_count,
-            1, // replication_factor 默认值
-            &config,
-        ).await;
-    }
+    // 批量更新所有 topic 的详细信息（分区数等）
+    let _ = TopicStore::batch_upsert_details(state.db.inner(), &cluster_id, &topic_details).await;
 
     // 获取更新后的总数
-    let all_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
+    let total = TopicStore::count_by_cluster(state.db.inner(), &cluster_id).await?;
 
     Ok(Json(RefreshTopicsResponse {
         success: true,
         added: sync_result.added,
         removed: sync_result.removed,
-        total: all_topics.len(),
+        total: total as usize,
     }))
 }
 

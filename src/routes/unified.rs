@@ -2094,31 +2094,31 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
         }
     };
 
-    // Sync to database
+    // Sync to database (batch SQL optimization)
     match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
         Ok(sync_result) => {
             tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
 
-            // Save new topics to database (blocking operations in spawn_blocking)
-            for topic_name in &sync_result.added {
-                let topic_name = topic_name.clone();
-                let admin = admin.clone();
-                let cluster_id = cluster_id.clone();
-                let db = state.db.clone();
+            // Batch fetch topic details from Kafka and upsert in a single SQL
+            let admin = admin.clone();
+            let db = state.db.clone();
+            let cluster_id_for_batch = cluster_id.clone();
+            let topic_details = tokio::task::spawn_blocking(move || {
+                current_topics
+                    .iter()
+                    .filter_map(|name| {
+                        admin.get_topic_info(name)
+                            .ok()
+                            .map(|info| (name.clone(), info.partitions.len() as i32))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
 
-                let _ = tokio::task::spawn_blocking(move || {
-                    if let Ok(topic_info) = admin.get_topic_info(&topic_name) {
-                        let config = std::collections::HashMap::with_capacity(0);
-                        let _ = TopicStore::upsert(
-                            db.inner(),
-                            &cluster_id,
-                            &topic_name,
-                            topic_info.partitions.len() as i32,
-                            1,
-                            &config,
-                        );
-                    }
-                }).await;
+            if let Ok(details) = topic_details {
+                if let Err(e) = TopicStore::batch_upsert_details(db.inner(), &cluster_id_for_batch, &details).await {
+                    tracing::error!("Failed to batch upsert topic details: {}", e);
+                }
             }
         }
         Err(e) => {

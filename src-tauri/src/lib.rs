@@ -405,13 +405,60 @@ fn greet(name: &str) -> String {
     format!("Hello, {}!", name)
 }
 
-/// 获取日志内容
+/// 获取日志内容（只读最后 5000 行，避免大文件内存爆炸）
 #[tauri::command]
 fn get_app_logs() -> Result<String, String> {
     let log_path = kafka_manager_api::utils::app_log_path();
 
-    std::fs::read_to_string(&log_path)
-        .or_else(|_| Ok(String::new()))
+    // 用 BufReader + seek 从文件末尾往前读，只取最后 N 行
+    let max_lines = 5000;
+    let max_bytes = 5 * 1024 * 1024; // 最多读 5MB
+
+    let file = match std::fs::File::open(&log_path) {
+        Ok(f) => f,
+        Err(_) => return Ok(String::new()),
+    };
+
+    let metadata = match file.metadata() {
+        Ok(m) => m,
+        Err(_) => return Ok(String::new()),
+    };
+
+    let file_size = metadata.len();
+    if file_size == 0 {
+        return Ok(String::new());
+    }
+
+    // 从文件末尾往前读 max_bytes 或整个文件
+    let read_from = if file_size > max_bytes {
+        file_size - max_bytes
+    } else {
+        0
+    };
+
+    use std::io::{BufRead, BufReader, Seek};
+    let mut reader = BufReader::new(file);
+    reader.seek(std::io::SeekFrom::Start(read_from)).ok();
+
+    let mut lines: Vec<String> = Vec::with_capacity(1000);
+    let mut line_buf = String::new();
+
+    loop {
+        line_buf.clear();
+        match reader.read_line(&mut line_buf) {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                lines.push(line_buf.clone());
+                if lines.len() >= max_lines {
+                    // 已经超过最大行数，丢弃最旧的行
+                    lines.remove(0);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    Ok(lines.join(""))
 }
 
 /// 清除日志

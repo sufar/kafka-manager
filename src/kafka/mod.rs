@@ -17,8 +17,35 @@ pub use producer::KafkaProducer;
 use crate::config::KafkaConfig;
 use crate::error::AppError;
 use rdkafka::ClientConfig;
+use rdkafka::config::RDKafkaLogLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// 自定义 rdkafka ClientContext，抑制 AllBrokersDown 噪音日志
+struct KafkaClientContext;
+
+impl rdkafka::ClientContext for KafkaClientContext {
+    fn log(&self, level: RDKafkaLogLevel, _fac: &str, log_message: &str) {
+        // 抑制 AllBrokersDown 噪音（broker 不可达时 librdkafka 会持续重试并打印）
+        if log_message.contains("AllBrokersDown") {
+            return;
+        }
+        match level {
+            RDKafkaLogLevel::Emerg
+            | RDKafkaLogLevel::Alert
+            | RDKafkaLogLevel::Critical
+            | RDKafkaLogLevel::Error => {
+                tracing::error!("[rdkafka] {}", log_message);
+            }
+            RDKafkaLogLevel::Warning => {
+                tracing::warn!("[rdkafka] {}", log_message);
+            }
+            _ => {
+                tracing::debug!("[rdkafka] {}", log_message);
+            }
+        }
+    }
+}
 
 /// 创建 rdkafka 客户端配置
 pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
