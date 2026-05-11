@@ -120,18 +120,16 @@
         <!-- Virtual Scroll Topic Items -->
         <RecycleScroller
           v-if="currentView === 'topics' && !loading && (searchQuery ? filteredTopicsWithUid.length : displayedTopicsWithUid.length) > 0"
-          :key="'topics-' + currentView"
           class="w-full h-full"
           :items="searchQuery ? filteredTopicsWithUid : displayedTopicsWithUid"
           :item-size="28"
           key-field="uid"
           :buffer-size="5"
-          v-slot="{ item, index }"
+          v-slot="{ item }"
           @scroll="handleScroll"
         >
           <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
-          :class="{ 'bg-primary/10': hoveredIndex === index }"
           @click="selectTopic((item as TopicItem).topic)"
         >
           <!-- Cluster Health Indicator -->
@@ -164,13 +162,12 @@
       <!-- Virtual Scroll Consumer Group Items -->
       <RecycleScroller
         v-if="currentView === 'consumer-groups' && !loading && filteredConsumerGroupsWithUid.length > 0"
-        :key="'consumer-groups-' + currentView"
         class="w-full h-full"
         :items="filteredConsumerGroupsWithUid"
         :item-size="28"
         key-field="uid"
         :buffer-size="5"
-        v-slot="{ item, index }"
+        v-slot="{ item }"
         @scroll="handleScroll"
       >
         <div

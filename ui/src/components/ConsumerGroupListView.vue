@@ -21,14 +21,12 @@
       :item-size="28"
       key-field="uid"
       :buffer-size="5"
-      v-slot="{ item, index }"
+      v-slot="{ item }"
       @scroll="$emit('scroll', $event)"
     >
       <div
-        class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-base-200"
-        :class="{ 'bg-primary/10': hoveredIndex === index }"
+        class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-base-200/70"
         @click="handleClick((item as ConsumerGroupItem).group)"
-        @mouseenter="hoveredIndex = index"
       >
         <!-- Cluster Health Indicator -->
         <div
@@ -60,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { RecycleScroller } from 'vue-virtual-scroller';
 
 interface ConsumerGroupInfo {
@@ -83,8 +81,6 @@ const emit = defineEmits<{
   click: [group: ConsumerGroupInfo];
   scroll: [event: Event];
 }>();
-
-const hoveredIndex = ref(-1);
 
 const itemsWithUid = computed((): ConsumerGroupItem[] => {
   return props.items.map(group => ({
