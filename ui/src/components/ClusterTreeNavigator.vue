@@ -655,7 +655,7 @@ function showConnectionError(clusterName: string, errorMsg: string) {
   // 尝试解析 broker 信息 (格式: "xxx (broker: host:port): detail")
   const brokerMatch = errorMsg.match(/\(broker:\s*([^)]+)\)/);
   if (brokerMatch) {
-    errorDialogBroker.value = brokerMatch[1];
+    errorDialogBroker.value = brokerMatch[1] || '';
     errorDialogDetail.value = errorMsg.replace(/\(broker:\s*[^)]+\)\s*:?\s*/, '').trim();
   } else {
     errorDialogBroker.value = '';
