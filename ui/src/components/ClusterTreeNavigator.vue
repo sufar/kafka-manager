@@ -421,7 +421,11 @@
             <p class="text-sm">
               Cluster: <span class="font-mono">{{ errorDialogClusterName }}</span>
             </p>
-            <p class="text-sm text-error">{{ errorDialogMessage }}</p>
+            <p class="text-sm" v-if="errorDialogBroker">
+              Broker: <span class="font-mono text-error">{{ errorDialogBroker }}</span>
+            </p>
+            <p class="text-sm text-error" v-if="errorDialogDetail">{{ errorDialogDetail }}</p>
+            <p class="text-sm text-error" v-else>{{ errorDialogMessage }}</p>
           </div>
 
           <!-- Footer -->
@@ -561,6 +565,8 @@ const consumerGroupElementRefs = shallowReactive<Record<string, HTMLDivElement |
 const errorDialogRef = ref<HTMLDialogElement | null>(null);
 const errorDialogClusterName = ref<string>('');
 const errorDialogMessage = ref<string>('');
+const errorDialogBroker = ref<string>('');
+const errorDialogDetail = ref<string>('');
 const pendingClusterName = ref<string | null>(null); // 等待展开的集群
 
 function getClusterHealth(clusterId: string) {
@@ -645,7 +651,18 @@ function showConnectionError(clusterName: string, errorMsg: string) {
 
   // 其他错误（如配置错误、认证失败等）显示错误对话框
   errorDialogClusterName.value = clusterName;
+
+  // 尝试解析 broker 信息 (格式: "xxx (broker: host:port): detail")
+  const brokerMatch = errorMsg.match(/\(broker:\s*([^)]+)\)/);
+  if (brokerMatch) {
+    errorDialogBroker.value = brokerMatch[1];
+    errorDialogDetail.value = errorMsg.replace(/\(broker:\s*[^)]+\)\s*:?\s*/, '').trim();
+  } else {
+    errorDialogBroker.value = '';
+    errorDialogDetail.value = '';
+  }
   errorDialogMessage.value = errorMsg;
+
   pendingClusterName.value = clusterName;
   nextTick(() => {
     errorDialogRef.value?.showModal();
@@ -656,6 +673,8 @@ function showConnectionError(clusterName: string, errorMsg: string) {
 function handleErrorDialogClose() {
   errorDialogRef.value?.close();
   pendingClusterName.value = null;
+  errorDialogBroker.value = '';
+  errorDialogDetail.value = '';
 }
 
 // 处理对话框重试
@@ -865,7 +884,7 @@ async function refreshClusterTopics(clusterName: string) {
 }
 
 // 虚拟滚动相关
-const VISIBLE_ITEMS = 1000; // 默认显示 1000 个 topic，超过的需要搜索
+const VISIBLE_ITEMS = 2000; // 默认显示 2000 个 topic，超过的需要加载更多
 const topicSearchQuery = shallowReactive<Record<string, string>>({});
 
 // 存储每个 cluster 的 topic 显示数量（用于分页加载）
@@ -899,8 +918,8 @@ function loadMoreTopics(clusterName: string) {
   const totalTopics = (clusterTopics[clusterName] || []).length;
 
   if (currentLimit < totalTopics) {
-    // 每次多加载 500 个
-    topicDisplayLimits[clusterName] = Math.min(currentLimit + 500, totalTopics);
+    // 每次多加载 2000 个
+    topicDisplayLimits[clusterName] = Math.min(currentLimit + 2000, totalTopics);
   }
 }
 

@@ -26,18 +26,22 @@ pub enum ConnectionStatus {
 pub struct ClusterPools {
     /// 集群 ID -> (Consumer Pool, Producer Pool)
     pools: Arc<tokio::sync::RwLock<HashMap<String, (KafkaConsumerPool, KafkaProducerPool)>>>,
+    /// 集群 ID -> bootstrap brokers (用于错误消息中显示具体哪个 broker 不可达)
+    brokers: Arc<tokio::sync::RwLock<HashMap<String, String>>>,
 }
 
 impl ClusterPools {
     pub fn new() -> Self {
         Self {
             pools: Arc::new(tokio::sync::RwLock::new(HashMap::with_capacity(4))),
+            brokers: Arc::new(tokio::sync::RwLock::new(HashMap::with_capacity(4))),
         }
     }
 
     /// 初始化所有集群的连接池
     pub async fn init(&self, clusters: &HashMap<String, KafkaConfig>, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
+        let mut brokers = self.brokers.write().await;
 
         for (cluster_id, config) in clusters {
             let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
@@ -47,6 +51,7 @@ impl ClusterPools {
             let producer_pool = build_pool(producer_mgr, pool_config);
 
             pools.insert(cluster_id.clone(), (consumer_pool, producer_pool));
+            brokers.insert(cluster_id.clone(), config.brokers.clone());
         }
 
         Ok(())
@@ -67,6 +72,7 @@ impl ClusterPools {
     /// 添加新的集群连接池
     pub async fn add_cluster(&self, cluster_id: &str, config: &KafkaConfig, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
+        let mut brokers = self.brokers.write().await;
 
         let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
         let producer_mgr = kafka_producer::KafkaProducerManager::new(config)?;
@@ -75,6 +81,7 @@ impl ClusterPools {
         let producer_pool = build_pool(producer_mgr, pool_config);
 
         pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
+        brokers.insert(cluster_id.to_string(), config.brokers.clone());
 
         Ok(())
     }
@@ -82,7 +89,9 @@ impl ClusterPools {
     /// 移除集群连接池
     pub async fn remove_cluster(&self, cluster_id: &str) {
         let mut pools = self.pools.write().await;
+        let mut brokers = self.brokers.write().await;
         pools.remove(cluster_id);
+        brokers.remove(cluster_id);
     }
 
     /// 检查集群连接状态
@@ -90,8 +99,12 @@ impl ClusterPools {
         use rdkafka::producer::Producer;
         use std::time::Duration;
 
-        let pools = self.pools.read().await;
-        let (_, producer_pool) = pools.get(cluster_id)?;
+        let (producer_pool, broker_info) = {
+            let pools = self.pools.read().await;
+            let (_, producer_pool) = pools.get(cluster_id)?;
+            let broker_info = self.brokers.read().await.get(cluster_id).cloned();
+            (producer_pool.clone(), broker_info)
+        };
 
         // 尝试从连接池获取一个连接并执行健康检查
         match producer_pool.get().await {
@@ -127,26 +140,45 @@ impl ClusterPools {
                             }
 
                             // 最后一次尝试或非临时错误，返回错误状态
-                            return Some(ConnectionStatus::Error(format!("Metadata fetch failed: {}", e)));
+                            let msg = if let Some(brokers) = &broker_info {
+                                format!("Metadata fetch failed (broker: {}): {}", brokers, e)
+                            } else {
+                                format!("Metadata fetch failed: {}", e)
+                            };
+                            return Some(ConnectionStatus::Error(msg));
                         }
                     }
                 }
                 // 所有重试都失败，返回错误状态
-                Some(ConnectionStatus::Error("Health check failed after all retries".into()))
+                let msg = if let Some(brokers) = &broker_info {
+                    format!("Health check failed after all retries (broker: {})", brokers)
+                } else {
+                    "Health check failed after all retries".into()
+                };
+                Some(ConnectionStatus::Error(msg))
             }
-            Err(e) => Some(ConnectionStatus::Error(format!("Pool error: {}", e))),
+            Err(e) => {
+                let msg = if let Some(brokers) = &broker_info {
+                    format!("Pool error (broker: {}): {}", brokers, e)
+                } else {
+                    format!("Pool error: {}", e)
+                };
+                Some(ConnectionStatus::Error(msg))
+            }
         }
     }
 
     /// 断开集群连接
     pub async fn disconnect(&self, cluster_id: &str) -> Result<()> {
         let mut pools = self.pools.write().await;
+        let mut brokers = self.brokers.write().await;
         if pools.remove(cluster_id).is_none() {
             return Err(crate::error::AppError::NotFound(format!(
                 "Cluster '{}' not found",
                 cluster_id
             )));
         }
+        brokers.remove(cluster_id);
         tracing::info!("Disconnected cluster: {}", cluster_id);
         Ok(())
     }
@@ -154,6 +186,7 @@ impl ClusterPools {
     /// 重连集群
     pub async fn reconnect(&self, cluster_id: &str, config: &KafkaConfig, pool_config: &PoolConfig) -> Result<()> {
         let mut pools = self.pools.write().await;
+        let mut brokers = self.brokers.write().await;
 
         let consumer_mgr = kafka_consumer::KafkaConsumerManager::new(config)?;
         let producer_mgr = kafka_producer::KafkaProducerManager::new(config)?;
@@ -162,6 +195,7 @@ impl ClusterPools {
         let producer_pool = build_pool(producer_mgr, pool_config);
 
         pools.insert(cluster_id.to_string(), (consumer_pool, producer_pool));
+        brokers.insert(cluster_id.to_string(), config.brokers.clone());
         tracing::info!("Reconnected cluster: {}", cluster_id);
 
         Ok(())
