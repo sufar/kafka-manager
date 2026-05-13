@@ -19,8 +19,6 @@ use kafka_manager_api::{
 };
 use tauri::Manager;
 use tauri::Emitter;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
 
 /// 后台下载状态
 #[derive(Clone, Debug, serde::Serialize)]
@@ -2070,49 +2068,7 @@ pub fn run() {
                 }
             });
 
-            // 创建托盘图标菜单
-            let show_i = MenuItem::with_id(app, "show", "Show Kafka Manager", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
-
-            // 获取应用图标作为托盘图标
-            let icon = app.default_window_icon().unwrap().clone();
-
-            // 创建托盘图标
-            let _tray = TrayIconBuilder::new()
-                .icon(icon)
-                .menu(&menu)
-                .on_menu_event(move |app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            // 显示主窗口
-                            if let Some(window) = app.webview_windows().values().next() {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            log("Quit menu item clicked, exiting app and shutting down backend");
-                            app.exit(0);
-                        }
-                        _ => {}
-                    }
-                })
-                .build(app)?;
-
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    // 阻止默认关闭行为，改为隐藏窗口到菜单栏
-                    api.prevent_close();
-                    let _ = window.hide();
-                    log("Window hidden, app running in menu bar");
-                }
-                _ => {}
-            }
         })
         .run(tauri::generate_context!())
         .expect("Failed to run Tauri application");
