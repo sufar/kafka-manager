@@ -78,22 +78,20 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <div class="overflow-auto">
+      <div class="overflow-x-hidden overflow-y-auto">
         <table class="table w-full table-fixed">
           <colgroup>
-            <col :style="{ width: columnWidths.group + 'px' }">
+            <col class="w-full">
             <col :style="{ width: columnWidths.partition + 'px' }">
             <col :style="{ width: columnWidths.startOffset + 'px' }">
             <col :style="{ width: columnWidths.endOffset + 'px' }">
             <col :style="{ width: columnWidths.committedOffset + 'px' }">
             <col :style="{ width: columnWidths.lag + 'px' }">
-            <col class="w-full">
+            <col :style="{ width: columnWidths.lastCommit + 'px' }">
           </colgroup>
           <thead>
             <tr class="bg-base-100 sticky top-0 z-10">
-              <th class="p-2">{{ t.topicConsumerGroups.groupName }}
-                <div class="resizer" @mousedown="startColumnResize('group', $event)"></div>
-              </th>
+              <th class="p-2">{{ t.topicConsumerGroups.groupName }}</th>
               <th class="p-2">{{ t.consumerGroups.partition }}
                 <div class="resizer" @mousedown="startColumnResize('partition', $event)"></div>
               </th>
@@ -183,9 +181,8 @@ interface OffsetRow {
 const offsets = ref<OffsetRow[]>([]);
 
 // Column widths for the offsets table
-type ColumnKey = 'group' | 'partition' | 'startOffset' | 'endOffset' | 'committedOffset' | 'lag' | 'lastCommit';
+type ColumnKey = 'partition' | 'startOffset' | 'endOffset' | 'committedOffset' | 'lag' | 'lastCommit';
 const columnWidths = ref<Record<ColumnKey, number>>({
-  group: 120,
   partition: 60,
   startOffset: 80,
   endOffset: 80,

@@ -73,23 +73,20 @@
           <h3 class="font-semibold">{{ t.consumerGroups.offsets }}</h3>
           <span class="text-xs text-base-content/60">{{ offsets.length }} {{ t.consumerGroups.partitions }}</span>
         </div>
-        <div class="overflow-auto max-h-[600px]">
+        <div class="overflow-x-hidden overflow-y-auto max-h-[600px]">
           <table class="table w-full table-fixed">
             <colgroup>
-              <col :style="{ width: columnWidths.topic + 'px' }">
+              <col class="w-full">
               <col :style="{ width: columnWidths.partition + 'px' }">
               <col :style="{ width: columnWidths.startOffset + 'px' }">
               <col :style="{ width: columnWidths.endOffset + 'px' }">
               <col :style="{ width: columnWidths.committedOffset + 'px' }">
               <col :style="{ width: columnWidths.lag + 'px' }">
-              <col class="w-full">
+              <col :style="{ width: columnWidths.lastCommit + 'px' }">
             </colgroup>
             <thead>
               <tr>
-                <th class="p-2">{{ t.consumerGroups.topic }}
-                  <div class="resizer"
-                    @mousedown="startColumnResize('topic', $event)"></div>
-                </th>
+                <th class="p-2">{{ t.consumerGroups.topic }}</th>
                 <th class="p-2">{{ t.consumerGroups.partition }}
                   <div class="resizer"
                     @mousedown="startColumnResize('partition', $event)"></div>
@@ -115,7 +112,7 @@
             </thead>
             <tbody>
               <tr v-for="item in offsets" :key="`${item.topic}-${item.partition}`" class="hover">
-                <td class="font-medium">{{ item.topic }}</td>
+                <td class="font-medium truncate" :title="item.topic">{{ item.topic }}</td>
                 <td><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
                 <td class="text-right font-mono text-sm">{{ item.start_offset }}</td>
                 <td class="text-right font-mono text-sm">{{ item.end_offset }}</td>
@@ -254,9 +251,8 @@ const offsets = ref<OffsetItem[]>([]);
 const refreshing = ref(false);
 
 // Column widths for the offsets table
-type ColumnKey = 'topic' | 'partition' | 'startOffset' | 'endOffset' | 'committedOffset' | 'lag' | 'lastCommit';
+type ColumnKey = 'partition' | 'startOffset' | 'endOffset' | 'committedOffset' | 'lag' | 'lastCommit';
 const columnWidths = ref<Record<ColumnKey, number>>({
-  topic: 120,
   partition: 60,
   startOffset: 80,
   endOffset: 80,
