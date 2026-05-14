@@ -52,7 +52,7 @@
     </div>
 
     <!-- Content Area (scrollable) -->
-    <div class="flex-1 overflow-y-auto px-3 pb-3">
+    <div class="flex-1 overflow-auto px-3 pb-3">
     <!-- Loading state -->
     <div v-if="loading" class="flex justify-center py-8">
       <span class="loading loading-spinner loading-md text-primary"></span>
@@ -78,7 +78,7 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <div class="overflow-y-auto">
+      <div class="overflow-x-hidden overflow-y-auto">
         <table class="table w-full table-fixed">
           <colgroup>
             <col class="w-full">
@@ -188,7 +188,7 @@ const columnWidths = ref<Record<ColumnKey, number>>({
   endOffset: 80,
   committedOffset: 90,
   lag: 70,
-  lastCommit: 120,
+  lastCommit: 150,
 });
 const columnResizing = ref(false);
 const resizeColumn = ref<ColumnKey | null>(null);
