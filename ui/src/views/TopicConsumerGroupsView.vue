@@ -127,7 +127,7 @@
               <td class="p-2 text-right">
                 <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
               </td>
-              <td class="p-2 text-right text-xs text-base-content/60">{{ formatLastCommitTime(item.last_commit_time) }}</td>
+              <td class="p-2 text-right text-xs text-base-content/60 whitespace-nowrap">{{ formatLastCommitTime(item.last_commit_time) }}</td>
             </tr>
           </tbody>
         </table>
