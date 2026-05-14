@@ -1,9 +1,9 @@
 <template>
-  <div class="p-3 relative">
+  <div class="p-3 relative min-h-full flex flex-col">
     <!-- Detail View -->
-    <div v-if="detailView" class="space-y-4">
+    <div v-if="detailView" class="flex flex-col flex-1 space-y-4">
       <!-- Header with group name and actions -->
-      <div class="card glass gradient-border shadow-xl">
+      <div class="card glass gradient-border shadow-xl flex-shrink-0">
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
           <div class="flex-1 min-w-0">
             <h2 class="text-xl font-bold flex items-center gap-2 flex-wrap">
@@ -68,12 +68,12 @@
       </div>
 
       <!-- Offsets Table -->
-      <div v-else-if="offsets.length > 0" class="card glass gradient-border shadow-xl">
-        <div class="p-3 bg-base-100 border-b border-base-200 flex items-center justify-between">
+      <div v-else-if="offsets.length > 0" class="card glass gradient-border shadow-xl flex-1 flex flex-col overflow-hidden">
+        <div class="p-3 bg-base-100 border-b border-base-200 flex items-center justify-between flex-shrink-0">
           <h3 class="font-semibold">{{ t.consumerGroups.offsets }}</h3>
           <span class="text-xs text-base-content/60">{{ offsets.length }} {{ t.consumerGroups.partitions }}</span>
         </div>
-        <div class="overflow-y-auto max-h-[600px]">
+        <div class="overflow-y-auto flex-1">
           <table class="table w-full table-fixed">
             <colgroup>
               <col class="w-full">
