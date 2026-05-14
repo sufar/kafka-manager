@@ -183,9 +183,9 @@
             </div>
 
             <!-- Topics Scrollable Container (includes search box + topics list) -->
-            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-3 overflow-y-auto max-h-[500px]">
-              <!-- Topic Search Box - sticky under Topics folder -->
-              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-1 sticky top-0 bg-base-100 z-10 py-1">
+            <div v-show="expandedTopicsFolders.has(cluster.name)" class="pl-3 flex flex-col max-h-[500px]">
+              <!-- Topic Search Box -->
+              <div v-if="getTotalTopics(cluster.name) > 0" class="mb-1 flex-shrink-0 py-1">
                 <div class="join w-full">
                   <input
                     v-model="topicSearchQuery[cluster.name]"
@@ -212,82 +212,28 @@
                 </p>
               </div>
 
-              <div
-                v-for="topic in getClusterTopics(cluster.name)"
-                :key="topic.name"
-                class="mb-0.5"
-                ref="el => setTopicElementRef(`${cluster.name}:${topic.name}`, el)"
+              <RecycleScroller
+                :ref="el => setTopicScroller(cluster.name, el as InstanceType<typeof RecycleScroller> | null)"
+                :key="cluster.name"
+                class="topic-scroller flex-1"
+                :items="getClusterTopics(cluster.name)"
+                :item-size="28"
+                key-field="uid"
+                v-slot="{ item }"
               >
-                <!-- Topic Node -->
                 <div
-                  class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-accent/5"
-                  :class="{ 'bg-accent/10 text-accent': selectedTopic?.name === topic.name && selectedTopic?.cluster === cluster.name }"
-                  @click="selectTopic(topic, cluster.name)"
+                  class="flex items-center px-1.5 py-0.5 rounded-lg cursor-pointer hover:bg-accent/5"
+                  :class="{ 'bg-accent/10 text-accent': selectedTopic?.name === (item as Topic).name && selectedTopic?.cluster === cluster.name }"
+                  @click="selectTopic(item as Topic, cluster.name)"
                 >
                   <div class="flex items-center gap-1 flex-1 min-w-0">
-                    <button
-                      class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0"
-                      @click.stop="toggleTopic(topic.name, cluster.name)"
-                      tabindex="-1"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke-width="2"
-                        stroke="currentColor"
-                        class="w-2.5 h-2.5 transition-transform duration-200"
-                        :class="{ 'rotate-90': expandedTopics.has(`${cluster.name}:${topic.name}`) }"
-                      >
-                        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                      </svg>
-                    </button>
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary flex-shrink-0">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                     </svg>
-                    <span class="text-xs truncate flex-1 min-w-0" :title="topic.name">{{ topic.name }}</span>
+                    <span class="text-xs truncate flex-1 min-w-0" :title="(item as Topic).name">{{ (item as Topic).name }}</span>
                   </div>
                 </div>
-
-                <!-- Partitions List -->
-                <div v-show="expandedTopics.has(`${cluster.name}:${topic.name}`)" class="pl-3">
-                  <!-- Loading State -->
-                  <div v-if="loadingTopicPartitions.has(`${cluster.name}:${topic.name}`)" class="flex items-center py-2">
-                    <span class="loading loading-spinner loading-xs text-primary"></span>
-                    <span class="text-[10px] text-base-content/50 ml-2">Loading partitions...</span>
-                  </div>
-                  <!-- Partitions -->
-                  <div
-                    v-else
-                    v-for="partition in topic.partitions || []"
-                    :key="partition.id"
-                    class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-base-200/50"
-                    :class="{ 'bg-accent/10 text-accent': selectedPartition?.topic === topic.name && selectedPartition?.partition === partition.id && selectedPartition?.cluster === cluster.name }"
-                    @click="selectPartition(partition.id, topic, cluster.name)"
-                  >
-                    <div class="flex items-center gap-1 flex-1 min-w-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-                      </svg>
-                      <span class="text-[10px] truncate text-base-content/70">#{{ partition.id }}</span>
-                    </div>
-                  </div>
-                  <!-- No Partitions -->
-                  <div v-if="!loadingTopicPartitions.has(`${cluster.name}:${topic.name}`) && (!topic.partitions || topic.partitions.length === 0)" class="text-[10px] text-base-content/50 py-2 pl-2">
-                    No partitions available
-                  </div>
-                </div>
-              </div>
-
-              <!-- Load More Button -->
-              <div v-if="!topicSearchQuery[cluster.name] && hasMoreTopics(cluster.name)" class="py-1">
-                <button
-                  class="btn btn-xs btn-ghost w-full text-primary"
-                  @click.stop="loadMoreTopics(cluster.name)"
-                >
-                  Load more ({{ getTotalTopics(cluster.name) - getClusterTopics(cluster.name).length }} remaining)
-                </button>
-              </div>
+              </RecycleScroller>
             </div>
 
             <!-- Consumer Groups Folder -->
@@ -444,6 +390,7 @@
 
 <script setup lang="ts">
 import { ref, shallowReactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { RecycleScroller } from 'vue-virtual-scroller';
 import { useClusterStore } from '@/stores/cluster';
 import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
@@ -452,6 +399,7 @@ import TopicHistory from '@/components/TopicHistory.vue';
 
 interface Topic {
   name: string;
+  uid: string;
   partitions?: Array<{ id: number }>;
 }
 
@@ -532,7 +480,6 @@ function handleHorizontalScroll(event: WheelEvent) {
 }
 
 const expandedClusters = ref(new Set<string>());
-const expandedTopics = ref(new Set<string>());
 const refreshingTopics = ref(new Set<string>()); // 正在刷新 topics 的集群
 const refreshingConsumerGroups = ref(new Set<string>()); // 正在刷新 consumer groups 的集群
 const loadingClusters = ref(new Set<string>()); // 正在加载 topics 的集群
@@ -685,51 +632,6 @@ function handleErrorDialogRetry() {
   }
 }
 
-// 存储正在加载分区的 topic
-const loadingTopicPartitions = shallowReactive<Set<string>>(new Set());
-
-function toggleTopic(topicName: string, clusterName: string) {
-  const key = `${clusterName}:${topicName}`;
-  if (expandedTopics.value.has(key)) {
-    expandedTopics.value.delete(key);
-    expandedTopics.value = new Set(expandedTopics.value);
-  } else {
-    // 展开时懒加载分区信息
-    loadTopicPartitions(clusterName, topicName);
-    expandedTopics.value = new Set(expandedTopics.value.add(key));
-  }
-}
-
-async function loadTopicPartitions(clusterName: string, topicName: string) {
-  const key = `${clusterName}:${topicName}`;
-
-  // 如果正在加载，直接返回
-  if (loadingTopicPartitions.has(key)) return;
-
-  // 检查是否已经加载过分区
-  const topic = clusterTopics[clusterName]?.find(t => t.name === topicName);
-  if (topic && topic.partitions && topic.partitions.length > 0) return;
-
-  loadingTopicPartitions.add(key);
-
-  try {
-    const detail = await apiClient.getTopicDetail(clusterName, topicName);
-    const clusterTopicsList = clusterTopics[clusterName];
-    if (clusterTopicsList) {
-      // 替换整个集群数组以触发 shallowReactive 更新
-      clusterTopics[clusterName] = clusterTopicsList.map(t =>
-        t.name === topicName
-          ? { ...t, partitions: detail.partitions.map(p => ({ id: p.id })) }
-          : t
-      );
-    }
-  } catch (e) {
-    console.warn(`Failed to get partitions for topic ${topicName}:`, e);
-  } finally {
-    loadingTopicPartitions.delete(key);
-  }
-}
-
 function toggleTopicsFolder(clusterName: string) {
   if (expandedTopicsFolders.value.has(clusterName)) {
     expandedTopicsFolders.value.delete(clusterName);
@@ -790,7 +692,6 @@ function goToSchemaRegistry() {
 
 function collapseAll() {
   expandedClusters.value = new Set();
-  expandedTopics.value = new Set();
   expandedTopicsFolders.value = new Set();
 }
 
@@ -816,14 +717,15 @@ async function loadClusterTopics(clusterName: string) {
         // 只存储 topic 名称，分区信息在展开时懒加载
         clusterTopics[clusterName] = (refreshedTopics || []).map((name: string) => ({
           name,
-          partitions: [] // 初始为空，展开时再加载
+          uid: `${clusterName}:${name}`,
+          partitions: []
         }));
         topicCounts[clusterName] = refreshedTopics?.length || 0;
       } else {
-        // 只存储 topic 名称，分区信息在展开时懒加载
         clusterTopics[clusterName] = topics.map((name: string) => ({
           name,
-          partitions: [] // 初始为空，展开时再加载
+          uid: `${clusterName}:${name}`,
+          partitions: []
         }));
         topicCounts[clusterName] = topics.length;
       }
@@ -873,10 +775,10 @@ async function refreshClusterTopics(clusterName: string) {
     const savedTopics = await apiClient.getSavedTopics(clusterName).catch(() => []);
     clusterTopics[clusterName] = (savedTopics || []).map((name: string) => ({
       name,
+      uid: `${clusterName}:${name}`,
       partitions: []
     }));
     topicCounts[clusterName] = savedTopics?.length || 0;
-    topicDisplayLimits[clusterName] = VISIBLE_ITEMS;
     expandedTopicsFolders.value = new Set(expandedTopicsFolders.value.add(clusterName));
     refreshingTopics.value.delete(clusterName);
     refreshingTopics.value = new Set(refreshingTopics.value);
@@ -884,49 +786,25 @@ async function refreshClusterTopics(clusterName: string) {
 }
 
 // 虚拟滚动相关
-const VISIBLE_ITEMS = 2000; // 默认显示 2000 个 topic，超过的需要加载更多
 const topicSearchQuery = shallowReactive<Record<string, string>>({});
+const topicScrollers = shallowReactive<Record<string, InstanceType<typeof RecycleScroller> | null>>({});
 
-// 存储每个 cluster 的 topic 显示数量（用于分页加载）
-const topicDisplayLimits = shallowReactive<Record<string, number>>({});
-
-// 存储每个 topic 元素的 ref
-const topicElementRefs = shallowReactive<Record<string, HTMLDivElement | null>>({});
-
-// @ts-ignore - used in template
-function setTopicElementRef(key: string, el: HTMLDivElement | null) {
-  topicElementRefs[key] = el;
+function setTopicScroller(clusterName: string, el: InstanceType<typeof RecycleScroller> | null) {
+  topicScrollers[clusterName] = el;
 }
 
 function getClusterTopics(clusterName: string): Topic[] {
   const topics = clusterTopics[clusterName] || [];
   const query = topicSearchQuery[clusterName];
 
-  if (query && query.trim()) {
-    // 搜索模式：过滤匹配的 topic（搜索结果全部显示）
-    const lowerQuery = query.toLowerCase();
-    return topics.filter(t => t.name.toLowerCase().includes(lowerQuery));
-  }
+  const filtered = query && query.trim()
+    ? topics.filter(t => t.name.toLowerCase().includes(query.toLowerCase()))
+    : topics;
 
-  // 默认返回前 N 个（支持加载更多）
-  const limit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
-  return topics.slice(0, limit);
-}
-
-function loadMoreTopics(clusterName: string) {
-  const currentLimit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
-  const totalTopics = (clusterTopics[clusterName] || []).length;
-
-  if (currentLimit < totalTopics) {
-    // 每次多加载 2000 个
-    topicDisplayLimits[clusterName] = Math.min(currentLimit + 2000, totalTopics);
-  }
-}
-
-function hasMoreTopics(clusterName: string): boolean {
-  const currentLimit = topicDisplayLimits[clusterName] || VISIBLE_ITEMS;
-  const totalTopics = (clusterTopics[clusterName] || []).length;
-  return currentLimit < totalTopics;
+  // 为 RecycleScroller 添加 uid
+  return filtered.map(t =>
+    t.uid ? t : { ...t, uid: `${clusterName}:${t.name}` }
+  );
 }
 
 function setTopicSearch(clusterName: string, query: string) {
@@ -945,16 +823,6 @@ async function selectTopic(topic: Topic, clusterName: string) {
   await connectClusterIfNeeded(clusterName);
 
   emit('navigate', { path: '/messages', query: { cluster: clusterName, topic: topic.name } });
-}
-
-async function selectPartition(partitionId: number, topic: Topic, clusterName: string) {
-  selectedTopic.value = { name: topic.name, cluster: clusterName };
-  selectedPartition.value = { topic: topic.name, partition: partitionId, cluster: clusterName };
-
-  // 确保集群已连接
-  await connectClusterIfNeeded(clusterName);
-
-  emit('navigate', { path: '/messages', query: { cluster: clusterName, topic: topic.name, partition: String(partitionId) } });
 }
 
 async function connectClusterIfNeeded(clusterName: string) {
@@ -1149,18 +1017,19 @@ async function highlightAndSelectTopic(topicName: string, clusterName: string) {
     }
   }
 
-  // 移除：不再自动在搜索框中填入 topic 名称（用户反馈不需要此行为）
-
   // 设置选中状态
   selectedTopic.value = { name: topicName, cluster: clusterName };
   selectedPartition.value = null;
 
-  // 滚动到选中的 topic（等待 DOM 更新后执行）
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const topicKey = `${clusterName}:${topicName}`;
-  const topicElement = topicElementRefs[topicKey];
-  if (topicElement) {
-    topicElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // 滚动到选中的 topic（使用虚拟滚动 scroller）
+  await nextTick();
+  const scroller = topicScrollers[clusterName];
+  if (scroller) {
+    const topics = getClusterTopics(clusterName);
+    const index = topics.findIndex(t => t.name === topicName);
+    if (index >= 0) {
+      scroller.scrollToItem(index);
+    }
   }
 
   // 导航到消息页面（如果集群不可用，消息页面会显示错误提示）
@@ -1183,15 +1052,12 @@ async function handleTopicsRefreshed(event: Event) {
     // 直接获取最新的 topics 并更新
     try {
       const topics = await apiClient.getSavedTopics(cluster);
-      // 只存储 topic 名称，分区信息在展开时懒加载
       clusterTopics[cluster] = (topics || []).map((name: string) => ({
         name,
-        partitions: [] // 初始为空，展开时再加载
+        uid: `${cluster}:${name}`,
+        partitions: []
       }));
       topicCounts[cluster] = topics?.length || 0;
-
-      // 重置分页限制
-      topicDisplayLimits[cluster] = VISIBLE_ITEMS;
     } catch (error) {
       console.error('[ClusterTreeNavigator] Failed to refresh topics:', error);
     }
@@ -1279,5 +1145,19 @@ async function handleNavigateFromHistory(event: Event) {
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* Topic virtual scroller */
+.topic-scroller {
+  overflow-y: auto;
+}
+
+.topic-scroller::-webkit-scrollbar {
+  width: 4px;
+}
+
+.topic-scroller::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 2px;
 }
 </style>

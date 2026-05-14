@@ -232,7 +232,7 @@ async function performSearch() {
 }
 
 const filteredSearchResults = computed(() => {
-  return searchResults.value;
+  return [...searchResults.value].sort((a, b) => a.topic.length - b.topic.length);
 });
 
 function highlightMatch(topic: string) {
