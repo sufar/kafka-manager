@@ -321,6 +321,7 @@
                   placeholder="localhost:9092,localhost:9093"
                   class="input input-bordered input-sm w-full"
                   required
+                  @blur="formData.brokers = formData.brokers.replace(/;/g, ',')"
                 />
                 <label class="label py-1">
                   <span class="label-text-alt text-base-content/60">{{ t.clusters.brokersHelp }}</span>
@@ -810,15 +811,14 @@ async function handleSubmit() {
   }
 
   // 验证 Broker 地址
-  // 自动将分号转为逗号（兼容用户输入习惯）
-  const normalizedBrokers = formData.brokers.replace(/;/g, ',').trim();
-  if (!normalizedBrokers) {
+  const trimmedBrokers = formData.brokers.trim();
+  if (!trimmedBrokers) {
     showError(t.value.clusters.validationBrokersRequired);
     return;
   }
   // Broker 地址不能包含空格、引号
   const brokersInvalidRegex = /["'\s]/;
-  if (brokersInvalidRegex.test(normalizedBrokers)) {
+  if (brokersInvalidRegex.test(trimmedBrokers)) {
     showError(t.value.clusters.validationBrokersInvalid);
     return;
   }
@@ -828,7 +828,7 @@ async function handleSubmit() {
     if (editingCluster.value) {
       await clusterStore.updateCluster(editingCluster.value.id, {
         name: trimmedName,
-        brokers: normalizedBrokers,
+        brokers: trimmedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
@@ -838,7 +838,7 @@ async function handleSubmit() {
     } else {
       await clusterStore.createCluster({
         name: trimmedName,
-        brokers: normalizedBrokers,
+        brokers: trimmedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
