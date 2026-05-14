@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3 min-h-screen relative">
+  <div class="p-3 relative">
     <!-- Detail View -->
     <div v-if="detailView" class="space-y-4">
       <!-- Header with group name and actions -->
