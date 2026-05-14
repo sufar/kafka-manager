@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full overflow-hidden">
+  <div class="flex flex-col h-screen overflow-hidden">
     <!-- Header -->
     <div class="p-3 pb-2 flex-shrink-0">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
@@ -78,7 +78,7 @@
 
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
-      <div class="overflow-x-hidden overflow-y-auto">
+      <div class="overflow-y-auto">
         <table class="table w-full table-fixed">
           <colgroup>
             <col class="w-full">

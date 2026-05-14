@@ -1,5 +1,5 @@
 <template>
-  <div class="p-3 overflow-y-auto min-h-full relative">
+  <div class="p-3 overflow-y-auto min-h-screen relative">
     <!-- Detail View -->
     <div v-if="detailView" class="space-y-4">
       <!-- Header with group name and actions -->
@@ -73,7 +73,7 @@
           <h3 class="font-semibold">{{ t.consumerGroups.offsets }}</h3>
           <span class="text-xs text-base-content/60">{{ offsets.length }} {{ t.consumerGroups.partitions }}</span>
         </div>
-        <div class="overflow-x-hidden overflow-y-auto max-h-[600px]">
+        <div class="overflow-y-auto max-h-[600px]">
           <table class="table w-full table-fixed">
             <colgroup>
               <col class="w-full">
@@ -120,7 +120,7 @@
                 <td class="text-right">
                   <span :class="getLagClass(item.lag)" class="font-mono text-sm">{{ item.lag }}</span>
                 </td>
-                <td class="text-right text-xs text-base-content/60 whitespace-nowrap">{{ formatLastCommitTime(item.last_commit_time) }}</td>
+                <td class="p-2 text-right text-xs text-base-content/60 whitespace-nowrap">{{ formatLastCommitTime(item.last_commit_time) }}</td>
               </tr>
             </tbody>
           </table>
@@ -258,7 +258,7 @@ const columnWidths = ref<Record<ColumnKey, number>>({
   endOffset: 80,
   committedOffset: 90,
   lag: 70,
-  lastCommit: 120,
+  lastCommit: 150,
 });
 const columnResizing = ref(false);
 const resizeColumn = ref<ColumnKey | null>(null);
