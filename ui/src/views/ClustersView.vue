@@ -810,14 +810,15 @@ async function handleSubmit() {
   }
 
   // 验证 Broker 地址
-  const trimmedBrokers = formData.brokers.trim();
-  if (!trimmedBrokers) {
+  // 自动将分号转为逗号（兼容用户输入习惯）
+  const normalizedBrokers = formData.brokers.replace(/;/g, ',').trim();
+  if (!normalizedBrokers) {
     showError(t.value.clusters.validationBrokersRequired);
     return;
   }
-  // Broker 地址不能包含空格、引号、逗号（逗号用于分隔多个 broker，所以允许）
+  // Broker 地址不能包含空格、引号
   const brokersInvalidRegex = /["'\s]/;
-  if (brokersInvalidRegex.test(trimmedBrokers)) {
+  if (brokersInvalidRegex.test(normalizedBrokers)) {
     showError(t.value.clusters.validationBrokersInvalid);
     return;
   }
@@ -827,7 +828,7 @@ async function handleSubmit() {
     if (editingCluster.value) {
       await clusterStore.updateCluster(editingCluster.value.id, {
         name: trimmedName,
-        brokers: trimmedBrokers,
+        brokers: normalizedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
@@ -837,7 +838,7 @@ async function handleSubmit() {
     } else {
       await clusterStore.createCluster({
         name: trimmedName,
-        brokers: trimmedBrokers,
+        brokers: normalizedBrokers,
         request_timeout_ms: formData.request_timeout_ms,
         operation_timeout_ms: formData.operation_timeout_ms,
         group_id: formData.group_id,
