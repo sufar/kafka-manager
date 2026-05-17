@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager"
-version = "1.1.40"
+version = "1.1.41"
 dependencies = [
  "arc-swap",
  "axum",
@@ -2844,12 +2844,13 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
+ "winreg 0.55.0",
  "zip 2.4.2",
 ]
 
 [[package]]
 name = "kafka-manager-api"
-version = "1.1.40"
+version = "1.1.41"
 dependencies = [
  "apache-avro",
  "arc-swap",

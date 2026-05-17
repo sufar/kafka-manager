@@ -111,6 +111,21 @@
               <input type="checkbox" :checked="systemTrayEnabled" class="toggle" />
             </button>
           </div>
+          <div v-if="isWindows" class="divider my-1"></div>
+          <div v-if="isWindows" class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
+            <div class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 1 0 12.728 0M12 3v10" />
+              </svg>
+              <div>
+                <span class="text-xs font-medium">{{ t.settings.autoLaunch || '开机自启动' }}</span>
+                <p class="text-[10px] text-base-content/50">{{ t.settings.autoLaunchDesc || '开机自动启动 Kafka Manager' }}</p>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleAutoLaunch">
+              <input type="checkbox" :checked="autoLaunchEnabled" class="toggle" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -968,6 +983,10 @@ const sidebarMode = ref<'tree' | 'flat'>('flat');
 // System tray state
 const systemTrayEnabled = ref(true);
 
+// Auto launch state (Windows only)
+const autoLaunchEnabled = ref(false);
+const isWindows = ref(false);
+
 // Load sidebar mode setting
 async function loadSidebarModeSetting() {
   try {
@@ -1027,6 +1046,42 @@ async function toggleSystemTray() {
   }
 }
 
+// Load auto launch setting and detect platform
+async function loadAutoLaunchSetting() {
+  try {
+    // 优先通过 Tauri 命令检测是否为 Windows（navigator 在 Tauri webview 中不可靠）
+    const isWin = await tauriInvoke<boolean>('is_windows');
+    if (isWin) {
+      isWindows.value = true;
+      // 从 Tauri 命令获取真实注册表状态
+      try {
+        const enabled = await tauriInvoke<boolean>('get_auto_launch');
+        autoLaunchEnabled.value = enabled;
+      } catch {
+        autoLaunchEnabled.value = false;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load auto launch setting:', e);
+  }
+}
+
+// Toggle auto launch
+async function toggleAutoLaunch() {
+  const newVal = !autoLaunchEnabled.value;
+  try {
+    // 调用 Tauri 命令设置注册表
+    await tauriInvoke('set_auto_launch', { enabled: newVal });
+    // 同时保存到数据库（跨平台兼容）
+    await apiClient.updateSetting('ui.auto_launch', newVal ? 'true' : 'false');
+    autoLaunchEnabled.value = newVal;
+    toast.showSuccess(newVal ? '已开启开机自启动' : '已关闭开机自启动');
+  } catch (e) {
+    console.error('Failed to toggle auto launch:', e);
+    toast.showError('设置开机自启动失败');
+  }
+}
+
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -1035,6 +1090,7 @@ onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
   loadSystemTraySetting();
+  loadAutoLaunchSetting();
   // 监听后端下载错误事件
   setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件

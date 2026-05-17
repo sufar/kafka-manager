@@ -21,6 +21,34 @@ use tauri::Manager;
 use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 
+/// Windows 开机自启动：注册表路径
+#[cfg(target_os = "windows")]
+const RUN_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+/// Windows 开机自启动：设置启动项（内部函数）
+#[cfg(target_os = "windows")]
+fn set_auto_launch(enable: bool) -> Result<(), String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (run, _) = hkcu.create_subkey(RUN_REGISTRY_PATH)
+        .map_err(|e| format!("Failed to open Run registry: {}", e))?;
+
+    if enable {
+        // 获取当前可执行文件路径
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get exe path: {}", e))?;
+        let exe_str = exe_path.to_string_lossy().to_string();
+        run.set_value("KafkaManager", &exe_str)
+            .map_err(|e| format!("Failed to set registry value: {}", e))?;
+    } else {
+        // 删除启动项
+        let _ = run.delete_value("KafkaManager");
+    }
+    Ok(())
+}
+
 /// 设置系统托盘图标
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
@@ -1055,6 +1083,58 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 设置开机自启动（仅 Windows 生效）
+#[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
+#[tauri::command]
+fn set_auto_launch(enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|e| format!("Failed to get exe path: {}", e))?;
+        let exe_str = exe_path.to_string_lossy().to_string();
+
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (run, _) = hkcu.create_subkey(RUN_REGISTRY_PATH)
+            .map_err(|e| format!("Failed to open Run registry: {}", e))?;
+
+        if enabled {
+            run.set_value("KafkaManager", &exe_str)
+                .map_err(|e| format!("Failed to set registry value: {}", e))?;
+        } else {
+            let _ = run.delete_value("KafkaManager");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = enabled;
+    }
+    Ok(())
+}
+
+/// 检测是否为 Windows 平台
+#[tauri::command]
+fn is_windows() -> bool {
+    cfg!(target_os = "windows")
+}
+
+/// 获取开机自启动状态（仅 Windows 生效）
+#[tauri::command]
+fn get_auto_launch() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(run) = hkcu.open_subkey(RUN_REGISTRY_PATH) {
+            let result: Result<String, _> = run.get_value("KafkaManager");
+            return Ok(result.is_ok());
+        }
+    }
+    Ok(false)
+}
+
 /// 后台下载函数（使用状态对象而不是 Channel）
 async fn download_with_resume_background(
     client: &reqwest::Client,
@@ -2073,7 +2153,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, is_windows])
         .setup(|app| {
             // 启动时清理3天前的日志（与定时清理保持一致）
             cleanup_log(3);

@@ -119,21 +119,13 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut clusters = HashMap::with_capacity(1);
-        let default_kafka = KafkaConfig {
-            brokers: "localhost:9092".to_string(),
-            request_timeout_ms: 5000,
-            operation_timeout_ms: 5000,
-        };
-        clusters.insert("default".to_string(), default_kafka.clone());
-
         Self {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 9732,
             },
-            kafka: default_kafka,
-            clusters,
+            kafka: KafkaConfig::default(),
+            clusters: HashMap::new(),
             pool: PoolConfig::default(),
         }
     }

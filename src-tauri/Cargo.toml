@@ -1,6 +1,6 @@
 [package]
 name = "kafka-manager"
-version = "1.1.40"
+version = "1.1.41"
 description = "A Kafka Manager tool built with Tauri 2"
 authors = ["your name"]
 edition = "2021"
@@ -58,3 +58,7 @@ semver = "1"
 
 # ZIP 解压（绿色版自动更新）
 zip = "2"
+
+# Windows 开机自启动
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"

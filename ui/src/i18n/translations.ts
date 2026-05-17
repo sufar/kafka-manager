@@ -347,6 +347,8 @@ export interface Translation {
     flatModeDesc: string;
     systemTray: string;
     systemTrayDesc: string;
+    autoLaunch: string;
+    autoLaunchDesc: string;
     version: string;
     versionDesc: string;
     currentVersion: string;
@@ -931,6 +933,8 @@ export const translations: Record<Language, Translation> = {
       flatModeDesc: '平铺显示所有主题',
       systemTray: '系统托盘',
       systemTrayDesc: '开启后点击关闭按钮最小化到托盘，关闭后直接退出应用',
+      autoLaunch: '开机自启动',
+      autoLaunchDesc: '开机自动启动 Kafka Manager',
       version: '版本信息',
       versionDesc: 'Kafka Manager 当前版本',
       currentVersion: '当前版本',
@@ -1513,6 +1517,8 @@ export const translations: Record<Language, Translation> = {
       flatModeDesc: 'Display all topics in a flat list',
       systemTray: 'System Tray',
       systemTrayDesc: 'When enabled, close button minimizes to tray; when disabled, close button exits the app',
+      autoLaunch: 'Auto Launch',
+      autoLaunchDesc: 'Automatically start Kafka Manager on boot',
       version: 'Version',
       versionDesc: 'Kafka Manager Current Version',
       currentVersion: 'Current Version',
