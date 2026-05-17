@@ -59,6 +59,284 @@
       </div>
     </div>
 
+    <!-- Status Bar -->
+    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 pb-1 text-xs text-base-content/50 border-b border-base-200 bg-base-100">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <span class="text-xs">Cluster:</span>
+          <!-- Advanced Cluster Selector -->
+          <div class="relative">
+            <button
+              ref="clusterSelectorButtonRef"
+              class="btn btn-ghost btn-xs gap-1"
+              @click="toggleClusterSelector"
+              :title="getClusterSelectorSummary()"
+            >
+              <span class="truncate max-w-[120px]">{{ getClusterSelectorSummary() }}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3" :class="{ 'rotate-180': showClusterSelector }">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+              </svg>
+            </button>
+            <!-- Cluster Selector Dropdown - Desktop -->
+            <div
+              v-show="showClusterSelector && !isMobile"
+              ref="clusterSelectorRef"
+              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
+            >
+              <div class="flex flex-col sm:flex-row h-[300px]">
+                <!-- Left: Groups List -->
+                <div class="w-full sm:w-1/2 border-b sm:border-b-0 sm:border-r border-base-200 overflow-y-auto">
+                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0">
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
+                  </div>
+                  <!-- All Clusters Option -->
+                  <label
+                    class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    :class="{ 'bg-primary/10': !hasCustomSelection }"
+                  >
+                    <input
+                      type="radio"
+                      name="clusterMode"
+                      class="radio radio-xs radio-primary flex-shrink-0"
+                      :checked="!hasCustomSelection"
+                      @change="setSelectionMode('all')"
+                    />
+                    <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
+                  </label>
+                  <!-- Groups -->
+                  <div
+                    v-for="group in clusterStore.groups"
+                    :key="group.id"
+                    class="border-b border-base-100"
+                  >
+                    <div
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
+                      :class="{ 'bg-primary/10': isGroupFullySelected(group.id), 'bg-base-200': activeGroupId === group.id }"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs checkbox-primary flex-shrink-0 cursor-pointer"
+                        :checked="isGroupFullySelected(group.id)"
+                        @click.stop="toggleGroupFull(group.id)"
+                      />
+                      <span
+                        class="text-xs font-medium flex-1 truncate cursor-pointer"
+                        @click="activeGroupId = group.id"
+                      >
+                        {{ group.name }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <!-- Right: Clusters List -->
+                <div class="w-full sm:w-1/2 overflow-y-auto">
+                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0 flex items-center justify-between">
+                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
+                    <button
+                      v-if="hasSelectedClustersInCurrentView"
+                      class="text-[10px] text-primary hover:underline"
+                      @click="deselectAllInCurrentView"
+                    >
+                      {{ t.navigator.deselectAll }}
+                    </button>
+                  </div>
+                  <!-- Clusters for selected group or all clusters -->
+                  <template v-if="activeGroupId === null || activeGroupId === 0">
+                    <!-- Show all clusters when no group selected -->
+                    <label
+                      v-for="cluster in clusterStore.clusters"
+                      :key="cluster.name"
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs flex-shrink-0"
+                        :checked="selectedClusters.has(cluster.name)"
+                        @change.stop="toggleCluster(cluster.name, cluster.group_id)"
+                      />
+                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                    </label>
+                  </template>
+                  <template v-else>
+                    <!-- Show clusters for selected group -->
+                    <label
+                      v-for="cluster in getClustersByGroup(activeGroupId)"
+                      :key="cluster.name"
+                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs flex-shrink-0"
+                        :checked="selectedClusters.has(cluster.name)"
+                        @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
+                      />
+                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <!-- Action Buttons -->
+              <div class="p-2 border-b border-base-200 flex gap-2">
+                <button
+                  class="btn btn-ghost btn-xs flex-1"
+                  @click="clearAllSelections"
+                >
+                  {{ t.common.clear }}
+                </button>
+                <button
+                  class="btn btn-primary btn-xs flex-1"
+                  @click="applyClusterSelection"
+                >
+                  {{ t.common.apply }}
+                </button>
+              </div>
+            </div>
+            <!-- Cluster Selector Modal - Mobile -->
+            <div
+              v-show="showClusterSelector && isMobile"
+              class="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/50"
+              @click="toggleClusterSelector"
+            >
+              <div
+                class="w-full max-w-md max-h-[80vh] bg-base-100 rounded-t-xl sm:rounded-xl overflow-hidden"
+                @click.stop
+              >
+                <div class="flex flex-col h-[60vh] sm:h-[400px]">
+                  <div class="p-3 border-b border-base-200 flex items-center justify-between">
+                    <span class="text-sm font-semibold">{{ t.navigator.selectClusters }}</span>
+                    <button class="btn btn-ghost btn-sm btn-circle" @click="toggleClusterSelector">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-1 overflow-hidden">
+                    <!-- Left: Groups List -->
+                    <div class="w-1/2 border-r border-base-200 overflow-y-auto">
+                      <div class="p-2 border-b border-base-200 bg-base-100/50">
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
+                      </div>
+                      <!-- All Clusters Option -->
+                      <label
+                        class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        :class="{ 'bg-primary/10': !hasCustomSelection }"
+                      >
+                        <input
+                          type="radio"
+                          name="clusterModeMobile"
+                          class="radio radio-sm radio-primary flex-shrink-0"
+                          :checked="!hasCustomSelection"
+                          @change="setSelectionMode('all')"
+                        />
+                        <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
+                      </label>
+                      <!-- Groups -->
+                      <div
+                        v-for="group in clusterStore.groups"
+                        :key="group.id"
+                        class="border-b border-base-100"
+                      >
+                        <div
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
+                          :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm checkbox-primary flex-shrink-0 cursor-pointer"
+                            :checked="isGroupFullySelected(group.id)"
+                            @click.stop="toggleGroupFull(group.id)"
+                          />
+                          <span
+                            class="text-xs font-medium flex-1 truncate cursor-pointer"
+                            @click="activeGroupId = group.id"
+                          >
+                            {{ group.name }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Right: Clusters List -->
+                    <div class="w-1/2 overflow-y-auto">
+                      <div class="p-2 border-b border-base-200 bg-base-100/50">
+                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
+                      </div>
+                      <template v-if="activeGroupId === null || activeGroupId === 0">
+                        <label
+                          v-for="cluster in clusterStore.clusters"
+                          :key="cluster.name"
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm flex-shrink-0"
+                            :checked="selectedClusters.has(cluster.name)"
+                            @change.stop="toggleCluster(cluster.name, cluster.group_id)"
+                          />
+                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                        </label>
+                      </template>
+                      <template v-else>
+                        <label
+                          v-for="cluster in getClustersByGroup(activeGroupId)"
+                          :key="cluster.name"
+                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
+                        >
+                          <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm flex-shrink-0"
+                            :checked="selectedClusters.has(cluster.name)"
+                            @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
+                          />
+                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
+                        </label>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Action Buttons -->
+                  <div class="p-3 border-b border-base-200 flex gap-2">
+                    <button
+                      class="btn btn-ghost btn-sm flex-1"
+                      @click="clearAllSelections"
+                    >
+                      {{ t.common.clear }}
+                    </button>
+                    <button
+                      class="btn btn-primary btn-sm flex-1"
+                      @click="applyClusterSelection"
+                    >
+                      {{ t.common.apply }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Count and Refresh Button -->
+        <div class="flex items-center gap-2 min-w-0 pb-2">
+          <span class="text-xs text-base-content/50 truncate flex-1 min-w-0">
+            <template v-if="currentView === 'topics'">
+              {{ allTopics.length }} / {{ total }} topics
+            </template>
+            <template v-else>
+              {{ allConsumerGroups.length }} / {{ totalGroups }} consumer groups
+            </template>
+          </span>
+          <!-- Refresh Button -->
+          <button
+            class="btn btn-ghost btn-xs flex-shrink-0"
+            :disabled="currentView === 'topics' ? refreshing : refreshingGroups"
+            @click="currentView === 'topics' ? refreshTopics() : refreshConsumerGroups()"
+            :title="currentView === 'topics' ? '刷新 Topics' : '刷新 Consumer Groups'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': currentView === 'topics' ? refreshing : refreshingGroups }">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
     <!-- Search Box -->
     <div v-show="!showHistory" class="px-1.5 py-1 flex-shrink-0">
       <div class="relative">
@@ -207,285 +485,6 @@
     <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2 pb-2">
       <TopicHistory :t="t" @close="showHistory = false" />
     </div>
-
-    <!-- Status Bar - Fixed at bottom -->
-    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 pb-2 text-xs text-base-content/50 border-t border-base-200 bg-base-100">
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-1 flex-shrink-0">
-          <span class="text-xs">Cluster:</span>
-          <!-- Advanced Cluster Selector -->
-          <div class="relative">
-            <button
-              ref="clusterSelectorButtonRef"
-              class="btn btn-ghost btn-xs gap-1"
-              @click="toggleClusterSelector"
-              :title="getClusterSelectorSummary()"
-            >
-              <span class="truncate max-w-[120px]">{{ getClusterSelectorSummary() }}</span>
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3" :class="{ 'rotate-180': showClusterSelector }">
-                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-              </svg>
-            </button>
-            <!-- Cluster Selector Dropdown - Desktop -->
-            <div
-              v-show="showClusterSelector && !isMobile"
-              ref="clusterSelectorRef"
-              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
-            >
-              <div class="flex flex-col sm:flex-row h-[300px]">
-                <!-- Left: Groups List -->
-                <div class="w-full sm:w-1/2 border-b sm:border-b-0 sm:border-r border-base-200 overflow-y-auto">
-                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0">
-                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
-                  </div>
-                  <!-- All Clusters Option -->
-                  <label
-                    class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                    :class="{ 'bg-primary/10': !hasCustomSelection }"
-                  >
-                    <input
-                      type="radio"
-                      name="clusterMode"
-                      class="radio radio-xs radio-primary flex-shrink-0"
-                      :checked="!hasCustomSelection"
-                      @change="setSelectionMode('all')"
-                    />
-                    <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
-                  </label>
-                  <!-- Groups -->
-                  <div
-                    v-for="group in clusterStore.groups"
-                    :key="group.id"
-                    class="border-b border-base-100"
-                  >
-                    <div
-                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
-                      :class="{ 'bg-primary/10': isGroupFullySelected(group.id), 'bg-base-200': activeGroupId === group.id }"
-                    >
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-xs checkbox-primary flex-shrink-0 cursor-pointer"
-                        :checked="isGroupFullySelected(group.id)"
-                        @click.stop="toggleGroupFull(group.id)"
-                      />
-                      <span
-                        class="text-xs font-medium flex-1 truncate cursor-pointer"
-                        @click="activeGroupId = group.id"
-                      >
-                        {{ group.name }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <!-- Right: Clusters List -->
-                <div class="w-full sm:w-1/2 overflow-y-auto">
-                  <div class="p-2 border-b border-base-200 bg-base-100/50 sticky top-0 flex items-center justify-between">
-                    <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
-                    <button
-                      v-if="hasSelectedClustersInCurrentView"
-                      class="text-[10px] text-primary hover:underline"
-                      @click="deselectAllInCurrentView"
-                    >
-                      {{ t.navigator.deselectAll }}
-                    </button>
-                  </div>
-                  <!-- Clusters for selected group or all clusters -->
-                  <template v-if="activeGroupId === null || activeGroupId === 0">
-                    <!-- Show all clusters when no group selected -->
-                    <label
-                      v-for="cluster in clusterStore.clusters"
-                      :key="cluster.name"
-                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                    >
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-xs flex-shrink-0"
-                        :checked="selectedClusters.has(cluster.name)"
-                        @change.stop="toggleCluster(cluster.name, cluster.group_id)"
-                      />
-                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
-                    </label>
-                  </template>
-                  <template v-else>
-                    <!-- Show clusters for selected group -->
-                    <label
-                      v-for="cluster in getClustersByGroup(activeGroupId)"
-                      :key="cluster.name"
-                      class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                    >
-                      <input
-                        type="checkbox"
-                        class="checkbox checkbox-xs flex-shrink-0"
-                        :checked="selectedClusters.has(cluster.name)"
-                        @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
-                      />
-                      <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
-                    </label>
-                  </template>
-                </div>
-              </div>
-              <!-- Action Buttons -->
-              <div class="p-2 border-t border-base-200 flex gap-2">
-                <button
-                  class="btn btn-ghost btn-xs flex-1"
-                  @click="clearAllSelections"
-                >
-                  {{ t.common.clear }}
-                </button>
-                <button
-                  class="btn btn-primary btn-xs flex-1"
-                  @click="applyClusterSelection"
-                >
-                  {{ t.common.apply }}
-                </button>
-              </div>
-            </div>
-            <!-- Cluster Selector Modal - Mobile -->
-            <div
-              v-show="showClusterSelector && isMobile"
-              class="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/50"
-              @click="toggleClusterSelector"
-            >
-              <div
-                class="w-full max-w-md max-h-[80vh] bg-base-100 rounded-t-xl sm:rounded-xl overflow-hidden"
-                @click.stop
-              >
-                <div class="flex flex-col h-[60vh] sm:h-[400px]">
-                  <div class="p-3 border-b border-base-200 flex items-center justify-between">
-                    <span class="text-sm font-semibold">{{ t.navigator.selectClusters }}</span>
-                    <button class="btn btn-ghost btn-sm btn-circle" @click="toggleClusterSelector">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div class="flex flex-1 overflow-hidden">
-                    <!-- Left: Groups List -->
-                    <div class="w-1/2 border-r border-base-200 overflow-y-auto">
-                      <div class="p-2 border-b border-base-200 bg-base-100/50">
-                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.groups }}</span>
-                      </div>
-                      <!-- All Clusters Option -->
-                      <label
-                        class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                        :class="{ 'bg-primary/10': !hasCustomSelection }"
-                      >
-                        <input
-                          type="radio"
-                          name="clusterModeMobile"
-                          class="radio radio-sm radio-primary flex-shrink-0"
-                          :checked="!hasCustomSelection"
-                          @change="setSelectionMode('all')"
-                        />
-                        <span class="text-xs font-medium flex-1">{{ t.navigator.allClusters }}</span>
-                      </label>
-                      <!-- Groups -->
-                      <div
-                        v-for="group in clusterStore.groups"
-                        :key="group.id"
-                        class="border-b border-base-100"
-                      >
-                        <div
-                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer"
-                          :class="{ 'bg-primary/10': isGroupFullySelected(group.id) }"
-                        >
-                          <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm checkbox-primary flex-shrink-0 cursor-pointer"
-                            :checked="isGroupFullySelected(group.id)"
-                            @click.stop="toggleGroupFull(group.id)"
-                          />
-                          <span
-                            class="text-xs font-medium flex-1 truncate cursor-pointer"
-                            @click="activeGroupId = group.id"
-                          >
-                            {{ group.name }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- Right: Clusters List -->
-                    <div class="w-1/2 overflow-y-auto">
-                      <div class="p-2 border-b border-base-200 bg-base-100/50">
-                        <span class="text-[10px] font-medium text-base-content/60 uppercase">{{ t.navigator.clusters }}</span>
-                      </div>
-                      <template v-if="activeGroupId === null || activeGroupId === 0">
-                        <label
-                          v-for="cluster in clusterStore.clusters"
-                          :key="cluster.name"
-                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                        >
-                          <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm flex-shrink-0"
-                            :checked="selectedClusters.has(cluster.name)"
-                            @change.stop="toggleCluster(cluster.name, cluster.group_id)"
-                          />
-                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
-                        </label>
-                      </template>
-                      <template v-else>
-                        <label
-                          v-for="cluster in getClustersByGroup(activeGroupId)"
-                          :key="cluster.name"
-                          class="flex items-center gap-2 p-2 hover:bg-base-200 cursor-pointer border-b border-base-100"
-                        >
-                          <input
-                            type="checkbox"
-                            class="checkbox checkbox-sm flex-shrink-0"
-                            :checked="selectedClusters.has(cluster.name)"
-                            @change.stop="toggleCluster(cluster.name, getGroupId(cluster.group_id))"
-                          />
-                          <span class="text-xs truncate flex-1">{{ cluster.name }}</span>
-                        </label>
-                      </template>
-                    </div>
-                  </div>
-                  <!-- Action Buttons -->
-                  <div class="p-3 border-t border-base-200 flex gap-2">
-                    <button
-                      class="btn btn-ghost btn-sm flex-1"
-                      @click="clearAllSelections"
-                    >
-                      {{ t.common.clear }}
-                    </button>
-                    <button
-                      class="btn btn-primary btn-sm flex-1"
-                      @click="applyClusterSelection"
-                    >
-                      {{ t.common.apply }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- Count and Refresh Button -->
-        <div class="flex items-center gap-2 min-w-0 pb-2">
-          <span class="text-xs text-base-content/50 truncate flex-1 min-w-0">
-            <template v-if="currentView === 'topics'">
-              {{ allTopics.length }} / {{ total }} topics
-            </template>
-            <template v-else>
-              {{ allConsumerGroups.length }} / {{ totalGroups }} consumer groups
-            </template>
-          </span>
-          <!-- Refresh Button -->
-          <button
-            class="btn btn-ghost btn-xs flex-shrink-0"
-            :disabled="currentView === 'topics' ? refreshing : refreshingGroups"
-            @click="currentView === 'topics' ? refreshTopics() : refreshConsumerGroups()"
-            :title="currentView === 'topics' ? '刷新 Topics' : '刷新 Consumer Groups'"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': currentView === 'topics' ? refreshing : refreshingGroups }">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">

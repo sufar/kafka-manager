@@ -83,30 +83,33 @@
               <p class="text-xs text-base-content/60">{{ t.settings.selectSidebarMode }}</p>
             </div>
           </div>
-          <div class="flex flex-col gap-2 p-3 rounded-xl bg-base-100/50">
-            <button
-              class="btn btn-sm"
-              :class="{ 'btn-active btn-primary': sidebarMode === 'tree', 'btn-ghost': sidebarMode !== 'tree' }"
-              @click="setSidebarMode('tree')"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-2">
+          <!-- Sidebar Mode Toggle -->
+          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
+            <div class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
               </svg>
-              <span class="font-medium">{{ t.settings.treeMode }}</span>
+              <span class="text-xs font-medium">{{ sidebarMode === 'tree' ? t.settings.treeMode : t.settings.flatMode }}</span>
+            </div>
+            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleSidebarMode">
+              <input type="checkbox" :checked="sidebarMode === 'tree'" class="toggle" />
             </button>
-            <p class="text-xs text-base-content/50 px-1">{{ t.settings.treeModeDesc }}</p>
-            <div class="divider my-1"></div>
-            <button
-              class="btn btn-sm"
-              :class="{ 'btn-active btn-primary': sidebarMode === 'flat', 'btn-ghost': sidebarMode !== 'flat' }"
-              @click="setSidebarMode('flat')"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </div>
+          <!-- System Tray Toggle -->
+          <div class="divider my-1"></div>
+          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
+            <div class="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
               </svg>
-              <span class="font-medium">{{ t.settings.flatMode }}</span>
+              <div>
+                <span class="text-xs font-medium">{{ t.settings.systemTray || '系统托盘' }}</span>
+                <p class="text-[10px] text-base-content/50">{{ t.settings.systemTrayDesc || '关闭后，点击关闭按钮直接退出应用' }}</p>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleSystemTray">
+              <input type="checkbox" :checked="systemTrayEnabled" class="toggle" />
             </button>
-            <p class="text-xs text-base-content/50 px-1">{{ t.settings.flatModeDesc }}</p>
           </div>
         </div>
       </div>
@@ -962,6 +965,9 @@ async function resumeDownload() {
 // Sidebar mode state
 const sidebarMode = ref<'tree' | 'flat'>('flat');
 
+// System tray state
+const systemTrayEnabled = ref(true);
+
 // Load sidebar mode setting
 async function loadSidebarModeSetting() {
   try {
@@ -973,6 +979,12 @@ async function loadSidebarModeSetting() {
   } catch (e) {
     console.error('Failed to load sidebar mode setting:', e);
   }
+}
+
+// Toggle sidebar mode
+async function toggleSidebarMode() {
+  const newMode = sidebarMode.value === 'tree' ? 'flat' : 'tree';
+  await setSidebarMode(newMode);
 }
 
 // Set sidebar mode
@@ -989,6 +1001,32 @@ async function setSidebarMode(mode: 'tree' | 'flat') {
   }
 }
 
+// Load system tray setting
+async function loadSystemTraySetting() {
+  try {
+    const settings = await apiClient.getSettings(['ui.system_tray']);
+    const val = settings.find((s: { key: string; value: string }) => s.key === 'ui.system_tray')?.value;
+    systemTrayEnabled.value = val !== 'false'; // 默认开启
+  } catch (e) {
+    console.error('Failed to load system tray setting:', e);
+  }
+}
+
+// Toggle system tray
+async function toggleSystemTray() {
+  systemTrayEnabled.value = !systemTrayEnabled.value;
+  try {
+    await apiClient.updateSetting('ui.system_tray', systemTrayEnabled.value ? 'true' : 'false');
+    // 触发设置变化事件通知后端
+    window.dispatchEvent(new CustomEvent('settings-changed', {
+      detail: { key: 'ui.system_tray', value: systemTrayEnabled.value }
+    }));
+    toast.showSuccess(systemTrayEnabled.value ? '已开启系统托盘，重启应用生效' : '已关闭系统托盘，重启应用生效');
+  } catch (e) {
+    console.error('Failed to save system tray setting:', e);
+  }
+}
+
 function handleToggleTheme() {
   toggleTheme();
 }
@@ -996,6 +1034,7 @@ function handleToggleTheme() {
 onMounted(() => {
   getCurrentVersion();
   loadSidebarModeSetting();
+  loadSystemTraySetting();
   // 监听后端下载错误事件
   setupDownloadErrorListener();
   // 检查后端是否有下载状态或缓存文件

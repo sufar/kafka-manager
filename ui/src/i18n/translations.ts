@@ -345,6 +345,8 @@ export interface Translation {
     flatMode: string;
     treeModeDesc: string;
     flatModeDesc: string;
+    systemTray: string;
+    systemTrayDesc: string;
     version: string;
     versionDesc: string;
     currentVersion: string;
@@ -927,6 +929,8 @@ export const translations: Record<Language, Translation> = {
       flatMode: '列表模式',
       treeModeDesc: '按集群分组显示主题',
       flatModeDesc: '平铺显示所有主题',
+      systemTray: '系统托盘',
+      systemTrayDesc: '开启后点击关闭按钮最小化到托盘，关闭后直接退出应用',
       version: '版本信息',
       versionDesc: 'Kafka Manager 当前版本',
       currentVersion: '当前版本',
@@ -1507,6 +1511,8 @@ export const translations: Record<Language, Translation> = {
       flatMode: 'List Mode',
       treeModeDesc: 'Display topics grouped by cluster',
       flatModeDesc: 'Display all topics in a flat list',
+      systemTray: 'System Tray',
+      systemTrayDesc: 'When enabled, close button minimizes to tray; when disabled, close button exits the app',
       version: 'Version',
       versionDesc: 'Kafka Manager Current Version',
       currentVersion: 'Current Version',

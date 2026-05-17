@@ -19,6 +19,41 @@ use kafka_manager_api::{
 };
 use tauri::Manager;
 use tauri::Emitter;
+use tauri::menu::{Menu, MenuItem};
+
+/// 设置系统托盘图标
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+    let mut builder = tauri::tray::TrayIconBuilder::new()
+        .menu(&menu)
+        .tooltip("Kafka Manager")
+        .on_menu_event(move |app, event| {
+            match event.id.as_ref() {
+                "show" => {
+                    if let Some(window) = app.webview_windows().values().next() {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "quit" => {
+                    log("Quit menu clicked, exiting app");
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder.build(app)?;
+    log("System tray created");
+    Ok(())
+}
 
 /// 后台下载状态
 #[derive(Clone, Debug, serde::Serialize)]
@@ -2049,6 +2084,32 @@ pub fn run() {
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
 
+            // 读取系统托盘设置，异步创建托盘（默认开启）
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let system_tray_enabled = {
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        match sqlx::query_as::<_, (String,)>(
+                            "SELECT value FROM user_settings WHERE key = ?"
+                        )
+                        .bind("ui.system_tray")
+                        .fetch_one(state.db.inner())
+                        .await {
+                            Ok((val,)) => val != "false",
+                            Err(_) => true,
+                        }
+                    } else {
+                        true
+                    }
+                };
+
+                if system_tray_enabled {
+                    if let Err(e) = setup_tray(&app_handle) {
+                        log(&format!("Failed to setup tray: {}", e));
+                    }
+                }
+            });
+
             // 启动时自动检查更新（后台静默，有更新时通知前端）
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -2069,6 +2130,44 @@ pub fn run() {
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    // 先阻止关闭，然后根据设置决定行为
+                    api.prevent_close();
+                    let app_handle = window.app_handle().clone();
+                    let window_clone = window.clone();
+
+                    tauri::async_runtime::spawn(async move {
+                        let system_tray_enabled = {
+                            if let Some(state) = app_handle.try_state::<AppState>() {
+                                match sqlx::query_as::<_, (String,)>(
+                                    "SELECT value FROM user_settings WHERE key = ?"
+                                )
+                                .bind("ui.system_tray")
+                                .fetch_one(state.db.inner())
+                                .await {
+                                    Ok((val,)) => val != "false",
+                                    Err(_) => true,
+                                }
+                            } else {
+                                true
+                            }
+                        };
+
+                        if system_tray_enabled {
+                            // 隐藏窗口到系统托盘
+                            let _ = window_clone.hide();
+                            log("Window hidden, app running in system tray");
+                        } else {
+                            // 直接退出应用
+                            app_handle.exit(0);
+                        }
+                    });
+                }
+                _ => {}
+            }
         })
         .run(tauri::generate_context!())
         .expect("Failed to run Tauri application");
