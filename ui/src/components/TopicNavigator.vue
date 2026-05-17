@@ -60,7 +60,7 @@
     </div>
 
     <!-- Status Bar -->
-    <div v-show="!showHistory" class="flex-shrink-0 p-1.5 pb-1 text-xs text-base-content/50 border-b border-base-200 bg-base-100">
+    <div v-show="!showHistory" class="flex-shrink-0 px-1.5 pt-1 pb-0.5 text-xs text-base-content/50 border-b border-base-200 bg-base-100">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1 flex-shrink-0">
           <span class="text-xs">Cluster:</span>
@@ -81,7 +81,7 @@
             <div
               v-show="showClusterSelector && !isMobile"
               ref="clusterSelectorRef"
-              class="absolute bottom-full left-0 mb-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[100]"
+              class="absolute top-full left-0 mt-1 w-[280px] sm:w-[320px] max-h-[400px] overflow-hidden rounded-lg bg-base-100 border border-base-200 shadow-xl z-[999]"
             >
               <div class="flex flex-col sm:flex-row h-[300px]">
                 <!-- Left: Groups List -->
@@ -338,7 +338,7 @@
     </div>
   </div>
     <!-- Search Box -->
-    <div v-show="!showHistory" class="px-1.5 py-1 flex-shrink-0">
+    <div v-show="!showHistory" class="px-1.5 pt-0.5 pb-1 flex-shrink-0">
       <div class="relative">
         <input
           v-model="searchQuery"

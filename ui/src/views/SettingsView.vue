@@ -62,9 +62,9 @@
           </div>
           <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
             <span class="text-sm font-medium">{{ isDark ? t.settings.darkMode : t.settings.lightMode }}</span>
-            <button class="btn btn-toggle relative overflow-hidden" @click="handleToggleTheme">
-              <input type="checkbox" :checked="isDark" class="toggle" />
-            </button>
+            <label class="cursor-pointer">
+              <input type="checkbox" class="toggle toggle-primary" :checked="isDark" @change="handleToggleTheme" />
+            </label>
           </div>
         </div>
       </div>
@@ -91,13 +91,12 @@
               </svg>
               <span class="text-xs font-medium">{{ sidebarMode === 'tree' ? t.settings.treeMode : t.settings.flatMode }}</span>
             </div>
-            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleSidebarMode">
-              <input type="checkbox" :checked="sidebarMode === 'tree'" class="toggle" />
-            </button>
+            <label class="cursor-pointer">
+              <input type="checkbox" class="toggle toggle-primary" :checked="sidebarMode === 'tree'" @change="toggleSidebarMode" />
+            </label>
           </div>
           <!-- System Tray Toggle -->
-          <div class="divider my-1"></div>
-          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
+          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50 mt-2">
             <div class="flex items-center gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
@@ -107,12 +106,11 @@
                 <p class="text-[10px] text-base-content/50">{{ t.settings.systemTrayDesc || '关闭后，点击关闭按钮直接退出应用' }}</p>
               </div>
             </div>
-            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleSystemTray">
-              <input type="checkbox" :checked="systemTrayEnabled" class="toggle" />
-            </button>
+            <label class="cursor-pointer">
+              <input type="checkbox" class="toggle toggle-primary" :checked="systemTrayEnabled" @change="toggleSystemTray" />
+            </label>
           </div>
-          <div v-if="isWindows" class="divider my-1"></div>
-          <div v-if="isWindows" class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
+          <div v-if="isWindows" class="flex items-center justify-between p-3 rounded-xl bg-base-100/50 mt-2">
             <div class="flex items-center gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 1 0 12.728 0M12 3v10" />
@@ -122,9 +120,9 @@
                 <p class="text-[10px] text-base-content/50">{{ t.settings.autoLaunchDesc || '开机自动启动 Kafka Manager' }}</p>
               </div>
             </div>
-            <button class="btn btn-xs btn-toggle relative overflow-hidden" @click="toggleAutoLaunch">
-              <input type="checkbox" :checked="autoLaunchEnabled" class="toggle" />
-            </button>
+            <label class="cursor-pointer">
+              <input type="checkbox" class="toggle toggle-primary" :checked="autoLaunchEnabled" @change="toggleAutoLaunch" />
+            </label>
           </div>
         </div>
       </div>
