@@ -27,7 +27,7 @@ const RUN_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 /// Windows 开机自启动：设置启动项（内部函数）
 #[cfg(target_os = "windows")]
-fn set_auto_launch(enable: bool) -> Result<(), String> {
+fn set_auto_launch_windows(enable: bool) -> Result<(), String> {
     use winreg::enums::*;
     use winreg::RegKey;
 
