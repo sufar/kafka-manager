@@ -1038,7 +1038,7 @@ async function toggleSystemTray() {
     window.dispatchEvent(new CustomEvent('settings-changed', {
       detail: { key: 'ui.system_tray', value: systemTrayEnabled.value }
     }));
-    toast.showSuccess(systemTrayEnabled.value ? '已开启系统托盘，重启应用生效' : '已关闭系统托盘，重启应用生效');
+    toast.showSuccess(systemTrayEnabled.value ? t.value.settings.systemTrayEnabled : t.value.settings.systemTrayDisabled);
   } catch (e) {
     console.error('Failed to save system tray setting:', e);
   }
@@ -1073,10 +1073,10 @@ async function toggleAutoLaunch() {
     // 同时保存到数据库（跨平台兼容）
     await apiClient.updateSetting('ui.auto_launch', newVal ? 'true' : 'false');
     autoLaunchEnabled.value = newVal;
-    toast.showSuccess(newVal ? '已开启开机自启动' : '已关闭开机自启动');
+    toast.showSuccess(newVal ? t.value.settings.autoLaunchEnabled : t.value.settings.autoLaunchDisabled);
   } catch (e) {
     console.error('Failed to toggle auto launch:', e);
-    toast.showError('设置开机自启动失败');
+    toast.showError(t.value.settings.autoLaunchFailed);
   }
 }
 

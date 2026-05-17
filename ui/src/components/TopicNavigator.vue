@@ -19,7 +19,7 @@
         <button
           class="btn btn-ghost btn-xs"
           @click="goToClusters"
-          title="Clusters"
+          :title="t.navigator.clusters"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
@@ -29,7 +29,7 @@
         <button
           class="btn btn-ghost btn-xs"
           @click="goToFavorites"
-          title="Topic Favorites"
+          :title="t.navigator.favorites"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
@@ -39,7 +39,7 @@
         <button
           class="btn btn-ghost btn-xs"
           @click="goToSchemaRegistry"
-          title="Schema Registry"
+          :title="t.navigator.schemaRegistry"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -336,7 +336,7 @@
         </div>
       </div>
     </div>
-  </div>
+
     <!-- Search Box -->
     <div v-show="!showHistory" class="px-1.5 pt-0.5 pb-1 flex-shrink-0">
       <div class="relative">
@@ -485,6 +485,7 @@
     <div v-if="showHistory" class="flex-1 overflow-y-auto bg-base-100 px-2 pb-2">
       <TopicHistory :t="t" @close="showHistory = false" />
     </div>
+  </div>
 </template>
 
 <script setup lang="ts">

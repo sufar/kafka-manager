@@ -347,8 +347,13 @@ export interface Translation {
     flatModeDesc: string;
     systemTray: string;
     systemTrayDesc: string;
+    systemTrayEnabled: string;
+    systemTrayDisabled: string;
     autoLaunch: string;
     autoLaunchDesc: string;
+    autoLaunchEnabled: string;
+    autoLaunchDisabled: string;
+    autoLaunchFailed: string;
     version: string;
     versionDesc: string;
     currentVersion: string;
@@ -477,6 +482,11 @@ export interface Translation {
     deselectAll: string;
     selectClusters: string;
     refreshing: string;
+    favorites: string;
+    schemaRegistry: string;
+    history: string;
+    topicsLabel: string;
+    consumerGroupsLabel: string;
   };
   favorites: {
     title: string;
@@ -933,8 +943,13 @@ export const translations: Record<Language, Translation> = {
       flatModeDesc: '平铺显示所有主题',
       systemTray: '系统托盘',
       systemTrayDesc: '开启后点击关闭按钮最小化到托盘，关闭后直接退出应用',
+      systemTrayEnabled: '已开启系统托盘，重启应用生效',
+      systemTrayDisabled: '已关闭系统托盘，重启应用生效',
       autoLaunch: '开机自启动',
       autoLaunchDesc: '开机自动启动 Kafka Manager',
+      autoLaunchEnabled: '已开启开机自启动',
+      autoLaunchDisabled: '已关闭开机自启动',
+      autoLaunchFailed: '设置开机自启动失败',
       version: '版本信息',
       versionDesc: 'Kafka Manager 当前版本',
       currentVersion: '当前版本',
@@ -1063,6 +1078,11 @@ export const translations: Record<Language, Translation> = {
       deselectAll: '取消全选',
       selectClusters: '选择集群',
       refreshing: '正在刷新...',
+      favorites: 'Topic 收藏',
+      schemaRegistry: 'Schema Registry',
+      history: '浏览历史',
+      topicsLabel: '主题',
+      consumerGroupsLabel: '消费者组',
     },
     favorites: {
       title: 'Topic 收藏',
@@ -1517,8 +1537,13 @@ export const translations: Record<Language, Translation> = {
       flatModeDesc: 'Display all topics in a flat list',
       systemTray: 'System Tray',
       systemTrayDesc: 'When enabled, close button minimizes to tray; when disabled, close button exits the app',
+      systemTrayEnabled: 'System tray enabled, restart to take effect',
+      systemTrayDisabled: 'System tray disabled, restart to take effect',
       autoLaunch: 'Auto Launch',
       autoLaunchDesc: 'Automatically start Kafka Manager on boot',
+      autoLaunchEnabled: 'Auto launch enabled',
+      autoLaunchDisabled: 'Auto launch disabled',
+      autoLaunchFailed: 'Failed to set auto launch',
       version: 'Version',
       versionDesc: 'Kafka Manager Current Version',
       currentVersion: 'Current Version',
@@ -1647,6 +1672,11 @@ export const translations: Record<Language, Translation> = {
       deselectAll: 'Deselect All',
       selectClusters: 'Select Clusters',
       refreshing: 'Refreshing...',
+      favorites: 'Topic Favorites',
+      schemaRegistry: 'Schema Registry',
+      history: 'Browsing History',
+      topicsLabel: 'Topics',
+      consumerGroupsLabel: 'Consumer Groups',
     },
     favorites: {
       title: 'Topic Favorites',
