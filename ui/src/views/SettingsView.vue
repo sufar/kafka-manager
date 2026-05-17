@@ -981,7 +981,7 @@ async function resumeDownload() {
 const sidebarMode = ref<'tree' | 'flat'>('flat');
 
 // System tray state
-const systemTrayEnabled = ref(true);
+const systemTrayEnabled = ref(false);
 
 // Auto launch state (Windows only)
 const autoLaunchEnabled = ref(false);
@@ -1025,7 +1025,7 @@ async function loadSystemTraySetting() {
   try {
     const settings = await apiClient.getSettings(['ui.system_tray']);
     const val = settings.find((s: { key: string; value: string }) => s.key === 'ui.system_tray')?.value;
-    systemTrayEnabled.value = val !== 'false'; // 默认开启
+    systemTrayEnabled.value = val === 'true'; // 默认关闭
   } catch (e) {
     console.error('Failed to load system tray setting:', e);
   }

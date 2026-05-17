@@ -2175,11 +2175,11 @@ pub fn run() {
                         .bind("ui.system_tray")
                         .fetch_one(state.db.inner())
                         .await {
-                            Ok((val,)) => val != "false",
-                            Err(_) => true,
+                            Ok((val,)) => val == "true",
+                            Err(_) => false,
                         }
                     } else {
-                        true
+                        false
                     }
                 };
 
@@ -2228,11 +2228,11 @@ pub fn run() {
                                 .bind("ui.system_tray")
                                 .fetch_one(state.db.inner())
                                 .await {
-                                    Ok((val,)) => val != "false",
-                                    Err(_) => true,
+                                    Ok((val,)) => val == "true",
+                                    Err(_) => false,
                                 }
                             } else {
-                                true
+                                false
                             }
                         };
 
