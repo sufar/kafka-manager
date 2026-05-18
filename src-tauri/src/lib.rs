@@ -147,28 +147,25 @@ fn get_db_path() -> PathBuf {
     }
 }
 
-/// 从数据库读取系统托盘设置（同步直接读取 SQLite 文件）
-fn read_tray_enabled_from_db() -> bool {
+/// 从数据库读取系统托盘设置（返回 None 表示未设置/历史兼容）
+fn read_tray_enabled_from_db() -> Option<bool> {
     let db_path = get_db_path();
     if !db_path.exists() {
-        return true;
+        return None;
     }
-    // SQLite 文件格式：直接在文件中搜索 key 和 value
-    // SQLite 的未加密数据是明文存储的，直接搜索
     if let Ok(content) = std::fs::read(&db_path) {
         let needle = b"ui.system_tray";
         if let Some(pos) = content.windows(needle.len()).position(|w| w == needle) {
-            // 找到 key 后，在其附近搜索 value（true 或 false）
             let window = &content[pos.saturating_sub(20)..(pos + needle.len() + 50).min(content.len())];
             if window.windows(4).any(|w| w == b"true") {
-                return true;
+                return Some(true);
             }
             if window.windows(5).any(|w| w == b"false") {
-                return false;
+                return Some(false);
             }
         }
     }
-    true
+    None
 }
 
 /// 启动定时日志清理任务（每小时检查，清理3天前的日志）
@@ -2179,8 +2176,8 @@ pub fn run() {
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
 
-            // 读取系统托盘设置（从 SQLite 数据库读取，默认开启）
-            let tray_enabled = read_tray_enabled_from_db();
+            // 读取系统托盘设置（从 SQLite 数据库读取，历史兼容：未设置默认关闭）
+            let tray_enabled = read_tray_enabled_from_db().unwrap_or(false);
             app.manage(SystemTrayState { enabled: tray_enabled });
 
             if tray_enabled {
@@ -2238,16 +2235,14 @@ pub fn run() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    // 先阻止关闭，然后根据托盘设置决定行为
+                    // 先阻止关闭，然后从数据库实时读取最新的托盘设置
                     api.prevent_close();
                     let app_handle = window.app_handle().clone();
                     let window_clone = window.clone();
 
-                    // 直接从 app state 读取，避免异步 DB 查询导致时序问题
-                    let tray_enabled = app_handle
-                        .try_state::<SystemTrayState>()
-                        .map(|s| s.enabled)
-                        .unwrap_or(false);
+                    // 实时读取数据库中的最新设置
+                    // 历史兼容：取不到值默认 false（直接退出），兼容之前没有此设置的用户
+                    let tray_enabled = read_tray_enabled_from_db().unwrap_or(false);
 
                     if tray_enabled {
                         // 隐藏窗口到系统托盘
