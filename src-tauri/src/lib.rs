@@ -49,45 +49,10 @@ fn set_auto_launch_windows(enable: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// 系统托盘状态标志（存储在 app state 中，避免每次关闭时查询 DB）
+/// 系统托盘状态标志（存储在 app state 中，供关闭处理器使用）
 #[derive(Clone, Debug)]
 pub struct SystemTrayState {
     pub enabled: bool,
-}
-
-/// 设置系统托盘图标
-fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
-
-    let mut builder = tauri::tray::TrayIconBuilder::new()
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .tooltip("Kafka Manager")
-        .on_menu_event(move |app, event| {
-            match event.id.as_ref() {
-                "show" => {
-                    if let Some(window) = app.webview_windows().values().next() {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
-                "quit" => {
-                    log("Quit menu clicked, exiting app");
-                    app.exit(0);
-                }
-                _ => {}
-            }
-        });
-
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
-
-    builder.build(app)?;
-    log("System tray created");
-    Ok(())
 }
 
 /// 后台下载状态
@@ -2171,34 +2136,62 @@ pub fn run() {
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
 
-            // 读取系统托盘设置，创建托盘（默认关闭）
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let system_tray_enabled = {
-                    if let Some(state) = app_handle.try_state::<AppState>() {
-                        match sqlx::query_as::<_, (String,)>(
-                            "SELECT value FROM user_settings WHERE key = ?"
-                        )
-                        .bind("ui.system_tray")
-                        .fetch_one(state.db.inner())
-                        .await {
-                            Ok((val,)) => val == "true",
-                            Err(_) => false,
-                        }
-                    } else {
-                        false
-                    }
+            // 读取系统托盘设置（从 config.toml 同步读取，默认开启）
+            let tray_enabled = {
+                let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+                let config_path = if cfg!(debug_assertions) {
+                    std::path::PathBuf::from("config.toml")
+                } else {
+                    exe_dir.join("config.toml")
                 };
-
-                // 存储托盘状态到 app state，供关闭处理器使用
-                app_handle.manage(SystemTrayState { enabled: system_tray_enabled });
-
-                if system_tray_enabled {
-                    if let Err(e) = setup_tray(&app_handle) {
-                        log(&format!("Failed to setup tray: {}", e));
+                let mut enabled = true;
+                if config_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&config_path) {
+                        if let Ok(table) = toml::from_str::<toml::Table>(&content) {
+                            if let Some(ui) = table.get("ui") {
+                                if let Some(v) = ui.get("system_tray") {
+                                    if let Some(b) = v.as_bool() {
+                                        enabled = b;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            });
+                enabled
+            };
+            app.manage(SystemTrayState { enabled: tray_enabled });
+
+            if tray_enabled {
+                let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+                let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+                let icon = app.default_window_icon().cloned().expect("no window icon");
+
+                let _tray = tauri::tray::TrayIconBuilder::new()
+                    .menu(&menu)
+                    .show_menu_on_left_click(true)
+                    .tooltip("Kafka Manager")
+                    .on_menu_event(|app, event| {
+                        match event.id.as_ref() {
+                            "show" => {
+                                if let Some(window) = app.webview_windows().values().next() {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            "quit" => {
+                                log("Quit menu clicked, exiting app");
+                                app.exit(0);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .icon(icon)
+                    .build(app)?;
+
+                log("System tray created");
+            }
 
             // 启动时自动检查更新（后台静默，有更新时通知前端）
             let app_handle = app.handle().clone();
