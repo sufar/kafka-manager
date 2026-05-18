@@ -49,14 +49,21 @@ fn set_auto_launch_windows(enable: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 系统托盘状态标志（存储在 app state 中，避免每次关闭时查询 DB）
+#[derive(Clone, Debug)]
+pub struct SystemTrayState {
+    pub enabled: bool,
+}
+
 /// 设置系统托盘图标
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
     let mut builder = tauri::tray::TrayIconBuilder::new()
         .menu(&menu)
+        .show_menu_on_left_click(true)
         .tooltip("Kafka Manager")
         .on_menu_event(move |app, event| {
             match event.id.as_ref() {
@@ -2164,7 +2171,7 @@ pub fn run() {
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
 
-            // 读取系统托盘设置，异步创建托盘（默认开启）
+            // 读取系统托盘设置，创建托盘（默认关闭）
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let system_tray_enabled = {
@@ -2182,6 +2189,9 @@ pub fn run() {
                         false
                     }
                 };
+
+                // 存储托盘状态到 app state，供关闭处理器使用
+                app_handle.manage(SystemTrayState { enabled: system_tray_enabled });
 
                 if system_tray_enabled {
                     if let Err(e) = setup_tray(&app_handle) {
@@ -2214,37 +2224,25 @@ pub fn run() {
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    // 先阻止关闭，然后根据设置决定行为
+                    // 先阻止关闭，然后根据托盘设置决定行为
                     api.prevent_close();
                     let app_handle = window.app_handle().clone();
                     let window_clone = window.clone();
 
-                    tauri::async_runtime::spawn(async move {
-                        let system_tray_enabled = {
-                            if let Some(state) = app_handle.try_state::<AppState>() {
-                                match sqlx::query_as::<_, (String,)>(
-                                    "SELECT value FROM user_settings WHERE key = ?"
-                                )
-                                .bind("ui.system_tray")
-                                .fetch_one(state.db.inner())
-                                .await {
-                                    Ok((val,)) => val == "true",
-                                    Err(_) => false,
-                                }
-                            } else {
-                                false
-                            }
-                        };
+                    // 直接从 app state 读取，避免异步 DB 查询导致时序问题
+                    let tray_enabled = app_handle
+                        .try_state::<SystemTrayState>()
+                        .map(|s| s.enabled)
+                        .unwrap_or(false);
 
-                        if system_tray_enabled {
-                            // 隐藏窗口到系统托盘
-                            let _ = window_clone.hide();
-                            log("Window hidden, app running in system tray");
-                        } else {
-                            // 直接退出应用
-                            app_handle.exit(0);
-                        }
-                    });
+                    if tray_enabled {
+                        // 隐藏窗口到系统托盘
+                        let _ = window_clone.hide();
+                        log("Window hidden, app running in system tray");
+                    } else {
+                        // 直接退出应用
+                        app_handle.exit(0);
+                    }
                 }
                 _ => {}
             }
