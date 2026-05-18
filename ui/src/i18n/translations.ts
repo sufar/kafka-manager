@@ -408,6 +408,7 @@ export interface Translation {
     topicNotFound: string;
     refreshFailed: string;
     refreshCancelled: string;
+    shareVersion: string;
   };
   update: {
     available: string;
@@ -1004,6 +1005,7 @@ export const translations: Record<Language, Translation> = {
       topicNotFound: '主题不存在',
       refreshFailed: '刷新失败',
       refreshCancelled: '刷新已取消',
+      shareVersion: '分享安装包',
     },
     update: {
       available: '发现新版本',
@@ -1598,6 +1600,7 @@ export const translations: Record<Language, Translation> = {
       topicNotFound: 'Topic not found',
       refreshFailed: 'Refresh failed',
       refreshCancelled: 'Refresh cancelled',
+      shareVersion: 'Share Installer',
     },
     update: {
       available: 'New Version Available',

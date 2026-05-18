@@ -10,6 +10,7 @@
         @toggle-language="toggleLanguage"
         @toggle-theme="toggleTheme"
         @open-mobile-search="showMobileSearch = true"
+        @share="handleShare"
         @select-topic="handleSelectTopicInTree"
       />
     </div>
@@ -122,6 +123,32 @@ function checkMobile() {
 const { isDark, toggleTheme } = themeStore;
 const toggleLanguage = languageStore.toggleLanguage;
 const currentLanguage = computed(() => languageStore.currentLanguage);
+
+// Tauri invoke helper
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const win = window as any;
+  if (win.__TAURI__?.core?.invoke) {
+    return win.__TAURI__.core.invoke(cmd, args);
+  }
+  if (win.__TAURI__?.invoke) {
+    return win.__TAURI__.invoke(cmd, args);
+  }
+  throw new Error('Tauri not available');
+}
+
+// Share version: copy cached installer to downloads or open GitHub releases
+async function handleShare() {
+  try {
+    const result = await tauriInvoke<string>('share_current_version');
+    if (result) {
+      toastRef.value?.showToast('success', `安装包已复制到下载目录`);
+    } else {
+      window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+    }
+  } catch {
+    window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+  }
+}
 
 // Load sidebar mode setting
 async function loadSidebarModeSetting() {

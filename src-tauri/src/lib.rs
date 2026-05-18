@@ -1131,6 +1131,39 @@ fn is_windows() -> bool {
     cfg!(target_os = "windows")
 }
 
+/// 分享当前版本：缓存中存在安装包则复制到下载目录，否则返回空字符串
+#[tauri::command]
+fn share_current_version() -> Result<String, String> {
+    let version = env!("CARGO_PKG_VERSION");
+    let cache_dir = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager"))
+        .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
+    let downloads_dir = dirs::download_dir()
+        .unwrap_or_else(|| dirs::home_dir().map(|d| d.join("Downloads")).unwrap_or_default());
+
+    if cache_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // 匹配当前版本号的安装包（忽略 .etag 等辅助文件）
+                if name.contains(version) && !name.ends_with(".etag") {
+                    let src = entry.path();
+                    let dst = downloads_dir.join(&name);
+                    if let Err(e) = std::fs::copy(&src, &dst) {
+                        log(&format!("Share: failed to copy to downloads: {}", e));
+                    } else {
+                        log(&format!("Share: copied {} to downloads", name));
+                        return Ok(name);
+                    }
+                }
+            }
+        }
+    }
+
+    // 没有找到缓存，返回 GitHub releases URL
+    Ok(String::new())
+}
+
 /// 获取开机自启动状态（仅 Windows 生效）
 #[tauri::command]
 fn get_auto_launch() -> Result<bool, String> {
@@ -2165,7 +2198,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, is_windows])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, is_windows, share_current_version])
         .setup(|app| {
             // 启动时清理3天前的日志（与定时清理保持一致）
             cleanup_log(3);

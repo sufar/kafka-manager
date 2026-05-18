@@ -98,6 +98,11 @@
         </button>
         <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-xl z-50 w-32 mt-2">
           <li>
+            <a @click="$emit('share')">
+              <span class="text-xs">{{ t.layout.shareVersion || '分享安装包' }}</span>
+            </a>
+          </li>
+          <li>
             <a @click="$emit('toggle-language')">
               <span class="text-xs">{{ currentLanguage === 'zh' ? 'English' : '中文' }}</span>
             </a>
@@ -117,6 +122,17 @@
 
       <!-- Desktop Controls -->
       <div class="hidden md:flex items-center gap-0.5">
+        <!-- Share -->
+        <button
+          class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
+          @click="$emit('share')"
+          :title="t.layout.shareVersion || '分享安装包'"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+        </button>
+
         <!-- Language Toggle -->
         <button
           class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
@@ -173,6 +189,7 @@ const emit = defineEmits<{
   'toggle-language': [];
   'toggle-theme': [];
   'open-mobile-search': [];
+  'share': [];
   'select-topic': [cluster: string, topic: string];
 }>();
 
