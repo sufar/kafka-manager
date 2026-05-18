@@ -128,6 +128,49 @@ fn cleanup_log(max_days: u32) {
         content.lines().count().saturating_sub(kept_lines.len())));
 }
 
+/// 获取数据库路径（与 start_backend 中的逻辑一致）
+fn get_db_path() -> PathBuf {
+    let db_filename = "kafka_manager.db";
+    let data_dir = if cfg!(target_os = "windows") {
+        dirs::data_local_dir().map(|d| d.join("Kafka Manager"))
+    } else if cfg!(target_os = "macos") {
+        dirs::home_dir().map(|d| d.join("Library/Application Support/Kafka Manager"))
+    } else {
+        dirs::data_local_dir().map(|d| d.join("kafka-manager"))
+    };
+    if let Some(dir) = data_dir {
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(db_filename)
+    } else {
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
+        exe_dir.join(db_filename)
+    }
+}
+
+/// 从数据库读取系统托盘设置（同步直接读取 SQLite 文件）
+fn read_tray_enabled_from_db() -> bool {
+    let db_path = get_db_path();
+    if !db_path.exists() {
+        return true;
+    }
+    // SQLite 文件格式：直接在文件中搜索 key 和 value
+    // SQLite 的未加密数据是明文存储的，直接搜索
+    if let Ok(content) = std::fs::read(&db_path) {
+        let needle = b"ui.system_tray";
+        if let Some(pos) = content.windows(needle.len()).position(|w| w == needle) {
+            // 找到 key 后，在其附近搜索 value（true 或 false）
+            let window = &content[pos.saturating_sub(20)..(pos + needle.len() + 50).min(content.len())];
+            if window.windows(4).any(|w| w == b"true") {
+                return true;
+            }
+            if window.windows(5).any(|w| w == b"false") {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// 启动定时日志清理任务（每小时检查，清理3天前的日志）
 fn spawn_periodic_log_cleanup() {
     std::thread::spawn(|| {
@@ -2136,30 +2179,8 @@ pub fn run() {
             // 启动定时日志清理任务（每小时清理3天前的日志）
             spawn_periodic_log_cleanup();
 
-            // 读取系统托盘设置（从 config.toml 同步读取，默认开启）
-            let tray_enabled = {
-                let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_default();
-                let config_path = if cfg!(debug_assertions) {
-                    std::path::PathBuf::from("config.toml")
-                } else {
-                    exe_dir.join("config.toml")
-                };
-                let mut enabled = true;
-                if config_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&config_path) {
-                        if let Ok(table) = toml::from_str::<toml::Table>(&content) {
-                            if let Some(ui) = table.get("ui") {
-                                if let Some(v) = ui.get("system_tray") {
-                                    if let Some(b) = v.as_bool() {
-                                        enabled = b;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                enabled
-            };
+            // 读取系统托盘设置（从 SQLite 数据库读取，默认开启）
+            let tray_enabled = read_tray_enabled_from_db();
             app.manage(SystemTrayState { enabled: tray_enabled });
 
             if tray_enabled {
