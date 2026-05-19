@@ -308,14 +308,14 @@ onUnmounted(() => {
 .tour-tooltip {
   position: fixed;
   z-index: 10002;
-  background: rgb(var(--b1, 255, 255, 255));
-  color: rgb(var(--bc, 28, 28, 28));
+  background-color: var(--fallback-b1, oklch(var(--b1) / 1));
+  color: var(--fallback-bc, oklch(var(--bc) / 1));
   border-radius: 1rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   max-width: 340px;
   min-width: 260px;
   animation: tour-fadeIn 0.25s ease-out;
-  border: 1px solid rgba(var(--b2, 226, 226, 226), 0.5);
+  border: 1px solid var(--fallback-b2, oklch(var(--b2) / 1));
   transition: top 0.3s ease, left 0.3s ease;
 }
 
