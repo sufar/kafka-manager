@@ -202,10 +202,18 @@ async function handleShare() {
     if (result) {
       toastRef.value?.showToast('success', `安装包已复制到下载目录`);
     } else {
-      window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+      try {
+        await tauriInvoke('open_url', { url: 'https://github.com/sufar/kafka-manager/releases/latest' });
+      } catch {
+        window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+      }
     }
   } catch {
-    window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+    try {
+      await tauriInvoke('open_url', { url: 'https://github.com/sufar/kafka-manager/releases/latest' });
+    } catch {
+      window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+    }
   }
 }
 
