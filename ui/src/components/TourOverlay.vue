@@ -42,17 +42,16 @@
       <!-- Tooltip Card -->
       <div
         ref="tooltipRef"
-        class="tour-tooltip card"
+        class="tour-tooltip card bg-base-100 text-base-content"
         :style="tooltipStyle"
       >
         <div class="card-body p-4 gap-2">
           <!-- 步骤指示 -->
           <div class="tour-tooltip-header">
-            <div class="tour-tooltip-steps">
-              <span class="tour-tooltip-current">{{ currentStepIndex + 1 }}</span>
-              <span class="tour-tooltip-total"> / {{ totalSteps }}</span>
+            <div class="tour-tooltip-steps text-base-content/50 badge badge-sm badge-ghost">
+              {{ currentStepIndex + 1 }} / {{ totalSteps }}
             </div>
-            <button class="tour-tooltip-close" @click="$emit('close')" :title="t.common?.close || 'Close'">
+            <button class="btn btn-ghost btn-xs btn-circle" @click="$emit('close')" :title="t.common?.close || 'Close'">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -63,10 +62,10 @@
           <h3 class="tour-tooltip-title">{{ resolveTranslation(currentStep.title) }}</h3>
 
           <!-- 说明 -->
-          <p class="tour-tooltip-desc">{{ resolveTranslation(currentStep.description) }}</p>
+          <p class="tour-tooltip-desc text-sm text-base-content/70">{{ resolveTranslation(currentStep.description) }}</p>
 
           <!-- 导航按钮 -->
-          <div class="tour-tooltip-footer">
+          <div class="tour-tooltip-footer divider divider-neutral mt-1 pt-2">
             <button
               class="btn btn-sm btn-ghost gap-1"
               :disabled="currentStepIndex === 0"
@@ -308,19 +307,12 @@ onUnmounted(() => {
 .tour-tooltip {
   position: fixed;
   z-index: 10002;
-  background-color: var(--fallback-b1, oklch(var(--b1) / 1));
-  color: var(--fallback-bc, oklch(var(--bc) / 1));
   border-radius: 1rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   max-width: 340px;
   min-width: 260px;
   animation: tour-fadeIn 0.25s ease-out;
-  border: 1px solid var(--fallback-b2, oklch(var(--b2) / 1));
   transition: top 0.3s ease, left 0.3s ease;
-}
-
-.tour-tooltip .card-body {
-  padding: 1rem;
 }
 
 .tour-tooltip-header {
@@ -328,32 +320,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
-}
-
-.tour-tooltip-steps {
-  font-size: 11px;
-  opacity: 0.5;
-  font-family: ui-monospace, monospace;
-}
-
-.tour-tooltip-close {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.15s, background 0.15s;
-  color: var(--fallback-bc, oklch(var(--bc)));
-}
-
-.tour-tooltip-close:hover {
-  opacity: 1;
-  background: var(--fallback-b2, oklch(var(--b2)));
 }
 
 .tour-tooltip-title {
@@ -366,7 +332,6 @@ onUnmounted(() => {
 .tour-tooltip-desc {
   font-size: 0.8rem;
   line-height: 1.5;
-  opacity: 0.7;
   margin: 0;
 }
 
@@ -374,9 +339,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid var(--fallback-b2, oklch(var(--b2) / 0.3));
-  padding-top: 8px;
-  margin-top: 4px;
 }
 
 @keyframes tour-fadeIn {
