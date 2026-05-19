@@ -1,9 +1,9 @@
 <template>
   <div class="topic-favorites">
     <!-- 收藏分组列表 -->
-    <div class="favorite-groups">
+    <div class="favorite-groups" data-tour="fav-list">
       <div class="flex items-center justify-end mb-3">
-        <button class="btn btn-primary btn-sm" @click="openCreateGroupModal">
+        <button class="btn btn-primary btn-sm" @click="openCreateGroupModal" data-tour="fav-add">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
@@ -15,7 +15,7 @@
         <span class="loading loading-spinner loading-md text-primary"></span>
       </div>
 
-      <div v-else-if="groups.length === 0" class="text-center py-8 text-base-content/50">
+      <div v-else-if="groups.length === 0" class="text-center py-8 text-base-content/50" data-tour="fav-empty-state">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mx-auto mb-2 opacity-50">
           <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
         </svg>
@@ -25,7 +25,8 @@
 
       <!-- Group search state management -->
       <div v-else class="space-y-3">
-        <div v-for="group in groups" :key="group.id" class="group-card">
+      <!-- Group card -->
+      <div v-for="group in groups" :key="group.id" class="group-card" data-tour="fav-group-card">
           <!-- 分组标题 -->
           <div class="group-header" @click="toggleGroup(group.id)">
             <div class="flex items-center gap-2 flex-1">
@@ -40,12 +41,12 @@
               <span class="badge badge-sm badge-ghost flex-shrink-0">{{ filteredGroupItems(group.id)?.length || 0 }}</span>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
-              <button class="btn btn-ghost btn-xs" @click.stop="editGroup(group)" title="编辑分组">
+              <button class="btn btn-ghost btn-xs" @click.stop="editGroup(group)" title="编辑分组" data-tour="fav-edit-group">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                 </svg>
               </button>
-              <button class="btn btn-ghost btn-xs text-error" @click.stop="deleteGroup(group.id)" title="删除分组">
+              <button class="btn btn-ghost btn-xs text-error" @click.stop="deleteGroup(group.id)" title="删除分组" data-tour="fav-delete-group">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                 </svg>
@@ -62,6 +63,7 @@
                 class="input input-bordered input-sm w-full pl-8"
                 :placeholder="(t.favorites?.searchPlaceholder || '搜索 Topic 名、备注...')"
                 @click.stop
+                data-tour="fav-group-search"
               />
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -84,7 +86,7 @@
               {{ groupSearches[group.id] ? (t.favorites?.noSearchResults || '无匹配的收藏') : (t.favorites?.noItems || '该分组暂无收藏') }}
             </div>
             <div v-else class="favorite-items">
-              <div v-for="item in filteredGroupItems(group.id)" :key="item.id" class="favorite-item" @dblclick="navigateToTopic(item.cluster_id, item.topic_name)">
+              <div v-for="item in filteredGroupItems(group.id)" :key="item.id" class="favorite-item" @dblclick="navigateToTopic(item.cluster_id, item.topic_name)" data-tour="fav-item-row">
                 <div class="flex items-center gap-2 flex-1 min-w-0">
                   <div class="w-5 h-5 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 text-primary">
@@ -99,12 +101,12 @@
                   </div>
                 </div>
                 <div class="flex items-center gap-0.5 flex-shrink-0">
-                  <button class="btn btn-ghost btn-xs px-1 h-auto" @click.stop="editFavorite(item)" title="编辑">
+                  <button class="btn btn-ghost btn-xs px-1 h-auto" @click.stop="editFavorite(item)" title="编辑" data-tour="fav-edit-item">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                     </svg>
                   </button>
-                  <button class="btn btn-ghost btn-xs px-1 h-auto text-error" @click.stop="deleteFavorite(item.id)" title="删除收藏">
+                  <button class="btn btn-ghost btn-xs px-1 h-auto text-error" @click.stop="deleteFavorite(item.id)" title="删除收藏" data-tour="fav-delete-item">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                     </svg>
@@ -119,7 +121,7 @@
 
     <!-- 创建/编辑分组模态框 -->
     <Teleport to="body">
-      <dialog ref="groupModalRef" class="modal" @click.self="closeGroupModal">
+      <dialog ref="groupModalRef" class="modal" @click.self="closeGroupModal" data-tour="fav-group-modal">
         <div class="modal-box w-full max-w-md mx-2 md:mx-auto">
           <h3 class="font-bold text-lg mb-4">{{ editingGroup ? (t.favorites?.editGroup || '编辑分组') : (t.favorites?.createGroup || '创建分组') }}</h3>
           <form @submit.prevent="saveGroup" class="space-y-4">
@@ -159,7 +161,7 @@
 
     <!-- 编辑收藏模态框 -->
     <Teleport to="body">
-      <dialog ref="favoriteModalRef" class="modal" @click.self="closeFavoriteModal">
+      <dialog ref="favoriteModalRef" class="modal" @click.self="closeFavoriteModal" data-tour="fav-favorite-modal">
         <div class="modal-box w-full max-w-md mx-2 md:mx-auto">
           <h3 class="font-bold text-lg mb-4">{{ t.favorites?.editFavorite || '编辑收藏' }}</h3>
           <form @submit.prevent="saveFavorite" class="space-y-4">

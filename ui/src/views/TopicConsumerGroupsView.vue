@@ -4,7 +4,7 @@
     <div class="p-3 pb-2 flex-shrink-0">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
-          <h1 class="text-xl font-bold flex items-center gap-2 flex-wrap">
+          <h1 class="text-xl font-bold flex items-center gap-2 flex-wrap" data-tour="tcg-title">
             <!-- Back button -->
             <button
               class="btn btn-ghost btn-sm"
@@ -26,7 +26,7 @@
             <span>•</span>
             <span>{{ t.topicConsumerGroups.topicNamePrefix }}</span>
             <span class="font-medium">{{ topicParam }}</span>
-            <span class="tooltip tooltip-right" :data-tip="t.topicConsumerGroups?.dataNotice">
+            <span class="tooltip tooltip-right" :data-tip="t.topicConsumerGroups?.dataNotice" data-tour="tcg-data-notice">
               <button class="btn btn-ghost btn-xs btn-circle ml-1">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
@@ -41,6 +41,7 @@
             class="btn btn-xs btn-outline"
             @click="refreshAll"
             :disabled="refreshing"
+            data-tour="tcg-refresh"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -79,7 +80,7 @@
     <!-- Offsets Table -->
     <div v-else class="card glass gradient-border shadow-xl">
       <div class="overflow-x-hidden overflow-y-auto">
-        <table class="table w-full table-fixed">
+        <table class="table w-full table-fixed" data-tour="tcg-table">
           <colgroup>
             <col class="w-full">
             <col :style="{ width: columnWidths.partition + 'px' }">

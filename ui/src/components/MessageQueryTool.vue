@@ -3,26 +3,26 @@
     <!-- 简洁搜索栏 -->
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 返回按钮 -->
-      <button class="btn btn-ghost btn-sm p-1" @click="goBack" title="返回">
+      <button class="btn btn-ghost btn-sm p-1" @click="goBack" title="返回" data-tour="messages-back">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
         </svg>
       </button>
 
       <!-- 分区选择 -->
-      <select v-model="selectedPartition" class="select select-bordered select-sm w-28">
+      <select v-model="selectedPartition" class="select select-bordered select-sm w-28" data-tour="messages-partition">
         <option value="all">{{ t.messages.allPartitions }}</option>
         <option v-for="p in partitions" :key="p" :value="p">{{ t.messages.partition }} {{ p }}</option>
       </select>
 
       <!-- 查询模式 -->
-      <select v-model="fetchMode" class="select select-bordered select-sm w-24">
+      <select v-model="fetchMode" class="select select-bordered select-sm w-24" data-tour="messages-mode">
         <option value="newest">{{ t.messages.newest }}</option>
         <option value="oldest">{{ t.messages.oldest }}</option>
       </select>
 
       <!-- 数量 -->
-      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" :title="t.messages.maxMessages" />
+      <input v-model.number="maxMessages" type="number" class="input input-bordered input-sm w-16" min="1" max="1000" :title="t.messages.maxMessages" data-tour="messages-count" />
 
       <!-- 高级筛选按钮 -->
       <button
@@ -30,6 +30,7 @@
         :class="{ 'btn-active text-primary': showTimeFilters }"
         @click="showTimeFilters = !showTimeFilters"
         :title="t.messages.timeRangeFilter"
+        data-tour="messages-time-filter"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
@@ -38,7 +39,7 @@
       </button>
 
       <!-- 搜索 -->
-      <div class="flex-1 min-w-[120px] relative">
+      <div class="flex-1 min-w-[120px] relative" data-tour="messages-search">
         <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.valuePlaceholder" @keyup.enter="queryMessages" />
         <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''; queryMessages()">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -48,7 +49,7 @@
       </div>
 
       <!-- 查询按钮 -->
-      <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery || loading" @click="queryMessages">
+      <button class="btn btn-primary btn-sm" :class="{ 'loading': loading }" :disabled="!canQuery || loading" @click="queryMessages" data-tour="messages-query">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
         </svg>
@@ -62,7 +63,7 @@
       </button>
 
       <!-- 发送消息 -->
-      <button class="btn btn-ghost btn-sm" @click="openSendModal" :title="t.messages.sendMessage">
+      <button class="btn btn-ghost btn-sm" @click="openSendModal" :title="t.messages.sendMessage" data-tour="messages-send">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
         </svg>
@@ -73,6 +74,7 @@
         class="dropdown dropdown-end"
         :class="{ 'dropdown-open': showMoreMenu }"
         @focusout="handleMoreMenuFocusOut"
+        data-tour="messages-more"
       >
         <button
           class="btn btn-ghost btn-sm"
@@ -114,7 +116,7 @@
     </div>
 
     <!-- 时间范围筛选面板 -->
-    <div v-if="showTimeFilters" class="time-filters flex flex-wrap items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50 animate-fadeIn">
+    <div v-if="showTimeFilters" class="time-filters flex flex-wrap items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-200/50 animate-fadeIn" data-tour="messages-time-presets">
       <div class="flex items-center gap-1.5">
         <span class="text-xs font-medium text-base-content/70">{{ t.messages.startTime }}:</span>
         <input
@@ -191,7 +193,7 @@
               </svg>
             </button>
           </span>
-          <button class="btn btn-ghost btn-xs ml-1" :disabled="messages.length === 0" @click="exportMessages" :title="t.messages.exportMessages">
+          <button class="btn btn-ghost btn-xs ml-1" :disabled="messages.length === 0" @click="exportMessages" :title="t.messages.exportMessages" data-tour="messages-export">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
@@ -223,7 +225,7 @@
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
-        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full">
+        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full" data-tour="messages-table-header">
           <div class="flex-shrink-0" :style="{ width: columnWidths.partition + 'px' }">
             {{ t.messages.partitionLabel2 }}
           </div>
@@ -287,6 +289,7 @@
             ]"
             style="height: 24px;"
             @click="selectedMessage = (item as any)"
+            data-tour="messages-table-row"
           >
             <div class="flex-shrink-0 text-[10px]" :style="{ width: columnWidths.partition + 'px' }">
               <span class="badge badge-ghost badge-xs scale-90">{{ getMsgPartition(item) }}</span>
@@ -365,6 +368,7 @@
       @keydown.meta.a.prevent="handleSelectAll"
       @keydown.ctrl.f.prevent="handleDetailSearch"
       @keydown.meta.f.prevent="handleDetailSearch"
+      data-tour="messages-detail-panel"
     >
       <!-- Search Bar -->
       <div v-if="detailSearchActive" class="flex items-center gap-1 px-2 py-1 bg-base-100 border-b border-base-200">
@@ -432,7 +436,7 @@
             <div class="flex items-center justify-between mb-0.5">
               <div class="text-base-content/50 text-[10px] font-semibold flex items-center gap-1">
                 {{ t.messages.value }}:
-                <select v-model="valueViewFormat" class="select select-bordered select-xs scale-90 origin-left">
+                <select v-model="valueViewFormat" class="select select-bordered select-xs scale-90 origin-left" data-tour="messages-value-view-format">
                   <option value="json">{{ t.messages.json }}</option>
                   <option value="raw">{{ t.messages.raw }}</option>
                   <option value="hex">{{ t.messages.hex }}</option>

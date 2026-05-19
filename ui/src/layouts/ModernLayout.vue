@@ -11,6 +11,7 @@
         @toggle-theme="toggleTheme"
         @open-mobile-search="showMobileSearch = true"
         @share="handleShare"
+        @start-tour="startTour"
         @select-topic="handleSelectTopicInTree"
       />
     </div>
@@ -55,6 +56,19 @@
 
     <!-- Toast Notifications and Confirm Dialog -->
     <ToastAndConfirm ref="toastRef" />
+
+    <!-- Tour Overlay -->
+    <TourOverlay
+      :visible="tourActive"
+      :current-step="currentTourStep"
+      :current-step-index="tourStepIndex"
+      :total-steps="tourSteps.length"
+      :target-rect="tourTargetRect"
+      :t="t"
+      @close="tour.stop()"
+      @next="tour.next()"
+      @prev="tour.prev()"
+    />
   </div>
 </template>
 
@@ -73,6 +87,9 @@ import MobileSearchDrawer from '@/components/layout/MobileSearchDrawer.vue';
 import LeftSidebar from '@/components/layout/LeftSidebar.vue';
 import ContextMenus from '@/components/layout/ContextMenus.vue';
 import ToastAndConfirm from '@/components/layout/ToastAndConfirm.vue';
+import TourOverlay from '@/components/TourOverlay.vue';
+import { useTour } from '@/composables/useTour';
+import { tourDefinitions, defaultTourSteps, type TourStep } from '@/tour/definitions';
 
 const router = useRouter();
 const route = useRoute();
@@ -81,6 +98,48 @@ const connectionStore = useClusterConnectionStore();
 const themeStore = useThemeStore();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
+
+// Tour state
+const tour = useTour();
+const tourSteps = ref<TourStep[]>([]);
+const tourActive = computed(() => tour.isActive.value);
+const tourStepIndex = computed(() => tour.currentStepIndex.value);
+const currentTourStep = computed(() => {
+  const idx = tour.currentStepIndex.value;
+  if (idx >= 0 && idx < tourSteps.value.length) {
+    return tourSteps.value[idx];
+  }
+  return null;
+});
+const tourTargetRect = computed(() => tour.targetRect.value);
+
+function startTour() {
+  let steps = tourDefinitions[route.path] || defaultTourSteps;
+  // 根据侧边栏模式替换对应的侧边栏步骤
+  if (sidebarMode.value === 'tree') {
+    // 树形模式：移除列表模式的 sidebarSteps，加入 treeSidebarSteps
+    const { treeSidebarSteps } = tourDefinitions as any;
+    if (treeSidebarSteps) {
+      const sidebarStepNames = new Set([
+        'sidebar-view-switcher', 'sidebar-clusters-btn', 'sidebar-favorites-btn',
+        'sidebar-schema-btn', 'sidebar-history-btn', 'sidebar-cluster-selector',
+        'sidebar-refresh', 'sidebar-search', 'sidebar-topic-list',
+        'sidebar-health-dot', 'sidebar-topic-name', 'sidebar-cluster-badge',
+      ]);
+      steps = steps.filter((s: { selector: string }) => {
+        const match = s.selector.match(/data-tour="([^"]+)"/);
+        const tourName = match?.[1];
+        return !tourName || !sidebarStepNames.has(tourName);
+      });
+      // 在 global 步骤之后插入 tree 步骤
+      const globalCount = 5; // search, share, lang, theme, settings
+      const treeSteps = treeSidebarSteps;
+      steps = [...steps.slice(0, globalCount), ...treeSteps, ...steps.slice(globalCount)];
+    }
+  }
+  tourSteps.value = steps;
+  tour.start(steps);
+}
 
 // Refs
 const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();

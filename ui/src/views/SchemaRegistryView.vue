@@ -4,7 +4,7 @@
     <div class="mb-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
-          <h1 class="text-xl font-bold flex items-center gap-2">
+          <h1 class="text-xl font-bold flex items-center gap-2" data-tour="sr-title">
             <button class="btn btn-ghost btn-xs p-1 mr-2" @click="router.back()" :title="t.common?.back || 'Back'">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
@@ -17,7 +17,7 @@
           </h1>
           <p class="text-base-content/60 mt-1 text-sm">{{ t.schemaRegistry.description }}</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="sr-actions">
           <button class="btn btn-sm btn-outline" @click="openClusterSelector">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
@@ -29,7 +29,7 @@
     </div>
 
     <!-- No cluster selected -->
-    <div v-if="!selectedCluster" class="flex flex-col items-center justify-center py-8 text-center">
+    <div v-if="!selectedCluster" class="flex flex-col items-center justify-center py-8 text-center" data-tour="sr-no-cluster">
       <div class="text-base-content/30 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
@@ -40,7 +40,7 @@
     </div>
 
     <!-- Config not set -->
-    <div v-else-if="!config && !loading" class="card glass gradient-border shadow-xl p-6">
+    <div v-else-if="!config && !loading" class="card glass gradient-border shadow-xl p-6" data-tour="sr-not-configured">
       <div class="flex flex-col items-center justify-center py-8 text-center">
         <div class="text-base-content/30 mb-4">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16">
@@ -67,7 +67,7 @@
     <!-- Main content - Config set -->
     <div v-else class="space-y-4">
       <!-- Config Card -->
-      <div class="card glass gradient-border shadow-xl">
+      <div class="card glass gradient-border shadow-xl" data-tour="sr-config-card">
         <div class="card-body p-4">
           <div class="flex items-center justify-between mb-2">
             <h2 class="font-bold text-base flex items-center gap-2">
@@ -76,7 +76,7 @@
               </svg>
               {{ t.schemaRegistry.configTitle }}
             </h2>
-            <div class="flex gap-1">
+            <div class="flex gap-1" data-tour="sr-config-actions">
               <button class="btn btn-ghost btn-xs" @click="openConfigDialog" :title="t.common.edit">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -110,7 +110,7 @@
       </div>
 
       <!-- Subjects List -->
-      <div class="card glass gradient-border shadow-xl">
+      <div class="card glass gradient-border shadow-xl" data-tour="sr-subjects-card">
         <div class="card-body p-4">
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-bold text-base flex items-center gap-2">
@@ -135,7 +135,7 @@
             {{ t.schemaRegistry.noSubjects }}
           </div>
           <div v-else class="overflow-x-auto">
-            <table class="table w-full">
+            <table class="table w-full" data-tour="sr-subjects-table">
               <thead>
                 <tr>
                   <th>{{ t.common.name }}</th>
@@ -176,7 +176,7 @@
 
     <!-- Cluster Selector Dialog -->
     <Teleport to="body">
-      <dialog ref="clusterDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="clusterDialogRef?.close()">
+      <dialog ref="clusterDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="clusterDialogRef?.close()" data-tour="sr-cluster-dialog">
         <div class="modal-box w-11/12 max-w-lg mx-2 md:mx-auto p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-base">{{ t.schemaRegistry.selectCluster }}</h3>
@@ -208,7 +208,7 @@
 
     <!-- Config Dialog -->
     <Teleport to="body">
-      <dialog ref="configDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeConfigDialog">
+      <dialog ref="configDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeConfigDialog" data-tour="sr-config-dialog">
         <div class="modal-box w-full max-w-md mx-2 md:mx-auto p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-base">{{ t.schemaRegistry.configTitle }}</h3>
@@ -269,7 +269,7 @@
 
     <!-- Schema Detail Dialog -->
     <Teleport to="body">
-      <dialog ref="schemaDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeSchemaDialog">
+      <dialog ref="schemaDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeSchemaDialog" data-tour="sr-schema-dialog">
         <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-base flex items-center gap-2">
@@ -302,7 +302,7 @@
 
     <!-- Register Schema Dialog -->
     <Teleport to="body">
-      <dialog ref="registerSchemaDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeRegisterSchemaDialog">
+      <dialog ref="registerSchemaDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="closeRegisterSchemaDialog" data-tour="sr-register-dialog">
         <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-base">{{ t.schemaRegistry.registerSchema }}</h3>

@@ -9,6 +9,7 @@
           class="select select-bordered select-xs h-7 text-xs"
           @change="switchView"
           :disabled="showHistory"
+          data-tour="sidebar-view-switcher"
         >
           <option value="topics">Topics</option>
           <option value="consumer-groups">Consumer Groups</option>
@@ -20,6 +21,7 @@
           class="btn btn-ghost btn-xs"
           @click="goToClusters"
           :title="t.navigator.clusters"
+          data-tour="sidebar-clusters-btn"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
@@ -30,6 +32,7 @@
           class="btn btn-ghost btn-xs"
           @click="goToFavorites"
           :title="t.navigator.favorites"
+          data-tour="sidebar-favorites-btn"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
@@ -40,6 +43,7 @@
           class="btn btn-ghost btn-xs"
           @click="goToSchemaRegistry"
           :title="t.navigator.schemaRegistry"
+          data-tour="sidebar-schema-btn"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -51,6 +55,7 @@
           :class="{ 'btn-active': showHistory }"
           @click="toggleHistory"
           :title="t.history?.title || 'Browsing History'"
+          data-tour="sidebar-history-btn"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
@@ -71,6 +76,7 @@
               class="btn btn-ghost btn-xs gap-1"
               @click="toggleClusterSelector"
               :title="getClusterSelectorSummary()"
+              data-tour="sidebar-cluster-selector"
             >
               <span class="truncate max-w-[120px]">{{ getClusterSelectorSummary() }}</span>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3" :class="{ 'rotate-180': showClusterSelector }">
@@ -328,6 +334,7 @@
             :disabled="currentView === 'topics' ? refreshing : refreshingGroups"
             @click="currentView === 'topics' ? refreshTopics() : refreshConsumerGroups()"
             :title="currentView === 'topics' ? '刷新 Topics' : '刷新 Consumer Groups'"
+            data-tour="sidebar-refresh"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" :class="{ 'animate-spin': currentView === 'topics' ? refreshing : refreshingGroups }">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -346,6 +353,7 @@
           class="input input-bordered input-sm w-full pr-8"
           :placeholder="currentView === 'topics' ? '搜索 Topic...' : '搜索 Consumer Group...'"
           @input="onSearchInput"
+          data-tour="sidebar-search"
         />
         <svg
           v-if="!searchQuery"
@@ -418,10 +426,11 @@
               'bg-error': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === false,
               'bg-warning': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === undefined
             }"
+            data-tour="sidebar-health-dot"
           ></div>
 
           <!-- Topic Name with Tooltip -->
-          <div class="flex-1 min-w-0 relative">
+          <div class="flex-1 min-w-0 relative" data-tour="sidebar-topic-name">
             <span
               class="text-xs truncate block"
               :title="`${(item as TopicItem).topic.name} (${(item as TopicItem).topic.cluster})`"
@@ -431,7 +440,7 @@
           </div>
 
           <!-- Cluster Badge -->
-          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1">
+          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1" data-tour="sidebar-cluster-badge">
             {{ (item as TopicItem).topic.cluster }}
           </span>
         </div>
@@ -447,6 +456,7 @@
         :buffer-size="5"
         v-slot="{ item }"
         @scroll="handleScroll"
+        data-tour="sidebar-consumer-group-list"
       >
         <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
@@ -460,10 +470,11 @@
               'bg-error': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === false,
               'bg-warning': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === undefined
             }"
+            data-tour="sidebar-health-dot"
           ></div>
 
           <!-- Consumer Group Name with Tooltip -->
-          <div class="flex-1 min-w-0 relative">
+          <div class="flex-1 min-w-0 relative" data-tour="sidebar-topic-name">
             <span
               class="text-xs truncate block"
               :title="`${(item as ConsumerGroupItem).group.name} (${(item as ConsumerGroupItem).group.cluster})`"
@@ -473,7 +484,7 @@
           </div>
 
           <!-- Cluster Badge -->
-          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1">
+          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1" data-tour="sidebar-cluster-badge">
             {{ (item as ConsumerGroupItem).group.cluster }}
           </span>
         </div>

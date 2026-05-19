@@ -5,7 +5,7 @@
     <div class="mb-4 relative">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 class="text-xl font-bold text-gradient flex items-center gap-2">
+          <h1 class="text-xl font-bold text-gradient flex items-center gap-2" data-tour="clusters-title">
             <button class="btn btn-ghost btn-xs p-1 mr-2" @click="router.back()" :title="t.common?.back || 'Back'">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
@@ -19,10 +19,10 @@
           <p class="text-base-content/60 mt-1 text-sm">{{ t.clusters.description }}</p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
-          <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal">
+          <button class="btn btn-ghost btn-sm" @click="openManageGroupsModal" data-tour="clusters-manage-groups">
             {{ t.clusters.addGroup }}
           </button>
-          <button class="btn btn-primary btn-sm" @click="openCreateModal">
+          <button class="btn btn-primary btn-sm" @click="openCreateModal" data-tour="clusters-add">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
@@ -31,7 +31,7 @@
         </div>
       </div>
       <!-- Group Selector -->
-      <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2 relative">
+      <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2 relative" data-tour="clusters-group">
         <span class="text-sm font-medium text-base-content/60 mr-2 flex-shrink-0">{{ t.clusters.group }}:</span>
         <button
           class="btn btn-xs btn-ghost px-1 flex-shrink-0 hover:bg-base-200"
@@ -83,7 +83,7 @@
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="flex flex-col items-center justify-center py-8 text-center">
+    <div v-else-if="error" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-error">
       <div class="text-base-content/40 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -108,7 +108,7 @@
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="clusters.length === 0" class="flex flex-col items-center justify-center py-8 text-center">
+    <div v-else-if="clusters.length === 0" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-empty">
       <div class="text-base-content/40 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
@@ -130,6 +130,7 @@
         v-for="cluster in filteredClusters"
         :key="cluster.id"
         class="card glass gradient-border"
+        data-tour="clusters-card"
       >
         <div class="flex items-center justify-between p-3 border-b border-base-content/10">
           <div class="flex items-center gap-2 min-w-0 flex-1">
@@ -148,6 +149,7 @@
               class="btn btn-xs btn-ghost h-auto p-1 min-h-0"
               @click="editCluster(cluster)"
               :title="t.clusters.editCluster"
+              data-tour="clusters-edit-btn"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -157,6 +159,7 @@
               class="btn btn-xs btn-ghost h-auto p-1 min-h-0 text-error hover:bg-error/10"
               @click="confirmDelete(cluster)"
               :title="t.common.delete"
+              data-tour="clusters-delete-btn"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
@@ -169,6 +172,7 @@
                 'badge-error': getConnectionStatus(cluster.name)?.status === 'error',
                 'badge-ghost': getConnectionStatus(cluster.name)?.status === 'disconnected',
               }"
+              data-tour="clusters-status"
             >
               <div
                 class="w-1.5 h-1.5 rounded-full"
@@ -205,9 +209,20 @@
 
         <div class="card-actions justify-start p-2 bg-base-200 gap-1">
           <button
+            class="btn btn-xs btn-primary flex items-center gap-1.5"
+            @click="openCreateTopicDialog(cluster.name)"
+            data-tour="clusters-add-topic-btn"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            {{ t.clusters.createTopic }}
+          </button>
+          <button
             class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="testConnection(cluster.id)"
             :disabled="testing.has(cluster.id)"
+            data-tour="clusters-test-btn"
           >
             <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
@@ -219,6 +234,7 @@
             class="btn btn-xs btn-outline flex items-center gap-1.5"
             @click="reconnectCluster(cluster.name)"
             :disabled="reconnecting.has(cluster.name)"
+            data-tour="clusters-reconnect-btn"
           >
             <span v-if="reconnecting.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
@@ -231,6 +247,7 @@
             @click="viewClusterTopics(cluster.name)"
             :disabled="refreshingTopics.has(cluster.name)"
             :title="t.clusters.viewTopics"
+            data-tour="clusters-topics-btn"
           >
             <span v-if="refreshingTopics.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
@@ -243,6 +260,7 @@
             @click="refreshClusterTopics(cluster.name)"
             :disabled="refreshingTopics.has(cluster.name)"
             :title="t.clusters.refreshTopics || '刷新 Topic'"
+            data-tour="clusters-refresh-topics-btn"
           >
             <span v-if="refreshingTopics.has(cluster.name)" class="loading loading-spinner loading-xs"></span>
             <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
@@ -265,7 +283,7 @@
 
     <!-- Create/Edit Modal using Teleport and DaisyUI modal -->
     <Teleport to="body">
-      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" @click.self="closeModal">
+      <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" @click.self="closeModal" data-tour="clusters-modal">
         <div class="modal-box w-full max-w-2xl mx-2 md:mx-auto p-5">
           <!-- Header -->
           <div class="flex items-center justify-between mb-4">
@@ -304,6 +322,7 @@
                   placeholder="my-cluster"
                   class="input input-bordered input-sm w-full"
                   required
+                  data-tour="clusters-modal-name"
                 />
               </div>
               <div>
@@ -322,6 +341,7 @@
                   class="input input-bordered input-sm w-full"
                   required
                   @blur="formData.brokers = formData.brokers.replace(/;/g, ',')"
+                  data-tour="clusters-modal-brokers"
                 />
                 <label class="label py-1">
                   <span class="label-text-alt text-base-content/60">{{ t.clusters.brokersHelp }}</span>
@@ -387,6 +407,7 @@
                   class="btn btn-ghost btn-sm flex items-center gap-2"
                   :disabled="!formData.brokers || testingConnection"
                   @click="testConnectionConfig"
+                  data-tour="clusters-modal-test"
                 >
                   <span v-if="testingConnection" class="loading loading-spinner loading-xs"></span>
                   <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -401,7 +422,7 @@
             </div>
             <div class="modal-action flex-wrap gap-2 pt-3">
               <button type="button" class="btn btn-ghost btn-sm" @click="closeModal">{{ t.common.cancel }}</button>
-              <button type="submit" class="btn btn-primary btn-sm flex items-center gap-2" :disabled="submitting">
+              <button type="submit" class="btn btn-primary btn-sm flex items-center gap-2" :disabled="submitting" data-tour="clusters-modal-submit">
                 <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
                 {{ editingCluster ? t.common.edit : t.common.create }}
               </button>
@@ -542,6 +563,13 @@
           <button>close</button>
         </form>
       </dialog>
+
+      <!-- Create Topic Dialog -->
+      <CreateTopicDialog
+        ref="createTopicDialogRef"
+        :cluster-name="createTopicClusterName"
+        @created="handleTopicCreated"
+      />
     </Teleport>
   </div>
 </template>
@@ -555,6 +583,7 @@ import { useClusterConnectionStore } from '@/stores/clusterConnection';
 import { useLanguageStore } from '@/stores/language';
 import { useToast } from '@/composables/useToast';
 import type { Cluster } from '@/types/api';
+import CreateTopicDialog from '@/components/CreateTopicDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -607,6 +636,20 @@ const refreshingTopics = ref(new Set<string>());
 const submitting = ref(false);
 const testingConnection = ref(false);
 const connectionTestResult = ref<{ success: boolean; error?: string } | null>(null);
+
+// Create Topic Dialog
+const createTopicDialogRef = ref<InstanceType<typeof CreateTopicDialog> | null>(null);
+const createTopicClusterName = ref('');
+
+function openCreateTopicDialog(clusterName: string) {
+  createTopicClusterName.value = clusterName;
+  createTopicDialogRef.value?.open();
+}
+
+function handleTopicCreated() {
+  // Topic 创建后刷新对应集群的 topics
+  refreshClusterTopics(createTopicClusterName.value);
+}
 
 const formData = reactive({
   name: '',

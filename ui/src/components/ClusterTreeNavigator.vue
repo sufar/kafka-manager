@@ -17,27 +17,27 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
             </svg>
           </button>
-          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="collapseAll" title="Collapse all" data-tour="tree-collapse-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
             </svg>
           </button>
-          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToClusters" title="Clusters">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToClusters" title="Clusters" data-tour="tree-clusters-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
             </svg>
           </button>
-          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToFavorites" title="Topic Favorites">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToFavorites" title="Topic Favorites" data-tour="tree-favorites-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
             </svg>
           </button>
-          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToSchemaRegistry" title="Schema Registry">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="goToSchemaRegistry" title="Schema Registry" data-tour="tree-schema-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
             </svg>
           </button>
-          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="toggleHistory" :title="t.history?.title || 'Browsing History'">
+          <button v-if="!showHistory" class="btn btn-ghost btn-xs" @click="toggleHistory" :title="t.history?.title || 'Browsing History'" data-tour="tree-history-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0Z" />
             </svg>
@@ -45,7 +45,7 @@
         </div>
       </div>
       <!-- Group Selector -->
-      <div v-if="groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-1 relative">
+      <div v-if="groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-1 relative" data-tour="tree-group-selector">
         <span class="text-xs font-bold text-base-content/60 uppercase tracking-wider mr-2 flex-shrink-0">{{ t.clusters.group }}:</span>
         <button
           class="btn btn-xs btn-ghost px-0.5 flex-shrink-0 hover:bg-base-200"
@@ -125,11 +125,12 @@
                   'bg-warning shadow-[0_0_4px_rgba(245,158,11,0.4)]': getClusterHealth(cluster.name)?.healthy === undefined && !refreshingTopics.has(cluster.name) && !refreshingConsumerGroups.has(cluster.name),
                   'bg-warning animate-pulse': refreshingTopics.has(cluster.name) || refreshingConsumerGroups.has(cluster.name)
                 }"
+                data-tour="tree-cluster-health-dot"
               ></div>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
               </svg>
-              <span class="text-sm font-semibold truncate">{{ cluster.name }}</span>
+              <span class="text-sm font-semibold truncate" data-tour="tree-cluster-name">{{ cluster.name }}</span>
             </div>
           </div>
         </div>
@@ -142,6 +143,7 @@
               class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-secondary/5 relative"
               :class="{ 'bg-secondary/10': expandedTopicsFolders.has(cluster.name) }"
               @click.stop="handleTopicsFolderClickAndExpand(cluster.name)"
+              data-tour="tree-topics-folder"
             >
               <div class="flex items-center gap-1 flex-1 min-w-0">
                 <button class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0" @click.stop="handleTopicsFolderToggle(cluster.name)" tabindex="-1">
@@ -166,7 +168,8 @@
                 :class="{ 'opacity-100': refreshingTopics.has(cluster.name) }"
                 @click.stop="refreshClusterTopics(cluster.name)"
                 :disabled="refreshingTopics.has(cluster.name)"
-                title="Refresh Topics"
+                :title="t.clusters?.refreshTopics || 'Refresh Topics'"
+                data-tour="tree-topics-refresh"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -192,7 +195,8 @@
                     type="text"
                     :placeholder="`Search ${getTotalTopics(cluster.name)}...`"
                     class="input input-bordered input-xs join-item w-full"
-                    @click.stop
+                    @click.stop"
+                    data-tour="tree-topic-search"
                   />
                   <button
                     v-if="topicSearchQuery[cluster.name]"
@@ -230,7 +234,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary flex-shrink-0">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                     </svg>
-                    <span class="text-xs truncate flex-1 min-w-0" :title="(item as Topic).name">{{ (item as Topic).name }}</span>
+                    <span class="text-xs truncate flex-1 min-w-0" :title="(item as Topic).name" data-tour="tree-topic-name">{{ (item as Topic).name }}</span>
                   </div>
                 </div>
               </RecycleScroller>
@@ -242,6 +246,7 @@
                 class="flex items-center p-1.5 rounded-lg cursor-pointer hover:bg-secondary/5 relative"
                 :class="{ 'bg-secondary/10': expandedConsumerGroupsFolders.has(cluster.name) }"
                 @click.stop="handleConsumerGroupsFolderClickAndExpand(cluster.name)"
+                data-tour="tree-consumer-groups-folder"
               >
                 <div class="flex items-center gap-1 flex-1 min-w-0">
                   <button class="btn btn-ghost btn-xs p-0 w-4 h-4 min-h-0" @click.stop="handleConsumerGroupsFolderToggle(cluster.name)" tabindex="-1">
@@ -267,6 +272,7 @@
                   @click.stop="refreshClusterConsumerGroups(cluster.name)"
                   :disabled="refreshingConsumerGroups.has(cluster.name)"
                   title="Refresh Consumer Groups"
+                  data-tour="tree-consumer-groups-refresh"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -292,7 +298,8 @@
                       type="text"
                       :placeholder="`Search ${getTotalConsumerGroups(cluster.name)}...`"
                       class="input input-bordered input-xs join-item w-full"
-                      @click.stop
+                      @click.stop"
+                      data-tour="tree-consumer-group-search"
                     />
                     <button
                       v-if="consumerGroupSearchQuery[cluster.name]"
@@ -328,7 +335,7 @@
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-secondary flex-shrink-0">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
                       </svg>
-                      <span class="text-xs truncate flex-1 min-w-0" :title="group.name">{{ group.name }}</span>
+                      <span class="text-xs truncate flex-1 min-w-0" :title="group.name" data-tour="tree-consumer-group-name">{{ group.name }}</span>
                     </div>
                   </div>
                 </div>

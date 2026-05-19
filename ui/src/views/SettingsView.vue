@@ -5,7 +5,7 @@
     <div class="mb-4 relative flex-shrink-0">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-xl font-bold text-gradient flex items-center gap-2">
+          <h1 class="text-xl font-bold text-gradient flex items-center gap-2" data-tour="settings-title">
             <button class="btn btn-ghost btn-xs p-1 mr-2" @click="router.back()" :title="t.common.back || 'Back'">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
@@ -23,11 +23,11 @@
     </div>
 
     <!-- Content Area (scrollable) -->
-    <div class="flex-1 overflow-auto min-h-0">
+    <div class="flex-1 overflow-auto min-h-0" data-tour="settings-sections">
       <!-- Settings Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
       <!-- Language Setting -->
-      <div class="card glass gradient-border">
+      <div class="card glass gradient-border" data-tour="settings-language">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
@@ -47,7 +47,7 @@
       </div>
 
       <!-- Theme Setting -->
-      <div class="card glass gradient-border">
+      <div class="card glass gradient-border" data-tour="settings-theme">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
@@ -70,7 +70,7 @@
       </div>
 
       <!-- Sidebar Mode Setting -->
-      <div class="card glass gradient-border">
+      <div class="card glass gradient-border" data-tour="settings-sidebar-mode">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
@@ -128,7 +128,7 @@
       </div>
 
       <!-- Version Info -->
-      <div class="card glass gradient-border hover:glow-primary transition-all duration-300">
+      <div class="card glass gradient-border hover:glow-primary transition-all duration-300" data-tour="settings-version">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
@@ -149,6 +149,7 @@
                 class="badge badge-primary font-mono cursor-pointer select-none"
                 @click="handleVersionClick"
                 title="点击查看版本历史"
+                data-tour="settings-version-badge"
               >
                 {{ appVersion }}
               </span>
@@ -178,7 +179,7 @@
               <button v-if="showLogButton" class="btn btn-sm" @click="viewLogs">
                 {{ t.settings.viewLogs }}
               </button>
-              <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)">
+              <button v-if="isTauriEnv" class="btn btn-sm" @click="checkForUpdates(true)" data-tour="settings-check-update">
                 {{ checking ? t.update.checking : t.update.checkNow }}
               </button>
             </div>
@@ -204,7 +205,7 @@
       </div>
 
       <!-- Import/Export -->
-      <div class="card glass gradient-border">
+      <div class="card glass gradient-border" data-tour="settings-import-export">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
@@ -384,7 +385,7 @@
       </dialog>
 
       <!-- JSON Highlight Setting -->
-      <div class="md:col-span-2">
+      <div class="md:col-span-2" data-tour="settings-json-highlight">
         <JsonHighlightSelector />
       </div>
     </div>

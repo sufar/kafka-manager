@@ -7,7 +7,7 @@
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
           <div class="flex-1 min-w-0">
             <h2 class="text-xl font-bold flex items-center gap-2 flex-wrap">
-              <button class="btn btn-ghost btn-xs p-1 mr-1" @click="router.back()" :title="t.common?.back || 'Back'">
+              <button class="btn btn-ghost btn-xs p-1 mr-1" @click="router.back()" :title="t.common?.back || 'Back'" data-tour="cg-back">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                 </svg>
@@ -15,11 +15,11 @@
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
               </svg>
-              <span class="truncate">{{ t.consumerGroups.groupNamePrefix }}{{ currentGroup }}</span>
+              <span class="truncate" data-tour="cg-group-name">{{ t.consumerGroups.groupNamePrefix }}{{ currentGroup }}</span>
             </h2>
             <p class="text-base-content/60 text-sm mt-1 flex flex-wrap items-center gap-2">
               {{ t.clusters.clusters }}: <span class="font-medium">{{ clusterParam }}</span>
-              <span v-if="groupState" class="badge" :class="getStateBadgeClass(groupState)">{{ groupState }}</span>
+              <span v-if="groupState" class="badge" :class="getStateBadgeClass(groupState)" data-tour="cg-state">{{ groupState }}</span>
             </p>
           </div>
           <div class="flex gap-2 flex-shrink-0 w-full sm:w-auto min-w-0">
@@ -27,6 +27,7 @@
               class="btn btn-sm btn-outline flex-1 sm:flex-none flex-shrink-0"
               @click="refreshOffsets"
               :disabled="refreshing"
+              data-tour="cg-refresh"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" :class="{ 'animate-spin': refreshing }">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -34,7 +35,7 @@
               {{ t.common.refresh }}
             </button>
             <div class="relative" ref="actionsMenuRef">
-              <button @click="toggleActionsMenu" class="btn btn-sm btn-primary whitespace-nowrap flex-shrink-0">
+              <button @click="toggleActionsMenu" class="btn btn-sm btn-primary whitespace-nowrap flex-shrink-0" data-tour="cg-actions">
                 {{ t.common.actions }}
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 ml-1 transition-transform" :class="{ 'rotate-180': actionsMenuOpen }">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -68,7 +69,7 @@
       </div>
 
       <!-- Offsets Table -->
-      <div v-else-if="offsets.length > 0" class="card glass gradient-border shadow-xl flex-1 flex flex-col overflow-hidden">
+      <div v-else-if="offsets.length > 0" class="card glass gradient-border shadow-xl flex-1 flex flex-col overflow-hidden" data-tour="cg-list">
         <div class="p-3 bg-base-100 border-b border-base-200 flex items-center justify-between flex-shrink-0">
           <h3 class="font-semibold">{{ t.consumerGroups.offsets }}</h3>
           <span class="text-xs text-base-content/60">{{ offsets.length }} {{ t.consumerGroups.partitions }}</span>
@@ -86,32 +87,32 @@
             </colgroup>
             <thead>
               <tr>
-                <th class="p-2">{{ t.consumerGroups.topic }}</th>
-                <th class="p-2">{{ t.consumerGroups.partition }}
+                <th class="p-2" data-tour="cg-table-topic">{{ t.consumerGroups.topic }}</th>
+                <th class="p-2" data-tour="cg-table-partition">{{ t.consumerGroups.partition }}
                   <div class="resizer"
                     @mousedown="startColumnResize('partition', $event)"></div>
                 </th>
-                <th class="p-2 text-right">{{ t.consumerGroups.startOffset }}
+                <th class="p-2 text-right" data-tour="cg-table-startOffset">{{ t.consumerGroups.startOffset }}
                   <div class="resizer"
                     @mousedown="startColumnResize('startOffset', $event)"></div>
                 </th>
-                <th class="p-2 text-right">{{ t.consumerGroups.endOffset }}
+                <th class="p-2 text-right" data-tour="cg-table-endOffset">{{ t.consumerGroups.endOffset }}
                   <div class="resizer"
                     @mousedown="startColumnResize('endOffset', $event)"></div>
                 </th>
-                <th class="p-2 text-right">{{ t.consumerGroups.committedOffset }}
+                <th class="p-2 text-right" data-tour="cg-table-committedOffset">{{ t.consumerGroups.committedOffset }}
                   <div class="resizer"
                     @mousedown="startColumnResize('committedOffset', $event)"></div>
                 </th>
-                <th class="p-2 text-right">{{ t.consumerGroups.lag }}
+                <th class="p-2 text-right" data-tour="cg-table-lag">{{ t.consumerGroups.lag }}
                   <div class="resizer"
                     @mousedown="startColumnResize('lag', $event)"></div>
                 </th>
-                <th class="p-2 text-right">{{ t.consumerGroups.lastCommit }}</th>
+                <th class="p-2 text-right" data-tour="cg-table-lastCommit">{{ t.consumerGroups.lastCommit }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in offsets" :key="`${item.topic}-${item.partition}`" class="hover">
+              <tr v-for="item in offsets" :key="`${item.topic}-${item.partition}`" class="hover" data-tour="cg-table-row">
                 <td class="font-medium truncate" :title="item.topic">{{ item.topic }}</td>
                 <td><span class="badge badge-ghost badge-sm">{{ item.partition }}</span></td>
                 <td class="text-right font-mono text-sm">{{ item.start_offset }}</td>
@@ -129,7 +130,7 @@
 
       <!-- No data state -->
       <div v-else class="card glass gradient-border shadow-xl">
-        <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div class="flex flex-col items-center justify-center py-12 text-center" data-tour="cg-empty-state">
           <div class="text-base-content/30 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -142,7 +143,7 @@
       </div>
 
       <!-- Reset Offset Dialog -->
-      <dialog ref="resetOffsetDialog" class="modal modal-bottom sm:modal-middle">
+      <dialog ref="resetOffsetDialog" class="modal modal-bottom sm:modal-middle" data-tour="cg-reset-dialog">
         <div class="modal-box">
           <h3 class="font-bold text-lg mb-4">{{ t.consumerGroups.resetOffset }}</h3>
           <div class="form-control w-full">
@@ -196,7 +197,7 @@
     </div>
 
     <!-- No group selected -->
-    <div v-else class="flex flex-col items-center justify-center py-12 text-center">
+    <div v-else class="flex flex-col items-center justify-center py-12 text-center" data-tour="cg-no-group">
       <div class="text-base-content/30 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.75a.75.75 0 0 0 .75-.75c0-.178-.012-.355-.036-.528A9.75 9.75 0 0 0 12 3.75c-1.324 0-2.595.274-3.75.772V18h9.75ZM12 2.25c-2.485 0-4.856.488-7.062 1.38a.75.75 0 0 0-.447.932l.958 3.758a.75.75 0 0 0 .973.536 8.25 8.25 0 0 1 10.572 0 .75.75 0 0 0 .973-.536l.958-3.758a.75.75 0 0 0-.447-.932A18.25 18.25 0 0 0 12 2.25Z" />
