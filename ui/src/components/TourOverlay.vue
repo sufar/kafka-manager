@@ -23,7 +23,7 @@
         <rect
           width="100%"
           height="100%"
-          fill="rgba(0, 0, 0, 0.6)"
+          fill="rgba(0, 0, 0, 0.95)"
           mask="url(#tour-spotlight)"
         />
       </svg>
