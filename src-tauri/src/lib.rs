@@ -1175,11 +1175,7 @@ fn share_current_version(app: tauri::AppHandle) -> Result<String, String> {
 
     // 2. 搜索 Tauri updater 下载目录
     if let Some(data_local) = dirs::data_local_dir() {
-        let tauri_download_dir = if cfg!(target_os = "windows") {
-            data_local.join("Kafka Manager")
-        } else {
-            data_local.join("kafka-manager")
-        };
+        let tauri_download_dir = data_local.join("kafka-manager");
         if tauri_download_dir.exists() {
             if let Some(name) = search_and_copy_installer(&tauri_download_dir, &downloads_dir, version)? {
                 return Ok(name);
