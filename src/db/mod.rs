@@ -66,6 +66,25 @@ impl DbPool {
             .max_connections(20)
             .min_connections(2)
             .acquire_timeout(std::time::Duration::from_secs(10))
+            // 每个新连接建立时设置 PRAGMA，确保所有连接都使用统一的配置
+            .after_connect(|conn, _| {
+                Box::pin(async move {
+                    // 启用 WAL 模式提升并发性能
+                    sqlx::query("PRAGMA journal_mode = WAL")
+                        .execute(&mut *conn)
+                        .await?;
+                    // 限制 SQLite 缓存为 2MB，避免大量查询后缓存页不释放
+                    // -2000 表示 2000 KB，SQLite 会在空闲时自动释放超出限制的缓存
+                    sqlx::query("PRAGMA cache_size = -2000")
+                        .execute(&mut *conn)
+                        .await?;
+                    // 定期将 WAL 检查点写入主数据库文件（每 1000 页）
+                    sqlx::query("PRAGMA wal_autocheckpoint = 1000")
+                        .execute(&mut *conn)
+                        .await?;
+                    Ok(())
+                })
+            })
             .connect(&conn_url)
             .await?;
 

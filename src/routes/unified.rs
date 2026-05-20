@@ -1393,40 +1393,38 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
         }));
     }
 
-    // No search query - use original logic
-    let mut all_topics: Vec<TopicWithCluster> = Vec::with_capacity(clusters_to_fetch.len() * 50);
+    // No search query - use database-level sorting and pagination
+    // 不再将所有 topic 加载到内存中排序，改为在数据库层面完成
+    let cluster_names: Vec<String> = clusters_to_fetch.iter().map(|(_, n)| n.clone()).collect();
 
-    for (_cluster_id, cluster_name) in &clusters_to_fetch {
-        if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
-            for topic in topics {
-                all_topics.push(TopicWithCluster {
-                    name: topic.topic_name,
-                    cluster: cluster_name.clone(),
-                });
-            }
-        }
-    }
+    let total = if cluster_names.is_empty() {
+        0
+    } else {
+        TopicStore::count_by_clusters(state.db.inner(), &cluster_names).await.unwrap_or(0)
+    };
 
-    // Sort by cluster then by name
-    all_topics.sort_by(|a, b| {
-        a.cluster.cmp(&b.cluster).then(a.name.cmp(&b.name))
-    });
-
-    // Apply pagination
-    let total = all_topics.len();
-    let end = (offset + limit).min(total);
-    let paginated_topics = if offset < total {
-        all_topics.into_iter().skip(offset).take(limit).collect()
+    let paginated_topics = if total > 0 && offset < total as usize {
+        TopicStore::list_by_clusters_with_pagination(
+            state.db.inner(),
+            &cluster_names,
+            offset as u32,
+            limit as u32,
+        ).await.unwrap_or_default()
+            .into_iter()
+            .map(|(name, cluster)| TopicWithCluster { name, cluster })
+            .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
+
+    let end = (offset + limit).min(total as usize);
 
     Ok(serde_json::json!({
         "topics": paginated_topics,
         "total": total,
         "offset": offset,
         "limit": limit,
-        "has_more": end < total
+        "has_more": end < total as usize
     }))
 }
 

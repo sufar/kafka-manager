@@ -93,6 +93,57 @@ impl TopicStore {
         Ok(topics)
     }
 
+    /// 获取多个集群的 Topic（数据库级别排序和分页，避免加载全部到内存）
+    pub async fn list_by_clusters_with_pagination(
+        pool: &sqlx::SqlitePool,
+        cluster_ids: &[String],
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<(String, String)>> {
+        if cluster_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders: Vec<String> = (0..cluster_ids.len()).map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT topic_name, cluster_id FROM topic_metadata WHERE cluster_id IN ({}) ORDER BY cluster_id, topic_name LIMIT ? OFFSET ?",
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+        for id in cluster_ids {
+            query = query.bind(id);
+        }
+        query = query.bind(limit as i64).bind(offset as i64);
+
+        let rows = query.fetch_all(pool).await?;
+        Ok(rows)
+    }
+
+    /// 获取多个集群的 Topic 总数
+    pub async fn count_by_clusters(
+        pool: &sqlx::SqlitePool,
+        cluster_ids: &[String],
+    ) -> Result<u64> {
+        if cluster_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let placeholders: Vec<String> = (0..cluster_ids.len()).map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT COUNT(*) FROM topic_metadata WHERE cluster_id IN ({})",
+            placeholders.join(", ")
+        );
+
+        let mut query = sqlx::query_scalar::<_, i64>(&sql);
+        for id in cluster_ids {
+            query = query.bind(id);
+        }
+
+        let count = query.fetch_one(pool).await?;
+        Ok(count as u64)
+    }
+
     /// 获取指定 Topic 元数据
     #[allow(dead_code)]
     pub async fn get_by_name(
