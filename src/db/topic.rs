@@ -373,6 +373,7 @@ impl TopicStore {
     }
 
     /// 批量 upsert topic 名称（仅名称 + 默认值，1 条 SQL）
+    /// SQLite 限制每条查询最多 32766 个参数，6 个参数/行 → 最多 5000 行/批
     pub async fn batch_upsert_names(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -382,90 +383,95 @@ impl TopicStore {
             return Ok(());
         }
 
+        const MAX_BATCH: usize = 5000;
         let now = chrono::Utc::now().to_rfc3339();
         let empty_config = "{}";
 
-        // 构建批量 VALUES: (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?), ...
-        let placeholders: Vec<String> = topic_names
-            .iter()
-            .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
-            .collect();
+        for chunk in topic_names.chunks(MAX_BATCH) {
+            let placeholders: Vec<String> = chunk.iter()
+                .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
+                .collect();
 
-        let sql = format!(
-            r#"
-            INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
-            VALUES {}
-            ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
-                partition_count = excluded.partition_count,
-                replication_factor = excluded.replication_factor,
-                config_json = excluded.config_json,
-                fetched_at = excluded.fetched_at
-            "#,
-            placeholders.join(", ")
-        );
+            let sql = format!(
+                r#"
+                INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
+                VALUES {}
+                ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
+                    partition_count = excluded.partition_count,
+                    replication_factor = excluded.replication_factor,
+                    config_json = excluded.config_json,
+                    fetched_at = excluded.fetched_at
+                "#,
+                placeholders.join(", ")
+            );
 
-        let mut query = sqlx::query(&sql);
-        for name in topic_names {
-            query = query
-                .bind(cluster_id)
-                .bind(name)
-                .bind(1) // partition_count 默认值
-                .bind(1) // replication_factor 默认值
-                .bind(empty_config)
-                .bind(&now);
+            let mut query = sqlx::query(&sql);
+            for name in chunk {
+                query = query
+                    .bind(cluster_id)
+                    .bind(name)
+                    .bind(1)
+                    .bind(1)
+                    .bind(empty_config)
+                    .bind(&now);
+            }
+
+            query.execute(pool).await?;
         }
-
-        query.execute(pool).await?;
         Ok(())
     }
 
     /// 批量 upsert topic 详情（名称 + 分区数，1 条 SQL）
+    /// SQLite 限制每条查询最多 32766 个参数，6 个参数/行 → 最多 5000 行/批
     pub async fn batch_upsert_details(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
-        topic_details: &[(String, i32)], // (topic_name, partition_count)
+        topic_details: &[(String, i32)],
     ) -> Result<()> {
         if topic_details.is_empty() {
             return Ok(());
         }
 
+        const MAX_BATCH: usize = 5000;
         let now = chrono::Utc::now().to_rfc3339();
         let empty_config = "{}";
 
-        let placeholders: Vec<String> = topic_details
-            .iter()
-            .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
-            .collect();
+        for chunk in topic_details.chunks(MAX_BATCH) {
+            let placeholders: Vec<String> = chunk.iter()
+                .map(|_| "(?, ?, ?, ?, ?, ?)".to_string())
+                .collect();
 
-        let sql = format!(
-            r#"
-            INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
-            VALUES {}
-            ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
-                partition_count = excluded.partition_count,
-                replication_factor = excluded.replication_factor,
-                config_json = excluded.config_json,
-                fetched_at = excluded.fetched_at
-            "#,
-            placeholders.join(", ")
-        );
+            let sql = format!(
+                r#"
+                INSERT INTO topic_metadata (cluster_id, topic_name, partition_count, replication_factor, config_json, fetched_at)
+                VALUES {}
+                ON CONFLICT(cluster_id, topic_name) DO UPDATE SET
+                    partition_count = excluded.partition_count,
+                    replication_factor = excluded.replication_factor,
+                    config_json = excluded.config_json,
+                    fetched_at = excluded.fetched_at
+                "#,
+                placeholders.join(", ")
+            );
 
-        let mut query = sqlx::query(&sql);
-        for (name, partition_count) in topic_details {
-            query = query
-                .bind(cluster_id)
-                .bind(name)
-                .bind(partition_count)
-                .bind(1) // replication_factor 默认值
-                .bind(empty_config)
-                .bind(&now);
+            let mut query = sqlx::query(&sql);
+            for (name, partition_count) in chunk {
+                query = query
+                    .bind(cluster_id)
+                    .bind(name)
+                    .bind(partition_count)
+                    .bind(1)
+                    .bind(empty_config)
+                    .bind(&now);
+            }
+
+            query.execute(pool).await?;
         }
-
-        query.execute(pool).await?;
         Ok(())
     }
 
     /// 批量删除 topic（1 条 SQL）
+    /// SQLite 限制每条查询最多 32766 个参数，1 + N 参数 → 最多 32000 行/批
     pub async fn batch_delete(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -475,18 +481,21 @@ impl TopicStore {
             return Ok(());
         }
 
-        let placeholders: String = topic_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-        let sql = format!(
-            "DELETE FROM topic_metadata WHERE cluster_id = ? AND topic_name IN ({})",
-            placeholders
-        );
+        const MAX_BATCH: usize = 30_000;
+        for chunk in topic_names.chunks(MAX_BATCH) {
+            let placeholders: String = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "DELETE FROM topic_metadata WHERE cluster_id = ? AND topic_name IN ({})",
+                placeholders
+            );
 
-        let mut query = sqlx::query(&sql).bind(cluster_id);
-        for name in topic_names {
-            query = query.bind(name);
+            let mut query = sqlx::query(&sql).bind(cluster_id);
+            for name in chunk {
+                query = query.bind(name);
+            }
+
+            query.execute(pool).await?;
         }
-
-        query.execute(pool).await?;
         Ok(())
     }
 

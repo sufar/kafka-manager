@@ -36,6 +36,17 @@ impl KafkaAdmin {
             .collect())
     }
 
+    /// 列出所有 Topic 及其分区数（一次 fetch_metadata 调用，避免逐个查询）
+    pub fn list_topics_with_partitions(&self) -> Result<Vec<(String, usize)>> {
+        let metadata = self.client.inner().fetch_metadata(None, self.timeout)?;
+        Ok(metadata
+            .topics()
+            .iter()
+            .map(|t| (t.name().to_string(), t.partitions().len()))
+            .filter(|(name, _)| !name.starts_with("__"))
+            .collect())
+    }
+
     /// 获取 Topic 详情（只拉取指定 topic 的元数据）
     pub fn get_topic_info(&self, topic_name: &str) -> Result<TopicInfo> {
         let metadata = self.client.inner().fetch_metadata(Some(topic_name), self.timeout)?;

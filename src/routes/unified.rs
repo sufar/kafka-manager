@@ -2097,19 +2097,18 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
         Ok(sync_result) => {
             tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
 
-            // Batch fetch topic details from Kafka and upsert in a single SQL
+            // 一次性获取所有 topic 的分区信息（从同一份 metadata 中提取，避免逐个查询）
             let admin = admin.clone();
             let db = state.db.clone();
             let cluster_id_for_batch = cluster_id.clone();
             let topic_details = tokio::task::spawn_blocking(move || {
-                current_topics
-                    .iter()
-                    .filter_map(|name| {
-                        admin.get_topic_info(name)
-                            .ok()
-                            .map(|info| (name.clone(), info.partitions.len() as i32))
-                    })
-                    .collect::<Vec<_>>()
+                match admin.list_topics_with_partitions() {
+                    Ok(topics) => topics.into_iter().map(|(name, n)| (name, n as i32)).collect::<Vec<_>>(),
+                    Err(e) => {
+                        tracing::error!("Failed to list topics with partitions: {}", e);
+                        Vec::new()
+                    }
+                }
             })
             .await;
 
