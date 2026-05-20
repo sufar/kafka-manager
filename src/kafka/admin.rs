@@ -47,6 +47,16 @@ impl KafkaAdmin {
             .collect())
     }
 
+    /// 用一次轻量 metadata 请求替换 rd_kafka_t 内部的超大缓存。
+    ///
+    /// `fetch_metadata(None)` 会把所有 topic 元数据缓存在 C 层的 `rd_kafka_t`
+    /// 中，对 70k topic 可能占用数十 MB。此方法用 `fetch_metadata(Some(topic))`
+    /// 只拉取一个 topic，让内部缓存从全量变为单 topic 级别，从而释放旧缓存。
+    pub fn clear_metadata_cache(&self) {
+        // 先尝试用 __consumer_offsets（必定存在且结构紧凑）
+        let _ = self.client.inner().fetch_metadata(Some("__consumer_offsets"), self.timeout);
+    }
+
     /// 获取 Topic 详情（只拉取指定 topic 的元数据）
     pub fn get_topic_info(&self, topic_name: &str) -> Result<TopicInfo> {
         let metadata = self.client.inner().fetch_metadata(Some(topic_name), self.timeout)?;

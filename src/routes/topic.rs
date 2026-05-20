@@ -508,11 +508,12 @@ async fn refresh_topics(
         .get_admin(&cluster_id)
         .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
 
-    // 在阻塞线程中执行 Kafka 操作
-    let admin = admin.clone();
+    // 在阻塞线程中执行 Kafka 操作（保留 admin 引用用于后续缓存清理）
+    let admin_for_cache = admin.clone();
+    let admin_for_task = admin.clone();
     let (current_topics, topic_details) = tokio::task::spawn_blocking(move || -> std::result::Result<(Vec<String>, Vec<(String, i32)>), AppError> {
         // 一次性获取所有 topic 及其分区数，避免逐条查询
-        let topics_with_partitions = admin.list_topics_with_partitions()?;
+        let topics_with_partitions = admin_for_task.list_topics_with_partitions()?;
         let current_topics: Vec<String> = topics_with_partitions.iter()
             .map(|(name, _)| name.clone())
             .collect();
@@ -534,6 +535,9 @@ async fn refresh_topics(
 
     // 获取更新后的总数
     let total = TopicStore::count_by_cluster(state.db.inner(), &cluster_id).await?;
+
+    // 替换 rdkafka 内部缓存
+    admin_for_cache.clear_metadata_cache();
 
     Ok(Json(RefreshTopicsResponse {
         success: true,

@@ -1999,6 +1999,9 @@ pub async fn refresh_single_topic(state: AppState, cluster_id: String, topic_nam
             }
         }
     }
+
+    // 替换 rdkafka 内部缓存
+    admin.clear_metadata_cache();
 }
 
 /// 刷新单个集群的 Topic 列表
@@ -2076,13 +2079,13 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     // 同时重连连接池
     let _ = state.pools.reconnect(&cluster_id, &config, &state.config.pool).await;
 
-    // Get current topics from Kafka (blocking operation)
-    let current_topics = {
+    // 一次性获取所有 topic 名称 + 分区信息（只调用一次 fetch_metadata）
+    let topics_with_partitions = {
         let admin = admin.clone();
-        match tokio::task::spawn_blocking(move || admin.list_topics()).await {
+        match tokio::task::spawn_blocking(move || admin.list_topics_with_partitions()).await {
             Ok(Ok(topics)) => topics,
             Ok(Err(e)) => {
-                tracing::error!("Failed to list topics: {}", e);
+                tracing::error!("Failed to list topics with partitions: {}", e);
                 return;
             }
             Err(e) => {
@@ -2092,36 +2095,32 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
         }
     };
 
+    let current_topics: Vec<String> = topics_with_partitions.iter()
+        .map(|(name, _)| name.clone())
+        .collect();
+
     // Sync to database (batch SQL optimization)
     match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
         Ok(sync_result) => {
             tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
 
-            // 一次性获取所有 topic 的分区信息（从同一份 metadata 中提取，避免逐个查询）
-            let admin = admin.clone();
-            let db = state.db.clone();
-            let cluster_id_for_batch = cluster_id.clone();
-            let topic_details = tokio::task::spawn_blocking(move || {
-                match admin.list_topics_with_partitions() {
-                    Ok(topics) => topics.into_iter().map(|(name, n)| (name, n as i32)).collect::<Vec<_>>(),
-                    Err(e) => {
-                        tracing::error!("Failed to list topics with partitions: {}", e);
-                        Vec::new()
-                    }
-                }
-            })
-            .await;
+            // 直接使用第一次 fetch 的结果，不需要二次 Kafka 查询
+            let details: Vec<(String, i32)> = topics_with_partitions
+                .into_iter()
+                .map(|(name, n)| (name, n as i32))
+                .collect();
 
-            if let Ok(details) = topic_details {
-                if let Err(e) = TopicStore::batch_upsert_details(db.inner(), &cluster_id_for_batch, &details).await {
-                    tracing::error!("Failed to batch upsert topic details: {}", e);
-                }
+            if let Err(e) = TopicStore::batch_upsert_details(state.db.inner(), &cluster_id, &details).await {
+                tracing::error!("Failed to batch upsert topic details: {}", e);
             }
         }
         Err(e) => {
             tracing::error!("Failed to sync topics: {}", e);
         }
     }
+
+    // 替换 rdkafka 内部缓存：用单 topic metadata 替换 70k topic 的全量缓存
+    admin.clear_metadata_cache();
 }
 
 /// 刷新所有集群的 Topic 列表（在单个任务中，各集群并行刷新）
@@ -5338,6 +5337,11 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
     }
 
     tracing::info!("Refreshed {} consumer groups for cluster {}", group_count, cluster_id);
+
+    // 替换 rdkafka 内部缓存：用单 topic metadata 替换全量缓存
+    if let Some(admin) = state.get_clients().get_admin(&cluster_id) {
+        admin.clear_metadata_cache();
+    }
 }
 
 /// 刷新所有集群的 Consumer Group 列表（在单个任务中，各集群并行刷新）
