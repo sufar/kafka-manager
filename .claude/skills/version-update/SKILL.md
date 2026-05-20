@@ -1,3 +1,9 @@
+---
+name: version-update
+description: "版本号更新指南"
+type: skill
+---
+
 # 版本号更新指南
 
 ## 概述

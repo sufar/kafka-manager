@@ -1,3 +1,9 @@
+---
+name: sse-streaming
+description: "sse 流式消息功能"
+type: skill
+---
+
 # SSE 流式消息功能
 
 ## 概述

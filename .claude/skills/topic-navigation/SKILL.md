@@ -1,3 +1,9 @@
+---
+name: topic-navigation
+description: "topic 导航实现指南"
+type: skill
+---
+
 # Topic 导航实现指南
 
 ## 功能概述

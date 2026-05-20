@@ -1,3 +1,9 @@
+---
+name: unified-modal-style
+description: "统一弹窗风格"
+type: skill
+---
+
 # 统一弹窗风格
 
 ## 概述

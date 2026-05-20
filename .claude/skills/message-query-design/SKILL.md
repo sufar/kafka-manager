@@ -1,3 +1,9 @@
+---
+name: message-query-design
+description: "kafka manager 消息查询设计文档"
+type: skill
+---
+
 # Kafka Manager 消息查询设计文档
 
 **版本**: 2026-03-21

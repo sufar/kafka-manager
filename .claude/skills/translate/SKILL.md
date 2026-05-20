@@ -1,3 +1,9 @@
+---
+name: translate
+description: "中英文翻译技能"
+type: skill
+---
+
 # 中英文翻译技能
 
 用于项目国际化（i18n）的中英文翻译技能，帮助快速添加或更新翻译条目。

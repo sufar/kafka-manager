@@ -1,3 +1,9 @@
+---
+name: consumer-group-last-commit-time
+description: "consumer group last commit time"
+type: skill
+---
+
 # Consumer Group Last Commit Time
 
 ## 问题

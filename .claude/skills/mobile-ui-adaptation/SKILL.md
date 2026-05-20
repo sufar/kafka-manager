@@ -1,3 +1,9 @@
+---
+name: mobile-ui-adaptation
+description: "kafka manager ui 移动端适配方案"
+type: skill
+---
+
 # Kafka Manager UI 移动端适配方案
 
 ## 现状分析
