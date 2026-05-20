@@ -1160,27 +1160,49 @@ fn open_url(url: String) -> Result<(), String> {
 
 /// 分享当前版本：缓存中存在安装包则复制到下载目录，否则返回空字符串
 #[tauri::command]
-fn share_current_version() -> Result<String, String> {
+fn share_current_version(app: tauri::AppHandle) -> Result<String, String> {
     let version = env!("CARGO_PKG_VERSION");
-    let cache_dir = dirs::cache_dir()
-        .map(|d| d.join("kafka-manager"))
-        .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
     let downloads_dir = dirs::download_dir()
         .unwrap_or_else(|| dirs::home_dir().map(|d| d.join("Downloads")).unwrap_or_default());
 
-    if cache_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&cache_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                // 匹配当前版本号的安装包（忽略 .etag 等辅助文件）
-                if name.contains(version) && !name.ends_with(".etag") {
-                    let src = entry.path();
-                    let dst = downloads_dir.join(&name);
-                    if let Err(e) = std::fs::copy(&src, &dst) {
-                        log(&format!("Share: failed to copy to downloads: {}", e));
-                    } else {
-                        log(&format!("Share: copied {} to downloads", name));
-                        return Ok(name);
+    // 1. 搜索手动下载缓存目录
+    let cache_dir = dirs::cache_dir()
+        .map(|d| d.join("kafka-manager"))
+        .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
+    if let Some(name) = search_and_copy_installer(&cache_dir, &downloads_dir, version)? {
+        return Ok(name);
+    }
+
+    // 2. 搜索 Tauri updater 下载目录
+    if let Some(data_local) = dirs::data_local_dir() {
+        let tauri_download_dir = if cfg!(target_os = "windows") {
+            data_local.join("Kafka Manager")
+        } else {
+            data_local.join("kafka-manager")
+        };
+        if tauri_download_dir.exists() {
+            if let Some(name) = search_and_copy_installer(&tauri_download_dir, &downloads_dir, version)? {
+                return Ok(name);
+            }
+        }
+    }
+
+    // 3. 检查 app state 中是否有下载路径
+    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        if let Ok(guard) = state.lock() {
+            if let Some(ref path) = guard.download_path {
+                if path.exists() {
+                    let name = path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if !name.is_empty() {
+                        let dst = downloads_dir.join(&name);
+                        if let Err(e) = std::fs::copy(path, &dst) {
+                            log(&format!("Share: failed to copy from state: {}", e));
+                        } else {
+                            log(&format!("Share: copied {} from state to downloads", name));
+                            return Ok(name);
+                        }
                     }
                 }
             }
@@ -1189,6 +1211,87 @@ fn share_current_version() -> Result<String, String> {
 
     // 没有找到缓存，返回 GitHub releases URL
     Ok(String::new())
+}
+
+fn search_and_copy_installer(
+    search_dir: &std::path::Path,
+    downloads_dir: &std::path::Path,
+    current_version: &str,
+) -> Result<Option<String>, String> {
+    if !search_dir.exists() {
+        return Ok(None);
+    }
+    // 安装平台后缀白名单
+    let is_installer = |name: &str| {
+        name.ends_with(".AppImage")
+            || name.ends_with(".deb")
+            || name.ends_with(".rpm")
+            || name.ends_with(".dmg")
+            || name.ends_with(".exe")
+            || name.ends_with(".msi")
+    };
+
+    // 从文件名中提取版本号（如 Kafka_Manager_1.1.46_x64-setup.exe → 1.1.46）
+    fn extract_version(name: &str) -> Option<semver::Version> {
+        // 匹配连续的 数字.数字.数字 模式
+        for i in 0..name.len() {
+            if !name.as_bytes()[i].is_ascii_digit() { continue; }
+            let rest = &name[i..];
+            let mut digits = String::new();
+            let mut dot_count = 0;
+            for ch in rest.chars() {
+                if ch.is_ascii_digit() {
+                    digits.push(ch);
+                } else if ch == '.' && dot_count < 2 {
+                    digits.push(ch);
+                    dot_count += 1;
+                } else {
+                    break;
+                }
+            }
+            if dot_count == 2 {
+                if let Ok(ver) = semver::Version::parse(&digits) {
+                    return Some(ver);
+                }
+            }
+        }
+        None
+    }
+
+    let current = semver::Version::parse(current_version).ok();
+
+    // 收集所有 >= 当前版本的安装包，按版本排序
+    let mut candidates: Vec<(semver::Version, String)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(search_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !is_installer(&name) {
+                continue;
+            }
+            if let Some(ver) = extract_version(&name) {
+                // 只保留 >= 当前版本的文件
+                if current.as_ref().map_or(true, |cv| ver >= *cv) {
+                    candidates.push((ver, name));
+                }
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    // 取版本最高的
+    candidates.sort_by(|a, b| a.0.cmp(&b.0));
+    let (_, name) = candidates.last().unwrap();
+    let src = search_dir.join(&name);
+    let dst = downloads_dir.join(&name);
+    if let Err(e) = std::fs::copy(&src, &dst) {
+        log(&format!("Share: failed to copy {} to downloads: {}", name, e));
+        return Ok(None);
+    }
+    log(&format!("Share: copied {} to downloads (latest >= {})", name, current_version));
+    Ok(Some(name.clone()))
 }
 
 /// 获取开机自启动状态（仅 Windows 生效）
