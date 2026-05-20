@@ -229,6 +229,7 @@ impl ConsumerGroupStore {
     }
 
     /// 批量 upsert group 名称（1 条 SQL）
+    /// SQLite 限制每条查询最多 32766 个参数，4 个参数/行 → 最多 8000 行/批
     pub async fn batch_upsert_groups(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -238,32 +239,36 @@ impl ConsumerGroupStore {
             return Ok(());
         }
 
+        const MAX_BATCH: usize = 8000;
         let now = chrono::Utc::now().to_rfc3339();
         let empty_topics = "[]";
 
-        let placeholders: String = group_names.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
+        for chunk in group_names.chunks(MAX_BATCH) {
+            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
 
-        let sql = format!(
-            r#"
-            INSERT INTO consumer_group_metadata (cluster_id, group_name, topics, fetched_at)
-            VALUES {}
-            ON CONFLICT(cluster_id, group_name) DO UPDATE SET
-                topics = excluded.topics,
-                fetched_at = excluded.fetched_at
-            "#,
-            placeholders
-        );
+            let sql = format!(
+                r#"
+                INSERT INTO consumer_group_metadata (cluster_id, group_name, topics, fetched_at)
+                VALUES {}
+                ON CONFLICT(cluster_id, group_name) DO UPDATE SET
+                    topics = excluded.topics,
+                    fetched_at = excluded.fetched_at
+                "#,
+                placeholders
+            );
 
-        let mut query = sqlx::query(&sql);
-        for name in group_names {
-            query = query.bind(cluster_id).bind(name).bind(empty_topics).bind(&now);
+            let mut query = sqlx::query(&sql);
+            for name in chunk {
+                query = query.bind(cluster_id).bind(name).bind(empty_topics).bind(&now);
+            }
+
+            query.execute(pool).await?;
         }
-
-        query.execute(pool).await?;
         Ok(())
     }
 
     /// 批量删除 group（1 条 SQL）
+    /// SQLite 限制每条查询最多 32766 个参数，1 + N 参数 → 最多 32000 行/批
     pub async fn batch_delete_groups(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -273,18 +278,21 @@ impl ConsumerGroupStore {
             return Ok(());
         }
 
-        let placeholders: String = group_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-        let sql = format!(
-            "DELETE FROM consumer_group_metadata WHERE cluster_id = ? AND group_name IN ({})",
-            placeholders
-        );
+        const MAX_BATCH: usize = 30_000;
+        for chunk in group_names.chunks(MAX_BATCH) {
+            let placeholders: String = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "DELETE FROM consumer_group_metadata WHERE cluster_id = ? AND group_name IN ({})",
+                placeholders
+            );
 
-        let mut query = sqlx::query(&sql).bind(cluster_id);
-        for name in group_names {
-            query = query.bind(name);
+            let mut query = sqlx::query(&sql).bind(cluster_id);
+            for name in chunk {
+                query = query.bind(name);
+            }
+
+            query.execute(pool).await?;
         }
-
-        query.execute(pool).await?;
         Ok(())
     }
 
@@ -424,7 +432,38 @@ impl ConsumerGroupStore {
         Ok(())
     }
 
+    /// 批量插入 group-topic 关系（4 个参数/行，最多 8000 行/批）
+    pub async fn batch_upsert_topic_relations(
+        pool: &sqlx::SqlitePool,
+        cluster_id: &str,
+        relations: &[(String, String)], // (group_name, topic_name)
+    ) -> Result<()> {
+        if relations.is_empty() {
+            return Ok(());
+        }
+
+        const MAX_BATCH: usize = 8000;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        for chunk in relations.chunks(MAX_BATCH) {
+            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "INSERT OR IGNORE INTO consumer_group_topics (cluster_id, group_name, topic_name, fetched_at) VALUES {}",
+                placeholders
+            );
+
+            let mut query = sqlx::query(&sql);
+            for (group, topic) in chunk {
+                query = query.bind(cluster_id).bind(group).bind(topic).bind(&now);
+            }
+
+            query.execute(pool).await?;
+        }
+        Ok(())
+    }
+
     /// 清理指定 groups 的旧 topic 关系
+    /// SQLite 限制每条查询最多 32766 个参数，1 + N 参数 → 最多 32000 行/批
     pub async fn cleanup_topic_relations(
         pool: &sqlx::SqlitePool,
         cluster_id: &str,
@@ -433,17 +472,19 @@ impl ConsumerGroupStore {
         if group_names.is_empty() {
             return Ok(());
         }
-        let placeholders: Vec<&str> = group_names.iter().map(|_| "?").collect();
-        let sql = format!(
-            "DELETE FROM consumer_group_topics WHERE cluster_id = ? AND group_name IN ({})",
-            placeholders.join(", ")
-        );
-        let mut query = sqlx::query(&sql).bind(cluster_id);
-        for name in group_names {
-            query = query.bind(name);
+        const MAX_BATCH: usize = 30_000;
+        for chunk in group_names.chunks(MAX_BATCH) {
+            let placeholders: Vec<&str> = chunk.iter().map(|_| "?").collect();
+            let sql = format!(
+                "DELETE FROM consumer_group_topics WHERE cluster_id = ? AND group_name IN ({})",
+                placeholders.join(", ")
+            );
+            let mut query = sqlx::query(&sql).bind(cluster_id);
+            for name in chunk {
+                query = query.bind(name);
+            }
+            query.execute(pool).await?;
         }
-        query.execute(pool).await?;
-
         Ok(())
     }
 

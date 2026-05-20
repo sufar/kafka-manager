@@ -5318,16 +5318,22 @@ async fn refresh_single_consumer_group(state: AppState, cluster_id: String) {
         tracing::warn!("Failed to cleanup topic relations for {}: {}", cluster_id, e);
     }
 
-    // 步骤 4: 将 group-topic 关系写入多对多表（使用步骤 1 已提取的 topics）
+    // 步骤 4: 批量将 group-topic 关系写入多对多表（使用步骤 1 已提取的 topics）
     let group_count = groups_with_topics.len();
-    for (group, topics) in groups_with_topics {
-        for topic in &topics {
-            let _ = ConsumerGroupStore::upsert_topic_relation(
-                state.db.inner(),
-                &cluster_id,
-                &group,
-                topic,
-            ).await;
+    let relations: Vec<(String, String)> = groups_with_topics
+        .into_iter()
+        .flat_map(|(group, topics)| {
+            topics.into_iter().map(move |topic| (group.clone(), topic))
+        })
+        .collect();
+
+    if !relations.is_empty() {
+        if let Err(e) = ConsumerGroupStore::batch_upsert_topic_relations(
+            state.db.inner(),
+            &cluster_id,
+            &relations,
+        ).await {
+            tracing::warn!("Failed to batch upsert topic relations for {}: {}", cluster_id, e);
         }
     }
 

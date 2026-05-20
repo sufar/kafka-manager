@@ -511,26 +511,25 @@ async fn refresh_topics(
     // 在阻塞线程中执行 Kafka 操作
     let admin = admin.clone();
     let (current_topics, topic_details) = tokio::task::spawn_blocking(move || -> std::result::Result<(Vec<String>, Vec<(String, i32)>), AppError> {
-        // 从 Kafka 集群获取当前 Topic 列表
-        let current_topics = admin.list_topics()?;
-
-        // 获取每个 topic 的分区信息
-        let mut topic_details = Vec::with_capacity(current_topics.len());
-        for topic in &current_topics {
-            if let Ok(info) = admin.get_topic_info(topic) {
-                topic_details.push((topic.clone(), info.partitions.len() as i32));
-            }
-        }
+        // 一次性获取所有 topic 及其分区数，避免逐条查询
+        let topics_with_partitions = admin.list_topics_with_partitions()?;
+        let current_topics: Vec<String> = topics_with_partitions.iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        let topic_details: Vec<(String, i32)> = topics_with_partitions
+            .into_iter()
+            .map(|(name, n)| (name, n as i32))
+            .collect();
 
         Ok((current_topics, topic_details))
     })
     .await
     .map_err(|e| AppError::Internal(format!("Task failed: {}", e)))??;
 
-    // 同步到数据库（批量 SQL 优化）
+    // 同步到数据库（批量 SQL 优化，内部已分块）
     let sync_result = TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await?;
 
-    // 批量更新所有 topic 的详细信息（分区数等）
+    // 批量更新所有 topic 的详细信息（分区数等，内部已分块）
     let _ = TopicStore::batch_upsert_details(state.db.inner(), &cluster_id, &topic_details).await;
 
     // 获取更新后的总数
