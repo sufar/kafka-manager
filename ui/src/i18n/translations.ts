@@ -8,6 +8,14 @@ export interface Translation {
     messages: string;
     settings: string;
   };
+  tree: {
+    backToClusters: string;
+    collapseAll: string;
+    clusters: string;
+    topicFavorites: string;
+    schemaRegistry: string;
+    refreshConsumerGroups: string;
+  };
   common: {
     loading: string;
     error: string;
@@ -747,6 +755,14 @@ export const translations: Record<Language, Translation> = {
       messages: '消息',
       settings: '设置',
     },
+    tree: {
+      backToClusters: '返回集群列表',
+      collapseAll: '全部收起',
+      clusters: '集群',
+      topicFavorites: '主题收藏',
+      schemaRegistry: 'Schema Registry',
+      refreshConsumerGroups: '刷新 Consumer Groups',
+    },
     common: {
       loading: '加载中...',
       error: '错误',
@@ -1483,6 +1499,14 @@ export const translations: Record<Language, Translation> = {
       topics: 'Topics',
       messages: 'Messages',
       settings: 'Settings',
+    },
+    tree: {
+      backToClusters: 'Back to Clusters',
+      collapseAll: 'Collapse All',
+      clusters: 'Clusters',
+      topicFavorites: 'Topic Favorites',
+      schemaRegistry: 'Schema Registry',
+      refreshConsumerGroups: 'Refresh Consumer Groups',
     },
     common: {
       loading: 'Loading...',
