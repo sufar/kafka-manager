@@ -70,24 +70,28 @@ export function useTour() {
 
     const el = document.querySelector(step.selector) as HTMLElement | null;
     if (el) {
-      // 逐级向上查找滚动容器，确保目标元素在可见区域内
+      // 逐级向上查找内部滚动容器，确保目标元素在容器可见区域内
+      // 注意：只操作容器自身的 scrollTop，不调用 scrollIntoView 以免影响文档滚动
       let parent: HTMLElement | null = el.parentElement;
       while (parent) {
         const style = window.getComputedStyle(parent);
-        const isScrollable = style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll';
-        if (isScrollable && parent.scrollHeight > parent.clientHeight) {
+        const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll')
+          && parent.scrollHeight > parent.clientHeight;
+        if (isScrollable) {
           const elRect = el.getBoundingClientRect();
           const parentRect = parent.getBoundingClientRect();
-          // 如果元素在容器可视区域外，滚动到元素
-          if (elRect.bottom > parentRect.bottom || elRect.top < parentRect.top) {
-            el.scrollIntoView({ block: 'center' });
+          // 元素在可视区域上方：向上滚动
+          if (elRect.top < parentRect.top) {
+            parent.scrollTop += (elRect.top - parentRect.top) - 8;
+          }
+          // 元素在可视区域下方：向下滚动
+          else if (elRect.bottom > parentRect.bottom) {
+            parent.scrollTop += (elRect.bottom - parentRect.bottom) + 8;
           }
           break;
         }
         parent = parent.parentElement;
       }
-      // 也确保在文档视口中可见
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
       targetEl.value = el;
       targetRect.value = el.getBoundingClientRect();
