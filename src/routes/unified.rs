@@ -2009,6 +2009,8 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     use crate::db::cluster::ClusterStore;
     use crate::db::topic::TopicStore;
 
+    tracing::info!("[refresh] Starting refresh for cluster '{}'", cluster_id);
+
     // 标记为正在刷新
     {
         let mut refresh_state = state.refresh_state.lock().expect("refresh state poisoned");
@@ -2042,6 +2044,7 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
 
     // 重连集群（创建新的客户端连接）
     let clients = state.get_clients();
+    tracing::info!("[refresh] Reconnecting/adding cluster '{}' (admin exists: {})", cluster_id, clients.get_admin(&cluster_id).is_some());
     let clients = if clients.get_admin(&cluster_id).is_some() {
         // 已存在则重连
         match clients.reconnect_cluster(&cluster_id, &config) {
@@ -2080,16 +2083,20 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     let _ = state.pools.reconnect(&cluster_id, &config, &state.config.pool).await;
 
     // 一次性获取所有 topic 名称 + 分区信息（只调用一次 fetch_metadata）
+    tracing::info!("[refresh] Fetching metadata for cluster '{}' (timeout: {}ms)", cluster_id, config.operation_timeout_ms);
     let topics_with_partitions = {
         let admin = admin.clone();
         match tokio::task::spawn_blocking(move || admin.list_topics_with_partitions()).await {
-            Ok(Ok(topics)) => topics,
+            Ok(Ok(topics)) => {
+                tracing::info!("[refresh] Fetched {} topics from Kafka for cluster '{}'", topics.len(), cluster_id);
+                topics
+            }
             Ok(Err(e)) => {
-                tracing::error!("Failed to list topics with partitions: {}", e);
+                tracing::error!("[refresh] Failed to fetch metadata from Kafka for cluster '{}': {} (timeout: {}ms)", cluster_id, e, config.operation_timeout_ms);
                 return;
             }
             Err(e) => {
-                tracing::error!("Task join error: {}", e);
+                tracing::error!("[refresh] Task join error for cluster '{}': {}", cluster_id, e);
                 return;
             }
         }
@@ -2102,7 +2109,7 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
     // Sync to database (batch SQL optimization)
     match TopicStore::sync_topics(state.db.inner(), &cluster_id, &current_topics).await {
         Ok(sync_result) => {
-            tracing::info!("Refreshed topics for cluster '{}': +{} -{}", cluster_id, sync_result.added.len(), sync_result.removed.len());
+            tracing::info!("[refresh] Synced topics for cluster '{}': +{} -{} (total in DB: {})", cluster_id, sync_result.added.len(), sync_result.removed.len(), current_topics.len());
 
             // 直接使用第一次 fetch 的结果，不需要二次 Kafka 查询
             let details: Vec<(String, i32)> = topics_with_partitions
@@ -2121,6 +2128,7 @@ pub async fn refresh_single_cluster(state: AppState, cluster_id: String) {
 
     // 替换 rdkafka 内部缓存：用单 topic metadata 替换 70k topic 的全量缓存
     admin.clear_metadata_cache();
+    tracing::info!("[refresh] Completed refresh for cluster '{}'", cluster_id);
 }
 
 /// 刷新所有集群的 Topic 列表（在单个任务中，各集群并行刷新）

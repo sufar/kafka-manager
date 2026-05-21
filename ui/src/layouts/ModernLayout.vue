@@ -115,8 +115,11 @@ const tourTargetRect = computed(() => tour.targetRect.value);
 
 function startTour() {
   let steps = tourDefinitions[route.path] || defaultTourSteps;
-  // 根据侧边栏模式替换对应的侧边栏步骤
-  if (sidebarMode.value === 'tree') {
+  // 从实际渲染的 DOM 检测模式，避免 sidebarMode.value 状态时序问题
+  const hasTreeElements = !!document.querySelector('[data-tour="tree-collapse-btn"]');
+  const hasFlatElements = !!document.querySelector('[data-tour="sidebar-view-switcher"]');
+  const isTreeMode = hasTreeElements || (!hasFlatElements && sidebarMode.value === 'tree');
+  if (isTreeMode) {
     // 树形模式：移除列表模式的 sidebarSteps，加入 treeSidebarSteps
     const { treeSidebarSteps } = tourDefinitions as any;
     if (treeSidebarSteps) {
@@ -124,6 +127,7 @@ function startTour() {
         'sidebar-view-switcher', 'sidebar-clusters-btn', 'sidebar-favorites-btn',
         'sidebar-schema-btn', 'sidebar-history-btn', 'sidebar-cluster-selector',
         'sidebar-refresh', 'sidebar-search', 'sidebar-topic-list',
+        'sidebar-consumer-group-list',
         'sidebar-health-dot', 'sidebar-topic-name', 'sidebar-cluster-badge',
       ]);
       steps = steps.filter((s: { selector: string }) => {
