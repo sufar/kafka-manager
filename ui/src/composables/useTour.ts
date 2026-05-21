@@ -70,6 +70,25 @@ export function useTour() {
 
     const el = document.querySelector(step.selector) as HTMLElement | null;
     if (el) {
+      // 逐级向上查找滚动容器，确保目标元素在可见区域内
+      let parent: HTMLElement | null = el.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const isScrollable = style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll';
+        if (isScrollable && parent.scrollHeight > parent.clientHeight) {
+          const elRect = el.getBoundingClientRect();
+          const parentRect = parent.getBoundingClientRect();
+          // 如果元素在容器可视区域外，滚动到元素
+          if (elRect.bottom > parentRect.bottom || elRect.top < parentRect.top) {
+            el.scrollIntoView({ block: 'center' });
+          }
+          break;
+        }
+        parent = parent.parentElement;
+      }
+      // 也确保在文档视口中可见
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
       targetEl.value = el;
       targetRect.value = el.getBoundingClientRect();
       observer = new ResizeObserver(() => {
