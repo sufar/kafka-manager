@@ -1,7 +1,8 @@
 <template>
-  <div class="p-3 overflow-auto min-h-full">
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="p-3 relative flex-1 flex flex-col min-h-0">
     <!-- Page Header -->
-    <div class="mb-4">
+    <div class="mb-4 relative">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
           <h1 class="text-xl font-bold flex items-center gap-2">
@@ -58,9 +59,9 @@
     </div>
 
     <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl">
+    <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl flex flex-col flex-1 min-h-0">
       <!-- Search Bar -->
-      <div class="p-3 bg-base-100">
+      <div class="p-3 bg-base-100 flex-shrink-0">
         <div class="relative w-full">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -104,9 +105,9 @@
     </div>
 
     <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl" data-tour="topics-list">
+    <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl flex flex-col flex-1 min-h-0" data-tour="topics-list">
       <!-- Search Bar - 固定在容器外部 -->
-      <div class="p-3 bg-base-100">
+      <div class="p-3 bg-base-100 flex-shrink-0">
         <div class="relative w-full">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -121,7 +122,7 @@
       </div>
       <!-- 表格容器 - 只有表格内容滚动 -->
       <!-- 表头 - 固定 -->
-      <div class="bg-base-100 border-b border-base-200">
+      <div class="bg-base-100 border-b border-base-200 flex-shrink-0">
         <table class="table w-full">
           <thead>
             <tr>
@@ -139,7 +140,7 @@
         </table>
       </div>
       <!-- 表格内容 - 滚动 -->
-      <div ref="singleClusterContainerRef" class="overflow-y-auto" @scroll="handleSingleClusterScroll" style="max-height: calc(100vh - 350px);">
+      <div ref="singleClusterContainerRef" class="overflow-y-auto flex-1 min-h-0" @scroll="handleSingleClusterScroll">
         <table class="table w-full">
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
@@ -189,6 +190,8 @@
     <div v-else-if="loading" class="flex justify-center py-8">
       <span class="loading loading-spinner loading-md text-primary"></span>
       <p class="ml-4 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
+    </div>
+
     </div>
 
     <!-- Create Topic Dialog -->

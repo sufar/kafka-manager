@@ -217,7 +217,7 @@
               </div>
 
               <RecycleScroller
-                :ref="el => setTopicScroller(cluster.name, el as InstanceType<typeof RecycleScroller> | null)"
+                :ref="el => setTopicScroller(cluster.name, el)"
                 :key="cluster.name"
                 class="topic-scroller flex-1"
                 :items="getClusterTopics(cluster.name)"
@@ -794,9 +794,9 @@ async function refreshClusterTopics(clusterName: string) {
 
 // 虚拟滚动相关
 const topicSearchQuery = shallowReactive<Record<string, string>>({});
-const topicScrollers = shallowReactive<Record<string, InstanceType<typeof RecycleScroller> | null>>({});
+const topicScrollers = shallowReactive<Record<string, any>>({});
 
-function setTopicScroller(clusterName: string, el: InstanceType<typeof RecycleScroller> | null) {
+function setTopicScroller(clusterName: string, el: any) {
   topicScrollers[clusterName] = el;
 }
 
