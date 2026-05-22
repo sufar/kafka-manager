@@ -850,6 +850,7 @@ async function installUpdate() {
       : (status.downloaded > 0 ? 1 : 0);
 
     updateStore.setDownloading(true, initialProgress, status.downloaded, status.total, 0);
+    updateStore.setAutoDownload(false); // 手动触发，非自动下载
 
     // 开始轮询下载状态
     startPollingDownloadStatus();
@@ -886,12 +887,16 @@ async function installUpdate() {
 let pollTimeout: ReturnType<typeof setTimeout> | null = null;
 let downloadEverStarted = false;
 let lastDownloadedBytes = 0; // 用于计算速度
+let pollErrorCount = 0; // 轮询连续错误计数，防止无限重试卡死
+
+const MAX_POLL_ERRORS = 10; // 轮询最多允许连续失败 10 次（约 5 秒）
 
 function startPollingDownloadStatus() {
   // 清除之前的轮询
   stopPolling();
   downloadEverStarted = false;
   lastDownloadedBytes = 0;
+  pollErrorCount = 0;
 
   // 延迟 200ms 后开始首次轮询
   pollTimeout = setTimeout(() => {
@@ -938,8 +943,21 @@ async function pollDownloadStatus() {
     }
   } catch (e) {
     console.error('Failed to get download status:', e);
-    // 出错后 500ms 继续轮询
-    pollTimeout = setTimeout(pollDownloadStatus, 500);
+    pollErrorCount++;
+    if (pollErrorCount >= MAX_POLL_ERRORS) {
+      // 连续错误太多，清除下载状态，避免 UI 卡死
+      console.warn('Too many poll errors, clearing download state');
+      stopPolling();
+      updateStore.clearState();
+      downloadInterrupted.value = true;
+      // 自动下载静默失败，不弹提示；手动下载才显示错误
+      if (!updateStore.isAutoDownload) {
+        toast.showError(t.value.update.downloadFailed || '下载失败，请检查网络连接后重试');
+      }
+    } else {
+      // 500ms 后继续下一次轮询
+      pollTimeout = setTimeout(pollDownloadStatus, 500);
+    }
   }
 }
 
@@ -967,6 +985,7 @@ async function cancelDownload() {
 async function resumeDownload() {
   downloadInterrupted.value = false;
   downloadEverStarted = false;
+  pollErrorCount = 0;
   // 先清除后端下载状态，避免"下载已在进行中"的错误
   try {
     await tauriInvoke('clear_download_status');
@@ -1095,8 +1114,9 @@ onMounted(() => {
   // 检查后端是否有下载状态或缓存文件
   tauriInvoke<any>('get_download_status').then((status) => {
     if (status.is_downloading) {
-      // 后端确实在下载，开始轮询
+      // 后端确实在下载，开始轮询（标记为自动下载，不弹提示）
       updateStore.setDownloading(true, 0);
+      updateStore.setAutoDownload(true);
       startPollingDownloadStatus();
     } else if (status.downloaded > 0 && status.total > 0 && downloading.value) {
       // 只有当前端已经在显示下载状态时，才检查是否中断
@@ -1148,8 +1168,11 @@ function setupDownloadErrorListener() {
         console.error('Download error from backend:', event.payload);
         stopPolling();
         updateStore.clearState();
-        const msg = typeof event.payload === 'string' ? event.payload : '未知错误';
-        toast.showError(`下载失败: ${msg}`);
+        // 自动下载静默失败，不弹提示；手动下载才显示错误
+        if (!updateStore.isAutoDownload) {
+          const msg = typeof event.payload === 'string' ? event.payload : '未知错误';
+          toast.showError(`下载失败: ${msg}`);
+        }
       }).then((unlisten: () => void) => {
         unlistenDownloadError = unlisten;
       }).catch((e: Error) => {

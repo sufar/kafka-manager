@@ -62,6 +62,7 @@ export function useTour() {
     }
 
     const step = currentSteps.value[currentStepIndex.value];
+    console.log('[tour] updateTarget called, step index:', currentStepIndex.value, 'selector:', step?.selector);
     if (!step) {
       targetRect.value = null;
       targetEl.value = null;
@@ -70,16 +71,21 @@ export function useTour() {
 
     const el = document.querySelector(step.selector) as HTMLElement | null;
     if (el) {
+      console.log('[tour] Found element for selector:', step.selector, el.tagName, el.className);
       // 逐级向上查找内部滚动容器，确保目标元素在容器可见区域内
       // 注意：只操作容器自身的 scrollTop，不调用 scrollIntoView 以免影响文档滚动
       let parent: HTMLElement | null = el.parentElement;
+      let foundScrollable = false;
       while (parent) {
         const style = window.getComputedStyle(parent);
         const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll')
           && parent.scrollHeight > parent.clientHeight;
         if (isScrollable) {
+          foundScrollable = true;
+          console.log('[tour] Found scrollable parent:', parent.tagName, parent.className, 'scrollHeight:', parent.scrollHeight, 'clientHeight:', parent.clientHeight);
           const elRect = el.getBoundingClientRect();
           const parentRect = parent.getBoundingClientRect();
+          console.log('[tour] Element rect:', { top: elRect.top, bottom: elRect.bottom }, 'Parent rect:', { top: parentRect.top, bottom: parentRect.bottom });
           // 元素在可视区域上方：向上滚动
           if (elRect.top < parentRect.top) {
             parent.scrollTop += (elRect.top - parentRect.top) - 8;
@@ -92,9 +98,13 @@ export function useTour() {
         }
         parent = parent.parentElement;
       }
+      if (!foundScrollable) {
+        console.log('[tour] No scrollable parent found for:', step.selector);
+      }
 
       targetEl.value = el;
       targetRect.value = el.getBoundingClientRect();
+      console.log('[tour] targetRect set to:', targetRect.value);
       observer = new ResizeObserver(() => {
         const rect = el.getBoundingClientRect();
         targetRect.value = rect;
@@ -114,6 +124,7 @@ export function useTour() {
       (updateTarget as any).cleanup = cleanup;
     } else {
       // 目标元素不存在，跳过到下一步
+      console.warn('[tour] Element not found for selector:', step.selector, ', skipping to next or stopping');
       if (currentStepIndex.value < currentSteps.value.length - 1) {
         currentStepIndex.value++;
         updateTarget();

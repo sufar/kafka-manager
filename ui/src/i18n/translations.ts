@@ -442,6 +442,7 @@ export interface Translation {
     minimizeModal: string;
     rateLimitExceeded: string;
     downloadInProgress: string;
+    downloadFailed: string;
   };
   toast: {
     error: string;
@@ -1189,6 +1190,7 @@ export const translations: Record<Language, Translation> = {
       minimizeModal: '隐藏窗口',
       rateLimitExceeded: '访问受限，请稍后重试',
       downloadInProgress: '下载正在进行中，请稍候...',
+      downloadFailed: '下载失败，请检查网络连接后重试',
     },
     toast: {
       error: '错误',
@@ -1934,6 +1936,7 @@ export const translations: Record<Language, Translation> = {
       minimizeModal: 'Hide Window',
       rateLimitExceeded: 'Access denied, please try again later',
       downloadInProgress: 'Download in progress, please wait...',
+      downloadFailed: 'Download failed, please check your network connection and try again',
     },
     toast: {
       error: 'Error',

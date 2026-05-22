@@ -7,6 +7,7 @@ export const useUpdateStore = defineStore('update', () => {
   const downloadDownloaded = ref(0);
   const downloadTotal = ref(0);
   const downloadSpeed = ref(0); // bytes per second
+  const isAutoDownload = ref(false); // 是否为后台自动更新（非用户手动触发）
 
   const setDownloading = (isDownloading: boolean, progress = 0, downloaded = 0, total = 0, speed = 0) => {
     downloading.value = isDownloading;
@@ -14,6 +15,10 @@ export const useUpdateStore = defineStore('update', () => {
     downloadDownloaded.value = downloaded;
     downloadTotal.value = total;
     downloadSpeed.value = speed;
+  };
+
+  const setAutoDownload = (isAuto: boolean) => {
+    isAutoDownload.value = isAuto;
   };
 
   const updateProgress = (progress: number, downloaded = 0, total = 0, speed = 0) => {
@@ -29,6 +34,7 @@ export const useUpdateStore = defineStore('update', () => {
     downloadDownloaded.value = 0;
     downloadTotal.value = 0;
     downloadSpeed.value = 0;
+    isAutoDownload.value = false;
   };
 
   return {
@@ -37,7 +43,9 @@ export const useUpdateStore = defineStore('update', () => {
     downloadDownloaded,
     downloadTotal,
     downloadSpeed,
+    isAutoDownload,
     setDownloading,
+    setAutoDownload,
     updateProgress,
     clearState,
   };
