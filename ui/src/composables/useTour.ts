@@ -77,7 +77,7 @@ export function useTour() {
       // getBoundingClientRect returns zeros. Walk up to find the nearest
       // visible ancestor with non-zero dimensions.
       let target: HTMLElement = el;
-      let check = el;
+      let check: HTMLElement | null = el;
       while (check) {
         const rect = check.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
