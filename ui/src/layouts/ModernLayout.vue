@@ -89,7 +89,7 @@ import ContextMenus from '@/components/layout/ContextMenus.vue';
 import ToastAndConfirm from '@/components/layout/ToastAndConfirm.vue';
 import TourOverlay from '@/components/TourOverlay.vue';
 import { useTour } from '@/composables/useTour';
-import { tourDefinitions, defaultTourSteps, type TourStep } from '@/tour/definitions';
+import { tourDefinitions, defaultTourSteps, treeSidebarSteps, type TourStep } from '@/tour/definitions';
 
 const router = useRouter();
 const route = useRoute();
@@ -115,13 +115,24 @@ const tourTargetRect = computed(() => tour.targetRect.value);
 
 function startTour() {
   let steps = tourDefinitions[route.path] || defaultTourSteps;
+
   // 从实际渲染的 DOM 检测模式，避免 sidebarMode.value 状态时序问题
   const hasTreeElements = !!document.querySelector('[data-tour="tree-collapse-btn"]');
   const hasFlatElements = !!document.querySelector('[data-tour="sidebar-view-switcher"]');
   const isTreeMode = hasTreeElements || (!hasFlatElements && sidebarMode.value === 'tree');
+
   if (isTreeMode) {
+    // 树形模式：先展开第一个集群，确保后续步骤能正确聚焦
+    const clusterHeaders = document.querySelectorAll('.flex.items-center.p-2.rounded-xl');
+    for (const header of clusterHeaders) {
+      const expandBtn = header.querySelector('button.btn-ghost.btn-xs.p-0') as HTMLElement;
+      if (expandBtn && expandBtn.querySelector('svg')) {
+        expandBtn.click();
+        break; // Only expand first cluster
+      }
+    }
+
     // 树形模式：移除列表模式的 sidebarSteps，加入 treeSidebarSteps
-    const { treeSidebarSteps } = tourDefinitions as any;
     if (treeSidebarSteps) {
       const sidebarStepNames = new Set([
         'sidebar-view-switcher', 'sidebar-clusters-btn', 'sidebar-favorites-btn',
@@ -137,8 +148,7 @@ function startTour() {
       });
       // 在 global 步骤之后插入 tree 步骤
       const globalCount = 5; // search, share, lang, theme, settings
-      const treeSteps = treeSidebarSteps;
-      steps = [...steps.slice(0, globalCount), ...treeSteps, ...steps.slice(globalCount)];
+      steps = [...steps.slice(0, globalCount), ...treeSidebarSteps, ...steps.slice(globalCount)];
     }
   }
   tourSteps.value = steps;
