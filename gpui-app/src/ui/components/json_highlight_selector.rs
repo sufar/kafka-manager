@@ -85,11 +85,11 @@ impl JsonHighlightSelector {
                 id: "default".to_string(),
                 is_default: true,
                 preview_colors: ThemePreviewColors {
-                    key: gpui::rgb(0x6a9955),
-                    string: gpui::rgb(0xce9178),
-                    number: gpui::rgb(0xb5cea8),
-                    boolean: gpui::rgb(0x569cd6),
-                    null: gpui::rgb(0x569cd6),
+                    key: gpui::rgb(0x6a9955).into(),
+                    string: gpui::rgb(0xce9178).into(),
+                    number: gpui::rgb(0xb5cea8).into(),
+                    boolean: gpui::rgb(0x569cd6).into(),
+                    null: gpui::rgb(0x569cd6).into(),
                 },
             },
             JsonHighlightTheme {
@@ -97,11 +97,11 @@ impl JsonHighlightSelector {
                 id: "dark".to_string(),
                 is_default: false,
                 preview_colors: ThemePreviewColors {
-                    key: gpui::rgb(0x9cdcfe),
-                    string: gpui::rgb(0xf9aeae),
-                    number: gpui::rgb(0xbcd4e6),
-                    boolean: gpui::rgb(0x89ddff),
-                    null: gpui::rgb(0x89ddff),
+                    key: gpui::rgb(0x9cdcfe).into(),
+                    string: gpui::rgb(0xf9aeae).into(),
+                    number: gpui::rgb(0xbcd4e6).into(),
+                    boolean: gpui::rgb(0x89ddff).into(),
+                    null: gpui::rgb(0x89ddff).into(),
                 },
             },
             JsonHighlightTheme {
@@ -109,11 +109,11 @@ impl JsonHighlightSelector {
                 id: "bright".to_string(),
                 is_default: false,
                 preview_colors: ThemePreviewColors {
-                    key: gpui::rgb(0x569cd6),
-                    string: gpui::rgb(0xdcdcaa),
-                    number: gpui::rgb(0x4ec9b0),
-                    boolean: gpui::rgb(0xc586c0),
-                    null: gpui::rgb(0xc586c0),
+                    key: gpui::rgb(0x569cd6).into(),
+                    string: gpui::rgb(0xdcdcaa).into(),
+                    number: gpui::rgb(0x4ec9b0).into(),
+                    boolean: gpui::rgb(0xc586c0).into(),
+                    null: gpui::rgb(0xc586c0).into(),
                 },
             },
             JsonHighlightTheme {
@@ -121,11 +121,11 @@ impl JsonHighlightSelector {
                 id: "minimal".to_string(),
                 is_default: false,
                 preview_colors: ThemePreviewColors {
-                    key: gpui::rgb(0x555555),
-                    string: gpui::rgb(0x333333),
-                    number: gpui::rgb(0x333333),
-                    boolean: gpui::rgb(0x333333),
-                    null: gpui::rgb(0x333333),
+                    key: gpui::rgb(0x555555).into(),
+                    string: gpui::rgb(0x333333).into(),
+                    number: gpui::rgb(0x333333).into(),
+                    boolean: gpui::rgb(0x333333).into(),
+                    null: gpui::rgb(0x333333).into(),
                 },
             },
         ]
@@ -327,7 +327,7 @@ impl JsonHighlightSelector {
     /// Render preview JSON snippet
     fn render_preview(&self) -> Div {
         let theme = &self.theme;
-        let colors = self.current_theme().map(|t| t.preview_colors).unwrap_or_default();
+        let colors = self.current_theme().map(|t| t.preview_colors.clone()).unwrap_or_default();
 
         div()
             .flex()
@@ -387,11 +387,11 @@ impl JsonHighlightSelector {
 impl Default for ThemePreviewColors {
     fn default() -> Self {
         Self {
-            key: gpui::rgb(0x6a9955),
-            string: gpui::rgb(0xce9178),
-            number: gpui::rgb(0xb5cea8),
-            boolean: gpui::rgb(0x569cd6),
-            null: gpui::rgb(0x569cd6),
+            key: gpui::rgb(0x6a9955).into(),
+            string: gpui::rgb(0xce9178).into(),
+            number: gpui::rgb(0xb5cea8).into(),
+            boolean: gpui::rgb(0x569cd6).into(),
+            null: gpui::rgb(0x569cd6).into(),
         }
     }
 }

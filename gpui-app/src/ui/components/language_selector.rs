@@ -182,7 +182,7 @@ impl LanguageSelector {
             .bg(theme.surface)
             .border(px(1.0))
             .border_color(theme.border)
-            .shadow(px(0.0), px(4.0), px(12.0), theme.border.opacity(0.3))
+            
             .children(self.languages.iter().map(|opt| {
                 let is_selected = opt.language == self.current_language;
 

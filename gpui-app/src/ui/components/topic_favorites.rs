@@ -428,9 +428,9 @@ impl IntoElement for TopicFavorites {
                             })
                             .text_xs()
                             .child(if self.search_query.is_empty() {
-                                "搜索..."
+                                "搜索...".to_string()
                             } else {
-                                &self.search_query
+                                self.search_query.clone()
                             })
                     )
             )
@@ -441,7 +441,7 @@ impl IntoElement for TopicFavorites {
                     .flex_col()
                     .gap(px(4.0))
                     .flex_1()
-                    .overflow_y()
+                    
                     .when(filtered.is_empty(), |this| {
                         this.child(
                             div()

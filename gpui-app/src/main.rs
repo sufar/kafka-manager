@@ -243,16 +243,14 @@ fn _demo_unused_types() {
     println!("GlobalState methods used");
 
     // Use TourStep and TourDefinition fields
-    let tour_step = TourStep {
-        title: "Step 1".to_string(),
-        description: "Description".to_string(),
-        target: "target-selector".to_string(),
-        position: TourPosition { x: 0, y: 0, width: 100, height: 50 },
-    };
-    let tour_def = TourDefinition {
-        page: "clusters".to_string(),
-        steps: vec![tour_step.clone()],
-    };
+    let tour_step = TourStep::new(
+        "step-1".to_string(),
+        "target-selector".to_string(),
+        "Step 1".to_string(),
+        "Description".to_string(),
+        0, 0, 100, 50
+    );
+    let tour_def = TourDefinition::clusters();
     println!("TourStep target={}, TourDefinition page={}", tour_step.target, tour_def.page);
 
     // Use TourDefinition functions
@@ -263,7 +261,7 @@ fn _demo_unused_types() {
         clusters_tour.steps.len(), messages_tour.steps.len(), all_tours.len());
 
     // Use TourOverlay new and start methods
-    let mut tour_overlay = TourOverlay::new(crate::ui::Theme::dark(), Arc::new(crate::i18n::Translations::default()), vec![tour_step.clone()]);
+    let mut tour_overlay = TourOverlay::new(crate::ui::Theme::dark(), Arc::new(crate::i18n::Translations::default()), tour_def.steps.clone());
     tour_overlay.start();
     println!("TourOverlay created, is_active={}", tour_overlay.is_active());
     if let Some(step) = tour_overlay.current_step() {

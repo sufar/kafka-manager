@@ -78,7 +78,7 @@ impl StreamState {
     /// Format elapsed time
     pub fn elapsed_text(&self) -> String {
         if self.elapsed_ms < 1000 {
-            format("{}ms", self.elapsed_ms)
+            format!("{}ms", self.elapsed_ms)
         } else if self.elapsed_ms < 60000 {
             format!("{}s", self.elapsed_ms / 1000)
         } else {
@@ -114,10 +114,11 @@ impl SseStreamManager {
 
     /// Start streaming with config
     pub fn start_stream(&mut self, config: StreamConfig) {
+        let max_messages = config.max_messages as usize;
         self.config = Some(config.clone());
         self.handler.start_stream(config);
         self.state.is_streaming = true;
-        self.state.target = config.max_messages as usize;
+        self.state.target = max_messages;
         self.state.status_text = "启动流...".to_string();
     }
 

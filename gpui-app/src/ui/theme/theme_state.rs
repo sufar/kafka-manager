@@ -20,6 +20,7 @@ pub struct Theme {
     pub success: gpui::Hsla,
     pub warning: gpui::Hsla,
     pub error: gpui::Hsla,
+    pub info: gpui::Hsla,
     pub border: gpui::Hsla,
     pub border_focused: gpui::Hsla,
 }
@@ -43,6 +44,7 @@ impl Theme {
             success: gpui::rgb(0x22c55e).into(),        // Green success
             warning: gpui::rgb(0xf59e0b).into(),        // Yellow warning
             error: gpui::rgb(0xef4444).into(),          // Red error
+            info: gpui::rgb(0x3b82f6).into(),           // Blue info
             border: gpui::rgb(0x374151).into(),         // Gray border
             border_focused: gpui::rgb(0x8b5cf6).into(), // Primary color border for focus
         }
@@ -66,6 +68,7 @@ impl Theme {
             success: gpui::rgb(0x16a34a).into(),        // Darker green
             warning: gpui::rgb(0xd97706).into(),        // Darker yellow
             error: gpui::rgb(0xdc2626).into(),          // Darker red
+            info: gpui::rgb(0x2563eb).into(),           // Darker blue info
             border: gpui::rgb(0xe2e8f0).into(),         // Light border
             border_focused: gpui::rgb(0x8b5cf6).into(), // Primary color for focus
         }

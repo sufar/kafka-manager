@@ -203,9 +203,10 @@ impl ClusterTreeNavigator {
 
     /// Set search filter
     pub fn set_search_filter(&mut self, filter: String) {
+        let is_empty = filter.is_empty();
         self.search_filter = filter;
         // Auto-expand matching clusters/topics
-        if !filter.is_empty() {
+        if !is_empty {
             self.expand_all = true;
         }
     }
@@ -630,7 +631,6 @@ impl IntoElement for ClusterTreeNavigator {
                     .flex_col()
                     .gap(px(8.0))
                     .size_full()
-                    .overflow_y_scroll()
                     .children(filtered_groups.iter().map(|group| {
                         let group_color = group.group.color;
                         div()

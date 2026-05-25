@@ -288,7 +288,7 @@ impl MobileSearchDrawer {
                     .flex_1()
                     .text_color(theme.text_secondary)
                     .text_xs()
-                    .child(search.clone())
+                    .child(search.to_string())
             )
             .child(
                 // Clear button

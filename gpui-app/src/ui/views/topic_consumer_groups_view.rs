@@ -721,7 +721,7 @@ impl IntoElement for TopicConsumerGroupsView {
                                     })
                                     .text_xs()
                                     .child(if self.search_query.is_empty() {
-                                        "搜索..."
+                                        "搜索...".to_string()
                                     } else {
                                         self.search_query.clone()
                                     })
@@ -732,7 +732,7 @@ impl IntoElement for TopicConsumerGroupsView {
             .child(
                 div()
                     .flex_1()
-                    .overflow_y()
+                    
                     .child(match self.selected_tab {
                         ConsumerGroupTab::Groups => self.render_groups(),
                         ConsumerGroupTab::Members => self.render_members(),

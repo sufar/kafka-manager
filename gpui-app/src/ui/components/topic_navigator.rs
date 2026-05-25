@@ -271,7 +271,7 @@ impl TopicNavigator {
                     .text_color(theme.text)
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(cluster.clone())
+                    .child(cluster.to_string())
             )
             .child(
                 div()
@@ -435,7 +435,7 @@ impl IntoElement for TopicNavigator {
                     .flex_col()
                     .gap(px(8.0))
                     .flex_1()
-                    .overflow_y()
+                    
                     .children(grouped.iter().map(|(cluster, topics)| {
                         let is_expanded = self.expanded_clusters.contains(cluster);
                         div()

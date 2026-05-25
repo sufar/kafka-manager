@@ -168,8 +168,9 @@ impl ConfirmDialog {
 
     /// Set details
     pub fn set_details(&mut self, details: Option<String>) {
+        let has_details = details.is_some();
         self.details = details;
-        self.has_details = details.is_some();
+        self.has_details = has_details;
     }
 
     /// Render icon indicator
@@ -222,7 +223,6 @@ impl ConfirmDialog {
             .bg(theme.surface)
             .border(px(1.0))
             .border_color(theme.border)
-            .shadow(px(0.0), px(8.0), px(32.0), theme.border.opacity(0.3))
             .child(
                 // Header with icon and title
                 div()

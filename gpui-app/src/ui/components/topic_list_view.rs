@@ -731,7 +731,7 @@ impl IntoElement for TopicListView {
             .child(
                 div()
                     .flex_1()
-                    .overflow_y()
+                    
                     .child(match self.selected_tab {
                         TopicTab::Overview => self.render_overview(),
                         TopicTab::Partitions => self.render_partitions(),

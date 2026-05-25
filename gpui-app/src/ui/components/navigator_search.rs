@@ -90,8 +90,9 @@ impl NavigatorSearch {
 
     /// Set search query
     pub fn set_query(&mut self, query: String) {
+        let is_empty = query.is_empty();
         self.query = query;
-        if query.is_empty() {
+        if is_empty {
             self.show_results = false;
             self.results.clear();
         } else {

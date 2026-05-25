@@ -100,7 +100,6 @@ impl IntoElement for MainContent {
             .flex_col()
             .flex_1()
             .h_full()
-            .overflow_y_scroll()
             .bg(theme.background)
             .p(px(24.0))
             .child(

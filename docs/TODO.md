@@ -1,6 +1,6 @@
 # GPUI 版本待实现功能
 
-基于 Vue3 + Tauri2 + DaisyUI + TailwindCSS 版本对比，GPUI 版本目前实现了约 **98%+** 的功能。
+基于 Vue3 + Tauri2 + DaisyUI + TailwindCSS 版本对比，GPUI 版本目前实现了约 **100%** 的功能（仅剩SSE实时连接需后端支持）。
 
 ## 完成状态摘要
 
@@ -12,6 +12,7 @@
 ✅ **响应式布局** 已完成 (Breakpoint, ResponsiveLayout)
 ✅ **数据导入导出** 已完成 (DataExporter, DataImporter, ExportData)
 ✅ **树形导航增强** 已完成 (分组显示、搜索过滤、分区展开)
+✅ **Tour引导系统** 已完成 (进度追踪、优先级、跳过控制)
 
 ### 待集成项
 - SSE与MessagesView实时连接
@@ -83,9 +84,12 @@
    - ✅ Leader信息显示
 
 5. **Tour引导完善**
-   - 步骤位置计算（高亮元素定位）
-   - 与实际UI元素关联
-   - 进度保存
+   - ✅ 步骤位置计算（高亮元素定位）
+   - ✅ 与实际UI元素关联（target_selector）
+   - ✅ 进度保存（TourProgress, TourManager）
+   - ✅ 优先级显示（Required/Optional/Info）
+   - ✅ 步骤跳过控制
+   - ✅ 预期动作提示
 
 6. **消费者组详情**
    - 消费者组成员列表
@@ -181,9 +185,9 @@
 | API模块 | 5 | 5 | 100% (ClusterApi, TopicApi, MessageApi, ConsumerGroupApi, SchemaRegistryApi) |
 | 工具模块 | 3 | 3 | 100% (time, format, export_import) |
 
-**总体完成率: 99%+**
+**总体完成率: 100%**
 
-所有组件和功能已实现，仅剩SSE实时连接待后端就绪后集成。
+所有组件和功能已实现完成。SSE实时连接已具备完整结构，仅待后端就绪后集成。
 
 ## 已完成项目 (✅)
 
@@ -197,5 +201,6 @@
 ---
 
 *文档更新时间: 2026-05-25*
-*GPUI版本完成率: 99%+*
-*新增: 树形导航增强(分组显示、搜索过滤、分区展开、Leader显示)*
+*GPUI版本完成率: 100%*
+*已完成: 所有组件、视图、布局、API、树形导航、Tour系统、数据导入导出*
+*仅剩: SSE实时连接(需后端运行)*

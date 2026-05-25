@@ -167,7 +167,7 @@ impl MessageQueryTool {
             end_time: None,
             is_querying: false,
             streaming_progress: StreamingProgress::default(),
-            search_input: Input::new(theme),
+            search_input: Input::new(theme, "搜索消息".to_string()),
         }
     }
 
@@ -187,7 +187,7 @@ impl MessageQueryTool {
             end_time: None,
             is_querying: false,
             streaming_progress: StreamingProgress::default(),
-            search_input: Input::new(theme),
+            search_input: Input::new(theme, "搜索消息".to_string()),
         }
     }
 
