@@ -7,7 +7,11 @@ mod types;
 mod sse;
 mod sse_handler;
 
-pub use client::{ApiClient, ApiError};
+pub use client::{
+    ApiClient, HttpClient, ApiError,
+    ClusterApi, TopicApi, MessageApi, ConsumerGroupApi, SchemaRegistryApi,
+    ConnectionTestResult, TopicConfigEntry, SendMessageResult, SchemaRegistrationResult,
+};
 pub use types::{
     ClusterResponse, CreateClusterRequest, UpdateClusterRequest,
     ClusterGroupResponse, CreateClusterGroupRequest,

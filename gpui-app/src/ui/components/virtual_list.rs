@@ -268,3 +268,38 @@ impl VirtualListItem for MessageItem {
         40.0 // Slightly taller for message content
     }
 }
+
+/// Convert BufferedMessage to MessageItem
+impl From<&crate::state::BufferedMessage> for MessageItem {
+    fn from(msg: &crate::state::BufferedMessage) -> Self {
+        Self {
+            id: format!("{}-{}", msg.partition, msg.offset),
+            offset: msg.offset,
+            key: msg.key.clone(),
+            value: msg.value.clone(),
+            timestamp: msg.timestamp,
+        }
+    }
+}
+
+/// Create MessageItems from MessageBuffer
+pub fn messages_from_buffer(buffer: &crate::state::MessageBuffer<crate::state::BufferedMessage>) -> Vec<MessageItem> {
+    buffer.messages().iter()
+        .map(|msg| MessageItem::from(msg))
+        .collect()
+}
+
+/// Create visible MessageItems from buffer with virtual scrolling
+pub fn visible_messages_from_buffer(
+    buffer: &crate::state::MessageBuffer<crate::state::BufferedMessage>,
+    scroll_offset: f32,
+    item_height: f32,
+    container_height: f32,
+) -> Vec<MessageItem> {
+    let (start, end) = buffer.visible_range(scroll_offset, item_height, container_height);
+    buffer.messages().iter()
+        .skip(start)
+        .take(end - start)
+        .map(|msg| MessageItem::from(msg))
+        .collect()
+}
