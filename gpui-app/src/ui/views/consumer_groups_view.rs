@@ -816,7 +816,7 @@ impl Render for ConsumerGroupsViewWithState {
                             .child(
                                 div()
                                     .text_color(theme.text)
-                                    .text_2xl()
+                                    .text_size(px(20.0))  // Vue: text-xl = 20px
                                     .font_weight(FontWeight::BOLD)
                                     .child(t.consumer_groups.title.clone())
                             )

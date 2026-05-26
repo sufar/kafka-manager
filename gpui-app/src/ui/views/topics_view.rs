@@ -676,7 +676,7 @@ impl Render for TopicsViewWithState {
             .size_full()
             .gap(px(12.0))
             .child(
-                // Header with cluster name and back button (matches Vue)
+                // Header with cluster name and back button (matches Vue: text-xl font-bold)
                 div()
                     .flex()
                     .items_center()
@@ -686,18 +686,19 @@ impl Render for TopicsViewWithState {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            // Back button (matches Vue's back button)
+                            // Back button (matches Vue's btn btn-ghost btn-xs p-1)
                             .child(
                                 div()
                                     .id("back-btn")
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .w(px(24.0))
+                                    .w(px(24.0))  // Vue: btn-xs
                                     .h(px(24.0))
                                     .rounded(px(4.0))
-                                    .bg(theme.surface_raised)
+                                    .bg(theme.surface)
                                     .cursor_pointer()
+                                    .hover(|d| d.bg(theme.surface_raised))
                                     .child(
                                         div()
                                             .w(px(8.0))
@@ -720,7 +721,7 @@ impl Render for TopicsViewWithState {
                                     .child(
                                         div()
                                             .text_color(theme.text)
-                                            .text_2xl()
+                                            .text_size(px(20.0))  // Vue: text-xl = 20px
                                             .font_weight(FontWeight::BOLD)
                                             .child(t.topics.title.clone())
                                     )

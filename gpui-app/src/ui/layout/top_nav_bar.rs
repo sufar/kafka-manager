@@ -37,116 +37,126 @@ impl IntoElement for TopNavBar {
         let theme = if self.is_dark { Theme::dark() } else { Theme::light() };
         let t = self.translations.clone();
 
+        // TopNavBar styling matching Vue3:
+        // Vue: fixed top-0 left-0 right-0 h-10 bg-base-100/80 border-b border-base-200 z-50 px-2
         div()
             .id("top-nav-bar")
             .flex()
             .items_center()
             .justify_between()
             .w_full()
-            .h(px(48.0))
-            .px(px(16.0))
-            .bg(theme.surface)
+            .h(px(40.0))  // Vue: h-10 = 40px
+            .px(px(8.0))  // Vue: px-2 = 8px
+            .bg(theme.surface.opacity(0.80))  // Vue: bg-base-100/80 for glass effect
             .border_b(px(1.0))
-            .border_color(theme.border)
+            .border_color(theme.border.opacity(0.10))  // Vue: border-base-200
             .child(
                 // Left section: Logo + Menu toggle (mobile)
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.0))
+                    .gap(px(8.0))  // Vue: gap-2 = 8px
                     .when(self.is_mobile, |this| {
                         this.child(
+                            // Mobile menu button - Vue: btn btn-ghost btn-circle btn-xs h-7 w-7
                             div()
                                 .id("menu-toggle")
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .w(px(32.0))
-                                .h(px(32.0))
-                                .rounded(px(6.0))
-                                .bg(if self.sidebar_open { theme.primary.opacity(0.2) } else { theme.surface_raised })
-                                .border(px(1.0))
-                                .border_color(if self.sidebar_open { theme.primary } else { theme.border })
+                                .w(px(28.0))  // Vue: w-7 = 28px
+                                .h(px(28.0))  // Vue: h-7 = 28px
+                                .rounded(px(14.0))  // Vue: btn-circle = fully rounded
+                                .bg(if self.sidebar_open { theme.primary.opacity(0.10) } else { gpui::transparent_black() })
                                 .cursor_pointer()
+                                .hover(|d| d.bg(theme.surface))
                                 .child(
+                                    // Hamburger icon placeholder
                                     div()
-                                        .w(px(16.0))
-                                        .h(px(16.0))
-                                        .bg(if self.sidebar_open { theme.primary } else { theme.text_muted })
+                                        .text_color(if self.sidebar_open { theme.primary } else { theme.text_muted })
+                                        .text_size(px(16.0))  // Vue: w-4 h-4 = 16px
+                                        .child("☰")
                                 )
                         )
                     })
                     .child(
-                        // Logo
+                        // Logo - Vue: w-6 h-6 rounded bg-primary shadow-lg
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.0))
+                            .gap(px(6.0))  // Vue: gap-1.5 = 6px
                             .child(
                                 div()
-                                    .w(px(24.0))
-                                    .h(px(24.0))
-                                    .rounded(px(4.0))
+                                    .w(px(24.0))  // Vue: w-6 = 24px
+                                    .h(px(24.0))  // Vue: h-6 = 24px
+                                    .rounded(px(4.0))  // Vue: rounded = 4px
                                     .bg(theme.primary)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        div()
+                                            .text_color(Hsla::from(gpui::rgb(0xffffff)))
+                                            .text_size(px(14.0))  // Vue: w-3.5 h-3.5 = 14px
+                                            .child("📊")
+                                    )
                             )
                             .child(
+                                // Title - Vue: text-base font-bold (16px)
                                 div()
                                     .text_color(theme.text)
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(16.0))  // Vue: text-base = 16px
+                                    .font_weight(FontWeight::BOLD)
                                     .child("Kafka Manager")
                             )
                     )
             )
             .child(
-                // Right section: Language + Theme toggles
+                // Right section: Language + Theme toggles - Vue: gap-0.5 = 2px
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
+                    .gap(px(2.0))  // Vue: gap-0.5 = 2px
                     .child(
+                        // Language toggle - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                         div()
                             .id("lang-toggle")
                             .flex()
                             .items_center()
                             .justify_center()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
+                            .w(px(24.0))  // Vue: w-6 = 24px
+                            .h(px(24.0))  // Vue: h-6 = 24px
+                            .rounded(px(12.0))  // Vue: btn-circle = fully rounded
+                            .bg(gpui::transparent_black())
                             .cursor_pointer()
+                            .hover(|d| d.bg(theme.surface))
                             .child(
                                 div()
                                     .text_color(theme.text_secondary)
-                                    .text_xs()
-                                    .child(t.layout.language_toggle.clone())
+                                    .text_size(px(10.0))  // Vue: text-[10px]
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("EN")
                             )
                     )
                     .child(
+                        // Theme toggle - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                         div()
                             .id("theme-toggle")
                             .flex()
                             .items_center()
                             .justify_center()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
+                            .w(px(24.0))  // Vue: w-6 = 24px
+                            .h(px(24.0))  // Vue: h-6 = 24px
+                            .rounded(px(12.0))  // Vue: btn-circle = fully rounded
+                            .bg(gpui::transparent_black())
                             .cursor_pointer()
+                            .hover(|d| d.bg(theme.surface))
                             .child(
+                                // Sun/Moon icon placeholder
                                 div()
-                                    .w(px(16.0))
-                                    .h(px(16.0))
-                                    .rounded(px(8.0))
-                                    .bg(Hsla::from(gpui::rgb(if self.is_dark {
-                                        0xfbbf24
-                                    } else {
-                                        0x6366f1
-                                    })))
+                                    .text_color(theme.text_secondary)
+                                    .text_size(px(14.0))  // Vue: w-3.5 h-3.5 = 14px
+                                    .child(if self.is_dark { "☀️" } else { "🌙" })
                             )
                     )
             )
@@ -175,45 +185,45 @@ impl Render for TopNavBarWithState {
         let tour_active = state.tour_active;
         let t = state.translations();
 
+        // TopNavBar styling matching Vue3:
+        // Vue: fixed top-0 left-0 right-0 h-10 bg-base-100/80 border-b border-base-200 z-50 px-2
         div()
             .id("top-nav-bar-state")
             .flex()
             .items_center()
             .justify_between()
             .w_full()
-            .h(px(48.0))
-            .px(px(16.0))
-            .bg(theme.surface)
+            .h(px(40.0))  // Vue: h-10 = 40px
+            .px(px(8.0))  // Vue: px-2 = 8px
+            .bg(theme.surface.opacity(0.80))  // Vue: bg-base-100/80 for glass effect
             .border_b(px(1.0))
-            .border_color(theme.border)
+            .border_color(theme.border.opacity(0.10))  // Vue: border-base-200
             .child(
                 // Left section: Logo + Menu toggle (mobile) + Search
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.0))
+                    .gap(px(8.0))  // Vue: gap-2 = 8px
                     .when(is_mobile, |this| {
                         this.child(
-                            // Menu toggle button
+                            // Menu toggle button - Vue: btn btn-ghost btn-circle btn-xs h-7 w-7
                             div()
                                 .id("menu-toggle")
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .w(px(32.0))
-                                .h(px(32.0))
-                                .rounded(px(6.0))
-                                .bg(if sidebar_open { theme.primary.opacity(0.2) } else { theme.surface_raised })
-                                .border(px(1.0))
-                                .border_color(if sidebar_open { theme.primary } else { theme.border })
+                                .w(px(28.0))  // Vue: w-7 = 28px
+                                .h(px(28.0))  // Vue: h-7 = 28px
+                                .rounded(px(14.0))  // Vue: btn-circle = fully rounded
+                                .bg(if sidebar_open { theme.primary.opacity(0.10) } else { gpui::transparent_black() })
                                 .cursor_pointer()
                                 .hover(|d| d.bg(theme.surface))
                                 .child(
+                                    // Hamburger icon placeholder
                                     div()
-                                        .w(px(16.0))
-                                        .h(px(16.0))
-                                        .rounded(px(3.0))
-                                        .bg(if sidebar_open { theme.primary } else { theme.text_muted })
+                                        .text_color(if sidebar_open { theme.primary } else { theme.text_muted })
+                                        .text_size(px(16.0))  // Vue: w-4 h-4 = 16px
+                                        .child("☰")
                                 )
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.state.update(cx, |state, cx| {
@@ -224,65 +234,78 @@ impl Render for TopNavBarWithState {
                         )
                     })
                     .child(
-                        // Logo
+                        // Logo - Vue: w-6 h-6 rounded bg-primary shadow-lg
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.0))
+                            .gap(px(6.0))  // Vue: gap-1.5 = 6px
                             .child(
                                 div()
-                                    .w(px(24.0))
-                                    .h(px(24.0))
-                                    .rounded(px(4.0))
+                                    .w(px(24.0))  // Vue: w-6 = 24px
+                                    .h(px(24.0))  // Vue: h-6 = 24px
+                                    .rounded(px(4.0))  // Vue: rounded = 4px
                                     .bg(theme.primary)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        div()
+                                            .text_color(Hsla::from(gpui::rgb(0xffffff)))
+                                            .text_size(px(14.0))  // Vue: w-3.5 h-3.5 = 14px
+                                            .child("📊")
+                                    )
                             )
                             .child(
+                                // Title - Vue: text-base font-bold (16px)
                                 div()
                                     .text_color(theme.text)
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(16.0))  // Vue: text-base = 16px
+                                    .font_weight(FontWeight::BOLD)
                                     .child("Kafka Manager")
                             )
                     )
                     .when(!is_mobile, |this| {
-                        // Search button (desktop only)
+                        // Search button (desktop only) - Vue: input input-bordered input-xs w-56 h-7
                         this.child(
                             div()
                                 .id("search-btn")
                                 .flex()
                                 .items_center()
                                 .gap(px(8.0))
-                                .px(px(12.0))
-                                .py(px(6.0))
-                                .ml(px(16.0))
-                                .rounded(px(6.0))
-                                .bg(theme.surface_raised)
+                                .w(px(224.0))  // Vue: w-56 = 224px
+                                .h(px(28.0))   // Vue: h-7 = 28px
+                                .ml(px(8.0))   // Vue: ml-2 = 8px
+                                .px(px(12.0))  // Vue: px-3 = 12px
+                                .rounded(px(6.0))  // Vue: input rounded
+                                .bg(theme.surface)
                                 .border(px(1.0))
-                                .border_color(theme.border)
+                                .border_color(theme.border.opacity(0.20))  // Vue: input-bordered
                                 .cursor_pointer()
-                                .hover(|d| d.bg(theme.surface))
+                                .hover(|d| d.bg(theme.surface_raised))
                                 .child(
+                                    // Search icon placeholder
                                     div()
                                         .text_color(theme.text_muted)
-                                        .text_xs()
+                                        .text_size(px(14.0))
                                         .child("🔍")
                                 )
                                 .child(
                                     div()
                                         .text_color(theme.text_muted)
-                                        .text_xs()
+                                        .text_size(px(12.0))  // Vue: text-xs = 12px
                                         .child(t.layout.search_placeholder.clone())
                                 )
                                 .child(
+                                    // Keyboard shortcut badge
                                     div()
-                                        .px(px(4.0))
-                                        .py(px(2.0))
+                                        .px(px(4.0))  // Vue: px-1 = 4px
+                                        .py(px(2.0))  // small padding
                                         .rounded(px(3.0))
-                                        .bg(theme.surface)
+                                        .bg(theme.surface_raised)
                                         .child(
                                             div()
                                                 .text_color(theme.text_muted)
-                                                .text_xs()
+                                                .text_size(px(10.0))
                                                 .child("⌘K")
                                         )
                                 )
@@ -290,33 +313,32 @@ impl Render for TopNavBarWithState {
                     })
             )
             .child(
-                // Right section: Actions
+                // Right section: Actions - Vue: gap-0.5 = 2px between buttons
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
-                    // Language toggle
+                    .gap(px(2.0))  // Vue: gap-0.5 = 2px
+                    // Language toggle - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                     .child(
                         div()
                             .id("lang-toggle")
                             .flex()
                             .items_center()
                             .justify_center()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
+                            .w(px(24.0))  // Vue: w-6 = 24px
+                            .h(px(24.0))  // Vue: h-6 = 24px
+                            .rounded(px(12.0))  // Vue: btn-circle
+                            .bg(gpui::transparent_black())
                             .cursor_pointer()
                             .hover(|d| d.bg(theme.surface))
                             .child(
                                 div()
                                     .text_color(theme.text_secondary)
-                                    .text_xs()
+                                    .text_size(px(10.0))  // Vue: text-[10px]
+                                    .font_weight(FontWeight::BOLD)
                                     .child(match language {
-                                        Language::Chinese => "中",
-                                        Language::English => "En",
+                                        Language::Chinese => "EN",
+                                        Language::English => "中",
                                     })
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -326,27 +348,25 @@ impl Render for TopNavBarWithState {
                                 });
                             }))
                     )
-                    // Theme toggle
+                    // Theme toggle - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                     .child(
                         div()
                             .id("theme-toggle")
                             .flex()
                             .items_center()
                             .justify_center()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
+                            .w(px(24.0))  // Vue: w-6 = 24px
+                            .h(px(24.0))  // Vue: h-6 = 24px
+                            .rounded(px(12.0))  // Vue: btn-circle
+                            .bg(gpui::transparent_black())
                             .cursor_pointer()
                             .hover(|d| d.bg(theme.surface))
                             .child(
-                                // Sun/Moon icon
+                                // Sun/Moon icon placeholder - Vue: w-3.5 h-3.5 = 14px
                                 div()
                                     .text_color(theme.text_secondary)
-                                    .text_xs()
-                                    .child(if is_dark { "🌙" } else { "☀️" })
+                                    .text_size(px(14.0))
+                                    .child(if is_dark { "☀️" } else { "🌙" })
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.state.update(cx, |state, cx| {
@@ -355,7 +375,7 @@ impl Render for TopNavBarWithState {
                                 });
                             }))
                     )
-                    // Tour start button
+                    // Tour start button - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                     .when(!tour_active, |this| {
                         this.child(
                             div()
@@ -363,18 +383,17 @@ impl Render for TopNavBarWithState {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .w(px(32.0))
-                                .h(px(32.0))
-                                .rounded(px(6.0))
-                                .bg(theme.surface_raised)
-                                .border(px(1.0))
-                                .border_color(theme.border)
+                                .w(px(24.0))  // Vue: w-6 = 24px
+                                .h(px(24.0))  // Vue: h-6 = 24px
+                                .rounded(px(12.0))  // Vue: btn-circle
+                                .bg(gpui::transparent_black())
                                 .cursor_pointer()
                                 .hover(|d| d.bg(theme.surface))
                                 .child(
+                                    // Help icon placeholder
                                     div()
                                         .text_color(theme.text_secondary)
-                                        .text_xs()
+                                        .text_size(px(14.0))
                                         .child("❓")
                                 )
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -385,25 +404,24 @@ impl Render for TopNavBarWithState {
                                 }))
                         )
                     })
-                    // Share button
+                    // Share button - Vue: btn btn-ghost btn-circle btn-xs h-6 w-6
                     .child(
                         div()
                             .id("share-btn")
                             .flex()
                             .items_center()
                             .justify_center()
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
+                            .w(px(24.0))  // Vue: w-6 = 24px
+                            .h(px(24.0))  // Vue: h-6 = 24px
+                            .rounded(px(12.0))  // Vue: btn-circle
+                            .bg(gpui::transparent_black())
                             .cursor_pointer()
                             .hover(|d| d.bg(theme.surface))
                             .child(
+                                // Share icon placeholder
                                 div()
                                     .text_color(theme.text_secondary)
-                                    .text_xs()
+                                    .text_size(px(14.0))
                                     .child("📤")
                             )
                     )
