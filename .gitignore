@@ -55,3 +55,4 @@ leetcode/.problemlist_cn
 *.db
 not_git/
 .vite/
+.claude/worktrees/
