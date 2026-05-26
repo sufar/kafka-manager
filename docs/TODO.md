@@ -13,9 +13,16 @@
 ✅ **数据导入导出** 已完成 (DataExporter, DataImporter, ExportData)
 ✅ **树形导航增强** 已完成 (分组显示、搜索过滤、分区展开)
 ✅ **Tour引导系统** 已完成 (进度追踪、优先级、跳过控制)
+✅ **消息表列宽调整** 已完成 (ColumnWidths, resize handles)
+✅ **详情面板resize** 已完成 (DetailPanelState, drag handle)
+✅ **详情搜索** 已完成 (DetailSearchState, Ctrl+F搜索)
+✅ **键盘导航** 已完成 (ArrowUp/ArrowDown选择消息)
+✅ **双击导航** 已完成 (TopicsView双击跳转MessagesView)
+✅ **分组选择器滚动** 已完成 (左/右滚动按钮)
+✅ **详情搜索UI** 已完成 (搜索栏、匹配计数、前进/后退按钮)
 
 ### 待集成项
-- SSE与MessagesView实时连接
+- SSE与MessagesView实时连接（需后端支持）
 - ✅ VirtualList与MessageBuffer数据绑定 (messages_from_buffer, visible_messages_from_buffer)
 
 ## 未实现的组件
@@ -200,7 +207,7 @@
 
 ---
 
-*文档更新时间: 2026-05-25*
+*文档更新时间: 2026-05-26*
 *GPUI版本完成率: 100%*
-*已完成: 所有组件、视图、布局、API、树形导航、Tour系统、数据导入导出*
+*已完成: 所有组件、视图、布局、API、树形导航、Tour系统、数据导入导出、列宽调整、详情面板resize、键盘导航*
 *仅剩: SSE实时连接(需后端运行)*

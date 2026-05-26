@@ -50,7 +50,7 @@ enum QueryMode {
 }
 
 /// Message display data (converted from BufferedMessage)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MessageDisplay {
     partition: i32,
     offset: i64,
@@ -863,5 +863,1688 @@ impl IntoElement for MessagesView {
                             )
                     )
             )
+    }
+}
+
+/// Messages view with GlobalState Entity integration
+pub struct MessagesViewWithState {
+    state: Entity<GlobalState>,
+    translations: Arc<Translations>,
+    messages: Vec<MessageDisplay>,
+    selected_partition: Option<i32>,
+    query_mode: QueryMode,
+    max_messages: i32,
+    search_value: String,
+    is_querying: bool,
+    stream_handler: SseStreamHandler,
+    selected_message: Option<usize>,
+    send_modal_open: bool,
+    detail_format: MessageFormat,
+    show_headers: bool,
+    show_time_filters: bool,
+    start_time: String,
+    end_time: String,
+    show_more_menu: bool,
+    show_history: bool,
+    /// Streaming progress: received count
+    streaming_received: usize,
+    /// Streaming progress: total target
+    streaming_total: usize,
+    /// Elapsed time for last query (ms)
+    elapsed_time: u64,
+    /// Timestamp sort order (asc/desc/null toggle)
+    timestamp_sort: TimestampSort,
+    /// Column widths (matches Vue's columnWidths)
+    column_widths: ColumnWidths,
+    /// Which column is being resized (if any)
+    resizing_column: Option<String>,
+    /// Detail panel height and resize state (matches Vue's panelHeight)
+    detail_panel_state: DetailPanelState,
+    /// Detail panel search state (matches Vue's detailSearchActive)
+    detail_search_state: DetailSearchState,
+}
+
+/// Column widths for message table (matches Vue's columnWidths)
+#[derive(Debug, Clone, Default)]
+struct ColumnWidths {
+    partition: f32,
+    offset: f32,
+    timestamp: f32,
+    key: f32,
+    value: f32,
+    actions: f32,
+}
+
+impl ColumnWidths {
+    fn defaults() -> Self {
+        Self {
+            partition: 60.0,
+            offset: 80.0,
+            timestamp: 140.0,
+            key: 100.0,
+            value: 200.0,  // flex_1, minimum width
+            actions: 40.0,
+        }
+    }
+}
+
+/// Detail panel state (matches Vue's panelHeight and resize functionality)
+#[derive(Debug, Clone, Default)]
+struct DetailPanelState {
+    height: f32,
+    is_resizing: bool,
+    min_height: f32,
+    max_height: f32,
+}
+
+impl DetailPanelState {
+    fn defaults() -> Self {
+        Self {
+            height: 180.0,
+            is_resizing: false,
+            min_height: 80.0,
+            max_height: 400.0,
+        }
+    }
+
+    fn set_height(&mut self, h: f32) {
+        self.height = h.max(self.min_height).min(self.max_height);
+    }
+}
+
+/// Detail panel search state (matches Vue's detailSearchActive)
+#[derive(Debug, Clone, Default)]
+struct DetailSearchState {
+    is_active: bool,
+    query: String,
+    match_count: usize,
+    match_index: usize,
+}
+
+use crate::state::GlobalState;
+use crate::router::ViewType;
+
+/// Message format for detail panel
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum MessageFormat {
+    #[default]
+    Json,
+    Raw,
+    Hex,
+}
+
+/// Timestamp sort order (matches Vue's three-state toggle)
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum TimestampSort {
+    #[default]
+    None,  // No sorting
+    Desc,  // Newest first (descending)
+    Asc,   // Oldest first (ascending)
+}
+
+impl TimestampSort {
+    /// Toggle to next state: None -> Desc -> Asc -> None
+    fn toggle(&self) -> Self {
+        match self {
+            TimestampSort::None => TimestampSort::Desc,
+            TimestampSort::Desc => TimestampSort::Asc,
+            TimestampSort::Asc => TimestampSort::None,
+        }
+    }
+
+    /// Get label char for UI display
+    fn label_char(&self) -> char {
+        match self {
+            TimestampSort::None => ' ',
+            TimestampSort::Desc => '↓',
+            TimestampSort::Asc => '↑',
+        }
+    }
+
+    /// Get tooltip text (static string)
+    fn tooltip(&self) -> &'static str {
+        match self {
+            TimestampSort::None => "Click to sort descending",
+            TimestampSort::Desc => "Click to sort ascending",
+            TimestampSort::Asc => "Click to clear sorting",
+        }
+    }
+}
+
+impl MessagesViewWithState {
+    pub fn new(state: Entity<GlobalState>, translations: Arc<Translations>) -> Self {
+        Self {
+            state,
+            translations,
+            messages: Vec::new(),
+            selected_partition: None,
+            query_mode: QueryMode::Newest,
+            max_messages: 100,
+            search_value: String::new(),
+            is_querying: false,
+            stream_handler: SseStreamHandler::new(),
+            selected_message: None,
+            send_modal_open: false,
+            detail_format: MessageFormat::Json,
+            show_headers: false,
+            show_time_filters: false,
+            start_time: String::new(),
+            end_time: String::new(),
+            show_more_menu: false,
+            show_history: false,
+            streaming_received: 0,
+            streaming_total: 0,
+            elapsed_time: 0,
+            timestamp_sort: TimestampSort::None,
+            column_widths: ColumnWidths::defaults(),
+            resizing_column: None,
+            detail_panel_state: DetailPanelState::defaults(),
+            detail_search_state: DetailSearchState::default(),
+        }
+    }
+
+    /// Start streaming messages
+    fn start_query(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        let selected_topic = state.selected_topic.clone();
+
+        if let Some((cluster, topic)) = selected_topic {
+            self.is_querying = true;
+            self.messages.clear();
+
+            // Start async query
+            cx.spawn(async move |this, cx| {
+                // Simulate API call - in real implementation, would use SSE
+                cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+
+                // Add mock messages
+                this.update(cx, |view, cx| {
+                    view.is_querying = false;
+                    view.messages = vec![
+                        MessageDisplay {
+                            partition: 0,
+                            offset: 12345,
+                            timestamp: format_timestamp(1716432600000),
+                            timestamp_ms: 1716432600000,
+                            key: Some("key-1".to_string()),
+                            value: "{\"type\": \"test\"}".to_string(),
+                            headers: vec![],
+                        },
+                        MessageDisplay {
+                            partition: 1,
+                            offset: 67890,
+                            timestamp: format_timestamp(1716432601000),
+                            timestamp_ms: 1716432601000,
+                            key: None,
+                            value: "{\"data\": \"value\"}".to_string(),
+                            headers: vec![],
+                        },
+                    ];
+                    cx.notify();
+                }).ok();
+            }).detach();
+        }
+    }
+
+    /// Stop streaming
+    fn stop_query(&mut self) {
+        self.is_querying = false;
+        self.stream_handler.stop_stream();
+    }
+
+    /// Toggle message format
+    fn toggle_format(&mut self) {
+        self.detail_format = match self.detail_format {
+            MessageFormat::Json => MessageFormat::Raw,
+            MessageFormat::Raw => MessageFormat::Hex,
+            MessageFormat::Hex => MessageFormat::Json,
+        };
+    }
+
+    /// Toggle time filters
+    fn toggle_time_filters(&mut self) {
+        self.show_time_filters = !self.show_time_filters;
+    }
+
+    /// Set time preset
+    fn set_time_preset(&mut self, minutes: i32) {
+        let now = current_timestamp_ms();
+        let offset = minutes as i64 * 60 * 1000;
+        let start_ts = now - offset;
+        self.start_time = utils_format_timestamp(start_ts);
+        self.end_time = utils_format_timestamp(now);
+    }
+
+    /// Clear time filters
+    fn clear_time_filters(&mut self) {
+        self.start_time.clear();
+        self.end_time.clear();
+    }
+
+    /// Go back to topics view
+    fn go_back(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            s.navigate(ViewType::Topics);
+            cx.notify();
+        });
+    }
+
+    /// Open send message modal
+    fn open_send_modal(&mut self) {
+        self.send_modal_open = true;
+    }
+
+    /// Close send message modal
+    fn close_send_modal(&mut self) {
+        self.send_modal_open = false;
+    }
+
+    /// Toggle more menu
+    fn toggle_more_menu(&mut self) {
+        self.show_more_menu = !self.show_more_menu;
+    }
+
+    /// View topic consumer groups
+    fn view_consumer_groups(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            s.navigate(ViewType::ConsumerGroups);
+            cx.notify();
+        });
+        self.show_more_menu = false;
+    }
+
+    /// Toggle history panel
+    fn toggle_history(&mut self) {
+        self.show_history = !self.show_history;
+        self.show_more_menu = false;
+    }
+
+    /// Get current topic info
+    fn current_topic(&self, cx: &App) -> (Option<String>, Option<String>) {
+        let state = self.state.read(cx);
+        state.selected_topic.clone()
+            .map(|(c, t)| (Some(c), Some(t)))
+            .unwrap_or((None, None))
+    }
+
+    /// Export messages to JSON (placeholder - GPUI doesn't have file dialog)
+    fn export_messages(&mut self, _cx: &mut Context<Self>) {
+        // In GPUI, we would need platform-specific file dialog integration
+        // For now, just log the action - this could be enhanced with Tauri integration
+        if self.messages.is_empty() {
+            return;
+        }
+        // Placeholder: could integrate with clipboard or logging
+        println!("Export {} messages requested", self.messages.len());
+    }
+
+    /// Copy key to clipboard (placeholder)
+    fn copy_key(&mut self, _cx: &mut Context<Self>) {
+        if let Some(idx) = self.selected_message {
+            if let Some(key) = &self.messages[idx].key {
+                println!("Copy key: {}", key);
+            }
+        }
+    }
+
+    /// Copy value to clipboard (placeholder)
+    fn copy_value(&mut self, _cx: &mut Context<Self>) {
+        if let Some(idx) = self.selected_message {
+            let value = &self.messages[idx].value;
+            println!("Copy value: {}", value);
+        }
+    }
+
+    /// Toggle timestamp sort order (matches Vue's three-state toggle)
+    fn toggle_timestamp_sort(&mut self, cx: &mut Context<Self>) {
+        self.timestamp_sort = self.timestamp_sort.toggle();
+        cx.notify();
+    }
+
+    /// Get sorted messages based on current sort order
+    fn get_sorted_messages(&self) -> Vec<MessageDisplay> {
+        match self.timestamp_sort {
+            TimestampSort::None => self.messages.clone(),
+            TimestampSort::Desc => {
+                let mut sorted = self.messages.clone();
+                sorted.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+                sorted
+            }
+            TimestampSort::Asc => {
+                let mut sorted = self.messages.clone();
+                sorted.sort_by(|a, b| a.timestamp_ms.cmp(&b.timestamp_ms));
+                sorted
+            }
+        }
+    }
+
+    /// Select previous message (keyboard navigation: ArrowUp)
+    fn select_prev_message(&mut self, cx: &mut Context<Self>) {
+        if self.messages.is_empty() {
+            return;
+        }
+        self.selected_message = match self.selected_message {
+            Some(idx) if idx > 0 => Some(idx - 1),
+            Some(0) => Some(0), // Stay at first message
+            None => Some(self.messages.len() - 1), // Select last message if nothing selected
+            Some(_) => Some(0), // Fallback: any other case, go to first
+        };
+        cx.notify();
+    }
+
+    /// Select next message (keyboard navigation: ArrowDown)
+    fn select_next_message(&mut self, cx: &mut Context<Self>) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let last_idx = self.messages.len() - 1;
+        self.selected_message = match self.selected_message {
+            Some(idx) if idx < last_idx => Some(idx + 1),
+            Some(last_idx) => Some(last_idx), // Stay at last message
+            None => Some(0), // Select first message if nothing selected
+            Some(_) => Some(last_idx), // Fallback: any other case, go to last
+        };
+        cx.notify();
+    }
+
+    /// Start column resize (matches Vue's startColumnResize)
+    fn start_column_resize(&mut self, column: &str, cx: &mut Context<Self>) {
+        self.resizing_column = Some(column.to_string());
+        cx.notify();
+    }
+
+    /// Update column width during resize
+    fn update_column_width(&mut self, column: &str, delta: f32, cx: &mut Context<Self>) {
+        match column {
+            "partition" => {
+                self.column_widths.partition = (self.column_widths.partition + delta).max(40.0).min(200.0);
+            }
+            "offset" => {
+                self.column_widths.offset = (self.column_widths.offset + delta).max(40.0).min(200.0);
+            }
+            "timestamp" => {
+                self.column_widths.timestamp = (self.column_widths.timestamp + delta).max(60.0).min(300.0);
+            }
+            "key" => {
+                self.column_widths.key = (self.column_widths.key + delta).max(40.0).min(300.0);
+            }
+            "actions" => {
+                self.column_widths.actions = (self.column_widths.actions + delta).max(30.0).min(100.0);
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// End column resize
+    fn end_column_resize(&mut self, cx: &mut Context<Self>) {
+        self.resizing_column = None;
+        cx.notify();
+    }
+
+    /// Start detail panel resize (matches Vue's startResize)
+    fn start_detail_panel_resize(&mut self, cx: &mut Context<Self>) {
+        self.detail_panel_state.is_resizing = true;
+        cx.notify();
+    }
+
+    /// Update detail panel height during resize
+    fn update_detail_panel_height(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.detail_panel_state.set_height(self.detail_panel_state.height + delta);
+        cx.notify();
+    }
+
+    /// End detail panel resize
+    fn end_detail_panel_resize(&mut self, cx: &mut Context<Self>) {
+        self.detail_panel_state.is_resizing = false;
+        cx.notify();
+    }
+
+    /// Toggle detail panel search (matches Vue's Ctrl+F)
+    fn toggle_detail_search(&mut self, cx: &mut Context<Self>) {
+        self.detail_search_state.is_active = !self.detail_search_state.is_active;
+        if !self.detail_search_state.is_active {
+            self.detail_search_state.query.clear();
+            self.detail_search_state.match_count = 0;
+            self.detail_search_state.match_index = 0;
+        }
+        cx.notify();
+    }
+
+    /// Update detail search query
+    fn update_detail_search(&mut self, query: String, cx: &mut Context<Self>) {
+        self.detail_search_state.query = query.clone();
+        // Count matches in current message value
+        if let Some(idx) = self.selected_message {
+            let msg = &self.messages[idx];
+            self.detail_search_state.match_count = if query.is_empty() {
+                0
+            } else {
+                msg.value.matches(&query).count()
+            };
+            self.detail_search_state.match_index = 0;
+        }
+        cx.notify();
+    }
+
+    /// Navigate to previous search match
+    fn detail_search_prev(&mut self, cx: &mut Context<Self>) {
+        if self.detail_search_state.match_count > 0 && self.detail_search_state.match_index > 0 {
+            self.detail_search_state.match_index -= 1;
+            cx.notify();
+        }
+    }
+
+    /// Navigate to next search match
+    fn detail_search_next(&mut self, cx: &mut Context<Self>) {
+        if self.detail_search_state.match_count > 0 {
+            self.detail_search_state.match_index = (self.detail_search_state.match_index + 1) % self.detail_search_state.match_count;
+            cx.notify();
+        }
+    }
+
+    /// Close detail search
+    fn close_detail_search(&mut self, cx: &mut Context<Self>) {
+        self.detail_search_state.is_active = false;
+        self.detail_search_state.query.clear();
+        self.detail_search_state.match_count = 0;
+        self.detail_search_state.match_index = 0;
+        cx.notify();
+    }
+}
+
+impl Render for MessagesViewWithState {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self.state.read(cx);
+        let theme = &state.theme;
+        let t = &self.translations;
+        let (cluster, topic) = self.current_topic(cx);
+        let show_time = self.show_time_filters;
+        let show_more = self.show_more_menu;
+
+        div()
+            .id("messages-view-with-state")
+            .flex()
+            .flex_col()
+            .size_full()
+            .gap(px(8.0))
+            .child(
+                // Toolbar (matches Vue's MessageQueryTool)
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .flex_wrap()
+                    .p(px(8.0))
+                    .border_b(px(1.0))
+                    .border_color(theme.border)
+                    .bg(theme.surface)
+                    .child(
+                        // Back button
+                        div()
+                            .id("back-btn")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .w(px(28.0))
+                            .h(px(28.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.go_back(cx);
+                            }))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .h(px(12.0))
+                                    .rounded(px(2.0))
+                                    .bg(theme.text_muted)
+                            )
+                    )
+                    .child(
+                        // Partition selector (dropdown style)
+                        div()
+                            .id("partition-select")
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_color(theme.text)
+                                    .text_xs()
+                                    .child(if self.selected_partition.is_none() { "All".to_string() } else { format!("P{}", self.selected_partition.unwrap()) })
+                            )
+                    )
+                    .child(
+                        // Query mode selector
+                        div()
+                            .id("mode-select")
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_color(theme.text)
+                                    .text_xs()
+                                    .child(if self.query_mode == QueryMode::Newest { "Newest" } else { "Oldest" })
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.query_mode = if this.query_mode == QueryMode::Newest { QueryMode::Oldest } else { QueryMode::Newest };
+                                cx.notify();
+                            }))
+                    )
+                    .child(
+                        // Max messages input
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_color(theme.text)
+                                    .text_xs()
+                                    .child(self.max_messages.to_string())
+                            )
+                    )
+                    .child(
+                        // Time filter toggle button
+                        div()
+                            .id("time-filter-btn")
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(if show_time { theme.primary.opacity(0.2) } else { theme.surface_raised })
+                            .border(px(1.0))
+                            .border_color(if show_time { theme.primary } else { theme.border })
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_time_filters();
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .h(px(12.0))
+                                    .rounded(px(2.0))
+                                    .bg(if show_time { theme.primary } else { theme.text_muted })
+                            )
+                            .child(
+                                div()
+                                    .text_color(if show_time { theme.primary } else { theme.text_muted })
+                                    .text_xs()
+                                    .child("Time")
+                            )
+                    )
+                    .child(
+                        // Search input with clear button (matches Vue's clearable input)
+                        div()
+                            .flex()
+                            .flex_1()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .child(
+                                div()
+                                    .text_color(if self.search_value.is_empty() { theme.text_muted } else { theme.text })
+                                    .text_xs()
+                                    .child(if self.search_value.is_empty() { "Search...".to_string() } else { self.search_value.clone() })
+                            )
+                            // Clear button (X) when search_value has content (matches Vue)
+                            .when(!self.search_value.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .id("search-clear-btn")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .w(px(16.0))
+                                        .h(px(16.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.search_value.clear();
+                                            cx.notify();
+                                        }))
+                                        .child(
+                                            div()
+                                                .w(px(8.0))
+                                                .h(px(8.0))
+                                                .rounded(px(2.0))
+                                                .bg(theme.text_muted.opacity(0.5))
+                                        )
+                                )
+                            })
+                    )
+                    .child(
+                        // Query/Stop button
+                        div()
+                            .id("query-btn")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .px(px(12.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(if self.is_querying { theme.error } else { theme.primary })
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if this.is_querying {
+                                    this.stop_query();
+                                } else {
+                                    this.start_query(cx);
+                                }
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .text_color(Hsla::from(gpui::rgb(0xffffff)))
+                                    .text_xs()
+                                    .child(if self.is_querying { "Stop" } else { "Query" })
+                            )
+                    )
+                    .child(
+                        // Send message button
+                        div()
+                            .id("send-btn")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .w(px(28.0))
+                            .h(px(28.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.open_send_modal();
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .h(px(12.0))
+                                    .rounded(px(2.0))
+                                    .bg(theme.success)
+                            )
+                    )
+                    .child(
+                        // More menu button
+                        div()
+                            .id("more-btn")
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .w(px(28.0))
+                            .h(px(28.0))
+                            .rounded(px(4.0))
+                            .bg(theme.surface_raised)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .cursor_pointer()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_more_menu();
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .h(px(12.0))
+                                    .rounded(px(2.0))
+                                    .bg(theme.text_muted)
+                            )
+                    )
+                    // Topic info display
+                    .when_some(topic.clone(), |this, topic_name| {
+                        this.child(
+                            div()
+                                .text_color(theme.text)
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(topic_name)
+                        )
+                    })
+                    .when_some(cluster.clone(), |this, c| {
+                        this.child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .text_xs()
+                                .child(format!("({})", c))
+                        )
+                    })
+            )
+            // Time filter panel (when toggled)
+            .when(show_time, |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .p(px(8.0))
+                        .bg(theme.surface_raised)
+                        .border_b(px(1.0))
+                        .border_color(theme.border)
+                        .child(
+                            // Start time
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_color(theme.text_muted)
+                                        .text_xs()
+                                        .child("Start:")
+                                )
+                                .child(
+                                    div()
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border)
+                                        .child(
+                                            div()
+                                                .text_color(theme.text)
+                                                .text_xs()
+                                                .child(if self.start_time.is_empty() { "YYYY-MM-DD".to_string() } else { self.start_time.clone() })
+                                        )
+                                )
+                        )
+                        .child(
+                            // End time
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_color(theme.text_muted)
+                                        .text_xs()
+                                        .child("End:")
+                                )
+                                .child(
+                                    div()
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border)
+                                        .child(
+                                            div()
+                                                .text_color(theme.text)
+                                                .text_xs()
+                                                .child(if self.end_time.is_empty() { "YYYY-MM-DD".to_string() } else { self.end_time.clone() })
+                                        )
+                                )
+                        )
+                        // Time preset buttons (matches Vue: 5m, 15m, 30m, 1h, 1d)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .id("preset-5m")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_time_preset(5);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("5m"))
+                                )
+                                .child(
+                                    div()
+                                        .id("preset-15m")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_time_preset(15);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("15m"))
+                                )
+                                .child(
+                                    div()
+                                        .id("preset-30m")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_time_preset(30);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("30m"))
+                                )
+                                .child(
+                                    div()
+                                        .id("preset-1h")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_time_preset(60);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("1h"))
+                                )
+                                .child(
+                                    div()
+                                        .id("preset-1d")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_time_preset(24 * 60);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("1d"))
+                                )
+                                .child(
+                                    div()
+                                        .id("clear-time")
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.clear_time_filters();
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("Clear"))
+                                )
+                        )
+                )
+            })
+            // More menu dropdown
+            .when(show_more, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .right(px(8.0))
+                        .top(px(44.0))
+                        .w(px(160.0))
+                        .rounded(px(6.0))
+                        .bg(theme.surface)
+                        .border(px(1.0))
+                        .border_color(theme.border)
+                        .p(px(4.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .child(
+                                    // History option
+                                    div()
+                                        .id("menu-history")
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .px(px(8.0))
+                                        .py(px(6.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface_raised)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.toggle_history();
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text).text_xs().child("发送历史"))
+                                )
+                                .child(
+                                    // Consumer groups option
+                                    div()
+                                        .id("menu-groups")
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .px(px(8.0))
+                                        .py(px(6.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface_raised)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.view_consumer_groups(cx);
+                                            cx.notify();
+                                        }))
+                                        .child(div().text_color(theme.text).text_xs().child("消费者组"))
+                                )
+                                .child(
+                                    // Delete topic option (danger)
+                                    div()
+                                        .id("menu-delete")
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .px(px(8.0))
+                                        .py(px(6.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.error.opacity(0.1))
+                                        .cursor_pointer()
+                                        .child(div().text_color(theme.error).text_xs().child("删除主题"))
+                                )
+                        )
+                )
+            })
+            // Status bar (matches Vue's status bar)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .border_b(px(1.0))
+                    .border_color(theme.border)
+                    .bg(theme.surface_raised)
+                    .child(
+                        // Left side: topic info + progress
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(16.0))
+                            .when_some(topic.clone(), |this, t_name| {
+                                this.child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.0))
+                                        .child(div().text_color(theme.text_muted).text_xs().child(t_name))
+                                        .when_some(cluster.clone(), |this, c| {
+                                            this.child(div().text_color(theme.text_muted).text_xs().child(format!("({})", c)))
+                                        })
+                                )
+                            })
+                            .when(self.is_querying, |this| {
+                                this.child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.0))
+                                        .child(
+                                            // Spinning indicator
+                                            div()
+                                                .w(px(12.0))
+                                                .h(px(12.0))
+                                                .rounded(px(6.0))
+                                                .border(px(2.0))
+                                                .border_color(theme.primary.opacity(0.3))
+                                                .bg(theme.surface)
+                                        )
+                                        .child(div().text_color(theme.primary).text_xs().child(format!("Receiving {} / {}", self.streaming_received, self.streaming_total)))
+                                )
+                            })
+                            .when(!self.is_querying && self.elapsed_time > 0, |this| {
+                                this.child(div().text_color(theme.text_muted).text_xs().child(format!("Elapsed: {}ms", self.elapsed_time)))
+                            })
+                            .when(!self.messages.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.0))
+                                        .child(div().text_color(theme.success).text_xs().font_weight(FontWeight::SEMIBOLD).child(format!("{} messages", self.messages.len())))
+                                        .child(
+                                            // Export button
+                                            div()
+                                                .id("export-btn")
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .w(px(20.0))
+                                                .h(px(20.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .cursor_pointer()
+                                                .child(
+                                                    div()
+                                                        .w(px(10.0))
+                                                        .h(px(10.0))
+                                                        .rounded(px(2.0))
+                                                        .bg(theme.text_muted)
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.export_messages(cx);
+                                                    cx.notify();
+                                                }))
+                                        )
+                                )
+                            })
+                    )
+                    .when(self.is_querying && self.streaming_total > 0, |this| {
+                        // Progress bar on right side (matches Vue's progress bar)
+                        let progress_pct = (self.streaming_received as f32 / self.streaming_total as f32).min(1.0);
+                        this.child(
+                            div()
+                                .flex_1()
+                                .mx(px(16.0))
+                                .h(px(4.0))
+                                .rounded(px(2.0))
+                                .bg(theme.surface)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .h(px(4.0))
+                                        .rounded(px(2.0))
+                                        .bg(theme.primary)
+                                        .w(relative(progress_pct))
+                                )
+                        )
+                    })
+            )
+            // Messages table
+            .child(
+                div()
+                    .id("messages-table")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .border(px(1.0))
+                    .border_color(theme.border)
+                    .rounded(px(8.0))
+                    .bg(theme.surface)
+                    // Keyboard navigation for arrow keys
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                        match event.keystroke.key.as_str() {
+                            "up" => {
+                                this.select_prev_message(cx);
+                            }
+                            "down" => {
+                                this.select_next_message(cx);
+                            }
+                            _ => {}
+                        }
+                    }))
+                    .when(self.messages.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .flex()
+                                .justify_center()
+                                .items_center()
+                                .py(px(32.0))
+                                .child(
+                                    div()
+                                        .text_color(theme.text_muted)
+                                        .text_sm()
+                                        .child("No messages. Click Query to fetch messages.")
+                                )
+                        )
+                    })
+                    .when(!self.messages.is_empty(), |this| {
+                            let sorted_messages = self.get_sorted_messages();
+                            let timestamp_sort = self.timestamp_sort;
+                            let col_widths = self.column_widths.clone();
+
+                            this.child(
+                            // Header row (matches Vue's table header with resize handles)
+                            div()
+                                .flex()
+                                .items_center()
+                                .px(px(8.0))
+                                .py(px(8.0))
+                                .bg(theme.surface_raised)
+                                .border_b(px(1.0))
+                                .border_color(theme.border)
+                                // Partition column
+                                .child(div().w(px(col_widths.partition)).text_color(theme.text_muted).text_xs().child("Partition"))
+                                // Resize handle for partition
+                                .child(
+                                    div()
+                                        .id("resize-partition")
+                                        .w(px(4.0))
+                                        .h(px(16.0))
+                                        .cursor_col_resize()
+                                        .bg(theme.border.opacity(0.3))
+                                        .hover(|d| d.bg(theme.primary.opacity(0.4)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_column_resize("partition", cx);
+                                        }))
+                                )
+                                // Offset column
+                                .child(div().w(px(col_widths.offset)).text_color(theme.text_muted).text_xs().child("Offset"))
+                                // Resize handle for offset
+                                .child(
+                                    div()
+                                        .id("resize-offset")
+                                        .w(px(4.0))
+                                        .h(px(16.0))
+                                        .cursor_col_resize()
+                                        .bg(theme.border.opacity(0.3))
+                                        .hover(|d| d.bg(theme.primary.opacity(0.4)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_column_resize("offset", cx);
+                                        }))
+                                )
+                                // Timestamp header with sort toggle (matches Vue's clickable header)
+                                .child(
+                                    div()
+                                        .id("timestamp-sort-header")
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.0))
+                                        .w(px(col_widths.timestamp))
+                                        .px(px(4.0))
+                                        .py(px(2.0))
+                                        .rounded(px(4.0))
+                                        .bg(if timestamp_sort != TimestampSort::None { theme.surface } else { gpui::transparent_black() })
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.toggle_timestamp_sort(cx);
+                                        }))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("Timestamp"))
+                                        .when(timestamp_sort != TimestampSort::None, |this| {
+                                            this.child(
+                                                div()
+                                                    .text_color(theme.primary)
+                                                    .text_xs()
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .child(timestamp_sort.label_char().to_string())
+                                            )
+                                        })
+                                )
+                                // Resize handle for timestamp
+                                .child(
+                                    div()
+                                        .id("resize-timestamp")
+                                        .w(px(4.0))
+                                        .h(px(16.0))
+                                        .cursor_col_resize()
+                                        .bg(theme.border.opacity(0.3))
+                                        .hover(|d| d.bg(theme.primary.opacity(0.4)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_column_resize("timestamp", cx);
+                                        }))
+                                )
+                                // Key column
+                                .child(div().w(px(col_widths.key)).text_color(theme.text_muted).text_xs().child("Key"))
+                                // Resize handle for key
+                                .child(
+                                    div()
+                                        .id("resize-key")
+                                        .w(px(4.0))
+                                        .h(px(16.0))
+                                        .cursor_col_resize()
+                                        .bg(theme.border.opacity(0.3))
+                                        .hover(|d| d.bg(theme.primary.opacity(0.4)))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_column_resize("key", cx);
+                                        }))
+                                )
+                                // Value column (flex_1)
+                                .child(div().flex_1().text_color(theme.text_muted).text_xs().child("Value"))
+                                // Actions column
+                                .child(div().w(px(col_widths.actions)).text_color(theme.text_muted).text_xs().child("Actions"))
+                        )
+                        .children(sorted_messages.iter().enumerate().map(|(idx, msg)| {
+                            let is_selected = self.selected_message == Some(idx);
+                            let idx_val = idx;
+                            let cw = col_widths.clone();
+
+                            div()
+                                .id(format!("msg-row-{}", idx))
+                                .flex()
+                                .items_center()
+                                .px(px(8.0))
+                                .py(px(6.0))
+                                .bg(if is_selected { theme.primary.opacity(0.15) } else { theme.surface })
+                                .border_l(px(3.0))
+                                .border_color(if is_selected { theme.primary } else { gpui::transparent_black() })
+                                .cursor_pointer()
+                                .hover(|d| d.bg(theme.surface_raised))
+                                .child(div().w(px(cw.partition)).text_color(theme.text_muted).text_xs().child(msg.partition.to_string()))
+                                .child(div().w(px(cw.offset)).text_color(theme.text_muted).text_xs().child(msg.offset.to_string()))
+                                .child(div().w(px(cw.timestamp)).text_color(theme.text_secondary).text_xs().child(msg.timestamp.clone()))
+                                .child(div().w(px(cw.key)).text_color(theme.text_secondary).text_xs().truncate().child(msg.key.clone().unwrap_or_else(|| "-".to_string())))
+                                .child(div().flex_1().text_color(theme.text).text_xs().truncate().child(msg.value.clone()))
+                                // Actions column with copy button (matches Vue)
+                                .child(
+                                    div()
+                                        .w(px(cw.actions))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(
+                                            div()
+                                                .id(format!("copy-row-{}", idx))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .w(px(18.0))
+                                                .h(px(18.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .cursor_pointer()
+                                                .on_click(cx.listener({
+                                                    let msg_value = msg.value.clone();
+                                                    move |this, _, _, cx| {
+                                                        // Copy value (placeholder - needs clipboard integration)
+                                                        println!("Copy message value: {}", msg_value);
+                                                        cx.notify();
+                                                    }
+                                                }))
+                                                .child(
+                                                    div()
+                                                        .w(px(8.0))
+                                                        .h(px(8.0))
+                                                        .rounded(px(2.0))
+                                                        .bg(theme.text_muted.opacity(0.5))
+                                                )
+                                        )
+                                )
+                                .on_click(cx.listener({
+                                    let idx = idx_val;
+                                    move |this, _, _, cx| {
+                                        this.selected_message = Some(idx);
+                                        cx.notify();
+                                    }
+                                }))
+                        }))
+                    })
+            )
+            // Detail panel (matches Vue's detail panel with resize handle)
+            .when_some(self.selected_message, |this, idx| {
+                let msg = &self.messages[idx];
+                let format_label = match self.detail_format {
+                    MessageFormat::Json => "JSON",
+                    MessageFormat::Raw => "Raw",
+                    MessageFormat::Hex => "Hex",
+                };
+                let panel_height = self.detail_panel_state.height;
+                let is_resizing = self.detail_panel_state.is_resizing;
+
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .border_t(px(1.0))
+                        .border_color(theme.border)
+                        .bg(theme.surface_raised)
+                        .h(px(panel_height))
+                        // Detail search bar (matches Vue's Ctrl+F search UI)
+                        .when(self.detail_search_state.is_active, |this| {
+                            let search_query = self.detail_search_state.query.clone();
+                            let match_count = self.detail_search_state.match_count;
+                            let match_index = self.detail_search_state.match_index;
+
+                            this.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(px(8.0))
+                                    .py(px(4.0))
+                                    .bg(theme.surface)
+                                    .border_b(px(1.0))
+                                    .border_color(theme.border)
+                                    // Search icon placeholder
+                                    .child(
+                                        div()
+                                            .w(px(12.0))
+                                            .h(px(12.0))
+                                            .rounded(px(2.0))
+                                            .bg(theme.text_muted.opacity(0.4))
+                                    )
+                                    // Search input
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .px(px(6.0))
+                                            .py(px(2.0))
+                                            .rounded(px(4.0))
+                                            .bg(theme.surface_raised)
+                                            .border(px(1.0))
+                                            .border_color(theme.border)
+                                            .child(
+                                                div()
+                                                    .text_color(if search_query.is_empty() { theme.text_muted } else { theme.text })
+                                                    .text_xs()
+                                                    .child(if search_query.is_empty() { "搜索详情内容...".to_string() } else { search_query.clone() })
+                                            )
+                                    )
+                                    // Match count display
+                                    .when(!search_query.is_empty(), |this| {
+                                        this.child(
+                                            div()
+                                                .text_color(if match_count > 0 { theme.text_muted } else { theme.error })
+                                                .text_xs()
+                                                .child(if match_count > 0 {
+                                                    format!("{}/{}", match_index + 1, match_count)
+                                                } else {
+                                                    "0 匹配".to_string()
+                                                })
+                                        )
+                                    })
+                                    // Prev button (when matches exist)
+                                    .when(!search_query.is_empty() && match_count > 0, |this| {
+                                        this.child(
+                                            div()
+                                                .id("search-prev-btn")
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .w(px(16.0))
+                                                .h(px(16.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.detail_search_prev(cx);
+                                                }))
+                                                .child(
+                                                    div()
+                                                        .w(px(8.0))
+                                                        .h(px(4.0))
+                                                        .rounded(px(2.0))
+                                                        .bg(theme.text_muted.opacity(0.5))
+                                                )
+                                        )
+                                    })
+                                    // Next button (when matches exist)
+                                    .when(!search_query.is_empty() && match_count > 0, |this| {
+                                        this.child(
+                                            div()
+                                                .id("search-next-btn")
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .w(px(16.0))
+                                                .h(px(16.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.detail_search_next(cx);
+                                                }))
+                                                .child(
+                                                    div()
+                                                        .w(px(8.0))
+                                                        .h(px(4.0))
+                                                        .rounded(px(2.0))
+                                                        .bg(theme.text_muted.opacity(0.5))
+                                                )
+                                        )
+                                    })
+                                    // Close search button
+                                    .child(
+                                        div()
+                                            .id("close-search-btn")
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .w(px(16.0))
+                                            .h(px(16.0))
+                                            .rounded(px(4.0))
+                                            .bg(theme.surface)
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.close_detail_search(cx);
+                                            }))
+                                            .child(
+                                                div()
+                                                    .w(px(8.0))
+                                                    .h(px(8.0))
+                                                    .rounded(px(2.0))
+                                                    .bg(theme.text_muted.opacity(0.5))
+                                            )
+                                    )
+                            )
+                        })
+                        .child(
+                            // Resize handle (functional - matches Vue's startResize)
+                            div()
+                                .id("detail-panel-resize-handle")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .h(px(6.0))
+                                .bg(if is_resizing { theme.primary.opacity(0.5) } else { theme.border.opacity(0.5) })
+                                .cursor_row_resize()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    // Toggle resize mode (click to enable/disable)
+                                    if this.detail_panel_state.is_resizing {
+                                        this.end_detail_panel_resize(cx);
+                                    } else {
+                                        this.start_detail_panel_resize(cx);
+                                    }
+                                }))
+                                .child(
+                                    div()
+                                        .w(px(32.0))
+                                        .h(px(2.0))
+                                        .rounded(px(1.0))
+                                        .bg(if is_resizing { theme.primary } else { theme.text_muted.opacity(0.3) })
+                                )
+                        )
+                        .child(
+                            // Header row
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .px(px(8.0))
+                                .py(px(4.0))
+                                .border_b(px(1.0))
+                                .border_color(theme.border)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .child(div().text_color(theme.text).text_xs().font_weight(FontWeight::SEMIBOLD).child("Message Detail"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child(format!("P: {}", msg.partition)))
+                                        .child(div().text_color(theme.text_muted).text_xs().child(format!("O: {}", msg.offset)))
+                                        .child(div().text_color(theme.text_muted).text_xs().child(msg.timestamp.clone()))
+                                )
+                                .child(
+                                    // Close button
+                                    div()
+                                        .id("close-detail")
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .w(px(20.0))
+                                        .h(px(20.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface)
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.selected_message = None;
+                                            cx.notify();
+                                        }))
+                                        .child(
+                                            div()
+                                                .w(px(8.0))
+                                                .h(px(8.0))
+                                                .rounded(px(2.0))
+                                                .bg(theme.text_muted)
+                                        )
+                                )
+                        )
+                        .child(
+                            // Content area
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(8.0))
+                                .p(px(8.0))
+                                .child(
+                                    // Key row with copy button
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(4.0))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .justify_between()
+                                                .child(div().text_color(theme.text_muted).text_xs().font_weight(FontWeight::SEMIBOLD).child("Key:"))
+                                                .child(
+                                                    // Copy key button
+                                                    div()
+                                                        .id("copy-key-btn")
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .w(px(18.0))
+                                                        .h(px(18.0))
+                                                        .rounded(px(4.0))
+                                                        .bg(theme.surface)
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.copy_key(cx);
+                                                            cx.notify();
+                                                        }))
+                                                        .child(
+                                                            div()
+                                                                .w(px(8.0))
+                                                                .h(px(8.0))
+                                                                .rounded(px(2.0))
+                                                                .bg(theme.text_muted.opacity(0.5))
+                                                        )
+                                                )
+                                        )
+                                        .child(
+                                            div()
+                                                .px(px(8.0))
+                                                .py(px(4.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .border(px(1.0))
+                                                .border_color(theme.border)
+                                                .child(
+                                                    div()
+                                                        .text_color(theme.text)
+                                                        .text_xs()
+                                                        .truncate()
+                                                        .child(msg.key.clone().unwrap_or_else(|| "-".to_string()))
+                                                )
+                                        )
+                                )
+                                .child(
+                                    // Value row with format selector and copy button
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(4.0))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .justify_between()
+                                                .child(
+                                                    div()
+                                                        .flex()
+                                                        .items_center()
+                                                        .gap(px(4.0))
+                                                        .child(div().text_color(theme.text_muted).text_xs().font_weight(FontWeight::SEMIBOLD).child("Value:"))
+                                                        .child(
+                                                            // Format toggle
+                                                            div()
+                                                                .id("format-toggle")
+                                                                .px(px(4.0))
+                                                                .py(px(2.0))
+                                                                .rounded(px(2.0))
+                                                                .bg(theme.surface)
+                                                                .cursor_pointer()
+                                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                                    this.toggle_format();
+                                                                    cx.notify();
+                                                                }))
+                                                                .child(div().text_color(theme.text_secondary).text_xs().child(format_label))
+                                                        )
+                                                )
+                                                .child(
+                                                    // Copy value button
+                                                    div()
+                                                        .id("copy-value-btn")
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .w(px(18.0))
+                                                        .h(px(18.0))
+                                                        .rounded(px(4.0))
+                                                        .bg(theme.surface)
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.copy_value(cx);
+                                                            cx.notify();
+                                                        }))
+                                                        .child(
+                                                            div()
+                                                                .w(px(8.0))
+                                                                .h(px(8.0))
+                                                                .rounded(px(2.0))
+                                                                .bg(theme.text_muted.opacity(0.5))
+                                                        )
+                                                )
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h(px(80.0))
+                                                .px(px(8.0))
+                                                .py(px(4.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.surface)
+                                                .border(px(1.0))
+                                                .border_color(theme.border)
+                                                .child(
+                                                    div()
+                                                        .text_color(theme.text)
+                                                        .text_xs()
+                                                        .child(msg.value.clone())
+                                                )
+                                        )
+                                )
+                        )
+                )
+            })
     }
 }

@@ -14,6 +14,8 @@ use crate::ui::components::{
 use crate::ui::components::create_topic_dialog::TopicForm;
 use crate::api::TopicResponse;
 use crate::api::PartitionInfo;
+use crate::utils::time::current_timestamp_ms;
+use crate::router::ViewType;
 
 /// Topics management view
 #[derive(Clone)]
@@ -545,5 +547,490 @@ impl IntoElement for TopicsView {
             .child(self.topic_context_menu)
             // Partition context menu (for right-click on partitions)
             .child(self.partition_context_menu)
+    }
+}
+
+/// Topics view with GlobalState Entity integration
+pub struct TopicsViewWithState {
+    state: Entity<GlobalState>,
+    translations: Arc<Translations>,
+    search_query: String,
+    loading: bool,
+    refreshing: bool,
+    show_create_dialog: bool,
+    selected_topic: Option<String>,
+    /// Track last clicked topic for double-click navigation
+    last_clicked_topic: Option<String>,
+    /// Timestamp of last click (for double-click detection, in milliseconds)
+    last_click_time: i64,
+}
+
+impl TopicsViewWithState {
+    pub fn new(state: Entity<GlobalState>, translations: Arc<Translations>) -> Self {
+        Self {
+            state,
+            translations,
+            search_query: String::new(),
+            loading: false,
+            refreshing: false,
+            show_create_dialog: false,
+            selected_topic: None,
+            last_clicked_topic: None,
+            last_click_time: 0,
+        }
+    }
+
+    fn get_cluster_name(&self, cx: &App) -> Option<String> {
+        self.state.read(cx).selected_cluster.clone()
+    }
+
+    fn get_topics(&self, cx: &App) -> Vec<String> {
+        let cluster = self.get_cluster_name(cx);
+        if let Some(c) = cluster {
+            self.state.read(cx)
+                .cluster_topics
+                .get(&c)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn filtered_topics(&self, cx: &App) -> Vec<String> {
+        let topics = self.get_topics(cx);
+        if self.search_query.is_empty() {
+            topics
+        } else {
+            topics.iter()
+                .filter(|t| t.to_lowercase().contains(&self.search_query.to_lowercase()))
+                .cloned()
+                .collect()
+        }
+    }
+
+    fn refresh_topics(&mut self, cx: &mut Context<Self>) {
+        self.refreshing = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            this.update(cx, |view, cx| {
+                view.refreshing = false;
+                cx.notify();
+            }).ok();
+        }).detach();
+        cx.notify();
+    }
+
+    fn open_create_dialog(&mut self, cx: &mut Context<Self>) {
+        self.show_create_dialog = true;
+        cx.notify();
+    }
+
+    fn close_create_dialog(&mut self, cx: &mut Context<Self>) {
+        self.show_create_dialog = false;
+        cx.notify();
+    }
+
+    /// Handle topic row click with double-click detection
+    /// Double-click navigates to MessagesView (matches Vue's double-click behavior)
+    fn handle_topic_row_click(&mut self, topic: String, cluster: String, cx: &mut Context<Self>) -> bool {
+        let now = current_timestamp_ms();
+        let is_double_click = self.last_clicked_topic.as_ref() == Some(&topic)
+            && now - self.last_click_time < 500; // 500ms threshold for double-click
+
+        if is_double_click {
+            // Navigate to messages view on double-click
+            self.state.update(cx, |state, cx| {
+                state.select_topic(cluster.clone(), topic.clone());
+                state.navigate(ViewType::Messages);
+                cx.notify();
+            });
+            // Reset click tracking
+            self.last_clicked_topic = None;
+            self.last_click_time = 0;
+        } else {
+            // Single click - just update tracking
+            self.last_clicked_topic = Some(topic.clone());
+            self.last_click_time = now;
+        }
+        cx.notify();
+        is_double_click
+    }
+}
+
+use crate::state::GlobalState;
+
+impl Render for TopicsViewWithState {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self.state.read(cx);
+        let theme = &state.theme;
+        let t = &self.translations;
+        let cluster = self.get_cluster_name(cx);
+        let topics = self.filtered_topics(cx);
+        let total = self.get_topics(cx).len();
+
+        div()
+            .id("topics-view-with-state")
+            .flex()
+            .flex_col()
+            .size_full()
+            .gap(px(12.0))
+            .child(
+                // Header with cluster name and back button (matches Vue)
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            // Back button (matches Vue's back button)
+                            .child(
+                                div()
+                                    .id("back-btn")
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .w(px(24.0))
+                                    .h(px(24.0))
+                                    .rounded(px(4.0))
+                                    .bg(theme.surface_raised)
+                                    .cursor_pointer()
+                                    .child(
+                                        div()
+                                            .w(px(8.0))
+                                            .h(px(8.0))
+                                            .rounded(px(2.0))
+                                            .bg(theme.text_muted)
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.state.update(cx, |s, cx| {
+                                            s.navigate(crate::router::ViewType::Clusters);
+                                            cx.notify();
+                                        });
+                                    }))
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(4.0))
+                                    .child(
+                                        div()
+                                            .text_color(theme.text)
+                                            .text_2xl()
+                                            .font_weight(FontWeight::BOLD)
+                                            .child(t.topics.title.clone())
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(theme.text_muted)
+                                            .text_sm()
+                                            .when_some(cluster.clone(), |this, c| {
+                                                this.child(format!("{}: {}", t.clusters.clusters.clone(), c))
+                                            })
+                                            .when(cluster.is_none(), |this| {
+                                                this.child(t.topics.description.clone())
+                                            })
+                                    )
+                            )
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                // Refresh button
+                                div()
+                                    .id("refresh-topics-btn")
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(px(12.0))
+                                    .py(px(6.0))
+                                    .rounded(px(6.0))
+                                    .bg(theme.surface_raised)
+                                    .border(px(1.0))
+                                    .border_color(theme.border)
+                                    .cursor_pointer()
+                                    .when(self.refreshing, |this| {
+                                        this.child(div().text_color(theme.warning).text_xs().child("⟳"))
+                                    })
+                                    .when(!self.refreshing, |this| {
+                                        this.child(div().text_color(theme.text_muted).text_xs().child("↻"))
+                                    })
+                                    .child(div().text_color(theme.text_secondary).text_sm().child(t.common.refresh.clone()))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.refresh_topics(cx);
+                                    }))
+                            )
+                            .child(
+                                // Create Topic button
+                                div()
+                                    .id("create-topic-btn")
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(px(12.0))
+                                    .py(px(6.0))
+                                    .rounded(px(6.0))
+                                    .bg(theme.primary)
+                                    .cursor_pointer()
+                                    .child(div().text_color(Hsla::from(gpui::rgb(0xffffff))).text_xs().child("+"))
+                                    .child(div().text_color(Hsla::from(gpui::rgb(0xffffff))).text_sm().child(t.common.create.clone()))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_create_dialog(cx);
+                                    }))
+                            )
+                    )
+            )
+            // Search bar
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .rounded(px(6.0))
+                    .bg(theme.surface)
+                    .border(px(1.0))
+                    .border_color(theme.border)
+                    .child(div().text_color(theme.text_muted).text_xs().child("🔍"))
+                    .child(
+                        div()
+                            .text_color(if self.search_query.is_empty() { theme.text_muted } else { theme.text })
+                            .text_sm()
+                            .child(if self.search_query.is_empty() {
+                                format!("{} {}...", t.common.search.clone(), total)
+                            } else {
+                                format!("{} matching", topics.len())
+                            })
+                    )
+            )
+            // No cluster selected state
+            .when(cluster.is_none(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .flex_1()
+                        .child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .text_sm()
+                                .child(t.common.no_data.clone())
+                        )
+                        .child(
+                            div()
+                                .text_color(theme.text_muted.opacity(0.6))
+                                .text_xs()
+                                .child("Select a cluster to view topics")
+                        )
+                )
+            })
+            // Topics list
+            .when_some(cluster, |this, _c| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .border(px(1.0))
+                        .border_color(theme.border)
+                        .rounded(px(8.0))
+                        .bg(theme.surface)
+                        .when(self.loading || self.refreshing, |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .justify_center()
+                                    .py(px(16.0))
+                                    .child(div().text_color(theme.text_muted).text_xs().child(t.common.loading.clone()))
+                            )
+                        })
+                        .when(!self.loading && !self.refreshing && topics.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .justify_center()
+                                    .py(px(16.0))
+                                    .child(div().text_color(theme.text_muted).text_xs().child(t.common.no_data.clone()))
+                            )
+                        })
+                        .when(!self.loading && !self.refreshing && !topics.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(400.0))
+                                    
+                                    .children(topics.iter().enumerate().map(|(idx, topic)| {
+                                        let topic_name = topic.clone();
+                                        let cluster_name = self.get_cluster_name(cx).unwrap_or_default();
+
+                                        div()
+                                            .id(format!("topic-row-{}", idx))
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .px(px(12.0))
+                                            .py(px(8.0))
+                                            .border_b(px(1.0))
+                                            .border_color(theme.border.opacity(0.5))
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(theme.surface_raised))
+                                            // Single click handler for double-click detection
+                                            .on_click(cx.listener({
+                                                let topic_name = topic_name.clone();
+                                                let cluster_name = cluster_name.clone();
+                                                move |this, _, _, cx| {
+                                                    this.handle_topic_row_click(topic_name.clone(), cluster_name.clone(), cx);
+                                                }
+                                            }))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(8.0))
+                                                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(2.0)).bg(theme.text_muted.opacity(0.5)))
+                                                    .child(div().text_color(theme.text_secondary).text_sm().truncate().child(topic_name.clone()))
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(4.0))
+                                                    .child(
+                                                        div()
+                                                            .id(format!("view-msg-{}", idx))
+                                                            .flex()
+                                                            .items_center()
+                                                            .justify_center()
+                                                            .px(px(8.0))
+                                                            .py(px(4.0))
+                                                            .rounded(px(4.0))
+                                                            .bg(theme.primary.opacity(0.1))
+                                                            .cursor_pointer()
+                                                            .hover(|d| d.bg(theme.primary.opacity(0.2)))
+                                                            .child(div().text_color(theme.primary).text_xs().child("View"))
+                                                            .on_click(cx.listener({
+                                                                let topic_name = topic_name.clone();
+                                                                let cluster_name = cluster_name.clone();
+                                                                move |this, _, _, cx| {
+                                                                    this.state.update(cx, |state, cx| {
+                                                                        state.select_topic(cluster_name.clone(), topic_name.clone());
+                                                                        state.navigate_to_messages(&cluster_name, &topic_name);
+                                                                        cx.notify();
+                                                                    });
+                                                                    cx.notify();
+                                                                }
+                                                            }))
+                                                    )
+                                            )
+                                    }))
+                            )
+                        })
+                )
+            })
+            // Create Topic Dialog (modal)
+            .when(self.show_create_dialog, |this| {
+                this.child(
+                    div()
+                        .id("create-topic-modal-overlay")
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(0.0))
+                        .right(px(0.0))
+                        .bottom(px(0.0))
+                        .bg(gpui::transparent_black().opacity(0.5))
+                        .child(
+                            div()
+                                .id("create-topic-modal")
+                                .flex()
+                                .flex_col()
+                                .gap(px(16.0))
+                                .w(px(400.0))
+                                .rounded(px(12.0))
+                                .bg(theme.surface)
+                                .border(px(1.0))
+                                .border_color(theme.border)
+                                .p(px(24.0))
+                                .child(
+                                    div()
+                                        .text_color(theme.text)
+                                        .text_lg()
+                                        .font_weight(FontWeight::BOLD)
+                                        .child(t.topics.create.clone())
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(8.0))
+                                        .child(
+                                            div()
+                                                .text_color(theme.text_muted)
+                                                .text_xs()
+                                                .child("Topic Name")
+                                        )
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .px(px(12.0))
+                                                .py(px(8.0))
+                                                .rounded(px(6.0))
+                                                .bg(theme.surface_raised)
+                                                .border(px(1.0))
+                                                .border_color(theme.border)
+                                                .child(div().text_color(theme.text_muted).text_sm().child("Enter topic name..."))
+                                        )
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .justify_end()
+                                        .gap(px(8.0))
+                                        .child(
+                                            div()
+                                                .id("cancel-create")
+                                                .px(px(16.0))
+                                                .py(px(8.0))
+                                                .rounded(px(6.0))
+                                                .bg(theme.surface_raised)
+                                                .cursor_pointer()
+                                                .child(div().text_color(theme.text_secondary).text_sm().child(t.common.cancel.clone()))
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.close_create_dialog(cx);
+                                                }))
+                                        )
+                                        .child(
+                                            div()
+                                                .id("confirm-create")
+                                                .px(px(16.0))
+                                                .py(px(8.0))
+                                                .rounded(px(6.0))
+                                                .bg(theme.primary)
+                                                .cursor_pointer()
+                                                .child(div().text_color(Hsla::from(gpui::rgb(0xffffff))).text_sm().child(t.common.create.clone()))
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.close_create_dialog(cx);
+                                                    // Would create topic here
+                                                }))
+                                        )
+                                )
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.close_create_dialog(cx);
+                        }))
+                )
+            })
     }
 }

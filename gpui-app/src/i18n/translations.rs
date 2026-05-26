@@ -170,6 +170,7 @@ pub struct ClusterTranslations {
     pub view_topics_link: String,
     pub disconnect: String,
     pub reconnect: String,
+    pub clusters: String,
 }
 
 impl ClusterTranslations {
@@ -195,6 +196,7 @@ impl ClusterTranslations {
             view_topics_link: "查看 Topics".into(),
             disconnect: "断开".into(),
             reconnect: "重连".into(),
+            clusters: "集群".into(),
         }
     }
 
@@ -220,6 +222,7 @@ impl ClusterTranslations {
             view_topics_link: "View Topics".into(),
             disconnect: "Disconnect".into(),
             reconnect: "Reconnect".into(),
+            clusters: "Clusters".into(),
         }
     }
 }
@@ -234,6 +237,7 @@ pub struct TopicTranslations {
     pub delete_topic: String,
     pub partitions: String,
     pub replication_factor: String,
+    pub create: String,
 }
 
 impl TopicTranslations {
@@ -246,6 +250,7 @@ impl TopicTranslations {
             delete_topic: "删除 Topic".into(),
             partitions: "分区数".into(),
             replication_factor: "副本数".into(),
+            create: "创建".into(),
         }
     }
 
@@ -258,6 +263,7 @@ impl TopicTranslations {
             delete_topic: "Delete Topic".into(),
             partitions: "Partitions".into(),
             replication_factor: "Replication Factor".into(),
+            create: "Create".into(),
         }
     }
 }
@@ -370,18 +376,37 @@ impl MessageTranslations {
     }
 }
 
-/// Consumer Group translations (placeholder)
+/// Consumer Group translations
 #[derive(Debug, Clone)]
 pub struct ConsumerGroupTranslations {
     pub title: String,
+    pub description: String,
+    pub clusters: String,
+    pub groupNamePrefix: String,
+    pub resetOffset: String,
+    pub deleteGroup: String,
 }
 
 impl ConsumerGroupTranslations {
     pub fn zh() -> Self {
-        Self { title: "消费者组".into() }
+        Self {
+            title: "消费者组".into(),
+            description: "管理 Kafka 消费者组".into(),
+            clusters: "集群".into(),
+            groupNamePrefix: "组名前缀".into(),
+            resetOffset: "重置偏移".into(),
+            deleteGroup: "删除组".into(),
+        }
     }
     pub fn en() -> Self {
-        Self { title: "Consumer Groups".into() }
+        Self {
+            title: "Consumer Groups".into(),
+            description: "Manage Kafka Consumer Groups".into(),
+            clusters: "Clusters".into(),
+            groupNamePrefix: "Group Prefix".into(),
+            resetOffset: "Reset Offset".into(),
+            deleteGroup: "Delete Group".into(),
+        }
     }
 }
 

@@ -7,8 +7,8 @@ pub mod topic_context_menu;
 pub mod partition_context_menu;
 pub mod topics_folder_context_menu;
 
-pub use cluster_context_menu::{ClusterContextMenu, ClusterAction};
-pub use topic_context_menu::{TopicContextMenu, TopicAction};
-pub use partition_context_menu::{PartitionContextMenu, PartitionAction};
+pub use cluster_context_menu::{ClusterContextMenu, ClusterContextMenuWithState, ClusterAction};
+pub use topic_context_menu::{TopicContextMenu, TopicContextMenuWithState, TopicAction};
+pub use partition_context_menu::{PartitionContextMenu, PartitionContextMenuWithState, PartitionAction};
 pub use topics_folder_context_menu::{TopicsFolderContextMenu, TopicsFolderAction};
 

@@ -40,9 +40,10 @@ pub use topic_list_view::{TopicListView, TopicTab, TopicConfigEntry, TopicStats}
 pub use topic_navigator::{TopicNavigator, TopicNavItem, TopicSortMode};
 pub use topic_favorites::{TopicFavorites, FavoriteTopicItem, FavoriteGroup};
 pub use message_detail_panel::{MessageDetailPanel, MessageDetail};
-pub use toast::{ToastManager, Toast, ToastType};
+pub use toast::{ToastManager, ToastManagerWithState, Toast, ToastPosition};
+pub use crate::state::ToastType;
 pub use favorite_button::FavoriteButton;
-pub use cluster_tree_navigator::ClusterTreeNavigator;
+pub use cluster_tree_navigator::{ClusterTreeNavigator, ClusterTreeNavigatorLegacy};
 pub use confirm_dialog::{ConfirmDialog, ConfirmVariant};
 pub use json_editor::JsonEditor;
 pub use theme_selector::{ThemeSelector, ThemeMode};
@@ -54,8 +55,8 @@ pub use virtual_list::{VirtualList, VirtualListConfig, VirtualListState, Virtual
 pub use topic_history::{TopicHistory, TopicHistoryItem};
 pub use sent_message_history::SentMessageHistory;
 pub use context_menus::{
-    ClusterContextMenu, ClusterAction,
-    TopicContextMenu, TopicAction,
+    ClusterContextMenu, ClusterContextMenuWithState, ClusterAction,
+    TopicContextMenu, TopicContextMenuWithState, TopicAction,
     PartitionContextMenu, PartitionAction,
     TopicsFolderContextMenu, TopicsFolderAction,
 };

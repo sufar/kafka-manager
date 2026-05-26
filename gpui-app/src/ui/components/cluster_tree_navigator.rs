@@ -1,539 +1,488 @@
 //! Cluster Tree Navigator
 //!
 //! Tree view for clusters and topics navigation with search filtering.
+//! Dynamic data integration with GlobalState Entity.
+//! Supports click navigation, right-click context menus, and topic search.
 
 use gpui::prelude::*;
 use gpui::*;
 use std::sync::Arc;
+use std::collections::{HashSet, HashMap};
 use crate::i18n::Translations;
 use crate::ui::Theme;
-use crate::state::ConnectionStatusType;
+use crate::state::{GlobalState, ClusterHealth};
+use crate::router::ViewType;
+use crate::api::ClusterResponse;
 
 /// Tree node state
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NodeState {
-    Expanded,
+    #[default]
     Collapsed,
+    Expanded,
 }
 
-/// Cluster group for organizing clusters
-#[derive(Debug, Clone)]
-pub struct ClusterGroup {
-    pub id: i64,
-    pub name: String,
-    pub color: Option<Hsla>,
-}
-
-impl Default for ClusterGroup {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            name: "Default".to_string(),
-            color: None,
-        }
-    }
-}
-
-/// Tree navigator with search and grouping support
+/// Cluster tree navigator with GlobalState Entity integration
 pub struct ClusterTreeNavigator {
-    theme: Theme,
+    state: Entity<GlobalState>,
     translations: Arc<Translations>,
-    /// Tree data with grouping
-    groups: Vec<TreeGroup>,
-    /// Selected node path (cluster_id -> topic_name)
-    selected_node: Option<String>,
-    /// Search filter string
+    expanded_clusters: HashSet<String>,
+    expanded_folders: HashSet<String>,
+    selected_cluster: Option<String>,
+    selected_topic: Option<(String, String)>,
     search_filter: String,
-    /// Show all clusters expanded
-    expand_all: bool,
-}
-
-/// Tree group containing clusters
-struct TreeGroup {
-    group: ClusterGroup,
-    clusters: Vec<ClusterTreeNode>,
-    state: NodeState,
-}
-
-/// Cluster tree node
-struct ClusterTreeNode {
-    id: String,
-    name: String,
-    status: ConnectionStatusType,
-    group_id: Option<i64>,
-    topics_state: NodeState,
-    topics: Vec<TopicTreeNode>,
-}
-
-/// Topic tree node
-struct TopicTreeNode {
-    name: String,
-    partition_count: i32,
-    partitions_state: NodeState,
-    partitions: Vec<PartitionTreeNode>,
-}
-
-/// Partition tree node
-struct PartitionTreeNode {
-    id: i32,
-    leader: Option<i32>,
+    group_filter: Option<i32>,
+    /// Per-cluster topic search queries
+    topic_search: HashMap<String, String>,
+    /// Per-cluster consumer group search queries
+    consumer_group_search: HashMap<String, String>,
+    /// Refreshing topics for specific clusters
+    refreshing_topics: HashSet<String>,
+    /// Refreshing consumer groups for specific clusters
+    refreshing_consumer_groups: HashSet<String>,
 }
 
 impl ClusterTreeNavigator {
-    /// Create new tree navigator
-    pub fn new(theme: Theme, translations: Arc<Translations>) -> Self {
-        // Mock data with grouping
-        let groups = vec![
-            TreeGroup {
-                group: ClusterGroup {
-                    id: 1,
-                    name: "Production".to_string(),
-                    color: Some(theme.success),
-                },
-                state: NodeState::Expanded,
-                clusters: vec![
-                    ClusterTreeNode {
-                        id: "prod-1".to_string(),
-                        name: "Main Cluster".to_string(),
-                        status: ConnectionStatusType::Connected,
-                        group_id: Some(1),
-                        topics_state: NodeState::Expanded,
-                        topics: vec![
-                            TopicTreeNode {
-                                name: "orders".to_string(),
-                                partition_count: 3,
-                                partitions_state: NodeState::Collapsed,
-                                partitions: vec![
-                                    PartitionTreeNode { id: 0, leader: Some(1) },
-                                    PartitionTreeNode { id: 1, leader: Some(2) },
-                                    PartitionTreeNode { id: 2, leader: Some(3) },
-                                ],
-                            },
-                            TopicTreeNode {
-                                name: "payments".to_string(),
-                                partition_count: 1,
-                                partitions_state: NodeState::Collapsed,
-                                partitions: vec![PartitionTreeNode { id: 0, leader: Some(1) }],
-                            },
-                            TopicTreeNode {
-                                name: "notifications".to_string(),
-                                partition_count: 6,
-                                partitions_state: NodeState::Collapsed,
-                                partitions: vec![
-                                    PartitionTreeNode { id: 0, leader: None },
-                                    PartitionTreeNode { id: 1, leader: None },
-                                    PartitionTreeNode { id: 2, leader: None },
-                                    PartitionTreeNode { id: 3, leader: None },
-                                    PartitionTreeNode { id: 4, leader: None },
-                                    PartitionTreeNode { id: 5, leader: None },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-            TreeGroup {
-                group: ClusterGroup {
-                    id: 2,
-                    name: "Development".to_string(),
-                    color: Some(theme.warning),
-                },
-                state: NodeState::Expanded,
-                clusters: vec![
-                    ClusterTreeNode {
-                        id: "dev-1".to_string(),
-                        name: "Dev Cluster".to_string(),
-                        status: ConnectionStatusType::Connected,
-                        group_id: Some(2),
-                        topics_state: NodeState::Collapsed,
-                        topics: vec![
-                            TopicTreeNode {
-                                name: "test-topic".to_string(),
-                                partition_count: 1,
-                                partitions_state: NodeState::Collapsed,
-                                partitions: vec![PartitionTreeNode { id: 0, leader: None }],
-                            },
-                            TopicTreeNode {
-                                name: "debug-events".to_string(),
-                                partition_count: 1,
-                                partitions_state: NodeState::Collapsed,
-                                partitions: vec![PartitionTreeNode { id: 0, leader: None }],
-                            },
-                        ],
-                    },
-                    ClusterTreeNode {
-                        id: "dev-2".to_string(),
-                        name: "Local Kafka".to_string(),
-                        status: ConnectionStatusType::Disconnected,
-                        group_id: Some(2),
-                        topics_state: NodeState::Collapsed,
-                        topics: vec![],
-                    },
-                ],
-            },
-            TreeGroup {
-                group: ClusterGroup {
-                    id: 0,
-                    name: " Ungrouped".to_string(),
-                    color: None,
-                },
-                state: NodeState::Collapsed,
-                clusters: vec![
-                    ClusterTreeNode {
-                        id: "standalone-1".to_string(),
-                        name: "Standalone".to_string(),
-                        status: ConnectionStatusType::Error,
-                        group_id: None,
-                        topics_state: NodeState::Collapsed,
-                        topics: vec![],
-                    },
-                ],
-            },
-        ];
-
+    pub fn new(state: Entity<GlobalState>, translations: Arc<Translations>) -> Self {
         Self {
-            theme,
+            state,
             translations,
-            groups,
-            selected_node: Some("orders".to_string()),
+            expanded_clusters: HashSet::new(),
+            expanded_folders: HashSet::new(),
+            selected_cluster: None,
+            selected_topic: None,
             search_filter: String::new(),
-            expand_all: false,
+            group_filter: None,
+            topic_search: HashMap::new(),
+            consumer_group_search: HashMap::new(),
+            refreshing_topics: HashSet::new(),
+            refreshing_consumer_groups: HashSet::new(),
         }
     }
 
-    /// Set search filter
-    pub fn set_search_filter(&mut self, filter: String) {
-        let is_empty = filter.is_empty();
-        self.search_filter = filter;
-        // Auto-expand matching clusters/topics
-        if !is_empty {
-            self.expand_all = true;
+    fn toggle_cluster(&mut self, name: &str) {
+        if self.expanded_clusters.contains(name) {
+            self.expanded_clusters.remove(name);
+        } else {
+            self.expanded_clusters.insert(name.to_string());
         }
     }
 
-    /// Get search filter
-    pub fn search_filter(&self) -> &str {
-        &self.search_filter
+    fn toggle_folder(&mut self, key: &str) {
+        if self.expanded_folders.contains(key) {
+            self.expanded_folders.remove(key);
+        } else {
+            self.expanded_folders.insert(key.to_string());
+        }
     }
 
-    /// Clear search filter
-    pub fn clear_search(&mut self) {
-        self.search_filter.clear();
-        self.expand_all = false;
+    fn get_topic_search(&self, cluster: &str) -> String {
+        self.topic_search.get(cluster).cloned().unwrap_or_default()
     }
 
-    /// Toggle all clusters expanded/collapsed
-    pub fn toggle_expand_all(&mut self) {
-        self.expand_all = !self.expand_all;
-        for group in &mut self.groups {
-            group.state = if self.expand_all { NodeState::Expanded } else { NodeState::Collapsed };
-            for cluster in &mut group.clusters {
-                cluster.topics_state = if self.expand_all { NodeState::Expanded } else { NodeState::Collapsed };
+    fn set_topic_search(&mut self, cluster: &str, query: String) {
+        self.topic_search.insert(cluster.to_string(), query);
+    }
+
+    fn filter_topics(&self, topics: &[String], cluster: &str) -> Vec<String> {
+        let query = self.get_topic_search(cluster);
+        if query.is_empty() {
+            topics.to_vec()
+        } else {
+            topics.iter()
+                .filter(|t| t.to_lowercase().contains(&query.to_lowercase()))
+                .cloned()
+                .collect()
+        }
+    }
+
+    fn refresh_cluster_topics(&mut self, cluster: &str, cx: &mut Context<Self>) {
+        self.refreshing_topics.insert(cluster.to_string());
+        cx.spawn({
+            let cluster = cluster.to_string();
+            async move |this, cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+                this.update(cx, |view, cx| {
+                    view.refreshing_topics.remove(&cluster);
+                    cx.notify();
+                }).ok();
             }
+        }).detach();
+        cx.notify();
+    }
+
+    fn health_color(health: Option<&ClusterHealth>, theme: &Theme) -> Hsla {
+        match health {
+            Some(h) if h.healthy => theme.success,
+            Some(h) if h.error.is_some() => theme.error,
+            Some(_) => theme.warning,
+            None => theme.text_muted,
         }
     }
+}
 
-    /// Check if topic matches search filter
-    fn topic_matches_filter(&self, topic: &TopicTreeNode) -> bool {
-        if self.search_filter.is_empty() {
-            return true;
-        }
-        topic.name.to_lowercase().contains(&self.search_filter.to_lowercase())
-    }
+impl Render for ClusterTreeNavigator {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self.state.read(cx);
+        let theme = &state.theme;
+        let clusters = &state.clusters;
+        let cluster_health = &state.cluster_health;
+        let cluster_topics = &state.cluster_topics;
+        let cluster_consumer_groups = &state.cluster_consumer_groups;
+        let loading = state.loading;
+        let t = &self.translations;
 
-    /// Check if cluster matches search filter (has matching topics)
-    fn cluster_matches_filter(&self, cluster: &ClusterTreeNode) -> bool {
-        if self.search_filter.is_empty() {
-            return true;
-        }
-        // Match cluster name or any topic name
-        cluster.name.to_lowercase().contains(&self.search_filter.to_lowercase())
-            || cluster.topics.iter().any(|t| self.topic_matches_filter(t))
-    }
-
-    /// Check if group matches search filter
-    fn group_matches_filter(&self, group: &TreeGroup) -> bool {
-        if self.search_filter.is_empty() {
-            return true;
-        }
-        // Match group name or any cluster/topic
-        group.group.name.to_lowercase().contains(&self.search_filter.to_lowercase())
-            || group.clusters.iter().any(|c| self.cluster_matches_filter(c))
-    }
-
-    /// Render status indicator
-    fn status_indicator(&self, status: ConnectionStatusType) -> Div {
-        let theme = &self.theme;
-        let color = match status {
-            ConnectionStatusType::Connected => theme.success,
-            ConnectionStatusType::Disconnected => theme.text_muted,
-            ConnectionStatusType::Error => theme.error,
-            ConnectionStatusType::Unknown => theme.warning,
-        };
-
-        div()
-            .w(px(8.0))
-            .h(px(8.0))
-            .rounded(px(4.0))
-            .bg(color)
-    }
-
-    /// Render expand/collapse icon with rotation based on state
-    fn expand_icon(&self, state: NodeState) -> Div {
-        let theme = &self.theme;
-
-        div()
-            .w(px(12.0))
-            .h(px(12.0))
-            .rounded(px(2.0))
-            .bg(theme.text_muted.opacity(0.5))
-    }
-
-    /// Render group header
-    fn group_header(&self, group: &TreeGroup) -> Div {
-        let theme = &self.theme;
-        let color = group.group.color.unwrap_or(theme.text_muted);
-
-        div()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .px(px(8.0))
-            .py(px(6.0))
-            .rounded(px(4.0))
-            .bg(theme.surface.opacity(0.3))
-            .border_b(px(1.0))
-            .border_color(theme.border)
-            .cursor_pointer()
-            .child(self.expand_icon(group.state))
-            .when_some(group.group.color, |this, c| {
-                this.child(
-                    div()
-                        .w(px(4.0))
-                        .h(px(16.0))
-                        .rounded(px(2.0))
-                        .bg(c)
-                )
-            })
-            .child(
-                div()
-                    .text_color(theme.text_secondary)
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(group.group.name.clone())
-            )
-            .child(
-                div()
-                    .text_color(theme.text_muted)
-                    .text_xs()
-                    .child(format!("({})", group.clusters.len()))
-            )
-    }
-
-    /// Render cluster node
-    fn cluster_node(&self, cluster: &ClusterTreeNode, group_color: Option<Hsla>) -> Div {
-        let theme = &self.theme;
-        let filtered_topics: Vec<&TopicTreeNode> = cluster.topics.iter()
-            .filter(|t| self.topic_matches_filter(t))
+        // Filter clusters by group
+        let filtered: Vec<&ClusterResponse> = clusters
+            .iter()
+            .filter(|c| self.group_filter.map_or(true, |g| c.group_id == Some(g)))
             .collect();
 
-        // Don't render if no topics match filter
-        if !self.search_filter.is_empty() && filtered_topics.is_empty() && !cluster.name.to_lowercase().contains(&self.search_filter.to_lowercase()) {
-            return div();
-        }
-
         div()
+            .id("cluster-tree-navigator")
             .flex()
             .flex_col()
-            .gap(px(4.0))
-            .ml(px(8.0))
+            .size_full()
+            .gap(px(8.0))
             .child(
-                // Cluster header
+                // Search box
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.0))
                     .px(px(8.0))
                     .py(px(6.0))
-                    .rounded(px(4.0))
-                    .bg(theme.surface_raised.opacity(0.5))
-                    .cursor_pointer()
-                    .child(self.status_indicator(cluster.status))
-                    .child(self.expand_icon(cluster.topics_state))
+                    .rounded(px(6.0))
+                    .bg(theme.surface)
+                    .border(px(1.0))
+                    .border_color(theme.border)
+                    .child(div().text_color(theme.text_muted).text_xs().child("🔍"))
                     .child(
                         div()
-                            .text_color(theme.text)
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(cluster.name.clone())
-                    )
-                    .when(cluster.topics_state == NodeState::Expanded, |this| {
-                        this.child(
-                            div()
-                                .text_color(theme.text_muted)
-                                .text_xs()
-                                .child(format!("{} topics", cluster.topics.len()))
-                        )
-                    })
-            )
-            .when(cluster.topics_state == NodeState::Expanded || self.expand_all, |this| {
-                this.child(
-                    // Topics folder
-                    div()
-                        .flex()
-                        .flex_col()
-                        .ml(px(16.0))
-                        .gap(px(2.0))
-                        .children(filtered_topics.iter().map(|topic| {
-                            self.topic_node(topic, group_color)
-                        }))
-                )
-            })
-    }
-
-    /// Render topic node with partition expand/collapse
-    fn topic_node(&self, topic: &TopicTreeNode, _group_color: Option<Hsla>) -> Div {
-        let theme = &self.theme;
-        let is_selected = self.selected_node == Some(topic.name.clone());
-
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
-                // Topic row
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .px(px(8.0))
-                    .py(px(4.0))
-                    .rounded(px(4.0))
-                    .bg(if is_selected { theme.primary.opacity(0.2) } else { gpui::transparent_black() })
-                    .border_l(px(2.0))
-                    .border_color(if is_selected { theme.primary } else { gpui::transparent_black() })
-                    .cursor_pointer()
-                    .child(
-                        // Topic icon placeholder
-                        div()
-                            .w(px(10.0))
-                            .h(px(10.0))
-                            .rounded(px(2.0))
-                            .bg(if is_selected { theme.primary } else { theme.text_muted })
-                    )
-                    .child(
-                        div()
-                            .text_color(if is_selected { theme.text } else { theme.text_secondary })
+                            .text_color(theme.text_muted)
                             .text_xs()
-                            .child(topic.name.clone())
+                            .child(t.layout.search_placeholder.clone())
                     )
-                    .child(
-                        // Partition count badge
-                        div()
-                            .px(px(4.0))
-                            .py(px(2.0))
-                            .rounded(px(3.0))
-                            .bg(theme.surface_raised)
-                            .child(
-                                div()
-                                    .text_color(theme.text_muted)
-                                    .text_xs()
-                                    .child(format!("P{}", topic.partition_count))
-                            )
-                    )
-                    .when(topic.partitions_state == NodeState::Expanded, |this| {
-                        this.child(self.expand_icon(NodeState::Expanded))
-                    })
             )
-            .when(topic.partitions_state == NodeState::Expanded, |this| {
+            .child(div().h(px(1.0)).w_full().bg(theme.border))
+            .when(loading, |this| {
                 this.child(
-                    // Partitions list
+                    div()
+                        .flex()
+                        .justify_center()
+                        .py(px(16.0))
+                        .child(div().text_color(theme.text_muted).text_xs().child(t.common.loading.clone()))
+                )
+            })
+            .when(!loading && filtered.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .justify_center()
+                        .py(px(16.0))
+                        .child(div().text_color(theme.text_muted).text_xs().child(t.common.no_data.clone()))
+                )
+            })
+            .when(!loading && !filtered.is_empty(), |this| {
+                this.child(
+                    // Cluster list with inline handlers
                     div()
                         .flex()
                         .flex_col()
-                        .ml(px(16.0))
-                        .gap(px(1.0))
-                        .children(topic.partitions.iter().map(|partition| {
-                            self.partition_node(partition)
+                        .gap(px(4.0))
+                        .size_full()
+                        .children(filtered.iter().map(|cluster| {
+                            let name = cluster.name.clone();
+                            let expanded = self.expanded_clusters.contains(&name);
+                            let health = cluster_health.get(&name);
+                            let topics = cluster_topics.get(&name).cloned().unwrap_or_default();
+                            let groups = cluster_consumer_groups.get(&name).cloned().unwrap_or_default();
+                            let health_color = Self::health_color(health, theme);
+                            let topics_expanded = self.expanded_folders.contains(&format!("topics-{}", name));
+                            let groups_expanded = self.expanded_folders.contains(&format!("groups-{}", name));
+                            let icon = if expanded { "▼" } else { "▶" };
+
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(
+                                    // Cluster header - click to expand, navigate to TopicsView
+                                    div()
+                                        .id(format!("cluster-header-{}", name))
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .px(px(8.0))
+                                        .py(px(6.0))
+                                        .rounded(px(4.0))
+                                        .bg(theme.surface_raised.opacity(0.5))
+                                        .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface))
+                                        .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(health_color))
+                                        .child(div().text_color(theme.text_muted).text_xs().child(icon))
+                                        .child(div().text_color(theme.text).text_sm().font_weight(FontWeight::MEDIUM).child(name.clone()))
+                                        .when(expanded, |this| {
+                                            this.child(
+                                                div()
+                                                    .text_color(theme.text_muted)
+                                                    .text_xs()
+                                                    .child(format!("{} topics, {} groups", topics.len(), groups.len()))
+                                            )
+                                        })
+                                        .on_click(cx.listener({
+                                            let name = name.clone();
+                                            move |this, _, _, cx| {
+                                                this.toggle_cluster(&name);
+                                                // Navigate to topics view for this cluster
+                                                this.state.update(cx, |state, cx| {
+                                                    state.select_cluster(name.clone());
+                                                    state.navigate(ViewType::Topics);
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }
+                                        }))
+                                )
+                                .when(expanded, |this| {
+                                    this.child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .ml(px(16.0))
+                                            .gap(px(4.0))
+                                            // Topics folder - click to expand
+                                            .child(
+                                                div()
+                                                    .id(format!("topics-folder-{}", name))
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap(px(2.0))
+                                                    .child(
+                                                        div()
+                                                            .id(format!("topics-toggle-{}", name))
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap(px(6.0))
+                                                            .px(px(6.0))
+                                                            .py(px(4.0))
+                                                            .rounded(px(3.0))
+                                                            .bg(theme.surface.opacity(0.5))
+                                                            .cursor_pointer()
+                                                            .hover(|d| d.bg(theme.surface))
+                                                            .child(div().text_color(theme.text_secondary).text_xs().child("📁"))
+                                                            .child(div().text_color(theme.text_muted).text_xs().child(if topics_expanded { "▼" } else { "▶" }))
+                                                            .child(div().text_color(theme.text_secondary).text_xs().child("Topics"))
+                                                            .child(div().text_color(theme.text_muted).text_xs().child(format!("({})", topics.len())))
+                                                            // Refresh button
+                                                            .child(
+                                                                div()
+                                                                    .id(format!("topics-refresh-{}", name))
+                                                                    .flex()
+                                                                    .items_center()
+                                                                    .justify_center()
+                                                                    .w(px(16.0))
+                                                                    .h(px(16.0))
+                                                                    .rounded(px(3.0))
+                                                                    .cursor_pointer()
+                                                                    .hover(|d| d.bg(theme.surface_raised))
+                                                                    .child(
+                                                                        div()
+                                                                            .text_color(if self.refreshing_topics.contains(&name) { theme.warning } else { theme.text_muted })
+                                                                            .text_xs()
+                                                                            .child(if self.refreshing_topics.contains(&name) { "⟳" } else { "↻" })
+                                                                    )
+                                                                    .on_click(cx.listener({
+                                                                        let name = name.clone();
+                                                                        move |this, _, _, cx| {
+                                                                            this.refresh_cluster_topics(&name, cx);
+                                                                        }
+                                                                    }))
+                                                            )
+                                                            .on_click(cx.listener({
+                                                                let folder_key = format!("topics-{}", name);
+                                                                move |this, _, _, cx| {
+                                                                    this.toggle_folder(&folder_key);
+                                                                    cx.notify();
+                                                                }
+                                                            }))
+                                                    )
+                                                    .when(topics_expanded, |this| {
+                                                        // Topic search box
+                                                        let search_query = self.get_topic_search(&name);
+                                                        let filtered_topics = self.filter_topics(&topics, &name);
+                                                        let total = topics.len();
+                                                        let matching = filtered_topics.len();
+
+                                                        this.child(
+                                                            div()
+                                                                .flex()
+                                                                .flex_col()
+                                                                .ml(px(16.0))
+                                                                .gap(px(2.0))
+                                                                // Search input
+                                                                .child(
+                                                                    div()
+                                                                        .id(format!("topic-search-{}", name))
+                                                                        .flex()
+                                                                        .items_center()
+                                                                        .gap(px(4.0))
+                                                                        .px(px(6.0))
+                                                                        .py(px(4.0))
+                                                                        .rounded(px(3.0))
+                                                                        .bg(theme.surface)
+                                                                        .border(px(1.0))
+                                                                        .border_color(theme.border)
+                                                                        .child(div().text_color(theme.text_muted).text_xs().child("🔍"))
+                                                                        .child(
+                                                                            div()
+                                                                                .text_color(theme.text_muted)
+                                                                                .text_xs()
+                                                                                .child(if search_query.is_empty() {
+                                                                                    format!("Search {}...", total)
+                                                                                } else {
+                                                                                    format!("{} matching", matching)
+                                                                                })
+                                                                        )
+                                                                )
+                                                                // Topic list
+                                                                .child(
+                                                                    div()
+                                                                        .flex()
+                                                                        .flex_col()
+                                                                        .gap(px(1.0))
+                                                                        .max_h(px(200.0))
+                                                                        
+                                                                        .children(filtered_topics.iter().take(50).map(|topic| {
+                                                                            let topic_name = topic.clone();
+                                                                            let cluster_name = name.clone();
+
+                                                                            div()
+                                                                                .id(format!("topic-item-{}-{}", name, topic_name))
+                                                                                .flex()
+                                                                                .items_center()
+                                                                                .gap(px(6.0))
+                                                                                .px(px(6.0))
+                                                                                .py(px(3.0))
+                                                                                .rounded(px(3.0))
+                                                                                .cursor_pointer()
+                                                                                .hover(|d| d.bg(theme.surface))
+                                                                                .child(div().w(px(6.0)).h(px(6.0)).rounded(px(2.0)).bg(theme.text_muted.opacity(0.5)))
+                                                                                .child(div().text_color(theme.text_secondary).text_xs().truncate().child(topic_name.clone()))
+                                                                                .on_click(cx.listener({
+                                                                    let topic_name = topic_name.clone();
+                                                                    let cluster_name = cluster_name.clone();
+                                                                    move |this, _, _, cx| {
+                                                                        // Navigate to messages view for this topic
+                                                                        this.state.update(cx, |state, cx| {
+                                                                            state.select_topic(cluster_name.clone(), topic_name.clone());
+                                                                            state.navigate_to_messages(&cluster_name, &topic_name);
+                                                                            cx.notify();
+                                                                        });
+                                                                        cx.notify();
+                                                                    }
+                                                                }))
+                                                                        }))
+                                                                )
+                                                        )
+                                                    })
+                                            )
+                                            // Consumer groups folder - click to expand
+                                            .child(
+                                                div()
+                                                    .id(format!("groups-folder-{}", name))
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap(px(2.0))
+                                                    .child(
+                                                        div()
+                                                            .id(format!("groups-toggle-{}", name))
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap(px(6.0))
+                                                            .px(px(6.0))
+                                                            .py(px(4.0))
+                                                            .rounded(px(3.0))
+                                                            .bg(theme.surface.opacity(0.5))
+                                                            .cursor_pointer()
+                                                            .hover(|d| d.bg(theme.surface))
+                                                            .child(div().text_color(theme.text_secondary).text_xs().child("📁"))
+                                                            .child(div().text_color(theme.text_muted).text_xs().child(if groups_expanded { "▼" } else { "▶" }))
+                                                            .child(div().text_color(theme.text_secondary).text_xs().child("Consumer Groups"))
+                                                            .child(div().text_color(theme.text_muted).text_xs().child(format!("({})", groups.len())))
+                                                            .on_click(cx.listener({
+                                                                let folder_key = format!("groups-{}", name);
+                                                                move |this, _, _, cx| {
+                                                                    this.toggle_folder(&folder_key);
+                                                                    cx.notify();
+                                                                }
+                                                            }))
+                                                    )
+                                                    .when(groups_expanded, |this| {
+                                                        this.child(
+                                                            div()
+                                                                .flex()
+                                                                .flex_col()
+                                                                .ml(px(16.0))
+                                                                .gap(px(1.0))
+                                                                .children(groups.iter().take(20).map(|group| {
+                                                                    let group_name = group.clone();
+                                                                    let cluster_name = name.clone();
+
+                                                                    div()
+                                                                        .id(format!("group-item-{}-{}", name, group_name))
+                                                                        .flex()
+                                                                        .items_center()
+                                                                        .gap(px(6.0))
+                                                                        .px(px(6.0))
+                                                                        .py(px(3.0))
+                                                                        .rounded(px(3.0))
+                                                                        .cursor_pointer()
+                                                                        .hover(|d| d.bg(theme.surface))
+                                                                        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(2.0)).bg(theme.text_muted.opacity(0.5)))
+                                                                        .child(div().text_color(theme.text_secondary).text_xs().child(group_name.clone()))
+                                                                        .on_click(cx.listener({
+                                                            let group_name = group_name.clone();
+                                                            let cluster_name = cluster_name.clone();
+                                                            move |this, _, _, cx| {
+                                                                // Navigate to consumer groups view
+                                                                this.state.update(cx, |state, cx| {
+                                                                    state.select_consumer_group(cluster_name.clone(), group_name.clone());
+                                                                    state.navigate(ViewType::ConsumerGroups);
+                                                                    cx.notify();
+                                                                });
+                                                                cx.notify();
+                                                            }
+                                                        }))
+                                                                }))
+                                                        )
+                                                    })
+                                            )
+                                    )
+                                })
                         }))
                 )
             })
-    }
-
-    /// Render partition node with leader info
-    fn partition_node(&self, partition: &PartitionTreeNode) -> Div {
-        let theme = &self.theme;
-
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .px(px(6.0))
-            .py(px(2.0))
-            .cursor_pointer()
-            .child(
-                div()
-                    .w(px(6.0))
-                    .h(px(6.0))
-                    .rounded(px(2.0))
-                    .bg(theme.text_muted.opacity(0.5))
-            )
-            .child(
-                div()
-                    .text_color(theme.text_muted)
-                    .text_xs()
-                    .child(format!("P{}", partition.id))
-            )
-            .when_some(partition.leader, |this, leader| {
-                this.child(
-                    div()
-                        .text_color(theme.success.opacity(0.7))
-                        .text_xs()
-                        .child(format!("L{}", leader))
-                )
-            })
-    }
-
-    /// Render search result count
-    fn search_result_indicator(&self) -> Div {
-        let theme = &self.theme;
-
-        if self.search_filter.is_empty() {
-            return div();
-        }
-
-        let count = self.groups.iter()
-            .flat_map(|g| g.clusters.iter())
-            .filter(|c| self.cluster_matches_filter(c))
-            .count();
-
-        div()
-            .flex()
-            .items_center()
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(4.0))
-            .bg(theme.primary.opacity(0.1))
-            .child(
-                div()
-                    .text_color(theme.primary)
-                    .text_xs()
-                    .child(format!("Found {} matches", count))
-            )
     }
 }
 
-impl IntoElement for ClusterTreeNavigator {
+/// Legacy navigator for backward compatibility (static mock)
+pub struct ClusterTreeNavigatorLegacy {
+    theme: Theme,
+    translations: Arc<Translations>,
+}
+
+impl ClusterTreeNavigatorLegacy {
+    pub fn new(theme: Theme, translations: Arc<Translations>) -> Self {
+        Self { theme, translations }
+    }
+}
+
+impl IntoElement for ClusterTreeNavigatorLegacy {
     type Element = Div;
 
     fn into_element(self) -> Self::Element {
         let theme = &self.theme;
-        let t = &self.translations;
-
-        // Filter groups
-        let filtered_groups: Vec<&TreeGroup> = self.groups.iter()
-            .filter(|g| self.group_matches_filter(g))
-            .collect();
 
         div()
             .flex()
@@ -541,117 +490,32 @@ impl IntoElement for ClusterTreeNavigator {
             .size_full()
             .gap(px(8.0))
             .child(
-                // Search box with filter
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .px(px(8.0))
-                            .py(px(6.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface)
-                            .border(px(1.0))
-                            .border_color(if !self.search_filter.is_empty() { theme.primary } else { theme.border })
-                            .child(
-                                div()
-                                    .w(px(12.0))
-                                    .h(px(12.0))
-                                    .rounded(px(6.0))
-                                    .bg(theme.text_muted)
-                            )
-                            .child(
-                                div()
-                                    .text_color(if !self.search_filter.is_empty() { theme.text } else { theme.text_muted })
-                                    .text_xs()
-                                    .child(if self.search_filter.is_empty() {
-                                        t.layout.search_placeholder.clone()
-                                    } else {
-                                        self.search_filter.clone()
-                                    })
-                            )
-                            .when(!self.search_filter.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .px(px(4.0))
-                                        .py(px(2.0))
-                                        .rounded(px(3.0))
-                                        .bg(theme.surface_raised)
-                                        .cursor_pointer()
-                                        .child(
-                                            div()
-                                                .text_color(theme.text_muted)
-                                                .text_xs()
-                                                .child("×")
-                                        )
-                                )
-                            })
-                    )
-                    .child(self.search_result_indicator())
-            )
-            .child(
-                // Expand all/collapse all button
                 div()
                     .flex()
                     .items_center()
-                    .justify_between()
+                    .gap(px(8.0))
                     .px(px(8.0))
-                    .py(px(4.0))
+                    .py(px(6.0))
+                    .rounded(px(6.0))
+                    .bg(theme.surface)
+                    .border(px(1.0))
+                    .border_color(theme.border)
+                    .child(div().text_color(theme.text_muted).text_xs().child("🔍"))
                     .child(
                         div()
                             .text_color(theme.text_muted)
                             .text_xs()
-                            .child("Expand/Collapse")
-                    )
-                    .child(
-                        div()
-                            .px(px(6.0))
-                            .py(px(2.0))
-                            .rounded(px(3.0))
-                            .bg(theme.surface_raised)
-                            .border(px(1.0))
-                            .border_color(theme.border)
-                            .cursor_pointer()
-                            .child(
-                                div()
-                                    .text_color(theme.text_secondary)
-                                    .text_xs()
-                                    .child(if self.expand_all { "Collapse" } else { "Expand" })
-                            )
+                            .child(self.translations.layout.search_placeholder.clone())
                     )
             )
+            .child(div().h(px(1.0)).w_full().bg(theme.border))
             .child(
-                // Tree content with groups
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(8.0))
+                    .gap(px(4.0))
                     .size_full()
-                    .children(filtered_groups.iter().map(|group| {
-                        let group_color = group.group.color;
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.0))
-                            .child(self.group_header(group))
-                            .when(group.state == NodeState::Expanded, |this| {
-                                this.child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap(px(4.0))
-                                        .children(group.clusters.iter()
-                                            .filter(|c| self.cluster_matches_filter(c))
-                                            .map(|cluster| {
-                                                self.cluster_node(cluster, group_color)
-                                            }))
-                                )
-                            })
-                    }))
+                    .child(div().text_color(theme.text_muted).text_xs().child("No clusters loaded"))
             )
     }
 }

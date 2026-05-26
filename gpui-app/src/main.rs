@@ -22,7 +22,7 @@ use build_config::{BuildConfig, BuildTarget, PackageFormat};
 use api::{SendMessageRequest, ApiError, StreamMessage, MessageQueryState, QueryMode, StreamConfig, SseStreamHandler, parse_sse_event, ApiClient, MessageStream};
 use api::StreamEvent;
 use state::{Language, AppState, Cluster, ClusterGroup, ConnectionStatusType, ConnectionStatus, FavoritesState, FavoriteGroup, FavoriteItem, GlobalState, MessageBufferConfig, BufferedMessage};
-use router::{Router, ViewType};
+use router::{Router, ViewType, NavigationParams, NavigationState};
 use tour::{TourStep, TourDefinition, TourPosition, TourOverlay};
 
 /// Use unused structs and variants
@@ -379,7 +379,7 @@ fn run_example() {
                 focus: true,
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| KafkaManagerApp::new()),
+            |_, cx| cx.new(|cx| KafkaManagerApp::new(cx)),
         )
         .unwrap();
 

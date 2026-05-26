@@ -34,7 +34,7 @@ impl Button {
 }
 
 impl IntoElement for Button {
-    type Element = Div;
+    type Element = Stateful<Div>;
 
     fn into_element(self) -> Self::Element {
         let theme = &self.theme;
@@ -67,6 +67,7 @@ impl IntoElement for Button {
         };
 
         div()
+            .id("button")
             .flex()
             .items_center()
             .justify_center()
@@ -78,11 +79,29 @@ impl IntoElement for Button {
             .border_color(border_color)
             .cursor_pointer()
             .hover(|d| d.bg(bg_hover))
+            .active(|d| d.bg(bg_hover.opacity(0.8)))
+            .on_click({
+                let label = self.label.clone();
+                move |_event, _window, _cx| {
+                    // Default click handler - logs for now
+                    println!("Button clicked: {}", label);
+                }
+            })
             .child(
                 div()
                     .text_color(text_color)
                     .text_sm()
                     .child(self.label.clone())
             )
+    }
+}
+
+impl Clone for Button {
+    fn clone(&self) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            label: self.label.clone(),
+            variant: self.variant,
+        }
     }
 }

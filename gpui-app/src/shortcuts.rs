@@ -5,19 +5,25 @@
 use gpui::*;
 
 // Navigation shortcuts
-actions!(navigation, [
-    GoToClusters,
-    GoToTopics,
-    GoToMessages,
-    GoToConsumerGroups,
-    GoToSchemaRegistry,
-    GoToSettings,
-    ToggleSidebar,
-    Refresh,
-]);
+pub mod navigation {
+    use gpui::actions;
+
+    actions!(navigation, [
+        GoToClusters,
+        GoToTopics,
+        GoToMessages,
+        GoToConsumerGroups,
+        GoToSchemaRegistry,
+        GoToSettings,
+        ToggleSidebar,
+        Refresh,
+    ]);
+}
 
 /// Register all keyboard shortcuts
 pub fn register_shortcuts(cx: &mut App) {
+    use navigation::*;
+
     // Navigation shortcuts: Cmd/Ctrl + number
     cx.bind_keys([KeyBinding::new("cmd-1", GoToClusters, None)]);
     cx.bind_keys([KeyBinding::new("cmd-2", GoToTopics, None)]);

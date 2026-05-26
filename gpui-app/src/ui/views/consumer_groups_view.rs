@@ -580,3 +580,524 @@ impl IntoElement for ConsumerGroupsView {
             )
     }
 }
+
+use crate::state::GlobalState;
+
+/// Offset display data for consumer group detail table (matches Vue's Offset table)
+#[derive(Debug, Clone)]
+pub struct OffsetDisplay {
+    pub partition: i32,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub committed_offset: i64,
+    pub lag: i64,
+    pub last_commit: String,
+}
+
+impl OffsetDisplay {
+    /// Get lag color based on value (matches Vue's color coding)
+    /// 0 = green, <1000 = yellow, >=1000 = red
+    fn lag_color(&self, theme: &Theme) -> Hsla {
+        if self.lag == 0 {
+            theme.success
+        } else if self.lag < 1000 {
+            theme.warning
+        } else {
+            theme.error
+        }
+    }
+
+    /// Mock data for demonstration
+    fn mock_offsets() -> Vec<Self> {
+        vec![
+            OffsetDisplay {
+                partition: 0,
+                start_offset: 0,
+                end_offset: 12345,
+                committed_offset: 12345,
+                lag: 0,
+                last_commit: "2026-05-26 10:30:00".to_string(),
+            },
+            OffsetDisplay {
+                partition: 1,
+                start_offset: 0,
+                end_offset: 67890,
+                committed_offset: 67000,
+                lag: 890,
+                last_commit: "2026-05-26 10:29:55".to_string(),
+            },
+            OffsetDisplay {
+                partition: 2,
+                start_offset: 0,
+                end_offset: 11111,
+                committed_offset: 10000,
+                lag: 1111,
+                last_commit: "2026-05-26 10:28:00".to_string(),
+            },
+        ]
+    }
+}
+
+/// Consumer Groups view with GlobalState Entity integration
+pub struct ConsumerGroupsViewWithState {
+    state: Entity<GlobalState>,
+    translations: Arc<Translations>,
+    search_query: String,
+    loading: bool,
+    refreshing: bool,
+    selected_group: Option<String>,
+    show_actions_menu: bool,
+    /// Selected group offsets for detail table (matches Vue's Offset table)
+    selected_offsets: Vec<OffsetDisplay>,
+}
+
+impl ConsumerGroupsViewWithState {
+    pub fn new(state: Entity<GlobalState>, translations: Arc<Translations>) -> Self {
+        Self {
+            state,
+            translations,
+            search_query: String::new(),
+            loading: false,
+            refreshing: false,
+            selected_group: None,
+            show_actions_menu: false,
+            selected_offsets: Vec::new(),
+        }
+    }
+
+    fn get_cluster_name(&self, cx: &App) -> Option<String> {
+        self.state.read(cx).selected_cluster.clone()
+    }
+
+    fn get_consumer_groups(&self, cx: &App) -> Vec<String> {
+        let cluster = self.get_cluster_name(cx);
+        if let Some(c) = cluster {
+            self.state.read(cx)
+                .cluster_consumer_groups
+                .get(&c)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn filtered_groups(&self, cx: &App) -> Vec<String> {
+        let groups = self.get_consumer_groups(cx);
+        if self.search_query.is_empty() {
+            groups
+        } else {
+            groups.iter()
+                .filter(|g| g.to_lowercase().contains(&self.search_query.to_lowercase()))
+                .cloned()
+                .collect()
+        }
+    }
+
+    fn refresh_groups(&mut self, cx: &mut Context<Self>) {
+        self.refreshing = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            this.update(cx, |view, cx| {
+                view.refreshing = false;
+                cx.notify();
+            }).ok();
+        }).detach();
+        cx.notify();
+    }
+
+    fn select_group(&mut self, group: String, cx: &mut Context<Self>) {
+        self.selected_group = Some(group.clone());
+        // Load mock offsets when selecting a group (matches Vue's offset loading)
+        self.selected_offsets = OffsetDisplay::mock_offsets();
+        cx.notify();
+    }
+
+    fn toggle_actions_menu(&mut self, cx: &mut Context<Self>) {
+        self.show_actions_menu = !self.show_actions_menu;
+        cx.notify();
+    }
+
+    /// Render offset table with lag color coding (matches Vue's Offset table)
+    fn render_offset_table(theme: &Theme, offsets: &[OffsetDisplay]) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(
+                // Table header (matches Vue's columns)
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .gap(px(12.0))
+                    .bg(theme.surface_raised)
+                    .border_b(px(1.0))
+                    .border_color(theme.border)
+                    .child(div().w(px(60.0)).text_color(theme.text_muted).text_xs().child("Partition"))
+                    .child(div().w(px(80.0)).text_color(theme.text_muted).text_xs().child("Start"))
+                    .child(div().w(px(80.0)).text_color(theme.text_muted).text_xs().child("End"))
+                    .child(div().w(px(80.0)).text_color(theme.text_muted).text_xs().child("Committed"))
+                    .child(div().w(px(60.0)).text_color(theme.text_muted).text_xs().child("Lag"))
+                    .child(div().flex_1().text_color(theme.text_muted).text_xs().child("Last Commit"))
+            )
+            .children(offsets.iter().enumerate().map(|(idx, offset)| {
+                let is_odd = idx % 2 == 1;
+                let lag_color = offset.lag_color(theme);
+
+                div()
+                    .id(format!("offset-row-{}", idx))
+                    .flex()
+                    .items_center()
+                    .px(px(12.0))
+                    .py(px(6.0))
+                    .gap(px(12.0))
+                    .bg(if is_odd { theme.surface_raised } else { theme.surface })
+                    .border_b(px(1.0))
+                    .border_color(theme.border.opacity(0.5))
+                    .child(div().w(px(60.0)).text_color(theme.text).text_xs().child(offset.partition.to_string()))
+                    .child(div().w(px(80.0)).text_color(theme.text_muted).text_xs().child(offset.start_offset.to_string()))
+                    .child(div().w(px(80.0)).text_color(theme.text_muted).text_xs().child(offset.end_offset.to_string()))
+                    .child(div().w(px(80.0)).text_color(theme.text_secondary).text_xs().child(offset.committed_offset.to_string()))
+                    // Lag with color coding (matches Vue's lag colors)
+                    .child(
+                        div()
+                            .w(px(60.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .w(px(6.0))
+                                    .h(px(6.0))
+                                    .rounded(px(3.0))
+                                    .bg(lag_color)
+                            )
+                            .child(
+                                div()
+                                    .text_color(lag_color)
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(offset.lag.to_string())
+                            )
+                    )
+                    .child(div().flex_1().text_color(theme.text_muted).text_xs().truncate().child(offset.last_commit.clone()))
+            }))
+    }
+}
+
+impl Render for ConsumerGroupsViewWithState {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self.state.read(cx);
+        let theme = &state.theme;
+        let t = &self.translations;
+        let cluster = self.get_cluster_name(cx);
+        let groups = self.filtered_groups(cx);
+        let total = self.get_consumer_groups(cx).len();
+
+        div()
+            .id("consumer-groups-view-with-state")
+            .flex()
+            .flex_col()
+            .size_full()
+            .gap(px(12.0))
+            .child(
+                // Header
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .text_color(theme.text)
+                                    .text_2xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(t.consumer_groups.title.clone())
+                            )
+                            .child(
+                                div()
+                                    .text_color(theme.text_muted)
+                                    .text_sm()
+                                    .when_some(cluster.clone(), |this, c| {
+                                        this.child(format!("{}: {}", t.clusters.clusters.clone(), c))
+                                    })
+                                    .when(cluster.is_none(), |this| {
+                                        this.child(t.consumer_groups.description.clone())
+                                    })
+                            )
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                // Refresh button
+                                div()
+                                    .id("refresh-groups-btn")
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(px(12.0))
+                                    .py(px(6.0))
+                                    .rounded(px(6.0))
+                                    .bg(theme.surface_raised)
+                                    .border(px(1.0))
+                                    .border_color(theme.border)
+                                    .cursor_pointer()
+                                    .when(self.refreshing, |this| {
+                                        this.child(div().text_color(theme.warning).text_xs().child("⟳"))
+                                    })
+                                    .when(!self.refreshing, |this| {
+                                        this.child(div().text_color(theme.text_muted).text_xs().child("↻"))
+                                    })
+                                    .child(div().text_color(theme.text_secondary).text_sm().child(t.common.refresh.clone()))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.refresh_groups(cx);
+                                    }))
+                            )
+                    )
+            )
+            // Search bar
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .rounded(px(6.0))
+                    .bg(theme.surface)
+                    .border(px(1.0))
+                    .border_color(theme.border)
+                    .child(div().text_color(theme.text_muted).text_xs().child("🔍"))
+                    .child(
+                        div()
+                            .text_color(if self.search_query.is_empty() { theme.text_muted } else { theme.text })
+                            .text_sm()
+                            .child(if self.search_query.is_empty() {
+                                format!("{} {}...", t.common.search.clone(), total)
+                            } else {
+                                format!("{} matching", groups.len())
+                            })
+                    )
+            )
+            // No cluster selected state
+            .when(cluster.is_none(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .flex_1()
+                        .child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .text_sm()
+                                .child(t.common.no_data.clone())
+                        )
+                        .child(
+                            div()
+                                .text_color(theme.text_muted.opacity(0.6))
+                                .text_xs()
+                                .child("Select a cluster to view consumer groups")
+                        )
+                )
+            })
+            // Groups list (when cluster selected)
+            .when_some(cluster, |this, _c| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .border(px(1.0))
+                        .border_color(theme.border)
+                        .rounded(px(8.0))
+                        .bg(theme.surface)
+                        .when(self.loading || self.refreshing, |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .justify_center()
+                                    .py(px(16.0))
+                                    .child(div().text_color(theme.text_muted).text_xs().child(t.common.loading.clone()))
+                            )
+                        })
+                        .when(!self.loading && !self.refreshing && groups.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .justify_center()
+                                    .py(px(16.0))
+                                    .child(div().text_color(theme.text_muted).text_xs().child(t.common.no_data.clone()))
+                            )
+                        })
+                        .when(!self.loading && !self.refreshing && !groups.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(400.0))
+                                    
+                                    .children(groups.iter().enumerate().map(|(idx, group)| {
+                                        let group_name = group.clone();
+
+                                        div()
+                                            .id(format!("group-row-{}", idx))
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .px(px(12.0))
+                                            .py(px(8.0))
+                                            .border_b(px(1.0))
+                                            .border_color(theme.border.opacity(0.5))
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(theme.surface_raised))
+                                            .when_some(self.selected_group.clone(), |this, sel| {
+                                                this.when(sel == group_name, |this| {
+                                                    this.bg(theme.primary.opacity(0.1))
+                                                        .border_l(px(3.0))
+                                                        .border_color(theme.primary)
+                                                })
+                                            })
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(8.0))
+                                                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(2.0)).bg(theme.success))
+                                                    .child(div().text_color(theme.text_secondary).text_sm().truncate().child(group_name.clone()))
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_color(theme.text_muted)
+                                                    .text_xs()
+                                                    .child("Stable")
+                                            )
+                                            .on_click(cx.listener({
+                                                let group_name = group_name.clone();
+                                                move |this, _, _, cx| {
+                                                    this.select_group(group_name.clone(), cx);
+                                                }
+                                            }))
+                                    }))
+                            )
+                        })
+                )
+            })
+            // Selected group detail panel
+            .when_some(self.selected_group.clone(), |this, group| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.0))
+                        .p(px(12.0))
+                        .rounded(px(8.0))
+                        .bg(theme.surface_raised)
+                        .border(px(1.0))
+                        .border_color(theme.border)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_color(theme.text)
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(format!("{}: {}", t.consumer_groups.groupNamePrefix.clone(), group))
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .child(
+                                            div()
+                                                .id("actions-btn")
+                                                .flex()
+                                                .items_center()
+                                                .gap(px(4.0))
+                                                .px(px(8.0))
+                                                .py(px(4.0))
+                                                .rounded(px(4.0))
+                                                .bg(theme.primary)
+                                                .cursor_pointer()
+                                                .child(div().text_color(Hsla::from(gpui::rgb(0xffffff))).text_xs().child(t.common.actions.clone()))
+                                                .child(div().text_color(Hsla::from(gpui::rgb(0xffffff))).text_xs().child(if self.show_actions_menu { "▼" } else { "▶" }))
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.toggle_actions_menu(cx);
+                                                }))
+                                        )
+                                )
+                        )
+                        .when(self.show_actions_menu, |this| {
+                            this.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.0))
+                                    .p(px(8.0))
+                                    .rounded(px(4.0))
+                                    .bg(theme.surface)
+                                    .border(px(1.0))
+                                    .border_color(theme.border)
+                                    .child(
+                                        div()
+                                            .id("reset-offset-action")
+                                            .flex()
+                                            .items_center()
+                                            .px(px(8.0))
+                                            .py(px(6.0))
+                                            .rounded(px(3.0))
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(theme.surface_raised))
+                                            .child(div().text_color(theme.text).text_xs().child(t.consumer_groups.resetOffset.clone()))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.show_actions_menu = false;
+                                                cx.notify();
+                                            }))
+                                    )
+                                    .child(
+                                        div()
+                                            .id("delete-group-action")
+                                            .flex()
+                                            .items_center()
+                                            .px(px(8.0))
+                                            .py(px(6.0))
+                                            .rounded(px(3.0))
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(theme.error.opacity(0.1)))
+                                            .child(div().text_color(theme.error).text_xs().child(t.consumer_groups.deleteGroup.clone()))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.show_actions_menu = false;
+                                                cx.notify();
+                                            }))
+                                    )
+                            )
+                        })
+                        .child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .text_xs()
+                                .child(format!("State: Stable | Members: 1 | Topics: 1"))
+                        )
+                        // Offset table with lag color coding (matches Vue's Offset table)
+                        .when(!self.selected_offsets.is_empty(), |this| {
+                            let offsets = self.selected_offsets.clone();
+                            this.child(Self::render_offset_table(theme, &offsets))
+                        })
+                )
+            })
+    }
+}
