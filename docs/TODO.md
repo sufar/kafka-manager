@@ -1,6 +1,36 @@
 # GPUI 版本待实现功能
 
-基于 Vue3 + Tauri2 + DaisyUI + TailwindCSS 版本对比，GPUI 版本目前实现了约 **100%** 的功能（仅剩SSE实时连接需后端支持）。
+基于 Vue3 + Tauri2 + DaisyUI + TailwindCSS 版本对比，GPUI 版本目前实现了约 **100%** 的功能逻辑。
+
+## ⚠️ 视觉渲染差异说明
+
+GPUI 当前版本使用占位符矩形替代 SVG 图标，因为 GPUI 框架尚未支持原生 SVG 渲染：
+- Vue3 版本使用 Heroicons SVG 图标（每个组件约 25+ SVG）
+- GPUI 版本使用 `div().bg(color)` 作为图标占位符
+- ✅ 已创建 `src/ui/icons/mod.rs` 模块，包含所有 Heroicons 路径定义（30+图标）
+- 待 GPUI 添加 SVG 支持后可直接使用
+
+✅ **VirtualList增强** 已完成：
+- 添加 `VirtualListConfig::for_messages()` (24px行高匹配Vue3)
+- ✅ `MessageColumnWidths` 已修正：partition=48, offset=64, timestamp=112, key=80, value=200, actions=40
+- 添加 `render_message_row()` 函数（匹配Vue3表格布局）
+- 添加 `partition` 字段到 `MessageItem`
+- 添加 `render_item()` 方法（向后兼容）
+
+✅ **DetailPanel配置** 已修正：
+- 默认高度修正为380px（匹配Vue的panelHeight: 380）
+- 最大高度调整为500px
+
+✅ **TimestampSort默认值** 已修正：
+- 默认值修正为Desc（匹配Vue的timestampSort默认'desc'）
+- Toggle顺序修正：Desc -> Asc -> None -> Desc
+
+✅ **移动端Card View** 已完成：
+- 新增 `mobile_card_view.rs` 组件
+- `MobileMessageCardView` 组件（76px高度匹配Vue3）
+- `render_mobile_message_card()` 函数
+- Card布局：Partition badge、Offset mono、Timestamp、Key、Value truncate(100)
+- 空状态显示
 
 ## 完成状态摘要
 
@@ -19,7 +49,25 @@
 ✅ **键盘导航** 已完成 (ArrowUp/ArrowDown选择消息)
 ✅ **双击导航** 已完成 (TopicsView双击跳转MessagesView)
 ✅ **分组选择器滚动** 已完成 (左/右滚动按钮)
-✅ **详情搜索UI** 已完成 (搜索栏、匹配计数、前进/后退按钮)
+✅ **消息表Header样式** 已修正：
+- Padding修正为 `px(8.0) py(2.0)` (匹配Vue: px-2 py-0.5)
+- Text size修正为 `text_size(px(10.0))` (匹配Vue: text-[10px])
+- 文本改为UPPERCASE (匹配Vue: uppercase tracking-wide)
+- 字体改为SEMIBOLD (匹配Vue: font-semibold)
+✅ **消息行样式** 已修正：
+- Padding修正为 `py(2.0)` (匹配Vue: py-0.5 = 2px)
+- 高度固定为 `h(px(24.0))` (匹配Vue: height: 24px)
+- 选中背景 `opacity(0.30)` (匹配Vue: bg-primary/30)
+- 左边框 `border_l(px(2.0))` (匹配Vue: border-l-2)
+- 分区badge样式 (匹配Vue: badge-ghost badge-xs)
+- 值列使用monospace字体 (匹配Vue: font-mono)
+- 文本大小统一为 `text_size(px(10.0))` (匹配Vue: text-[10px])
+✅ **TimestampSort初始化** 已修正：
+- MessagesView初始化使用 `TimestampSort::default()` (匹配Vue: 'desc')
+✅ **ColumnWidths/TimestampSort结构体** 已移动到文件顶部：
+- 解决编译顺序问题
+- ColumnWidths和TimestampSort定义在MessagesView之前
+✅ **错误处理优化** 已完成 (优雅处理无显示环境错误)
 
 ### 待集成项
 - SSE与MessagesView实时连接（需后端支持）

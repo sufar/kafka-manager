@@ -329,9 +329,9 @@ fn _demo_unused_types() {
 
     // Use SimpleItem and MessageItem from virtual_list
     let simple_item = crate::ui::components::SimpleItem { id: "test".to_string(), label: "Test Label".to_string() };
-    let msg_item = crate::ui::components::MessageItem { id: "msg-1".to_string(), offset: 100, key: Some("key".to_string()), value: "value".to_string(), timestamp: 1716432600000 };
-    println!("SimpleItem label={}, MessageItem offset={}, key={:?}, value={}, timestamp={}",
-        simple_item.label(), msg_item.offset(), msg_item.key(), msg_item.value(), msg_item.timestamp());
+    let msg_item = crate::ui::components::MessageItem { id: "msg-1".to_string(), partition: 0, offset: 100, key: Some("key".to_string()), value: "value".to_string(), timestamp: 1716432600000 };
+    println!("SimpleItem label={}, MessageItem partition={}, offset={}, key={:?}, value={}, timestamp={}",
+        simple_item.label(), msg_item.partition(), msg_item.offset(), msg_item.key(), msg_item.value(), msg_item.timestamp());
 
     // Use FavoriteButton getter methods
     let fav_btn = crate::ui::components::FavoriteButton::new(crate::ui::Theme::dark(), "cluster-1".to_string(), "topic-1".to_string(), true);
@@ -369,7 +369,7 @@ fn run_example() {
         // Register keyboard shortcuts
         register_shortcuts(cx);
 
-        cx.open_window(
+        let result = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -380,12 +380,22 @@ fn run_example() {
                 ..Default::default()
             },
             |_, cx| cx.new(|cx| KafkaManagerApp::new(cx)),
-        )
-        .unwrap();
+        );
 
-        cx.activate(true);
-
-        tracing::info!("Kafka Manager GPUI application started");
+        match result {
+            Ok(_) => {
+                cx.activate(true);
+                tracing::info!("Kafka Manager GPUI application started");
+            }
+            Err(e) => {
+                tracing::error!("Failed to open window: {:?}", e);
+                eprintln!("Error: This application requires a display environment.");
+                eprintln!("Please run in an environment with DISPLAY or WAYLAND_DISPLAY set.");
+                eprintln!("On Linux, ensure you have a graphical session running.");
+                // Exit gracefully
+                cx.quit();
+            }
+        }
     });
 }
 

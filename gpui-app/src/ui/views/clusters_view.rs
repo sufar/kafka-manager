@@ -183,33 +183,91 @@ impl ClustersView {
     }
 
     /// Render a cluster card (static method for IntoElement)
+    /// Matches Vue's: card glass gradient-border, p-3, grid layout
     fn render_cluster_card(theme: &Theme, t: &Arc<Translations>, cluster: &ClusterDisplay, _index: usize) -> Div {
         div()
             .flex()
             .flex_col()
-            .p(px(16.0))
+            .p(px(12.0))  // Vue: p-3 = 12px
             .gap(px(12.0))
             .rounded(px(8.0))
-            .bg(theme.surface)
+            .bg(theme.surface)  // Vue: glass effect (GPUI limitation)
             .border(px(1.0))
-            .border_color(theme.border)
+            .border_color(theme.border.opacity(0.10))  // Vue: border-base-content/10
+            // Header row (matches Vue: flex items-center justify-between border-b)
             .child(
-                // Header: Name + Status
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
+                    .pb(px(12.0))  // Vue: border-b padding
+                    .border_b(px(1.0))
+                    .border_color(theme.border.opacity(0.10))  // Vue: border-base-content/10
                     .child(
+                        // Icon + Name group (matches Vue: w-8 h-8 rounded-lg bg-primary/10)
                         div()
-                            .text_color(theme.text)
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(cluster.name.clone())
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(
+                                div()
+                                    .w(px(32.0))  // Vue: w-8 = 32px
+                                    .h(px(32.0))  // Vue: h-8 = 32px
+                                    .rounded(px(8.0))  // Vue: rounded-lg
+                                    .bg(theme.primary.opacity(0.10))  // Vue: bg-primary/10
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        div()
+                                            .w(px(16.0))
+                                            .h(px(16.0))
+                                            .rounded(px(4.0))
+                                            .bg(theme.primary)  // Icon placeholder
+                                    )
+                            )
+                            .child(
+                                div()
+                                    .min_w(px(0.0))
+                                    .child(
+                                        div()
+                                            .text_color(theme.text)
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .truncate()
+                                            .child(cluster.name.clone())
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(theme.text_muted)
+                                            .text_size(px(10.0))  // Vue: text-[10px]
+                                            .child("Created: 2026-05-26")  // Placeholder date
+                                    )
+                            )
                     )
-                    .child(Self::status_badge(theme, cluster.status))
+                    .child(
+                        // Actions + Status row
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .flex_shrink()
+                            .child(Self::status_badge(theme, cluster.status))
+                            .child(
+                                // Menu button placeholder
+                                div()
+                                    .w(px(24.0))
+                                    .h(px(24.0))
+                                    .rounded(px(4.0))
+                                    .bg(theme.surface_raised)
+                                    .cursor_pointer()
+                            )
+                    )
             )
+            // Brokers section
             .child(
-                // Brokers
                 div()
                     .flex()
                     .flex_col()

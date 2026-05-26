@@ -14,6 +14,74 @@ use crate::utils::time::{current_timestamp_ms, parse_iso_to_timestamp, format_du
 use crate::utils::format::{truncate_string, pretty_json as format_pretty_json, is_json_like, format_offset, format_bytes, format_number};
 use crate::ui::components::virtual_list::{SimpleItem, MessageItem};
 
+/// Column widths for message table (matches Vue's columnWidths)
+#[derive(Debug, Clone, Default)]
+struct ColumnWidths {
+    partition: f32,
+    offset: f32,
+    timestamp: f32,
+    key: f32,
+    value: f32,
+    actions: f32,
+}
+
+impl ColumnWidths {
+    fn defaults() -> Self {
+        Self {
+            partition: 48.0,   // Matches Vue: partition: 48
+            offset: 64.0,      // Matches Vue: offset: 64
+            timestamp: 112.0,  // Matches Vue: timestamp: 112
+            key: 80.0,         // Matches Vue: key: 80
+            value: 200.0,      // Matches Vue: value: 200 (flex_1)
+            actions: 40.0,     // Matches Vue: actions: 40
+        }
+    }
+}
+
+/// Timestamp sort order (matches Vue's three-state toggle)
+/// Vue default: timestampSort = ref<'asc' | 'desc' | null>('desc')
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TimestampSort {
+    Desc,  // Newest first (descending) - Vue default
+    Asc,   // Oldest first (ascending)
+    None,  // No sorting (original query order)
+}
+
+impl Default for TimestampSort {
+    fn default() -> Self {
+        TimestampSort::Desc  // Matches Vue default: 'desc'
+    }
+}
+
+impl TimestampSort {
+    /// Toggle to next state: Desc -> Asc -> None -> Desc (matches Vue)
+    fn toggle(&self) -> Self {
+        match self {
+            TimestampSort::Desc => TimestampSort::Asc,
+            TimestampSort::Asc => TimestampSort::None,
+            TimestampSort::None => TimestampSort::Desc,
+        }
+    }
+
+    /// Get label char for UI display
+    fn label_char(&self) -> char {
+        match self {
+            TimestampSort::None => ' ',
+            TimestampSort::Desc => '↓',
+            TimestampSort::Asc => '↑',
+        }
+    }
+
+    /// Get tooltip text (static string)
+    fn tooltip(&self) -> &'static str {
+        match self {
+            TimestampSort::None => "Click to sort descending",
+            TimestampSort::Desc => "Click to sort ascending",
+            TimestampSort::Asc => "Click to clear sorting",
+        }
+    }
+}
+
 /// Messages query view with streaming support
 pub struct MessagesView {
     theme: Theme,
@@ -40,6 +108,10 @@ pub struct MessagesView {
     sent_history: SentMessageHistory,
     /// JSON editor for message value preview/editing
     json_editor: JsonEditor,
+    /// Column widths (matches Vue's columnWidths)
+    column_widths: ColumnWidths,
+    /// Timestamp sort order (matches Vue's three-state toggle)
+    timestamp_sort: TimestampSort,
 }
 
 /// Query mode
@@ -161,6 +233,8 @@ impl MessagesView {
             send_modal: SendMessageModal::new(theme.clone()),
             sent_history: SentMessageHistory::new(theme.clone()),
             json_editor: JsonEditor::new(theme, "{}".to_string()),
+            column_widths: ColumnWidths::defaults(),
+            timestamp_sort: TimestampSort::default(),
         }
     }
 
@@ -184,6 +258,8 @@ impl MessagesView {
             send_modal: SendMessageModal::new(theme.clone()),
             sent_history: SentMessageHistory::new(theme.clone()),
             json_editor: JsonEditor::new(theme, "{}".to_string()),
+            column_widths: ColumnWidths::defaults(),
+            timestamp_sort: TimestampSort::default(),
         }
     }
 
@@ -258,75 +334,119 @@ impl MessagesView {
             .child(self.json_editor.clone())
     }
 
-    /// Render message row
+    /// Render message row (matches Vue's table row exactly)
     fn message_row(&self, msg: &MessageDisplay, index: usize, is_selected: bool) -> Div {
         let theme = &self.theme;
-        let is_odd = index % 2 == 1;
+        let cw = &self.column_widths;
 
         div()
             .flex()
             .items_center()
-            .px(px(8.0))
-            .py(px(8.0))
-            .gap(px(12.0))
+            .px(px(8.0))  // Vue: px-2 = 8px
+            .py(px(2.0))  // Vue: py-0.5 = 2px
+            .h(px(24.0))  // Vue: height: 24px
+            .w_full()
             .bg(if is_selected {
-                theme.primary.opacity(0.15)
-            } else if is_odd {
-                theme.surface_raised
+                theme.primary.opacity(0.30)  // Vue: bg-primary/30
+            } else if index % 2 == 1 {
+                theme.surface_raised  // Alternate row color
             } else {
                 gpui::transparent_black()
             })
-            .border_l(px(3.0))
+            .border_l(px(2.0))  // Vue: border-l-2
             .border_color(if is_selected {
-                theme.primary
+                theme.primary  // Vue: border-l-primary
             } else {
                 gpui::transparent_black()
             })
             .border_b(px(1.0))
-            .border_color(theme.border)
+            .border_color(theme.border.opacity(0.30))  // Vue: border-base-200/30
             .cursor_pointer()
-            .hover(|d| d.bg(theme.surface))
+            .hover(|d| {
+                if !is_selected {
+                    d.bg(theme.surface.opacity(0.50))
+                } else {
+                    d
+                }
+            })
+            // Partition column (badge style with scale-90 like Vue)
             .child(
-                // Partition
                 div()
-                    .w(px(60.0))
-                    .text_color(theme.text_muted)
-                    .text_xs()
-                    .child(msg.partition.to_string())
+                    .w(px(cw.partition))
+                    .flex()
+                    .items_center()
+                    .child(
+                        div()
+                            .px(px(4.0))
+                            .py(px(2.0))
+                            .rounded(px(2.0))
+                            .bg(theme.surface_raised)  // Vue: badge-ghost (scale-90 not supported in GPUI)
+                            .child(
+                                div()
+                                    .text_color(theme.text_muted)
+                                    .text_size(px(10.0))  // Vue: text-[10px]
+                                    .child(msg.partition.to_string())
+                            )
+                    )
             )
+            // Offset column (font-mono like Vue)
             .child(
-                // Offset
                 div()
-                    .w(px(80.0))
+                    .w(px(cw.offset))
                     .text_color(theme.text_muted)
-                    .text_xs()
+                    .text_size(px(10.0))
+                    .font_family("monospace")
                     .child(msg.offset.to_string())
             )
+            // Timestamp column
             .child(
-                // Timestamp
                 div()
-                    .w(px(140.0))
+                    .w(px(cw.timestamp))
                     .text_color(theme.text_secondary)
-                    .text_xs()
+                    .text_size(px(10.0))
+                    .whitespace_nowrap()
                     .child(msg.timestamp.clone())
             )
+            // Key column (font-mono truncate)
             .child(
-                // Key
                 div()
-                    .w(px(100.0))
+                    .w(px(cw.key))
                     .text_color(theme.text_secondary)
-                    .text_xs()
+                    .text_size(px(10.0))
+                    .font_family("monospace")
                     .truncate()
                     .child(msg.key.clone().unwrap_or_else(|| "-".to_string()))
             )
+            // Value column (flex-1, font-mono, truncate)
             .child(
-                // Value (truncated)
                 div()
                     .flex_1()
+                    .min_w(px(0.0))
+                    .pr(px(8.0))  // Vue: pr-2
                     .text_color(theme.text)
-                    .text_xs()
+                    .text_size(px(10.0))
+                    .font_family("monospace")
                     .truncate()
                     .child(msg.value.clone())
+            )
+            // Actions column (copy button placeholder)
+            .child(
+                div()
+                    .w(px(cw.actions))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .w(px(12.0))
+                            .h(px(12.0))
+                            .rounded(px(2.0))
+                            .bg(theme.surface)
+                            .border(px(1.0))
+                            .border_color(theme.border)
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme.surface_raised))
+                    )
             )
     }
 }
@@ -456,6 +576,7 @@ impl IntoElement for MessagesView {
         };
         let message_item = MessageItem {
             id: "msg-1".to_string(),
+            partition: 0,
             offset: 12345,
             key: Some("test-key".to_string()),
             value: "test value".to_string(),
@@ -518,12 +639,16 @@ impl IntoElement for MessagesView {
             .size_full()
             .gap(px(16.0))
             .child(
-                // Toolbar
+                // Toolbar (matches Vue: p-1.5 gap-1.5 border-b bg-base-100)
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.0))
+                    .gap(px(6.0))  // Vue: gap-1.5 = 6px
                     .flex_wrap()
+                    .p(px(6.0))  // Vue: p-1.5 = 6px
+                    .border_b(px(1.0))
+                    .border_color(theme.border.opacity(0.30))  // Vue: border-base-300
+                    .bg(theme.surface)  // Vue: bg-base-100
                     .child(
                         // Partition selector
                         div()
@@ -731,55 +856,107 @@ impl IntoElement for MessagesView {
                 )
             })
             .child(
-                // Messages table header
+                // Messages table header (matches Vue: px-2 py-0.5 text-[10px] uppercase font-semibold bg-base-200)
                 div()
                     .flex()
                     .items_center()
-                    .px(px(8.0))
-                    .py(px(8.0))
-                    .gap(px(12.0))
-                    .bg(theme.surface)
-                    .border_b(px(2.0))
-                    .border_color(theme.border)
+                    .px(px(8.0))  // Vue: px-2 = 8px
+                    .py(px(2.0))  // Vue: py-0.5 = 2px
+                    .bg(theme.surface_raised)  // Vue: bg-base-200
+                    .border_b(px(1.0))
+                    .border_color(theme.border.opacity(0.30))
                     .child(
                         div()
-                            .w(px(60.0))
+                            .w(px(self.column_widths.partition))
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t.messages.partition_label.clone())
+                            .text_size(px(10.0))  // Vue: text-[10px]
+                            .font_weight(FontWeight::SEMIBOLD)  // Vue: font-semibold
+                            .child(t.messages.partition_label.clone().to_uppercase())
+                    )
+                    .child(
+                        // Resizer (matches Vue: w-1 cursor-col-resize hover:bg-primary/40)
+                        div()
+                            .w(px(4.0))
+                            .h(px(12.0))
+                            .cursor_col_resize()
+                            .hover(|d| d.bg(theme.primary.opacity(0.40)))
                     )
                     .child(
                         div()
-                            .w(px(80.0))
+                            .w(px(self.column_widths.offset))
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t.messages.offset_label.clone())
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t.messages.offset_label.clone().to_uppercase())
                     )
                     .child(
                         div()
-                            .w(px(140.0))
+                            .w(px(4.0))
+                            .cursor_col_resize()
+                            .hover(|d| d.bg(theme.primary.opacity(0.40)))
+                    )
+                    .child(
+                        // Timestamp column with sort toggle (matches Vue: cursor-pointer)
+                        div()
+                            .w(px(self.column_widths.timestamp))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t.messages.timestamp_label.clone())
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cursor_pointer()
+                            .hover(|d| d.text_color(theme.primary))
+                            .child(t.messages.timestamp_label.clone().to_uppercase())
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(if self.timestamp_sort == TimestampSort::None {
+                                        theme.text_muted.opacity(0.30)
+                                    } else {
+                                        theme.primary
+                                    })
+                                    .child(self.timestamp_sort.label_char().to_string())
+                            )
                     )
                     .child(
                         div()
-                            .w(px(100.0))
+                            .w(px(4.0))
+                            .cursor_col_resize()
+                            .hover(|d| d.bg(theme.primary.opacity(0.40)))
+                    )
+                    .child(
+                        div()
+                            .w(px(self.column_widths.key))
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t.messages.key.clone())
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t.messages.key.clone().to_uppercase())
+                    )
+                    .child(
+                        div()
+                            .w(px(4.0))
+                            .cursor_col_resize()
+                            .hover(|d| d.bg(theme.primary.opacity(0.40)))
                     )
                     .child(
                         div()
                             .flex_1()
+                            .min_w(px(self.column_widths.value))
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(t.messages.value.clone())
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t.messages.value.clone().to_uppercase())
+                    )
+                    .child(
+                        div()
+                            .w(px(self.column_widths.actions))
+                            .text_color(theme.text_muted)
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .flex()
+                            .justify_center()
+                            .child(t.common.actions.clone().to_uppercase())
                     )
             )
             .child(
@@ -904,30 +1081,6 @@ pub struct MessagesViewWithState {
     detail_search_state: DetailSearchState,
 }
 
-/// Column widths for message table (matches Vue's columnWidths)
-#[derive(Debug, Clone, Default)]
-struct ColumnWidths {
-    partition: f32,
-    offset: f32,
-    timestamp: f32,
-    key: f32,
-    value: f32,
-    actions: f32,
-}
-
-impl ColumnWidths {
-    fn defaults() -> Self {
-        Self {
-            partition: 60.0,
-            offset: 80.0,
-            timestamp: 140.0,
-            key: 100.0,
-            value: 200.0,  // flex_1, minimum width
-            actions: 40.0,
-        }
-    }
-}
-
 /// Detail panel state (matches Vue's panelHeight and resize functionality)
 #[derive(Debug, Clone, Default)]
 struct DetailPanelState {
@@ -940,10 +1093,10 @@ struct DetailPanelState {
 impl DetailPanelState {
     fn defaults() -> Self {
         Self {
-            height: 180.0,
+            height: 380.0,     // Matches Vue: panelHeight: 380
             is_resizing: false,
             min_height: 80.0,
-            max_height: 400.0,
+            max_height: 500.0,  // Max height for resize
         }
     }
 
@@ -973,44 +1126,6 @@ enum MessageFormat {
     Hex,
 }
 
-/// Timestamp sort order (matches Vue's three-state toggle)
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum TimestampSort {
-    #[default]
-    None,  // No sorting
-    Desc,  // Newest first (descending)
-    Asc,   // Oldest first (ascending)
-}
-
-impl TimestampSort {
-    /// Toggle to next state: None -> Desc -> Asc -> None
-    fn toggle(&self) -> Self {
-        match self {
-            TimestampSort::None => TimestampSort::Desc,
-            TimestampSort::Desc => TimestampSort::Asc,
-            TimestampSort::Asc => TimestampSort::None,
-        }
-    }
-
-    /// Get label char for UI display
-    fn label_char(&self) -> char {
-        match self {
-            TimestampSort::None => ' ',
-            TimestampSort::Desc => '↓',
-            TimestampSort::Asc => '↑',
-        }
-    }
-
-    /// Get tooltip text (static string)
-    fn tooltip(&self) -> &'static str {
-        match self {
-            TimestampSort::None => "Click to sort descending",
-            TimestampSort::Desc => "Click to sort ascending",
-            TimestampSort::Asc => "Click to clear sorting",
-        }
-    }
-}
-
 impl MessagesViewWithState {
     pub fn new(state: Entity<GlobalState>, translations: Arc<Translations>) -> Self {
         Self {
@@ -1035,7 +1150,7 @@ impl MessagesViewWithState {
             streaming_received: 0,
             streaming_total: 0,
             elapsed_time: 0,
-            timestamp_sort: TimestampSort::None,
+            timestamp_sort: TimestampSort::default(),  // Matches Vue default: 'desc'
             column_widths: ColumnWidths::defaults(),
             resizing_column: None,
             detail_panel_state: DetailPanelState::defaults(),
@@ -1641,23 +1756,24 @@ impl Render for MessagesViewWithState {
                         )
                     })
             )
-            // Time filter panel (when toggled)
+            // Time filter panel (when toggled) - matches Vue: px-3 py-2 gap-2 bg-base-200/50
             .when(show_time, |this| {
                 this.child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.0))
-                        .p(px(8.0))
-                        .bg(theme.surface_raised)
+                        .gap(px(8.0))  // Vue: gap-2
+                        .px(px(12.0))  // Vue: px-3 = 12px
+                        .py(px(8.0))   // Vue: py-2 = 8px
+                        .bg(theme.surface_raised.opacity(0.50))  // Vue: bg-base-200/50
                         .border_b(px(1.0))
-                        .border_color(theme.border)
+                        .border_color(theme.border.opacity(0.30))  // Vue: border-base-300
                         .child(
                             // Start time
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(4.0))
+                                .gap(px(6.0))  // Vue: gap-1.5
                                 .child(
                                     div()
                                         .text_color(theme.text_muted)
@@ -1666,6 +1782,7 @@ impl Render for MessagesViewWithState {
                                 )
                                 .child(
                                     div()
+                                        .w(px(192.0))  // Vue: w-48 = 192px
                                         .px(px(8.0))
                                         .py(px(4.0))
                                         .rounded(px(4.0))
@@ -1676,16 +1793,17 @@ impl Render for MessagesViewWithState {
                                             div()
                                                 .text_color(theme.text)
                                                 .text_xs()
-                                                .child(if self.start_time.is_empty() { "YYYY-MM-DD".to_string() } else { self.start_time.clone() })
+                                                .font_family("monospace")  // Vue: font-mono
+                                                .child(if self.start_time.is_empty() { "YYYY-MM-DD HH:mm:ss".to_string() } else { self.start_time.clone() })
                                         )
                                 )
                         )
                         .child(
-                            // End time
+                            // End time - matches Vue: gap-1.5 w-48 font-mono
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(4.0))
+                                .gap(px(6.0))  // Vue: gap-1.5
                                 .child(
                                     div()
                                         .text_color(theme.text_muted)
@@ -1694,6 +1812,7 @@ impl Render for MessagesViewWithState {
                                 )
                                 .child(
                                     div()
+                                        .w(px(192.0))  // Vue: w-48 = 192px
                                         .px(px(8.0))
                                         .py(px(4.0))
                                         .rounded(px(4.0))
@@ -1704,57 +1823,68 @@ impl Render for MessagesViewWithState {
                                             div()
                                                 .text_color(theme.text)
                                                 .text_xs()
-                                                .child(if self.end_time.is_empty() { "YYYY-MM-DD".to_string() } else { self.end_time.clone() })
+                                                .font_family("monospace")  // Vue: font-mono
+                                                .child(if self.end_time.is_empty() { "YYYY-MM-DD HH:mm:ss".to_string() } else { self.end_time.clone() })
                                         )
                                 )
                         )
-                        // Time preset buttons (matches Vue: 5m, 15m, 30m, 1h, 1d)
+                        // Time preset buttons (matches Vue: btn btn-ghost btn-xs gap-0.5 ml-1)
                         .child(
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(4.0))
+                                .gap(px(2.0))  // Vue: gap-0.5
+                                .ml(px(4.0))   // Vue: ml-1
                                 .child(
                                     div()
                                         .id("preset-5m")
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(2.0))
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_time_preset(5);
                                             cx.notify();
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("5m"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("5 min"))
                                 )
                                 .child(
                                     div()
                                         .id("preset-15m")
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(2.0))
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_time_preset(15);
                                             cx.notify();
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("15m"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("15 min"))
                                 )
                                 .child(
                                     div()
                                         .id("preset-30m")
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(2.0))
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_time_preset(30);
                                             cx.notify();
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("30m"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("30 min"))
                                 )
                                 .child(
                                     div()
@@ -1763,39 +1893,59 @@ impl Render for MessagesViewWithState {
                                         .py(px(2.0))
                                         .rounded(px(2.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_time_preset(60);
                                             cx.notify();
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("1h"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("1 hour"))
                                 )
                                 .child(
                                     div()
                                         .id("preset-1d")
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(2.0))
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.set_time_preset(24 * 60);
                                             cx.notify();
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("1d"))
+                                        .child(div().text_color(theme.text_muted).text_xs().child("1 day"))
                                 )
+                                // Clear button (matches Vue: btn btn-ghost btn-xs gap-1)
                                 .child(
                                     div()
                                         .id("clear-time")
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(2.0))
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(4.0))  // Vue: gap-1
+                                        .px(px(8.0))
+                                        .py(px(4.0))
+                                        .rounded(px(4.0))
                                         .bg(theme.surface)
+                                        .border(px(1.0))
+                                        .border_color(theme.border.opacity(0.30))
                                         .cursor_pointer()
+                                        .hover(|d| d.bg(theme.surface_raised))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.clear_time_filters();
                                             cx.notify();
                                         }))
+                                        .child(
+                                            div()
+                                                .w(px(8.0))
+                                                .h(px(8.0))
+                                                .rounded(px(2.0))
+                                                .bg(theme.text_muted.opacity(0.5))
+                                        )
                                         .child(div().text_color(theme.text_muted).text_xs().child("Clear"))
                                 )
                         )
@@ -1872,17 +2022,17 @@ impl Render for MessagesViewWithState {
                         )
                 )
             })
-            // Status bar (matches Vue's status bar)
+            // Status bar (matches Vue's status bar: px-3 py-1 bg-base-200/50)
             .child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px(px(8.0))
-                    .py(px(4.0))
+                    .px(px(12.0))  // Vue: px-3 = 12px
+                    .py(px(4.0))   // Vue: py-1 = 4px
                     .border_b(px(1.0))
-                    .border_color(theme.border)
-                    .bg(theme.surface_raised)
+                    .border_color(theme.border.opacity(0.30))  // Vue: border-base-300
+                    .bg(theme.surface_raised.opacity(0.50))  // Vue: bg-base-200/50
                     .child(
                         // Left side: topic info + progress
                         div()
@@ -2022,17 +2172,25 @@ impl Render for MessagesViewWithState {
                             let col_widths = self.column_widths.clone();
 
                             this.child(
-                            // Header row (matches Vue's table header with resize handles)
+                            // Header row (matches Vue's table header)
+                            // Vue: px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide
                             div()
                                 .flex()
                                 .items_center()
                                 .px(px(8.0))
-                                .py(px(8.0))
+                                .py(px(2.0))  // Matches Vue: py-0.5 = 2px
                                 .bg(theme.surface_raised)
                                 .border_b(px(1.0))
                                 .border_color(theme.border)
                                 // Partition column
-                                .child(div().w(px(col_widths.partition)).text_color(theme.text_muted).text_xs().child("Partition"))
+                                .child(
+                                    div()
+                                        .w(px(col_widths.partition))
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("PARTITION")  // Uppercase like Vue
+                                )
                                 // Resize handle for partition
                                 .child(
                                     div()
@@ -2047,7 +2205,14 @@ impl Render for MessagesViewWithState {
                                         }))
                                 )
                                 // Offset column
-                                .child(div().w(px(col_widths.offset)).text_color(theme.text_muted).text_xs().child("Offset"))
+                                .child(
+                                    div()
+                                        .w(px(col_widths.offset))
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("OFFSET")  // Uppercase like Vue
+                                )
                                 // Resize handle for offset
                                 .child(
                                     div()
@@ -2077,7 +2242,11 @@ impl Render for MessagesViewWithState {
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.toggle_timestamp_sort(cx);
                                         }))
-                                        .child(div().text_color(theme.text_muted).text_xs().child("Timestamp"))
+                                        .child(div()
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("TIMESTAMP"))  // Uppercase like Vue
                                         .when(timestamp_sort != TimestampSort::None, |this| {
                                             this.child(
                                                 div()
@@ -2102,7 +2271,14 @@ impl Render for MessagesViewWithState {
                                         }))
                                 )
                                 // Key column
-                                .child(div().w(px(col_widths.key)).text_color(theme.text_muted).text_xs().child("Key"))
+                                .child(
+                                    div()
+                                        .w(px(col_widths.key))
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("KEY")  // Uppercase like Vue
+                                )
                                 // Resize handle for key
                                 .child(
                                     div()
@@ -2117,9 +2293,23 @@ impl Render for MessagesViewWithState {
                                         }))
                                 )
                                 // Value column (flex_1)
-                                .child(div().flex_1().text_color(theme.text_muted).text_xs().child("Value"))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("VALUE")  // Uppercase like Vue
+                                )
                                 // Actions column
-                                .child(div().w(px(col_widths.actions)).text_color(theme.text_muted).text_xs().child("Actions"))
+                                .child(
+                                    div()
+                                        .w(px(col_widths.actions))
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("ACTIONS")  // Uppercase like Vue
+                                )
                         )
                         .children(sorted_messages.iter().enumerate().map(|(idx, msg)| {
                             let is_selected = self.selected_message == Some(idx);
@@ -2131,17 +2321,73 @@ impl Render for MessagesViewWithState {
                                 .flex()
                                 .items_center()
                                 .px(px(8.0))
-                                .py(px(6.0))
-                                .bg(if is_selected { theme.primary.opacity(0.15) } else { theme.surface })
-                                .border_l(px(3.0))
+                                .py(px(2.0))  // Matches Vue: py-0.5 = 2px
+                                .h(px(24.0))  // Matches Vue: height: 24px
+                                .bg(if is_selected { theme.primary.opacity(0.30) } else { theme.surface })  // Matches Vue: bg-primary/30
+                                .border_l(px(2.0))  // Matches Vue: border-l-2
                                 .border_color(if is_selected { theme.primary } else { gpui::transparent_black() })
+                                .border_b(px(1.0))
+                                .border_color(theme.border.opacity(0.30))
                                 .cursor_pointer()
                                 .hover(|d| d.bg(theme.surface_raised))
-                                .child(div().w(px(cw.partition)).text_color(theme.text_muted).text_xs().child(msg.partition.to_string()))
-                                .child(div().w(px(cw.offset)).text_color(theme.text_muted).text_xs().child(msg.offset.to_string()))
-                                .child(div().w(px(cw.timestamp)).text_color(theme.text_secondary).text_xs().child(msg.timestamp.clone()))
-                                .child(div().w(px(cw.key)).text_color(theme.text_secondary).text_xs().truncate().child(msg.key.clone().unwrap_or_else(|| "-".to_string())))
-                                .child(div().flex_1().text_color(theme.text).text_xs().truncate().child(msg.value.clone()))
+                                // Partition column (badge style like Vue: badge badge-ghost badge-xs scale-90)
+                                .child(
+                                    div()
+                                        .w(px(cw.partition))
+                                        .flex()
+                                        .items_center()
+                                        .child(
+                                            div()
+                                                .px(px(4.0))
+                                                .py(px(2.0))
+                                                .rounded(px(2.0))
+                                                .bg(theme.surface_raised)  // scale-90 not supported in GPUI
+                                                .child(
+                                                    div()
+                                                        .text_color(theme.text_muted)
+                                                        .text_size(px(10.0))
+                                                        .child(msg.partition.to_string())
+                                                )
+                                        )
+                                )
+                                // Offset column (font-mono like Vue)
+                                .child(
+                                    div()
+                                        .w(px(cw.offset))
+                                        .text_color(theme.text_muted)
+                                        .text_size(px(10.0))  // Matches Vue: text-[10px]
+                                        .font_family("monospace")
+                                        .child(msg.offset.to_string())
+                                )
+                                // Timestamp column
+                                .child(
+                                    div()
+                                        .w(px(cw.timestamp))
+                                        .text_color(theme.text_secondary)
+                                        .text_size(px(10.0))
+                                        .child(msg.timestamp.clone())
+                                )
+                                // Key column (font-mono truncate like Vue)
+                                .child(
+                                    div()
+                                        .w(px(cw.key))
+                                        .text_color(theme.text_secondary)
+                                        .text_size(px(10.0))
+                                        .font_family("monospace")
+                                        .truncate()
+                                        .child(msg.key.clone().unwrap_or_else(|| "-".to_string()))
+                                )
+                                // Value column (font-mono truncate pr-2 like Vue)
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .pr(px(8.0))  // Matches Vue: pr-2
+                                        .text_color(theme.text)
+                                        .text_size(px(10.0))
+                                        .font_family("monospace")
+                                        .truncate()
+                                        .child(msg.value.clone())
+                                )
                                 // Actions column with copy button (matches Vue)
                                 .child(
                                     div()
