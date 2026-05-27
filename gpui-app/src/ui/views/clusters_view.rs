@@ -331,7 +331,7 @@ impl ClustersView {
                             .text_color(theme.text_muted)
                             .text_size(px(10.0))
                             .font_weight(FontWeight::MEDIUM)
-                            .child(t.clusters.timeouts.clone().to_uppercase())
+                            .child("TIMEOUTS")
                     )
                     .child(
                         // Values - Vue3: text-xs
