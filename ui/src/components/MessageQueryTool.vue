@@ -3,7 +3,7 @@
     <!-- 简洁搜索栏 -->
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 返回按钮 -->
-      <button class="btn btn-ghost btn-sm p-1" @click="goBack" title="返回" data-tour="messages-back">
+      <button class="btn btn-ghost btn-sm p-1" :disabled="!canGoBack" :class="{ 'opacity-50 cursor-not-allowed': !canGoBack }" @click="goBack" title="返回" data-tour="messages-back">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
         </svg>
@@ -499,6 +499,7 @@ import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
+import { useCanGoBack } from '@/composables/useCanGoBack';
 import { highlightJsonWithTemplate, clearTemplateCache } from '@/utils/json-highlight';
 import { formatJson } from '@/utils/json';
 import FavoriteButton from '@/components/FavoriteButton.vue';
@@ -513,10 +514,7 @@ type NavigationDirection = 'up' | 'down';
 
 const route = useRoute();
 const router = useRouter();
-
-function goBack() {
-  router.back();
-}
+const { canGoBack, goBack } = useCanGoBack();
 const { showSuccess, showError } = useToast();
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);

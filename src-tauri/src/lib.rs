@@ -88,44 +88,30 @@ fn log(msg: &str) {
     tracing::info!("[tauri] {msg}");
 }
 
-/// 清理日志文件，只保留指定天数内的日志
-fn cleanup_log(max_days: u32) {
-    use chrono::NaiveDateTime;
-
+/// 清理日志文件，删除旧的日志文件（滚动模式）
+fn cleanup_log_files() {
     let log_path = kafka_manager_api::utils::app_log_path();
+    let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
 
-    if !log_path.exists() {
-        return;
-    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    let content = match std::fs::read_to_string(&log_path) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-
-    let cutoff = chrono::Local::now()
-        .checked_sub_days(chrono::Days::new(max_days as u64))
-        .map(|dt| dt.naive_local())
-        .unwrap_or_else(|| chrono::Local::now().naive_local());
-
-    let kept_lines: Vec<&str> = content.lines().filter(|line| {
-        if let Some(ts_start) = line.find('[') {
-            if let Some(ts_end) = line.find(']') {
-                if ts_end > ts_start {
-                    let ts_str = &line[ts_start + 1..ts_end];
-                    if let Ok(line_time) = NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S") {
-                        return line_time >= cutoff;
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            // 日志文件名格式: kafka-manager.log.YYYY-MM-DD 或 kafka-manager.YYYY-MM-DD.log
+            if file_name.starts_with("kafka-manager") && file_name.ends_with(".log") {
+                // 检查文件名中是否包含今天的日期
+                if !file_name.contains(&today) && file_name.len() > "kafka-manager.log".len() {
+                    // 不是今天的日志文件，删除
+                    if let Err(e) = std::fs::remove_file(entry.path()) {
+                        log(&format!("Failed to remove old log file {}: {}", file_name, e));
+                    } else {
+                        log(&format!("Removed old log file: {}", file_name));
                     }
                 }
             }
         }
-        true
-    }).collect();
-
-    let _ = std::fs::write(&log_path, kept_lines.join("\n"));
-    log(&format!("Log cleanup: kept {} lines, removed {} lines",
-        kept_lines.len(),
-        content.lines().count().saturating_sub(kept_lines.len())));
+    }
 }
 
 /// 获取数据库路径（与 start_backend 中的逻辑一致）
@@ -153,27 +139,45 @@ fn read_tray_enabled_from_db() -> Option<bool> {
     if !db_path.exists() {
         return None;
     }
-    if let Ok(content) = std::fs::read(&db_path) {
-        let needle = b"ui.system_tray";
-        if let Some(pos) = content.windows(needle.len()).position(|w| w == needle) {
-            let window = &content[pos.saturating_sub(20)..(pos + needle.len() + 50).min(content.len())];
-            if window.windows(4).any(|w| w == b"true") {
-                return Some(true);
+
+    // 使用 sqlx 异步查询，通过 block_on 在同步上下文中执行
+    let result = tauri::async_runtime::block_on(async {
+        let db_path_str = db_path.to_string_lossy().to_string();
+        let db_url = format!("sqlite:{}?mode=rwc", db_path_str);
+
+        // 创建临时数据库连接
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&db_url)
+            .await;
+
+        match pool {
+            Ok(pool) => {
+                // 查询设置值
+                let result: Option<(String,)> = sqlx::query_as(
+                    "SELECT value FROM user_settings WHERE key = 'ui.system_tray'"
+                )
+                .fetch_optional(&pool)
+                .await
+                .ok()?;
+
+                result.map(|r| {
+                    r.0 == "true"
+                })
             }
-            if window.windows(5).any(|w| w == b"false") {
-                return Some(false);
-            }
+            Err(_) => None
         }
-    }
-    None
+    });
+
+    result
 }
 
-/// 启动定时日志清理任务（每小时检查，清理3天前的日志）
+/// 启动定时日志清理任务（每小时检查，只保留今天的日志）
 fn spawn_periodic_log_cleanup() {
     std::thread::spawn(|| {
         loop {
             std::thread::sleep(Duration::from_secs(3600));
-            cleanup_log(3);
+            cleanup_log_files();
         }
     });
 }
@@ -2326,13 +2330,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, is_windows, share_current_version, open_url])
         .setup(|app| {
-            // 启动时清理3天前的日志（与定时清理保持一致）
-            cleanup_log(3);
+            // 启动时清理，只保留今天的日志
+            cleanup_log_files();
 
             // 注册下载状态到 app state
             app.manage(Arc::new(Mutex::new(DownloadState::default())));
 
-            // 启动定时日志清理任务（每小时清理3天前的日志）
+            // 启动定时日志清理任务（每小时清理，只保留今天的日志）
             spawn_periodic_log_cleanup();
 
             // 读取系统托盘设置（从 SQLite 数据库读取，历史兼容：未设置默认关闭）
