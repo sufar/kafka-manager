@@ -181,151 +181,307 @@ impl ClustersView {
         }
     }
 
-    /// Render a cluster card (static method for IntoElement)
+    /// Render a cluster card - Vue3: card glass gradient-border p-3
     fn render_cluster_card(theme: &Theme, t: &Arc<Translations>, cluster: &ClusterDisplay, _index: usize) -> Div {
         div()
             .flex()
             .flex_col()
-            .p(px(16.0))
+            .p(px(12.0))   // Vue3: p-3 = 12px
             .gap(px(12.0))
-            .rounded(px(8.0))
-            .bg(theme.surface)
+            .rounded(px(12.0))  // Vue3: rounded-xl for glass cards
+            .bg(theme.surface.opacity(0.80))  // Vue3: glass effect
             .border(px(1.0))
-            .border_color(theme.border)
+            .border_color(theme.border.opacity(0.10))  // Vue3: gradient-border
             .child(
-                // Header: Name + Status
+                // Header: Icon + Name + Status - Vue3: p-3 border-b border-base-content/10
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
+                    .pb(px(12.0))  // Vue3: border-b padding
+                    .border_b(px(1.0))
+                    .border_color(theme.border.opacity(0.10))
                     .child(
+                        // Icon + Name container - Vue3: gap-2 = 8px
                         div()
-                            .text_color(theme.text)
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(cluster.name.clone())
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(
+                                // Cluster icon - Vue3: w-8 h-8 rounded-lg bg-primary/10
+                                div()
+                                    .w(px(32.0))
+                                    .h(px(32.0))
+                                    .rounded(px(8.0))
+                                    .bg(theme.primary.opacity(0.10))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        // Inner icon placeholder - Vue3: w-5 h-5 = 20px
+                                        div()
+                                            .w(px(20.0))
+                                            .h(px(20.0))
+                                            .rounded(px(4.0))
+                                            .bg(theme.primary)
+                                    )
+                            )
+                            .child(
+                                // Name container
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.0))
+                                    .child(
+                                        // Title - Vue3: font-semibold text-sm = 14px
+                                        div()
+                                            .text_color(theme.text)
+                                            .text_size(px(14.0))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(cluster.name.clone())
+                                    )
+                                    .child(
+                                        // Created date - Vue3: text-[10px] = 10px
+                                        div()
+                                            .text_color(theme.text_muted)
+                                            .text_size(px(10.0))
+                                            .child("Created: 2024-01-01")
+                                    )
+                            )
                     )
-                    .child(Self::status_badge(theme, cluster.status))
-            )
-            .child(
-                // Brokers
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.0))
                     .child(
+                        // Edit/Delete buttons + Status badge
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))  // Vue3: gap-1 = 4px
+                            .child(
+                                // Edit button - Vue3: btn btn-xs btn-ghost h-auto p-1
+                                div()
+                                    .w(px(24.0))   // Vue3: btn-xs = 24px
+                                    .h(px(24.0))
+                                    .rounded(px(12.0))  // btn-circle
+                                    .bg(theme.surface)
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(theme.surface.opacity(0.80)))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        // Edit icon placeholder - Vue3: w-4 h-4 = 16px
+                                        div()
+                                            .w(px(16.0))
+                                            .h(px(16.0))
+                                            .rounded(px(3.0))
+                                            .bg(theme.text_muted)
+                                    )
+                            )
+                            .child(
+                                // Delete button - Vue3: btn btn-xs btn-ghost text-error
+                                div()
+                                    .w(px(24.0))
+                                    .h(px(24.0))
+                                    .rounded(px(12.0))
+                                    .bg(theme.surface)
+                                    .cursor_pointer()
+                                    .hover(|d| d.bg(theme.error.opacity(0.10)))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        div()
+                                            .w(px(16.0))
+                                            .h(px(16.0))
+                                            .rounded(px(3.0))
+                                            .bg(theme.error)
+                                    )
+                            )
+                            .child(Self::status_badge(theme, cluster.status))
+                    )
+            )
+            // Card body - Vue3: card-body p-3
+            .child(
+                // Brokers section - Vue3: mb-2
+                div()
+                    .mb(px(8.0))
+                    .child(
+                        // Label - Vue3: text-[10px] uppercase tracking-wider
                         div()
                             .text_color(theme.text_muted)
-                            .text_xs()
-                            .child(t.clusters.brokers.clone())
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t.clusters.brokers.clone().to_uppercase())
                     )
                     .child(
+                        // Value - Vue3: text-xs font-mono
                         div()
-                            .text_color(theme.text_secondary)
-                            .text_sm()
+                            .text_color(theme.text)
+                            .text_size(px(12.0))
+                            .font_weight(FontWeight::NORMAL)
                             .child(cluster.brokers.clone())
+                    )
+            )
+            // Timeouts section - Vue3: mb-2
+            .child(
+                div()
+                    .mb(px(8.0))
+                    .child(
+                        // Label - Vue3: text-[10px] uppercase tracking-wider
+                        div()
+                            .text_color(theme.text_muted)
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(t.clusters.timeouts.clone().to_uppercase())
+                    )
+                    .child(
+                        // Values - Vue3: text-xs
+                        div()
+                            .text_color(theme.text)
+                            .text_size(px(12.0))
+                            .child(format!("Request: {}ms | Operation: {}ms", 30000, 60000))
                     )
             )
             .when_some(cluster.group_name.clone(), |this, group| {
                 this.child(
+                    // Group section
                     div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
+                        .mb(px(8.0))
                         .child(
                             div()
                                 .text_color(theme.text_muted)
-                                .text_xs()
-                                .child(t.clusters.group.clone())
+                                .text_size(px(10.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(t.clusters.group.clone().to_uppercase())
                         )
                         .child(
+                            // Group badge - Vue3: badge badge-ghost badge-xs
                             div()
                                 .px(px(6.0))
                                 .py(px(2.0))
-                                .rounded(px(4.0))
-                                .bg(theme.surface_raised)
-                                .text_color(theme.text_secondary)
-                                .text_xs()
+                                .rounded(px(6.0))
+                                .bg(theme.surface.opacity(0.80))
+                                .text_color(theme.text_muted)
+                                .text_size(px(10.0))
                                 .child(group)
                         )
                 )
             })
+            // Actions - Vue3: mt-4 flex gap-2
             .child(
-                // Actions
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
-                    .mt(px(8.0))
+                    .gap(px(8.0))  // Vue3: gap-2 = 8px
+                    .mt(px(16.0))  // Vue3: mt-4 = 16px
                     .child(
-                        // Test connection button
+                        // Test connection button - Vue3: btn btn-primary btn-sm
                         div()
                             .flex()
                             .items_center()
-                            .justify_center()
+                            .gap(px(4.0))  // Vue3: gap-1 = 4px
+                            .h(px(32.0))   // Vue3: btn-sm h-8 = 32px
                             .px(px(12.0))
-                            .py(px(6.0))
-                            .rounded(px(6.0))
+                            .rounded(px(8.0))  // Vue3: rounded-lg = 8px
                             .bg(theme.primary)
                             .cursor_pointer()
+                            .hover(|d| d.bg(theme.primary.opacity(0.90)))
+                            .child(
+                                // Icon placeholder - Vue3: w-4 h-4 = 16px
+                                div()
+                                    .w(px(16.0))
+                                    .h(px(16.0))
+                                    .rounded(px(3.0))
+                                    .bg(Hsla::from(gpui::rgb(0xffffff)))
+                            )
                             .child(
                                 div()
                                     .text_color(Hsla::from(gpui::rgb(0xffffff)))
-                                    .text_sm()
+                                    .text_size(px(14.0))
                                     .child(t.clusters.test_connection.clone())
                             )
                     )
                     .child(
-                        // View topics button
+                        // View topics button - Vue3: btn btn-outline btn-sm
                         div()
                             .flex()
                             .items_center()
-                            .justify_center()
+                            .gap(px(4.0))
+                            .h(px(32.0))
                             .px(px(12.0))
-                            .py(px(6.0))
-                            .rounded(px(6.0))
-                            .bg(theme.surface_raised)
+                            .rounded(px(8.0))
+                            .bg(theme.surface)
                             .border(px(1.0))
                             .border_color(theme.border)
                             .cursor_pointer()
+                            .hover(|d| d.bg(theme.surface.opacity(0.80)))
+                            .child(
+                                // Icon placeholder
+                                div()
+                                    .w(px(16.0))
+                                    .h(px(16.0))
+                                    .rounded(px(3.0))
+                                    .bg(theme.text_muted)
+                            )
                             .child(
                                 div()
                                     .text_color(theme.text_secondary)
-                                    .text_sm()
+                                    .text_size(px(14.0))
                                     .child(t.clusters.view_topics_link.clone())
                             )
                     )
             )
     }
 
-    /// Render status badge (static method)
+    /// Render status badge - Vue3: badge gap-1 badge-xs, w-1.5 h-1.5 rounded-full
     fn status_badge(theme: &Theme, status: ConnectionStatusType) -> Div {
-        let (color, text) = match status {
-            ConnectionStatusType::Connected => (theme.success, "已连接"),
-            ConnectionStatusType::Disconnected => (theme.text_muted, "未连接"),
-            ConnectionStatusType::Error => (theme.error, "错误"),
-            ConnectionStatusType::Unknown => (theme.text_muted, "未知"),
+        let (bg_color, indicator_color, text_color, text) = match status {
+            ConnectionStatusType::Connected => (
+                theme.success.opacity(0.20),  // badge-success
+                theme.success,                 // bg-success
+                theme.success,                 // text-success
+                "已连接"
+            ),
+            ConnectionStatusType::Disconnected => (
+                theme.surface.opacity(0.80),   // badge-ghost
+                theme.text_muted,              // muted
+                theme.text_muted,
+                "未连接"
+            ),
+            ConnectionStatusType::Error => (
+                theme.error.opacity(0.20),     // badge-error
+                theme.error,                    // bg-error
+                theme.error,
+                "错误"
+            ),
+            ConnectionStatusType::Unknown => (
+                theme.surface.opacity(0.80),
+                theme.text_muted,
+                theme.text_muted,
+                "未知"
+            ),
         };
 
+        // Vue3: badge gap-1 badge-xs = 12px height, gap-1 = 4px
         div()
             .flex()
             .items_center()
-            .gap(px(4.0))
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(4.0))
-            .bg(color.opacity(0.2))
+            .gap(px(4.0))    // Vue3: gap-1 = 4px
+            .h(px(20.0))     // Vue3: badge-xs h-5 = 20px
+            .px(px(8.0))     // Vue3: badge-xs px-2 = 8px
+            .rounded(px(6.0))  // Vue3: badge rounded = 4px-8px
+            .bg(bg_color)
             .child(
+                // Indicator dot - Vue3: w-1.5 h-1.5 rounded-full = 6px circle
                 div()
                     .w(px(6.0))
                     .h(px(6.0))
-                    .rounded(px(3.0))
-                    .bg(color)
+                    .rounded(px(3.0))  // Full circle (radius = half diameter)
+                    .bg(indicator_color)
             )
             .child(
                 div()
-                    .text_color(color)
-                    .text_xs()
+                    .text_color(text_color)
+                    .text_size(px(12.0))  // Vue3: badge-xs text-xs = 12px
                     .child(text.to_string())
             )
     }
