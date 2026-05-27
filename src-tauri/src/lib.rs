@@ -807,6 +807,8 @@ async fn auto_download_update(app: &tauri::AppHandle) {
         Ok(skipped) => {
             if let Ok(mut guard) = download_state.lock() {
                 guard.is_downloading = false;
+                // 确保下载完成时 downloaded == total，让前端能正确识别完成状态
+                guard.downloaded = guard.total;
             }
             if skipped {
                 log("Auto-download: using cached file");
@@ -2118,6 +2120,8 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 let mut guard = state.lock().expect("Lock error");
                 guard.cancel_requested.store(false, std::sync::atomic::Ordering::Relaxed);
                 guard.is_downloading = false;
+                // 确保下载完成时 downloaded == total，让前端能正确识别完成状态
+                guard.downloaded = guard.total;
             }
 
             if skipped {
