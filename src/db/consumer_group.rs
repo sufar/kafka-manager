@@ -244,7 +244,7 @@ impl ConsumerGroupStore {
         let empty_topics = "[]";
 
         for chunk in group_names.chunks(MAX_BATCH) {
-            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
+            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?, ?)").collect::<Vec<_>>().join(", ");
 
             let sql = format!(
                 r#"
@@ -446,7 +446,7 @@ impl ConsumerGroupStore {
         let now = chrono::Utc::now().to_rfc3339();
 
         for chunk in relations.chunks(MAX_BATCH) {
-            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?)").collect::<Vec<_>>().join(", ");
+            let placeholders: String = chunk.iter().map(|_| "(?, ?, ?, ?)").collect::<Vec<_>>().join(", ");
             let sql = format!(
                 "INSERT OR IGNORE INTO consumer_group_topics (cluster_id, group_name, topic_name, fetched_at) VALUES {}",
                 placeholders
