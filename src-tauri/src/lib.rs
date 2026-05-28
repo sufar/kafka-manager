@@ -1366,13 +1366,10 @@ fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
         }
     } else {
         // 如果托盘存在，删除它
-        // 先通过 ID 获取托盘，确保能正确移除
-        if let Some(_tray) = app.tray_by_id(TRAY_ID) {
-            log("Found tray by id, will be removed on drop");
-        }
-        // 从 holder 中移除并 drop
-        let tray_to_remove = tray_holder.lock().unwrap().take();
-        drop(tray_to_remove);
+        // 使用 remove_tray_by_id 显式移除托盘图标
+        app.remove_tray_by_id(TRAY_ID);
+        // 同时从 holder 中移除
+        let _ = tray_holder.lock().unwrap().take();
         log("System tray removal requested");
     }
 
