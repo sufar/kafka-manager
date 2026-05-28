@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -50,9 +50,9 @@ fn set_auto_launch_windows(enable: bool) -> Result<(), String> {
 }
 
 /// 系统托盘状态标志（存储在 app state 中，供关闭处理器使用）
-#[derive(Clone, Debug)]
+/// 使用 AtomicBool 支持动态更新
 pub struct SystemTrayState {
-    pub enabled: bool,
+    pub enabled: AtomicBool,
 }
 
 /// 后台下载状态
@@ -1312,6 +1312,71 @@ fn get_auto_launch() -> Result<bool, String> {
     Ok(false)
 }
 
+/// 动态启用或禁用系统托盘
+#[tauri::command]
+fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    log(&format!("set_system_tray called with enabled={}", enabled));
+
+    // 获取托盘图标持有者
+    let tray_holder = app.state::<Arc<Mutex<Option<tauri::tray::TrayIcon>>>>().inner().clone();
+
+    if enabled {
+        // 如果托盘不存在，创建它
+        let has_tray = tray_holder.lock().unwrap().is_some();
+        if !has_tray {
+            use tauri::menu::{Menu, MenuItem};
+
+            let show_i = MenuItem::with_id(&app, "show", "显示", true, None::<&str>)
+                .map_err(|e| format!("Failed to create show menu item: {}", e))?;
+            let quit_i = MenuItem::with_id(&app, "quit", "退出", true, None::<&str>)
+                .map_err(|e| format!("Failed to create quit menu item: {}", e))?;
+            let menu = Menu::with_items(&app, &[&show_i, &quit_i])
+                .map_err(|e| format!("Failed to create menu: {}", e))?;
+            let icon = app.default_window_icon().cloned()
+                .ok_or_else(|| "No default window icon available".to_string())?;
+
+            let tray = tauri::tray::TrayIconBuilder::new()
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .tooltip("Kafka Manager")
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.webview_windows().values().next() {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            log("Quit menu clicked, exiting app");
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .icon(icon)
+                .build(&app)
+                .map_err(|e| format!("Failed to build tray icon: {}", e))?;
+
+            *tray_holder.lock().unwrap() = Some(tray);
+            log("System tray created dynamically");
+        }
+    } else {
+        // 如果托盘存在，删除它
+        if tray_holder.lock().unwrap().take().is_some() {
+            log("System tray removed");
+        }
+    }
+
+    // 更新 SystemTrayState
+    if let Some(state) = app.try_state::<SystemTrayState>() {
+        state.enabled.store(enabled, Ordering::SeqCst);
+        log(&format!("SystemTrayState updated to {}", enabled));
+    }
+
+    Ok(())
+}
+
 /// 后台下载函数（使用状态对象而不是 Channel）
 async fn download_with_resume_background(
     client: &reqwest::Client,
@@ -2332,7 +2397,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, is_windows, share_current_version, open_url])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, set_system_tray, is_windows, share_current_version, open_url])
         .setup(|app| {
             // 启动时清理，只保留今天的日志
             cleanup_log_files();
@@ -2345,7 +2410,7 @@ pub fn run() {
 
             // 读取系统托盘设置（从 SQLite 数据库读取，历史兼容：未设置默认关闭）
             let tray_enabled = read_tray_enabled_from_db().unwrap_or(false);
-            app.manage(SystemTrayState { enabled: tray_enabled });
+            app.manage(SystemTrayState { enabled: AtomicBool::new(tray_enabled) });
             // 注册托盘图标持有者（使用 Arc<Mutex> 包装，确保线程安全且生命周期与应用一致）
             let tray_holder: Arc<Mutex<Option<tauri::tray::TrayIcon>>> = Arc::new(Mutex::new(None));
             app.manage(tray_holder.clone());

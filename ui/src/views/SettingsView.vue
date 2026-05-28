@@ -1056,10 +1056,8 @@ async function toggleSystemTray() {
   systemTrayEnabled.value = !systemTrayEnabled.value;
   try {
     await apiClient.updateSetting('ui.system_tray', systemTrayEnabled.value ? 'true' : 'false');
-    // 触发设置变化事件通知后端
-    window.dispatchEvent(new CustomEvent('settings-changed', {
-      detail: { key: 'ui.system_tray', value: systemTrayEnabled.value }
-    }));
+    // 动态创建或删除托盘图标（无需重启）
+    await tauriInvoke('set_system_tray', { enabled: systemTrayEnabled.value });
     toast.showSuccess(systemTrayEnabled.value ? t.value.settings.systemTrayEnabled : t.value.settings.systemTrayDisabled);
   } catch (e) {
     console.error('Failed to save system tray setting:', e);
