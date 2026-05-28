@@ -24,7 +24,7 @@
   <!-- 选择分组弹窗 -->
   <Teleport to="body">
     <dialog ref="modalRef" class="modal modal-bottom sm:modal-middle" @click.self="closeModal">
-      <div class="modal-box w-full max-w-sm mx-2 md:mx-auto p-5">
+      <div class="modal-box w-full max-w-sm mx-2 md:mx-auto p-5 overflow-visible">
         <!-- Header -->
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
@@ -132,22 +132,24 @@
               </div>
             </div>
 
-            <!-- 分组列表 -->
-            <div
-              v-for="group in groups"
-              :key="group.id"
-              class="p-2 rounded-lg cursor-pointer transition-colors hover:bg-base-200"
-              :class="{ 'bg-primary/10 hover:bg-primary/20': selectedGroupId === group.id }"
-              @click="selectedGroupId = group.id"
-            >
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0121.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-                  </svg>
-                  <span>{{ group.name }}</span>
+            <!-- 分组列表 - 支持滚动 -->
+            <div class="max-h-48 overflow-y-auto space-y-1">
+              <div
+                v-for="group in groups"
+                :key="group.id"
+                class="p-2 rounded-lg cursor-pointer transition-colors hover:bg-base-200"
+                :class="{ 'bg-primary/10 hover:bg-primary/20': selectedGroupId === group.id }"
+                @click="selectedGroupId = group.id"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0121.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                    </svg>
+                    <span>{{ group.name }}</span>
+                  </div>
+                  <span class="badge badge-sm badge-ghost">{{ group.item_count || 0 }}</span>
                 </div>
-                <span class="badge badge-sm badge-ghost">{{ group.item_count || 0 }}</span>
               </div>
             </div>
           </div>
