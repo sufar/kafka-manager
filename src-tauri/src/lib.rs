@@ -1312,6 +1312,9 @@ fn get_auto_launch() -> Result<bool, String> {
     Ok(false)
 }
 
+/// 系统托盘 ID
+const TRAY_ID: &str = "main";
+
 /// 动态启用或禁用系统托盘
 #[tauri::command]
 fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
@@ -1335,7 +1338,7 @@ fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
             let icon = app.default_window_icon().cloned()
                 .ok_or_else(|| "No default window icon available".to_string())?;
 
-            let tray = tauri::tray::TrayIconBuilder::new()
+            let tray = tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .tooltip("Kafka Manager")
@@ -1363,9 +1366,14 @@ fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
         }
     } else {
         // 如果托盘存在，删除它
-        if tray_holder.lock().unwrap().take().is_some() {
-            log("System tray removed");
+        // 先通过 ID 获取托盘，确保能正确移除
+        if let Some(_tray) = app.tray_by_id(TRAY_ID) {
+            log("Found tray by id, will be removed on drop");
         }
+        // 从 holder 中移除并 drop
+        let tray_to_remove = tray_holder.lock().unwrap().take();
+        drop(tray_to_remove);
+        log("System tray removal requested");
     }
 
     // 更新 SystemTrayState
@@ -2421,7 +2429,7 @@ pub fn run() {
                 let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
                 let icon = app.default_window_icon().cloned().expect("no window icon");
 
-                let tray = tauri::tray::TrayIconBuilder::new()
+                let tray = tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
                     .menu(&menu)
                     .show_menu_on_left_click(true)
                     .tooltip("Kafka Manager")

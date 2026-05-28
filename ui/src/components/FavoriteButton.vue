@@ -48,7 +48,7 @@
           <div v-if="loading" class="flex items-center justify-center py-8">
             <span class="loading loading-spinner loading-md text-primary"></span>
           </div>
-          <div v-else-if="groups.length === 0 || showCreateGroupForm" class="text-center py-4">
+          <div v-else-if="groups.length === 0" class="text-center py-4">
             <div v-if="!showCreateGroupForm">
               <p class="text-base-content/50 mb-3">{{ t.favorites?.noGroups || 'No groups yet' }}</p>
               <button class="btn btn-primary btn-sm" @click="openCreateGroupForm">
@@ -89,6 +89,50 @@
             </div>
           </div>
           <div v-else class="space-y-2">
+            <!-- 新增分组按钮 -->
+            <button
+              v-if="!showCreateGroupForm"
+              class="w-full p-2 rounded-lg cursor-pointer transition-colors hover:bg-base-200 border border-dashed border-base-content/20 text-base-content/60 flex items-center justify-center gap-1"
+              @click="openCreateGroupForm"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              <span class="text-sm">{{ t.favorites?.createGroup || 'Create Group' }}</span>
+            </button>
+
+            <!-- 创建分组表单 -->
+            <div v-if="showCreateGroupForm" class="p-2 rounded-lg bg-base-200/50 space-y-2">
+              <input
+                v-model="newGroupName"
+                type="text"
+                class="input input-bordered w-full input-sm"
+                :placeholder="t.favorites?.groupNamePlaceholder || 'Enter group name'"
+                @keyup.enter="submitCreateGroup"
+              />
+              <input
+                v-model="newGroupDesc"
+                type="text"
+                class="input input-bordered w-full input-sm"
+                :placeholder="t.favorites?.groupDescPlaceholder || 'Enter description (optional)'"
+                @keyup.enter="submitCreateGroup"
+              />
+              <div class="flex gap-2 justify-end">
+                <button class="btn btn-ghost btn-xs" @click="cancelCreateGroup">
+                  {{ t.common?.cancel || 'Cancel' }}
+                </button>
+                <button
+                  class="btn btn-primary btn-xs"
+                  :disabled="!newGroupName.trim() || creatingGroup"
+                  @click="submitCreateGroup"
+                >
+                  <span v-if="creatingGroup" class="loading loading-spinner loading-xs"></span>
+                  {{ t.common?.save || 'Save' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 分组列表 -->
             <div
               v-for="group in groups"
               :key="group.id"
@@ -99,7 +143,7 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0121.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
                   </svg>
                   <span>{{ group.name }}</span>
                 </div>
@@ -109,7 +153,7 @@
           </div>
 
           <!-- 备注输入 -->
-          <div v-if="groups.length > 0 && !showCreateGroupForm" class="pt-2 border-t border-base-content/10">
+          <div v-if="groups.length > 0" class="pt-2 border-t border-base-content/10">
             <label class="block text-sm font-medium mb-1">
               <span class="flex items-center gap-1">
                 <span>{{ t.favorites?.remark || 'Remark' }}</span>
