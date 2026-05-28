@@ -29,24 +29,34 @@ pub struct KafkaManagerApp {
 
 impl KafkaManagerApp {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        tracing::info!("Initializing KafkaManagerApp...");
+
         // Create global state entity
         let state = cx.new(|cx| {
+            tracing::info!("Creating GlobalState...");
             let mut global_state = GlobalState::new();
-            // Load clusters on initialization
+            // Load clusters on initialization (async, won't block)
+            tracing::info!("Loading clusters and groups...");
             global_state.load_clusters(cx);
             global_state.load_cluster_groups(cx);
+            tracing::info!("GlobalState initialized");
             global_state
         });
 
+        tracing::info!("Creating sidebar...");
         // Create sidebar with state reference
         let sidebar = cx.new(|cx| LeftSidebarWithState::new(state.clone(), false));
 
+        tracing::info!("Creating toast manager...");
         // Create toast manager with state reference
         let toast_manager = cx.new(|_| ToastManagerWithState::new(state.clone()));
 
+        tracing::info!("Creating main content...");
         // Create main content with state reference
         let translations = state.read(cx).translations();
         let main_content = cx.new(|cx| MainContentWithState::new(state.clone(), translations, cx));
+
+        tracing::info!("KafkaManagerApp fully initialized");
 
         Self {
             state,

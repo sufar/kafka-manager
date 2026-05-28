@@ -181,6 +181,12 @@ impl IntoElement for TourOverlay {
             return div().id("tour-overlay-inactive");
         }
 
+        // Defensive check: ensure current_step is within bounds
+        if self.current_step >= self.steps.len() {
+            // Tour ended or invalid state, return empty div
+            return div().id("tour-overlay-invalid");
+        }
+
         let theme = &self.theme;
         let current = &self.steps[self.current_step];
         let t = &self.translations;

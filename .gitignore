@@ -57,3 +57,4 @@ not_git/
 .vite/
 
 .claude/worktrees/
+.claude/worktrees/gpui-app/

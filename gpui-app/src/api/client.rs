@@ -45,7 +45,7 @@ impl HttpClient {
 
     /// Create client with default base URL
     pub fn default_client() -> Self {
-        Self::new("http://localhost:8080".to_string())
+        Self::new("http://localhost:9732".to_string())
     }
 
     /// Get the base URL
