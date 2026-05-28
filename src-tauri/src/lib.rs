@@ -2346,6 +2346,9 @@ pub fn run() {
             // 读取系统托盘设置（从 SQLite 数据库读取，历史兼容：未设置默认关闭）
             let tray_enabled = read_tray_enabled_from_db().unwrap_or(false);
             app.manage(SystemTrayState { enabled: tray_enabled });
+            // 注册托盘图标持有者（使用 Arc<Mutex> 包装，确保线程安全且生命周期与应用一致）
+            let tray_holder: Arc<Mutex<Option<tauri::tray::TrayIcon>>> = Arc::new(Mutex::new(None));
+            app.manage(tray_holder.clone());
 
             if tray_enabled {
                 let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
@@ -2353,7 +2356,7 @@ pub fn run() {
                 let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
                 let icon = app.default_window_icon().cloned().expect("no window icon");
 
-                let _tray = tauri::tray::TrayIconBuilder::new()
+                let tray = tauri::tray::TrayIconBuilder::new()
                     .menu(&menu)
                     .show_menu_on_left_click(true)
                     .tooltip("Kafka Manager")
@@ -2375,7 +2378,10 @@ pub fn run() {
                     .icon(icon)
                     .build(app)?;
 
-                log("System tray created");
+                // 将托盘图标存储到 app state 中，确保其生命周期与应用一致
+                *tray_holder.lock().unwrap() = Some(tray);
+
+                log("System tray created and stored in app state");
             }
 
             // 启动时自动检查更新（后台静默，有更新时通知前端）
