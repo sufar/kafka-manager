@@ -52,7 +52,8 @@
         "headerImage": null,
         "sidebarImage": null,
         "installMode": "both",
-        "languages": ["English", "SimpChinese"]
+        "languages": ["English", "SimpChinese"],
+        "installerHooks": "./scripts/installer.nsh"
       }
     },
     "linux": {
