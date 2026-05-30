@@ -418,17 +418,6 @@
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
           @click="selectTopic((item as TopicItem).topic)"
         >
-          <!-- Cluster Health Indicator -->
-          <div
-            class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            :class="{
-              'bg-success': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === true,
-              'bg-error': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === false,
-              'bg-warning': getClusterHealth((item as TopicItem).topic.cluster)?.healthy === undefined
-            }"
-            data-tour="sidebar-health-dot"
-          ></div>
-
           <!-- Topic Name with Tooltip -->
           <div class="flex-1 min-w-0 relative" data-tour="sidebar-topic-name">
             <span
@@ -462,17 +451,6 @@
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
           @click="selectConsumerGroup((item as ConsumerGroupItem).group)"
         >
-          <!-- Cluster Health Indicator -->
-          <div
-            class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            :class="{
-              'bg-success': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === true,
-              'bg-error': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === false,
-              'bg-warning': getClusterHealth((item as ConsumerGroupItem).group.cluster)?.healthy === undefined
-            }"
-            data-tour="sidebar-health-dot"
-          ></div>
-
           <!-- Consumer Group Name with Tooltip -->
           <div class="flex-1 min-w-0 relative" data-tour="sidebar-topic-name">
             <span
@@ -908,11 +886,6 @@ const visibleConsumerGroups = computed(() => {
 });
 
 // ==================== End Consumer Groups Computed ====================
-
-// Get cluster health
-function getClusterHealth(clusterName: string) {
-  return clusterStore.clusterHealth[clusterName];
-}
 
 // Track pending highlight for after topics load
 const pendingHighlight = ref<{ cluster: string; topic: string } | null>(null);

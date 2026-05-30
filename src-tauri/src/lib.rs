@@ -88,7 +88,51 @@ fn log(msg: &str) {
     tracing::info!("[tauri] {msg}");
 }
 
-/// 清理日志文件，删除旧的日志文件（滚动模式）
+/// 归档旧日志文件：将 kafka-manager.log 重命名为 kafka-manager.YYYY-MM-DD.log（根据文件修改日期）
+fn archive_old_log_file() {
+    let log_path = kafka_manager_api::utils::app_log_path();
+    if !log_path.exists() {
+        return;
+    }
+
+    // 获取文件的修改时间
+    let metadata = match std::fs::metadata(&log_path) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+
+    let modified = match metadata.modified() {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    // 将修改时间转换为日期字符串
+    let modified_date = chrono::DateTime::<chrono::Local>::from(modified).format("%Y-%m-%d").to_string();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    // 如果文件不是今天修改的，归档它
+    if modified_date != today {
+        let archived_path = log_path.parent()
+            .map(|p| p.join(format!("kafka-manager.{}.log", modified_date)))
+            .unwrap_or_else(|| log_path.clone());
+
+        // 如果归档文件已存在，先删除
+        if archived_path.exists() {
+            if let Err(e) = std::fs::remove_file(&archived_path) {
+                log(&format!("Failed to remove existing archived log {}: {}", archived_path.display(), e));
+            }
+        }
+
+        // 重命名旧日志为归档文件
+        if let Err(e) = std::fs::rename(&log_path, &archived_path) {
+            log(&format!("Failed to archive old log file: {}", e));
+        } else {
+            log(&format!("Archived old log file to: {}", archived_path.display()));
+        }
+    }
+}
+
+/// 清理日志文件，删除非今天的归档日志文件
 fn cleanup_log_files() {
     let log_path = kafka_manager_api::utils::app_log_path();
     let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
@@ -98,11 +142,11 @@ fn cleanup_log_files() {
     if let Ok(entries) = std::fs::read_dir(log_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
-            // 日志文件名格式: kafka-manager.log.YYYY-MM-DD 或 kafka-manager.YYYY-MM-DD.log
-            if file_name.starts_with("kafka-manager") && file_name.ends_with(".log") {
+            // 归档日志文件名格式: kafka-manager.YYYY-MM-DD.log
+            if file_name.starts_with("kafka-manager.") && file_name.ends_with(".log") && file_name.len() > "kafka-manager.log".len() {
                 // 检查文件名中是否包含今天的日期
-                if !file_name.contains(&today) && file_name.len() > "kafka-manager.log".len() {
-                    // 不是今天的日志文件，删除
+                if !file_name.contains(&today) {
+                    // 不是今天的日志归档文件，删除
                     if let Err(e) = std::fs::remove_file(entry.path()) {
                         log(&format!("Failed to remove old log file {}: {}", file_name, e));
                     } else {
@@ -172,11 +216,14 @@ fn read_tray_enabled_from_db() -> Option<bool> {
     result
 }
 
-/// 启动定时日志清理任务（每小时检查，只保留今天的日志）
+/// 启动定时日志清理任务（每小时检查，归档旧日志并只保留今天的日志）
 fn spawn_periodic_log_cleanup() {
     std::thread::spawn(|| {
         loop {
             std::thread::sleep(Duration::from_secs(3600));
+            // 先归档旧日志（跨天后将昨天的日志归档）
+            archive_old_log_file();
+            // 再清理非今天的归档文件
             cleanup_log_files();
         }
     });
@@ -324,6 +371,12 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         refresh_state,
         import_export_lock,
     };
+
+    // 归档旧日志文件（按日期归档）
+    archive_old_log_file();
+
+    // 清理非今天的归档日志文件
+    cleanup_log_files();
 
     // 初始化 tracing 日志（统一通过 tracing 写入日志文件）
     let log_path_tauri = kafka_manager_api::utils::app_log_path();
