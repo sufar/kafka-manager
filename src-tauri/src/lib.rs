@@ -16,6 +16,7 @@ use kafka_manager_api::{
     Config, DbPool, KafkaClients, ClusterPools,
     RefreshState, ImportExportLock,
     AppState, create_router,
+    telemetry,
 };
 use tauri::Manager;
 use tauri::Emitter;
@@ -347,6 +348,9 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     }
     log("Database initialized OK");
 
+    // 克隆数据库连接池给遥测任务使用
+    let pool_for_telemetry = pool.clone();
+
     // 创建空的 Kafka 客户端（不建立连接，先启动应用）
     log("Creating empty Kafka clients (connections will be established in background)...");
     let clients = KafkaClients::default();
@@ -525,6 +529,53 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
             }
         });
     }
+
+    // 遥测后台任务：启动时检查 MySQL 连接并上报，每小时检查一次
+    tokio::spawn(async move {
+        log("[Telemetry] Checking MySQL connection on startup...");
+        let mysql_connected = telemetry::check_mysql_connection().await;
+
+        if !mysql_connected {
+            log("[Telemetry] MySQL TCP connection not available, telemetry disabled");
+            return;
+        }
+
+        // 尝试建立 MySQL 连接
+        let mysql_pool = match telemetry::connect_mysql().await {
+            Ok(p) => p,
+            Err(e) => {
+                log(&format!("[Telemetry] MySQL connection failed: {}, telemetry disabled", e));
+                return;
+            }
+        };
+
+        log("[Telemetry] MySQL connection established, telemetry enabled");
+
+        // 启动时立即上报一次
+        if let Err(e) = telemetry::do_telemetry_report(pool_for_telemetry.inner(), &mysql_pool).await {
+            log(&format!("[Telemetry] Startup telemetry report failed: {}", e));
+        }
+
+        // 每小时检查一次
+        let mut interval = tokio::time::interval(Duration::from_secs(3600));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            // 每小时重新检查 MySQL 连接
+            if !telemetry::check_mysql_connection().await {
+                log("[Telemetry] MySQL connection lost, skipping hourly report");
+                continue;
+            }
+
+            // 尝试上报
+            log("[Telemetry] Hourly telemetry check...");
+            if let Err(e) = telemetry::do_telemetry_report(pool_for_telemetry.inner(), &mysql_pool).await {
+                log(&format!("[Telemetry] Hourly telemetry report failed: {}", e));
+            }
+        }
+    });
 
     // 等待服务器结束
     let _ = server_handle.await;
