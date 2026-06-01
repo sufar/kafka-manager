@@ -60,15 +60,15 @@
 
     <!-- Single cluster view - empty state -->
     <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl">
-      <div class="px-2 py-1.5 bg-base-100 border-b border-base-200 flex items-center gap-1.5">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40">
+      <div class="px-3 py-2 bg-base-100 border-b border-base-200 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-base-content/40">
           <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
         </svg>
         <input
           v-model="searchQuery"
           type="text"
           :placeholder="t.common.search"
-          class="input input-bordered input-xs w-36"
+          class="input input-bordered input-sm w-64"
         />
       </div>
       <div class="flex flex-col items-center justify-center py-8 text-center">
@@ -103,29 +103,34 @@
     <!-- Single cluster view (from URL param) -->
     <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl flex-1 flex flex-col overflow-hidden" data-tour="topics-list">
       <!-- Header with search and count -->
-      <div class="px-2 py-1.5 bg-base-100 border-b border-base-200 flex items-center justify-between flex-shrink-0">
-        <div class="flex items-center gap-1.5">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40">
+      <div class="px-3 py-2 bg-base-100 border-b border-base-200 flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-base-content/40">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
           </svg>
           <input
             v-model="searchQuery"
             type="text"
             :placeholder="t.common.search"
-            class="input input-bordered input-xs w-36"
+            class="input input-bordered input-sm w-64"
           />
         </div>
         <span class="text-xs text-base-content/50">{{ filteredClusterTopics.length }} topics</span>
       </div>
+      <!-- Table header - fixed -->
+      <div class="bg-base-100 border-b border-base-200 flex-shrink-0">
+        <table class="table w-full table-sm">
+          <thead>
+            <tr>
+              <th class="p-2 text-xs">{{ t.topics.topicName }}</th>
+              <th class="p-2 text-xs text-right w-16">{{ t.common.actions }}</th>
+            </tr>
+          </thead>
+        </table>
+      </div>
       <!-- Table content - scrollable -->
       <div ref="singleClusterContainerRef" class="overflow-y-auto flex-1" @scroll="handleSingleClusterScroll">
         <table class="table w-full table-sm">
-          <thead class="bg-base-100 sticky top-0">
-            <tr>
-              <th class="p-1.5 text-xs">{{ t.topics.topicName }}</th>
-              <th class="p-1.5 text-xs text-right w-16">{{ t.common.actions }}</th>
-            </tr>
-          </thead>
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
             <tr v-if="singleClusterVirtualStartIndex > 0" :style="{ height: singleClusterVirtualStartIndex * ROW_HEIGHT + 'px' }">
@@ -133,8 +138,8 @@
             </tr>
             <!-- 可见区域的行 -->
             <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer">
-              <td class="p-1">
-                <div class="flex items-center gap-1.5">
+              <td class="p-2">
+                <div class="flex items-center gap-2">
                   <FavoriteButton
                     :cluster-id="clusterParam"
                     :topic-name="topic.name"
@@ -145,9 +150,9 @@
                   <span class="text-xs truncate" :title="topic.name">{{ topic.name }}</span>
                 </div>
               </td>
-              <td class="p-1 text-right">
-                <button class="btn btn-ghost btn-xs h-5 min-h-5 px-1 text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+              <td class="p-2 text-right">
+                <button class="btn btn-ghost btn-xs text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                   </svg>
                 </button>
@@ -467,15 +472,23 @@ onMounted(() => {
 <style scoped>
 /* 紧凑表格样式 */
 .table-sm :deep(td) {
-  padding: 0.25rem 0.5rem;
+  padding: 0.5rem;
   vertical-align: middle;
 }
 
 .table-sm :deep(th) {
-  padding: 0.25rem 0.5rem;
+  padding: 0.5rem;
   font-size: 0.75rem;
   text-transform: none;
   letter-spacing: normal;
+  font-weight: 600;
+}
+
+/* 确保表头和内容列宽一致 */
+.table-sm :deep(td:last-child),
+.table-sm :deep(th:last-child) {
+  width: 64px;
+  min-width: 64px;
 }
 
 /* 移除背景模糊效果 */
