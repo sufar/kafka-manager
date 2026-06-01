@@ -1138,6 +1138,49 @@ class ApiClient {
   async deleteSchema(clusterId: string, subject: string): Promise<{ success: boolean; deleted_versions: number[] }> {
     return this.request('schema_registry.delete', { cluster_id: clusterId, subject });
   }
+
+  // ==================== Telemetry ====================
+  async checkTelemetryConnection(): Promise<{
+    connected: boolean;
+    reason?: string;
+    hostname?: string;
+    username?: string;
+    local_ip?: string;
+    app_version?: string;
+    platform?: string;
+    install_method?: string;
+  }> {
+    return this.request('telemetry.check_connection', {});
+  }
+
+  async reportTelemetry(): Promise<{
+    success: boolean;
+    reported?: boolean;
+    reason?: string;
+    hostname?: string;
+    username?: string;
+    local_ip?: string;
+    app_version?: string;
+    platform?: string;
+    install_method?: string;
+  }> {
+    return this.request('telemetry.report', {});
+  }
+
+  async submitFeedback(feedbackContent: string): Promise<{
+    success: boolean;
+    feedback_id?: number;
+    reason?: string;
+    hostname?: string;
+    username?: string;
+    local_ip?: string;
+    app_version?: string;
+    platform?: string;
+    install_method?: string;
+    submitted_at?: string;
+  }> {
+    return this.request('telemetry.submit_feedback', { feedback_content: feedbackContent });
+  }
 }
 
 // 导出单例

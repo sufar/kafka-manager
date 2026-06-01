@@ -11,6 +11,7 @@ pub mod middleware;
 pub mod models;
 pub mod pool;
 pub mod routes;
+pub mod telemetry;
 pub mod utils;
 
 use std::sync::Arc;

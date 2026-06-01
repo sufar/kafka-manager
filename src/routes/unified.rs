@@ -31,6 +31,7 @@ use crate::db::schema_registry::{SchemaRegistryStore, SchemaStore};
 use base64::Engine;
 use crate::kafka::avro::AvroCodec;
 use crate::kafka::protobuf::ProtobufCodec;
+use crate::telemetry;
 use crate::AppState;
 use crate::RefreshState;
 use axum::{
@@ -683,6 +684,11 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "schema_registry.compatibility.set" => crate::routes::schema_registry::handle_compatibility_set(state, body).await,
         "schema_registry.list" => crate::routes::schema_registry::handle_schema_list(state, body).await,
         "schema_registry.delete" => crate::routes::schema_registry::handle_schema_delete(state, body).await,
+
+        // Telemetry
+        "telemetry.check_connection" => handle_telemetry_check_connection(state).await,
+        "telemetry.report" => handle_telemetry_report(state).await,
+        "telemetry.submit_feedback" => handle_telemetry_submit_feedback(state, body).await,
 
         _ => Err(AppError::BadRequest(format!("Unknown method: {}", method))),
     }
@@ -5857,4 +5863,148 @@ async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Va
     ConsumerGroupStore::delete_offsets(state.db.inner(), &cluster_id, &group_name).await?;
 
     Ok(serde_json::json!({ "success": true }))
+}
+
+// ==================== Telemetry ====================
+
+/// 检查 MySQL 连接是否可用
+async fn handle_telemetry_check_connection(_state: AppState) -> Result<Value> {
+    // 先检查 TCP 连接
+    let tcp_connected = telemetry::check_mysql_connection().await;
+
+    if !tcp_connected {
+        return Ok(serde_json::json!({
+            "connected": false,
+            "reason": "TCP connection failed"
+        }));
+    }
+
+    // 尝试建立 MySQL 连接
+    let mysql_pool = match telemetry::connect_mysql().await {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!("[Telemetry] MySQL connection failed: {}", e);
+            return Ok(serde_json::json!({
+                "connected": false,
+                "reason": format!("MySQL connection error: {}", e)
+            }));
+        }
+    };
+
+    // 确保表存在
+    if let Err(e) = telemetry::ensure_mysql_tables(&mysql_pool).await {
+        tracing::warn!("[Telemetry] Failed to ensure tables: {}", e);
+        return Ok(serde_json::json!({
+            "connected": false,
+            "reason": format!("Table creation error: {}", e)
+        }));
+    }
+
+    // 存储连接池到 AppState（如果需要）
+    // 这里我们只是检查连接，不存储
+
+    Ok(serde_json::json!({
+        "connected": true,
+        "hostname": telemetry::get_hostname(),
+        "username": telemetry::get_username(),
+        "local_ip": telemetry::get_local_ip(),
+        "app_version": telemetry::get_app_version(),
+        "platform": telemetry::get_platform(),
+        "install_method": telemetry::get_install_method()
+    }))
+}
+
+/// 上报遥测数据
+async fn handle_telemetry_report(state: AppState) -> Result<Value> {
+    // 检查 TCP 连接
+    if !telemetry::check_mysql_connection().await {
+        return Ok(serde_json::json!({
+            "success": false,
+            "reason": "MySQL TCP connection not available"
+        }));
+    }
+
+    // 建立 MySQL 连接
+    let mysql_pool = telemetry::connect_mysql().await
+        .map_err(|e| AppError::Internal(format!("MySQL connection error: {}", e)))?;
+
+    // 确保表存在
+    telemetry::ensure_mysql_tables(&mysql_pool).await
+        .map_err(|e| AppError::Internal(format!("Table creation error: {}", e)))?;
+
+    // 执行遥测上报
+    let reported = telemetry::do_telemetry_report(state.db.inner(), &mysql_pool).await
+        .map_err(|e| AppError::Internal(format!("Telemetry report error: {}", e)))?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "reported": reported,
+        "hostname": telemetry::get_hostname(),
+        "username": telemetry::get_username(),
+        "local_ip": telemetry::get_local_ip(),
+        "app_version": telemetry::get_app_version(),
+        "platform": telemetry::get_platform(),
+        "install_method": telemetry::get_install_method()
+    }))
+}
+
+/// 提交意见反馈
+async fn handle_telemetry_submit_feedback(_state: AppState, body: Value) -> Result<Value> {
+    let feedback_content = get_long_string_param(&body, "feedback_content")?;
+
+    // 验证反馈内容长度（最大 2000 字符）
+    if feedback_content.len() > 2000 {
+        return Err(AppError::BadRequest("Feedback content exceeds maximum length of 2000 characters".to_string()));
+    }
+
+    // 检查 TCP 连接
+    if !telemetry::check_mysql_connection().await {
+        return Ok(serde_json::json!({
+            "success": false,
+            "reason": "MySQL TCP connection not available"
+        }));
+    }
+
+    // 建立 MySQL 连接
+    let mysql_pool = telemetry::connect_mysql().await
+        .map_err(|e| AppError::Internal(format!("MySQL connection error: {}", e)))?;
+
+    // 确保表存在
+    telemetry::ensure_mysql_tables(&mysql_pool).await
+        .map_err(|e| AppError::Internal(format!("Table creation error: {}", e)))?;
+
+    // 获取系统信息
+    let hostname = telemetry::get_hostname();
+    let username = telemetry::get_username();
+    let local_ip = telemetry::get_local_ip();
+    let app_version = telemetry::get_app_version();
+    let platform = telemetry::get_platform();
+    let install_method = telemetry::get_install_method();
+    let submitted_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 提交反馈到 MySQL
+    let feedback_id = telemetry::submit_feedback_to_mysql(
+        &mysql_pool,
+        &hostname,
+        &username,
+        &local_ip,
+        &app_version,
+        &platform,
+        &install_method,
+        &feedback_content,
+        &submitted_at,
+    ).await
+        .map_err(|e| AppError::Internal(format!("Feedback submission error: {}", e)))?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "feedback_id": feedback_id,
+        "hostname": hostname,
+        "username": username,
+        "local_ip": local_ip,
+        "app_version": app_version,
+        "platform": platform,
+        "install_method": install_method,
+        "submitted_at": submitted_at
+    }))
 }

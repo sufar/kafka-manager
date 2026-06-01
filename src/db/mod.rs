@@ -381,6 +381,9 @@ impl DbPool {
         // 初始化 Schema Registry 表
         schema_registry::init_tables(self.inner()).await?;
 
+        // 初始化遥测记录表
+        self.init_telemetry_table().await?;
+
         tracing::info!("[KAFKA-MANAGER] Database tables initialized successfully");
 
         Ok(())
@@ -463,6 +466,42 @@ impl DbPool {
         )
         .execute(self.inner())
         .await?;
+
+        Ok(())
+    }
+
+    /// 初始化遥测记录表
+    async fn init_telemetry_table(&self) -> Result<(), sqlx::Error> {
+        // 创建遥测记录表（包含版本号、平台、安装方式）
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS telemetry_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hostname TEXT NOT NULL,
+                username TEXT NOT NULL,
+                local_ip TEXT NOT NULL,
+                app_version TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                install_method TEXT NOT NULL,
+                report_date TEXT NOT NULL,
+                reported_at TEXT NOT NULL,
+                UNIQUE(hostname, username, report_date)
+            )
+            "#,
+        )
+        .execute(self.inner())
+        .await?;
+
+        // 创建索引
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_records_date ON telemetry_records(report_date)")
+            .execute(self.inner())
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_telemetry_records_hostname_user ON telemetry_records(hostname, username)")
+            .execute(self.inner())
+            .await?;
+
+        tracing::info!("[KAFKA-MANAGER] Telemetry records table initialized");
 
         Ok(())
     }

@@ -8,6 +8,7 @@ mod middleware;
 mod models;
 mod pool;
 mod routes;
+mod telemetry;
 mod utils;
 
 #[cfg(test)]
@@ -267,6 +268,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 tracing::info!("Background topic sync completed for all clusters");
+            }
+        });
+    }
+
+    // 遥测后台任务：启动时检查 MySQL 连接并上报，每小时检查一次
+    {
+        let db_for_telemetry = db.clone();
+        tokio::spawn(async move {
+            // 启动时检查 MySQL TCP 连接
+            tracing::info!("[Telemetry] Checking MySQL connection on startup...");
+            let mysql_connected = telemetry::check_mysql_connection().await;
+
+            if !mysql_connected {
+                tracing::info!("[Telemetry] MySQL TCP connection not available, telemetry disabled");
+                return;
+            }
+
+            // 尝试建立 MySQL 连接
+            let mysql_pool = match telemetry::connect_mysql().await {
+                Ok(pool) => pool,
+                Err(e) => {
+                    tracing::warn!("[Telemetry] MySQL connection failed: {}, telemetry disabled", e);
+                    return;
+                }
+            };
+
+            // 确保 MySQL 表存在
+            if let Err(e) = telemetry::ensure_mysql_tables(&mysql_pool).await {
+                tracing::warn!("[Telemetry] Failed to ensure MySQL tables: {}, telemetry disabled", e);
+                return;
+            }
+
+            tracing::info!("[Telemetry] MySQL connection established, telemetry enabled");
+
+            // 启动时立即上报一次
+            if let Err(e) = telemetry::do_telemetry_report(db_for_telemetry.inner(), &mysql_pool).await {
+                tracing::warn!("[Telemetry] Startup telemetry report failed: {}", e);
+            }
+
+            // 每小时检查一次
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                // 每小时重新检查 MySQL 连接
+                if !telemetry::check_mysql_connection().await {
+                    tracing::debug!("[Telemetry] MySQL connection lost, skipping hourly report");
+                    continue;
+                }
+
+                // 尝试上报
+                tracing::debug!("[Telemetry] Hourly telemetry check...");
+                if let Err(e) = telemetry::do_telemetry_report(db_for_telemetry.inner(), &mysql_pool).await {
+                    tracing::warn!("[Telemetry] Hourly telemetry report failed: {}", e);
+                }
             }
         });
     }

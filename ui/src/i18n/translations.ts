@@ -404,6 +404,16 @@ export interface Translation {
     logsCopied: string;
     logsCleared: string;
     logsRefreshed: string;
+    feedback: string;
+    feedbackDesc: string;
+    feedbackPlaceholder: string;
+    feedbackSubmit: string;
+    feedbackSubmitting: string;
+    feedbackSuccess: string;
+    feedbackFailed: string;
+    feedbackMaxLength: string;
+    feedbackConnectionFailed: string;
+    feedbackSystemInfo: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -1152,6 +1162,16 @@ export const translations: Record<Language, Translation> = {
       logsCopied: '已复制到剪贴板',
       logsCleared: '日志已清除',
       logsRefreshed: '刷新成功',
+      feedback: '意见反馈',
+      feedbackDesc: '向我们提供您的宝贵意见',
+      feedbackPlaceholder: '请输入您的意见或建议（最多 2000 字）',
+      feedbackSubmit: '提交反馈',
+      feedbackSubmitting: '提交中...',
+      feedbackSuccess: '反馈提交成功，感谢您的意见！',
+      feedbackFailed: '反馈提交失败',
+      feedbackMaxLength: '反馈内容不能超过 2000 字',
+      feedbackConnectionFailed: '无法连接服务器，反馈功能暂不可用',
+      feedbackSystemInfo: '系统信息',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -1898,6 +1918,16 @@ export const translations: Record<Language, Translation> = {
       logsCopied: 'Copied to clipboard',
       logsCleared: 'Logs cleared',
       logsRefreshed: 'Refreshed',
+      feedback: 'Feedback',
+      feedbackDesc: 'Share your valuable feedback with us',
+      feedbackPlaceholder: 'Enter your feedback or suggestions (max 2000 characters)',
+      feedbackSubmit: 'Submit Feedback',
+      feedbackSubmitting: 'Submitting...',
+      feedbackSuccess: 'Feedback submitted successfully, thank you!',
+      feedbackFailed: 'Feedback submission failed',
+      feedbackMaxLength: 'Feedback cannot exceed 2000 characters',
+      feedbackConnectionFailed: 'Cannot connect to server, feedback is temporarily unavailable',
+      feedbackSystemInfo: 'System Info',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',
