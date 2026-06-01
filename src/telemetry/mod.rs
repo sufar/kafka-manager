@@ -106,15 +106,21 @@ pub fn get_install_method() -> String {
     #[cfg(target_os = "windows")]
     {
         if let Ok(exe_path) = std::env::current_exe() {
+            tracing::info!("[Telemetry] exe_path: {:?}", exe_path);
             // 检查 exe 所在目录是否有卸载程序
             if let Some(parent) = exe_path.parent() {
+                tracing::info!("[Telemetry] parent dir: {:?}", parent);
                 // 检查 uninstall.exe 是否存在
                 let uninstall_path = parent.join("uninstall.exe");
+                tracing::info!("[Telemetry] checking uninstall_path: {:?}", uninstall_path);
                 if uninstall_path.exists() {
+                    tracing::info!("[Telemetry] uninstall.exe found, return installed");
                     return "installed".to_string();
                 }
+                tracing::info!("[Telemetry] uninstall.exe not found");
             }
         }
+        tracing::info!("[Telemetry] return portable");
         return "portable".to_string();
     }
 
