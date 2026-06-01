@@ -58,35 +58,31 @@
       <p class="text-base-content/60 mb-4 text-sm">{{ t.topics.description }}</p>
     </div>
 
-    <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl flex flex-col flex-1 min-h-0">
-      <!-- Search Bar -->
-      <div class="p-3 bg-base-100 flex-shrink-0">
-        <div class="relative w-full">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            :placeholder="t.common.search"
-            class="input input-bordered w-full pl-10"
-          />
-        </div>
+    <!-- Single cluster view - empty state -->
+    <div v-else-if="clusterParam && filteredClusterTopics.length === 0 && !loading" class="card glass gradient-border shadow-xl">
+      <div class="px-2 py-1.5 bg-base-100 border-b border-base-200 flex items-center gap-1.5">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input
+          v-model="searchQuery"
+          type="text"
+          :placeholder="t.common.search"
+          class="input input-bordered input-xs w-36"
+        />
       </div>
-      <!-- 搜索无结果或真正无数据 -->
-      <div class="flex flex-col items-center justify-center py-12 text-center">
-        <div class="text-base-content/30 mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
+      <div class="flex flex-col items-center justify-center py-8 text-center">
+        <div class="text-base-content/30 mb-3">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-12 h-12">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
           </svg>
         </div>
-        <h3 class="text-lg font-semibold mb-2">{{ searchQuery ? t.topics.noSearchResults : t.common.noData }}</h3>
-        <p class="text-base-content/60 mb-4 text-sm">
+        <h3 class="text-base font-semibold mb-1">{{ searchQuery ? t.topics.noSearchResults : t.common.noData }}</h3>
+        <p class="text-base-content/60 mb-3 text-xs">
           <span v-if="searchQuery">{{ t.common.search }}: "{{ searchQuery }}"</span>
           <span v-else>{{ t.topics.description }}</span>
         </p>
-        <button v-if="searchQuery" class="btn btn-sm btn-outline" @click="searchQuery = ''">{{ t.topics.clearSearch }}</button>
+        <button v-if="searchQuery" class="btn btn-xs btn-outline" @click="searchQuery = ''">{{ t.topics.clearSearch }}</button>
       </div>
     </div>
 
@@ -105,57 +101,40 @@
     </div>
 
     <!-- Single cluster view (from URL param) -->
-    <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl flex flex-col flex-1 min-h-0" data-tour="topics-list">
-      <!-- Search Bar - 固定在容器外部 -->
-      <div class="p-3 bg-base-100 flex-shrink-0">
-        <div class="relative w-full">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">
+    <div v-else-if="clusterParam && filteredClusterTopics.length > 0" class="card glass gradient-border shadow-xl flex-1 flex flex-col overflow-hidden" data-tour="topics-list">
+      <!-- Header with search and count -->
+      <div class="px-2 py-1.5 bg-base-100 border-b border-base-200 flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-base-content/40">
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
           </svg>
           <input
             v-model="searchQuery"
             type="text"
             :placeholder="t.common.search"
-            class="input input-bordered w-full pl-10"
+            class="input input-bordered input-xs w-36"
           />
         </div>
+        <span class="text-xs text-base-content/50">{{ filteredClusterTopics.length }} topics</span>
       </div>
-      <!-- 表格容器 - 只有表格内容滚动 -->
-      <!-- 表头 - 固定 -->
-      <div class="bg-base-100 border-b border-base-200 flex-shrink-0">
-        <table class="table w-full">
-          <thead>
+      <!-- Table content - scrollable -->
+      <div ref="singleClusterContainerRef" class="overflow-y-auto flex-1" @scroll="handleSingleClusterScroll">
+        <table class="table w-full table-sm">
+          <thead class="bg-base-100 sticky top-0">
             <tr>
-              <th class="p-2">
-                <div class="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                  </svg>
-                  <span class="text-sm font-semibold">{{ t.topics.topicName }}</span>
-                </div>
-              </th>
-              <th class="p-2 text-right pr-4">{{ t.common.actions }}</th>
+              <th class="p-1.5 text-xs">{{ t.topics.topicName }}</th>
+              <th class="p-1.5 text-xs text-right w-16">{{ t.common.actions }}</th>
             </tr>
           </thead>
-        </table>
-      </div>
-      <!-- 表格内容 - 滚动 -->
-      <div ref="singleClusterContainerRef" class="overflow-y-auto flex-1 min-h-0" @scroll="handleSingleClusterScroll">
-        <table class="table w-full">
           <tbody>
             <!-- 虚拟滚动：顶部占位 -->
             <tr v-if="singleClusterVirtualStartIndex > 0" :style="{ height: singleClusterVirtualStartIndex * ROW_HEIGHT + 'px' }">
               <td colspan="2" style="padding: 0; border: 0;"></td>
             </tr>
             <!-- 可见区域的行 -->
-            <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer" :style="{ height: `${ROW_HEIGHT}px`, minHeight: `${ROW_HEIGHT}px` }">
-              <td>
-                <div class="flex items-center gap-2">
-                  <div class="grid h-5 w-5 place-items-center rounded bg-base-300 text-base-content/70">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9Z" />
-                    </svg>
-                  </div>
+            <tr v-for="topic in singleClusterVisibleTopics" :key="topic.name" @dblclick="selectTopicInTree(clusterParam, topic)" class="hover cursor-pointer">
+              <td class="p-1">
+                <div class="flex items-center gap-1.5">
                   <FavoriteButton
                     :cluster-id="clusterParam"
                     :topic-name="topic.name"
@@ -163,18 +142,15 @@
                     :favorite-cache="favoriteCache"
                     @change="handleFavoriteChange(clusterParam, topic.name, $event)"
                   />
-                  <span class="font-medium text-sm">{{ topic.name }}</span>
+                  <span class="text-xs truncate" :title="topic.name">{{ topic.name }}</span>
                 </div>
               </td>
-              <td class="p-2">
-                <div class="flex justify-end gap-0.5">
-                  <button class="btn btn-ghost btn-xs text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                    </svg>
-                    {{ t.common.delete }}
-                  </button>
-                </div>
+              <td class="p-1 text-right">
+                <button class="btn btn-ghost btn-xs h-5 min-h-5 px-1 text-error hover:bg-error/10" @click="confirmDelete(clusterParam, topic.name)">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                  </svg>
+                </button>
               </td>
             </tr>
             <!-- 虚拟滚动：底部占位 -->
@@ -283,7 +259,7 @@ let favoritesFetchPromise: Promise<void> | null = null;
 
 
 // 虚拟滚动相关
-const ROW_HEIGHT = 40; // 每行高度（像素）
+const ROW_HEIGHT = 28; // 每行高度（像素），紧凑样式
 const VISIBLE_OFFSET = 5; // 额外渲染的行数（减少以优化性能）
 
 // Single cluster 模式虚拟滚动
@@ -327,10 +303,6 @@ watch(searchQuery, (newVal) => {
     searchQueryDebounced.value = newVal;
   }, 150); // 150ms 防抖
 });
-
-function getClusterHealth(clusterId: string) {
-  return clusterStore.getClusterHealth(clusterId);
-}
 
 const filteredClusterTopics = computed(() => {
   if (!searchQueryDebounced.value) return clusterTopics.value;
@@ -494,36 +466,16 @@ onMounted(() => {
 
 <style scoped>
 /* 紧凑表格样式 */
-.table :deep(tbody tr) {
-  height: 40px;
-}
-
-.table :deep(td) {
+.table-sm :deep(td) {
   padding: 0.25rem 0.5rem;
   vertical-align: middle;
 }
 
-.table :deep(th) {
-  padding: 0.5rem 0.75rem;
+.table-sm :deep(th) {
+  padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   text-transform: none;
   letter-spacing: normal;
-}
-
-/* 可展开区域的动画 */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.2s ease-out;
 }
 
 /* 移除背景模糊效果 */
