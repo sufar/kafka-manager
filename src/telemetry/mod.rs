@@ -180,54 +180,6 @@ pub async fn connect_mysql() -> Result<Pool<MySql>, sqlx::Error> {
     Ok(pool)
 }
 
-/// 确保 MySQL 表存在
-pub async fn ensure_mysql_tables(pool: &Pool<MySql>) -> Result<(), sqlx::Error> {
-    // 创建遥测表（包含版本号、平台、安装方式）
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS kafka_manager_telemetry (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            hostname VARCHAR(255) NOT NULL,
-            username VARCHAR(255) NOT NULL,
-            local_ip VARCHAR(50) NOT NULL,
-            app_version VARCHAR(50) NOT NULL,
-            platform VARCHAR(20) NOT NULL,
-            install_method VARCHAR(20) NOT NULL,
-            report_date DATE NOT NULL,
-            reported_at DATETIME NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_hostname_user_date (hostname, username, report_date)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    // 创建反馈表（包含版本号、平台、安装方式）
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS kafka_manager_feedback (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            hostname VARCHAR(255) NOT NULL,
-            username VARCHAR(255) NOT NULL,
-            local_ip VARCHAR(50) NOT NULL,
-            app_version VARCHAR(50) NOT NULL,
-            platform VARCHAR(20) NOT NULL,
-            install_method VARCHAR(20) NOT NULL,
-            feedback_content TEXT NOT NULL,
-            submitted_at DATETIME NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    tracing::info!("[Telemetry] MySQL tables ensured");
-
-    Ok(())
-}
-
 /// 上报遥测数据到 MySQL
 pub async fn report_telemetry_to_mysql(
     pool: &Pool<MySql>,

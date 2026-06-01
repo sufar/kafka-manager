@@ -5869,7 +5869,7 @@ async fn handle_consumer_group_delete(state: AppState, body: Value) -> Result<Va
 
 /// 检查 MySQL 连接是否可用
 async fn handle_telemetry_check_connection(_state: AppState) -> Result<Value> {
-    // 先检查 TCP 连接
+    // 只检查 TCP 连接，不建立 MySQL 连接（更快，不阻塞用户）
     let tcp_connected = telemetry::check_mysql_connection().await;
 
     if !tcp_connected {
@@ -5878,30 +5878,6 @@ async fn handle_telemetry_check_connection(_state: AppState) -> Result<Value> {
             "reason": "TCP connection failed"
         }));
     }
-
-    // 尝试建立 MySQL 连接
-    let mysql_pool = match telemetry::connect_mysql().await {
-        Ok(pool) => pool,
-        Err(e) => {
-            tracing::warn!("[Telemetry] MySQL connection failed: {}", e);
-            return Ok(serde_json::json!({
-                "connected": false,
-                "reason": format!("MySQL connection error: {}", e)
-            }));
-        }
-    };
-
-    // 确保表存在
-    if let Err(e) = telemetry::ensure_mysql_tables(&mysql_pool).await {
-        tracing::warn!("[Telemetry] Failed to ensure tables: {}", e);
-        return Ok(serde_json::json!({
-            "connected": false,
-            "reason": format!("Table creation error: {}", e)
-        }));
-    }
-
-    // 存储连接池到 AppState（如果需要）
-    // 这里我们只是检查连接，不存储
 
     Ok(serde_json::json!({
         "connected": true,
@@ -5927,10 +5903,6 @@ async fn handle_telemetry_report(state: AppState) -> Result<Value> {
     // 建立 MySQL 连接
     let mysql_pool = telemetry::connect_mysql().await
         .map_err(|e| AppError::Internal(format!("MySQL connection error: {}", e)))?;
-
-    // 确保表存在
-    telemetry::ensure_mysql_tables(&mysql_pool).await
-        .map_err(|e| AppError::Internal(format!("Table creation error: {}", e)))?;
 
     // 执行遥测上报
     let reported = telemetry::do_telemetry_report(state.db.inner(), &mysql_pool).await
@@ -5959,19 +5931,27 @@ async fn handle_telemetry_submit_feedback(_state: AppState, body: Value) -> Resu
 
     // 检查 TCP 连接
     if !telemetry::check_mysql_connection().await {
+        // TCP 连接失败，静默返回（不影响用户）
+        tracing::warn!("[Telemetry] MySQL TCP connection not available, feedback skipped");
         return Ok(serde_json::json!({
-            "success": false,
-            "reason": "MySQL TCP connection not available"
+            "success": true,
+            "skipped": true,
+            "reason": "MySQL connection not available"
         }));
     }
 
-    // 建立 MySQL 连接
-    let mysql_pool = telemetry::connect_mysql().await
-        .map_err(|e| AppError::Internal(format!("MySQL connection error: {}", e)))?;
-
-    // 确保表存在
-    telemetry::ensure_mysql_tables(&mysql_pool).await
-        .map_err(|e| AppError::Internal(format!("Table creation error: {}", e)))?;
+    // 建立 MySQL 连接（失败时静默返回）
+    let mysql_pool = match telemetry::connect_mysql().await {
+        Ok(pool) => pool,
+        Err(e) => {
+            tracing::warn!("[Telemetry] MySQL connection failed: {}, feedback skipped", e);
+            return Ok(serde_json::json!({
+                "success": true,
+                "skipped": true,
+                "reason": format!("MySQL connection error: {}", e)
+            }));
+        }
+    };
 
     // 获取系统信息
     let hostname = telemetry::get_hostname();
@@ -5982,8 +5962,8 @@ async fn handle_telemetry_submit_feedback(_state: AppState, body: Value) -> Resu
     let install_method = telemetry::get_install_method();
     let submitted_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // 提交反馈到 MySQL
-    let feedback_id = telemetry::submit_feedback_to_mysql(
+    // 提交反馈到 MySQL（失败时静默返回）
+    match telemetry::submit_feedback_to_mysql(
         &mysql_pool,
         &hostname,
         &username,
@@ -5993,18 +5973,27 @@ async fn handle_telemetry_submit_feedback(_state: AppState, body: Value) -> Resu
         &install_method,
         &feedback_content,
         &submitted_at,
-    ).await
-        .map_err(|e| AppError::Internal(format!("Feedback submission error: {}", e)))?;
-
-    Ok(serde_json::json!({
-        "success": true,
-        "feedback_id": feedback_id,
-        "hostname": hostname,
-        "username": username,
-        "local_ip": local_ip,
-        "app_version": app_version,
-        "platform": platform,
-        "install_method": install_method,
-        "submitted_at": submitted_at
-    }))
+    ).await {
+        Ok(feedback_id) => {
+            Ok(serde_json::json!({
+                "success": true,
+                "feedback_id": feedback_id,
+                "hostname": hostname,
+                "username": username,
+                "local_ip": local_ip,
+                "app_version": app_version,
+                "platform": platform,
+                "install_method": install_method,
+                "submitted_at": submitted_at
+            }))
+        }
+        Err(e) => {
+            tracing::warn!("[Telemetry] Feedback submission failed: {}, skipped", e);
+            Ok(serde_json::json!({
+                "success": true,
+                "skipped": true,
+                "reason": format!("Submission error: {}", e)
+            }))
+        }
+    }
 }

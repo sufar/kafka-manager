@@ -294,12 +294,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            // 确保 MySQL 表存在
-            if let Err(e) = telemetry::ensure_mysql_tables(&mysql_pool).await {
-                tracing::warn!("[Telemetry] Failed to ensure MySQL tables: {}, telemetry disabled", e);
-                return;
-            }
-
             tracing::info!("[Telemetry] MySQL connection established, telemetry enabled");
 
             // 启动时立即上报一次
