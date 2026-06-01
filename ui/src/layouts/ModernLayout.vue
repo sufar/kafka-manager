@@ -214,7 +214,7 @@ async function handleShare() {
   try {
     const result = await tauriInvoke<string>('share_current_version');
     if (result) {
-      toastRef.value?.showToast('success', `安装包已复制到下载目录`);
+      toastRef.value?.showToast('success', t.value.layout.shareCopied);
     } else {
       try {
         await tauriInvoke('open_url', { url: 'https://github.com/sufar/kafka-manager/releases/latest' });

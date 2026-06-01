@@ -428,6 +428,7 @@ export interface Translation {
     refreshFailed: string;
     refreshCancelled: string;
     shareVersion: string;
+    shareCopied: string;
   };
   update: {
     available: string;
@@ -1186,6 +1187,7 @@ export const translations: Record<Language, Translation> = {
       refreshFailed: '刷新失败',
       refreshCancelled: '刷新已取消',
       shareVersion: '分享安装包',
+    shareCopied: '安装包已复制到您电脑的下载目录，请打开文件管理器查看',
     },
     update: {
       available: '发现新版本',
@@ -1942,6 +1944,7 @@ export const translations: Record<Language, Translation> = {
       refreshFailed: 'Refresh failed',
       refreshCancelled: 'Refresh cancelled',
       shareVersion: 'Share Installer',
+    shareCopied: 'Installer copied to your downloads folder, please open file manager to view',
     },
     update: {
       available: 'New Version Available',
