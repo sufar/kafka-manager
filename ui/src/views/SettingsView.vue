@@ -204,6 +204,43 @@
         </div>
       </div>
 
+      <!-- Feedback Section -->
+      <div v-if="feedbackConnectionChecked && feedbackConnectionAvailable" class="md:col-span-2 card glass gradient-border" data-tour="settings-feedback">
+        <div class="card-body p-3">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-accent">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.214 1.214 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-gradient">{{ t.settings.feedback }}</h2>
+              <p class="text-xs text-base-content/60">{{ t.settings.feedbackDesc }}</p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2">
+            <textarea
+              v-model="feedbackContent"
+              class="textarea textarea-bordered w-full h-24 resize-none"
+              :placeholder="t.settings.feedbackPlaceholder"
+              :maxlength="2000"
+              :disabled="feedbackSubmitting"
+            ></textarea>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-base-content/50">{{ feedbackContent.length }} / 2000</span>
+              <button
+                class="btn btn-sm btn-accent text-white"
+                :disabled="feedbackContent.trim().length === 0 || feedbackSubmitting"
+                @click="submitFeedback"
+              >
+                <span v-if="feedbackSubmitting" class="loading loading-spinner loading-xs mr-1"></span>
+                {{ feedbackSubmitting ? t.settings.feedbackSubmitting : t.settings.feedbackSubmit }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Import/Export -->
       <div class="card glass gradient-border" data-tour="settings-import-export">
         <div class="card-body p-3">
@@ -387,53 +424,6 @@
       <!-- JSON Highlight Setting -->
       <div class="md:col-span-2" data-tour="settings-json-highlight">
         <JsonHighlightSelector />
-      </div>
-
-      <!-- Feedback Section -->
-      <div v-if="feedbackConnectionChecked && feedbackConnectionAvailable" class="md:col-span-2 card glass gradient-border" data-tour="settings-feedback">
-        <div class="card-body p-3">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-accent">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.214 1.214 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-              </svg>
-            </div>
-            <div>
-              <h2 class="text-base font-semibold text-gradient">{{ t.settings.feedback }}</h2>
-              <p class="text-xs text-base-content/60">{{ t.settings.feedbackDesc }}</p>
-            </div>
-          </div>
-          <!-- System Info Display -->
-          <div v-if="feedbackSystemInfo" class="p-2 rounded-lg bg-base-200/50 mb-2">
-            <div class="text-xs text-base-content/70 flex flex-wrap gap-x-4 gap-y-1">
-              <span>v{{ feedbackSystemInfo.app_version }}</span>
-              <span>{{ feedbackSystemInfo.platform }}</span>
-              <span>{{ feedbackSystemInfo.install_method }}</span>
-              <span>{{ feedbackSystemInfo.hostname }}</span>
-              <span>{{ feedbackSystemInfo.username }}</span>
-            </div>
-          </div>
-          <div class="flex flex-col gap-2">
-            <textarea
-              v-model="feedbackContent"
-              class="textarea textarea-bordered w-full h-24 resize-none"
-              :placeholder="t.settings.feedbackPlaceholder"
-              :maxlength="2000"
-              :disabled="feedbackSubmitting"
-            ></textarea>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-base-content/50">{{ feedbackContent.length }} / 2000</span>
-              <button
-                class="btn btn-sm btn-accent text-white"
-                :disabled="feedbackContent.trim().length === 0 || feedbackSubmitting"
-                @click="submitFeedback"
-              >
-                <span v-if="feedbackSubmitting" class="loading loading-spinner loading-xs mr-1"></span>
-                {{ feedbackSubmitting ? t.settings.feedbackSubmitting : t.settings.feedbackSubmit }}
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
     </div>
