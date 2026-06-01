@@ -102,37 +102,16 @@ pub fn get_platform() -> String {
 /// 获取安装方式
 /// 通过检查运行环境判断是安装版还是便携版
 pub fn get_install_method() -> String {
-    // 在 Windows 上，检查是否在 Program Files 或 AppData\Local 目录下运行
+    // 在 Windows 上，检查当前目录是否有 uninstall.exe
     #[cfg(target_os = "windows")]
     {
         if let Ok(exe_path) = std::env::current_exe() {
-            let path_str = exe_path.to_string_lossy().to_lowercase();
-            // 安装版通常在 Program Files 或 AppData\Local 目录
-            if path_str.contains("program files")
-                || path_str.contains("programfiles")
-                || path_str.contains("\\appdata\\local\\") {
-                return "installed".to_string();
-            }
-            // 检查父目录是否有卸载程序（安装版特征）
+            // 检查 exe 所在目录是否有卸载程序
             if let Some(parent) = exe_path.parent() {
-                if let Ok(entries) = std::fs::read_dir(parent) {
-                    for entry in entries.flatten() {
-                        let name = entry.file_name().to_string_lossy().to_lowercase();
-                        if name.contains("uninstall") || name == "unins000.exe" {
-                            return "installed".to_string();
-                        }
-                    }
-                }
-                // 检查上一级目录是否有卸载程序
-                if let Some(grandparent) = parent.parent() {
-                    if let Ok(entries) = std::fs::read_dir(grandparent) {
-                        for entry in entries.flatten() {
-                            let name = entry.file_name().to_string_lossy().to_lowercase();
-                            if name.contains("uninstall") || name == "unins000.exe" {
-                                return "installed".to_string();
-                            }
-                        }
-                    }
+                // 检查 uninstall.exe 是否存在
+                let uninstall_path = parent.join("uninstall.exe");
+                if uninstall_path.exists() {
+                    return "installed".to_string();
                 }
             }
         }
