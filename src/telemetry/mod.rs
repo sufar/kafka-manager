@@ -362,6 +362,8 @@ pub async fn do_telemetry_report(
     sqlite_pool: &sqlx::SqlitePool,
     mysql_pool: &Pool<MySql>,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    tracing::info!("[Telemetry] do_telemetry_report started");
+
     let hostname = get_hostname();
     let username = get_username();
     let local_ip = get_local_ip();
@@ -372,13 +374,20 @@ pub async fn do_telemetry_report(
     let report_date = now.format("%Y-%m-%d").to_string();
     let reported_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
 
+    tracing::info!("[Telemetry] System info: {}@{} v{} on {} ({})",
+        username, hostname, app_version, platform, install_method);
+
     // 先检查本地是否已上报
+    tracing::info!("[Telemetry] Checking local record for date: {}", report_date);
     if check_local_reported(sqlite_pool, &hostname, &username, &report_date).await? {
         tracing::info!("[Telemetry] Already reported today (local check)");
         return Ok(false);
     }
 
+    tracing::info!("[Telemetry] Not reported today, will report to MySQL");
+
     // 上报到 MySQL
+    tracing::info!("[Telemetry] Calling report_telemetry_to_mysql...");
     let reported = report_telemetry_to_mysql(
         mysql_pool,
         &hostname,
@@ -391,8 +400,11 @@ pub async fn do_telemetry_report(
         &reported_at,
     ).await?;
 
+    tracing::info!("[Telemetry] MySQL report result: {}", reported);
+
     if reported {
         // 记录到本地 SQLite
+        tracing::info!("[Telemetry] Saving to local SQLite...");
         record_local_telemetry(
             sqlite_pool,
             &hostname,
