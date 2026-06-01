@@ -159,9 +159,11 @@ pub async fn check_mysql_connection() -> bool {
 
 /// 建立 MySQL 连接池
 pub async fn connect_mysql() -> Result<Pool<MySql>, sqlx::Error> {
+    // 密码需要 URL 编码（包含特殊字符 #）
+    let encoded_password = urlencoding::encode(MYSQL_PASSWORD);
     let connection_url = format!(
         "mysql://{}:{}@{}:{}/{}",
-        MYSQL_USER, MYSQL_PASSWORD, MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE
+        MYSQL_USER, encoded_password, MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE
     );
 
     tracing::info!("[Telemetry] Connecting to MySQL: {}@{}:{}/{}", MYSQL_USER, MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE);
