@@ -361,13 +361,23 @@ fn cleanup_old_log_files() {
     if let Ok(entries) = std::fs::read_dir(log_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
-            // 日志文件名格式: kafka-manager.log.YYYY-MM-DD 或 kafka-manager.YYYY-MM-DD.log
-            if file_name.starts_with("kafka-manager") && file_name.ends_with(".log") {
+            // 日志文件名格式:
+            // - kafka-manager.log (当天正在写入的)
+            // - kafka-manager.log.YYYY-MM-DD (滚动后的旧文件)
+            // - kafka-manager.YYYY-MM-DD.log (另一种可能的格式)
+            if file_name.starts_with("kafka-manager") && (file_name.ends_with(".log") || file_name.contains(".log.")) {
+                // 当前正在写入的文件 kafka-manager.log 不删除
+                if file_name == "kafka-manager.log" {
+                    continue;
+                }
                 // 检查文件名中是否包含今天的日期
-                if !file_name.contains(&today) && file_name.len() > "kafka-manager.log".len() {
+                if !file_name.contains(&today) {
                     // 不是今天的日志文件，删除
-                    let _ = std::fs::remove_file(entry.path());
-                    tracing::debug!("Removed old log file: {}", file_name);
+                    if let Err(e) = std::fs::remove_file(entry.path()) {
+                        eprintln!("Failed to remove old log file {}: {}", file_name, e);
+                    } else {
+                        println!("Removed old log file: {}", file_name);
+                    }
                 }
             }
         }

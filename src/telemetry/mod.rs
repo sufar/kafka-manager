@@ -220,11 +220,11 @@ pub async fn report_telemetry_to_mysql(
         return Ok(false);
     }
 
-    // 插入新记录（包含版本号、平台、安装方式）
+    // 插入新记录（包含版本号、平台、安装方式，created_at 使用客户端时间）
     sqlx::query(
         r#"
-        INSERT INTO kafka_manager_telemetry (hostname, username, local_ip, app_version, platform, install_method, report_date, reported_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO kafka_manager_telemetry (hostname, username, local_ip, app_version, platform, install_method, report_date, reported_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(hostname)
@@ -235,6 +235,7 @@ pub async fn report_telemetry_to_mysql(
     .bind(install_method)
     .bind(report_date)
     .bind(reported_at)
+    .bind(reported_at)  // created_at 也使用客户端时间
     .execute(pool)
     .await?;
 
@@ -258,8 +259,8 @@ pub async fn submit_feedback_to_mysql(
 ) -> Result<i64, sqlx::Error> {
     let result = sqlx::query(
         r#"
-        INSERT INTO kafka_manager_feedback (hostname, username, local_ip, app_version, platform, install_method, feedback_content, submitted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO kafka_manager_feedback (hostname, username, local_ip, app_version, platform, install_method, feedback_content, submitted_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(hostname)
@@ -270,6 +271,7 @@ pub async fn submit_feedback_to_mysql(
     .bind(install_method)
     .bind(feedback_content)
     .bind(submitted_at)
+    .bind(submitted_at)  // created_at 也使用客户端时间
     .execute(pool)
     .await?;
 
