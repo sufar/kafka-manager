@@ -416,10 +416,13 @@
         >
           <div
           class="group flex items-center gap-1.5 px-1.5 py-1 rounded cursor-pointer hover:bg-primary/10"
-          @click="selectTopic((item as TopicItem).topic)"
         >
-          <!-- Topic Name with Tooltip -->
-          <div class="flex-1 min-w-0 relative" data-tour="sidebar-topic-name">
+          <!-- Topic Name with Tooltip - clickable -->
+          <div
+            class="flex-1 min-w-0 relative cursor-pointer"
+            data-tour="sidebar-topic-name"
+            @click="selectTopic((item as TopicItem).topic)"
+          >
             <span
               class="text-xs truncate block"
               :title="`${(item as TopicItem).topic.name} (${(item as TopicItem).topic.cluster})`"
@@ -428,8 +431,13 @@
             </span>
           </div>
 
-          <!-- Cluster Badge -->
-          <span class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1" data-tour="sidebar-cluster-badge">
+          <!-- Cluster Badge - clickable, navigates to TopicsView -->
+          <span
+            class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1 cursor-pointer hover:badge-primary transition-colors"
+            data-tour="sidebar-cluster-badge"
+            @click.stop="goToTopicsView((item as TopicItem).topic.cluster)"
+            :title="`${t.value.navigator.viewClusterTopics || 'View topics in this cluster'}: ${(item as TopicItem).topic.cluster}`"
+          >
             {{ (item as TopicItem).topic.cluster }}
           </span>
         </div>
@@ -1341,6 +1349,14 @@ function goToClusters() {
 function goToFavorites() {
   emit('navigate', {
     path: '/favorites'
+  });
+}
+
+// Go to TopicsView for a specific cluster
+function goToTopicsView(clusterName: string) {
+  emit('navigate', {
+    path: '/topics',
+    query: { cluster: clusterName }
   });
 }
 

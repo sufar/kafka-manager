@@ -172,7 +172,7 @@ pub async fn connect_mysql() -> Result<Pool<MySql>, sqlx::Error> {
     // 密码需要 URL 编码（包含特殊字符 #）
     let encoded_password = urlencoding::encode(MYSQL_PASSWORD);
     let connection_url = format!(
-        "mysql://{}:{}@{}:{}/{}",
+        "mysql://{}:{}@{}:{}/{}?serverTimezone=%2B08:00",
         MYSQL_USER, encoded_password, MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE
     );
 

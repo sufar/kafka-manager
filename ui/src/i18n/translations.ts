@@ -509,6 +509,7 @@ export interface Translation {
     history: string;
     topicsLabel: string;
     consumerGroupsLabel: string;
+    viewClusterTopics: string;
   };
   favorites: {
     title: string;
@@ -1268,6 +1269,7 @@ export const translations: Record<Language, Translation> = {
       history: '浏览历史',
       topicsLabel: '主题',
       consumerGroupsLabel: '消费者组',
+      viewClusterTopics: '查看此集群的所有主题',
     },
     favorites: {
       title: 'Topic 收藏',
@@ -2025,6 +2027,7 @@ export const translations: Record<Language, Translation> = {
       history: 'Browsing History',
       topicsLabel: 'Topics',
       consumerGroupsLabel: 'Consumer Groups',
+      viewClusterTopics: 'View all topics in this cluster',
     },
     favorites: {
       title: 'Topic Favorites',
