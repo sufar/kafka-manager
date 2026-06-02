@@ -352,22 +352,12 @@ async fn load_clusters_from_db(
     Ok(clusters)
 }
 
-/// 清理日志文件（启动时直接删除旧的日志文件）
+/// 清理日志文件（启动时直接清空日志文件）
 fn cleanup_old_log_files() {
     let log_path = app_log_path();
 
-    // 删除所有 kafka-manager 相关的日志文件
-    let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
-    if let Ok(entries) = std::fs::read_dir(log_dir) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if file_name.starts_with("kafka-manager") && file_name.ends_with(".log") {
-                if let Err(e) = std::fs::remove_file(entry.path()) {
-                    eprintln!("Failed to remove log file {}: {}", file_name, e);
-                } else {
-                    println!("Removed log file: {}", file_name);
-                }
-            }
-        }
+    // 直接清空日志文件
+    if let Err(e) = std::fs::write(&log_path, "") {
+        eprintln!("Failed to clear log file: {}", e);
     }
 }
