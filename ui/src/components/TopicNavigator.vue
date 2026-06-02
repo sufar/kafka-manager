@@ -436,7 +436,7 @@
             class="badge badge-ghost badge-xs flex-shrink-0 truncate max-w-14 text-[10px] px-1 cursor-pointer hover:badge-primary transition-colors"
             data-tour="sidebar-cluster-badge"
             @click.stop="goToTopicsView((item as TopicItem).topic.cluster)"
-            :title="`${t.value.navigator.viewClusterTopics || 'View topics in this cluster'}: ${(item as TopicItem).topic.cluster}`"
+            :title="`${t.navigator.viewClusterTopics || 'View topics in this cluster'}: ${(item as TopicItem).topic.cluster}`"
           >
             {{ (item as TopicItem).topic.cluster }}
           </span>
