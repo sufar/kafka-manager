@@ -96,7 +96,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_dir,
         "kafka-manager.log"
     );
-    let (non_blocking_file, _file_guard) = tracing_appender::non_blocking(rolling_appender);
+    let (non_blocking_file, file_guard) = tracing_appender::non_blocking(rolling_appender);
+    // 保留 file_guard，确保程序退出时 flush 缓冲区
+    let _guard = file_guard;
 
     // 初始化日志（同时输出到控制台和文件）
     tracing_subscriber::registry()
