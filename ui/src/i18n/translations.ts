@@ -414,6 +414,7 @@ export interface Translation {
     feedbackMaxLength: string;
     feedbackConnectionFailed: string;
     feedbackSystemInfo: string;
+    feedbackDocLink: string;
   };
   layout: {
     searchPlaceholder: string;
@@ -1174,6 +1175,7 @@ export const translations: Record<Language, Translation> = {
       feedbackMaxLength: '反馈内容不能超过 2000 字',
       feedbackConnectionFailed: '无法连接服务器，反馈功能暂不可用',
       feedbackSystemInfo: '系统信息',
+      feedbackDocLink: 'Kafka Manager 使用说明文档',
     },
     layout: {
       searchPlaceholder: '搜索主题... (Ctrl+K)',
@@ -1932,6 +1934,7 @@ export const translations: Record<Language, Translation> = {
       feedbackMaxLength: 'Feedback cannot exceed 2000 characters',
       feedbackConnectionFailed: 'Cannot connect to server, feedback is temporarily unavailable',
       feedbackSystemInfo: 'System Info',
+      feedbackDocLink: 'Kafka Manager Documentation',
     },
     layout: {
       searchPlaceholder: 'Search topics... (Ctrl+K)',
