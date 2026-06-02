@@ -88,17 +88,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 启动时清理旧日志文件（只保留今天的）
     cleanup_old_log_files();
 
-    // 使用按天滚动的日志文件（文件名带日期）
+    // 使用普通日志文件（不滚动，每次启动时清理）
     let log_path = app_log_path();
     let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
-    let rolling_appender = tracing_appender::rolling::RollingFileAppender::new(
-        tracing_appender::rolling::Rotation::DAILY,
+    let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+        tracing_appender::rolling::Rotation::NEVER,
         log_dir,
         "kafka-manager.log"
     );
-    let (non_blocking_file, file_guard) = tracing_appender::non_blocking(rolling_appender);
-    // 保留 file_guard，确保程序退出时 flush 缓冲区
-    let _guard = file_guard;
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
 
     // 初始化日志（同时输出到控制台和文件）
     tracing_subscriber::registry()
@@ -354,32 +352,20 @@ async fn load_clusters_from_db(
     Ok(clusters)
 }
 
-/// 清理旧日志文件（滚动模式：删除文件名中日期不是今天的日志文件）
+/// 清理日志文件（启动时直接删除旧的日志文件）
 fn cleanup_old_log_files() {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let log_path = app_log_path();
-    let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
 
+    // 删除所有 kafka-manager 相关的日志文件
+    let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
     if let Ok(entries) = std::fs::read_dir(log_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
-            // 日志文件名格式:
-            // - kafka-manager.log (当天正在写入的)
-            // - kafka-manager.log.YYYY-MM-DD (滚动后的旧文件)
-            // - kafka-manager.YYYY-MM-DD.log (另一种可能的格式)
-            if file_name.starts_with("kafka-manager") && (file_name.ends_with(".log") || file_name.contains(".log.")) {
-                // 当前正在写入的文件 kafka-manager.log 不删除
-                if file_name == "kafka-manager.log" {
-                    continue;
-                }
-                // 检查文件名中是否包含今天的日期
-                if !file_name.contains(&today) {
-                    // 不是今天的日志文件，删除
-                    if let Err(e) = std::fs::remove_file(entry.path()) {
-                        eprintln!("Failed to remove old log file {}: {}", file_name, e);
-                    } else {
-                        println!("Removed old log file: {}", file_name);
-                    }
+            if file_name.starts_with("kafka-manager") && file_name.ends_with(".log") {
+                if let Err(e) = std::fs::remove_file(entry.path()) {
+                    eprintln!("Failed to remove log file {}: {}", file_name, e);
+                } else {
+                    println!("Removed log file: {}", file_name);
                 }
             }
         }
