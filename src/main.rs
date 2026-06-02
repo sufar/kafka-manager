@@ -119,6 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 测试日志是否正常工作
     tracing::info!("=== Kafka Manager API starting ===");
+    tracing::info!("Log file cleared at startup: {}", app_log_path().display());
     tracing::debug!("Debug logging enabled");
     tracing::info!("Log directory: {:?}", log_dir);
 
@@ -355,9 +356,6 @@ async fn load_clusters_from_db(
 /// 清理日志文件（启动时直接清空日志文件）
 fn cleanup_old_log_files() {
     let log_path = app_log_path();
-
     // 直接清空日志文件
-    if let Err(e) = std::fs::write(&log_path, "") {
-        eprintln!("Failed to clear log file: {}", e);
-    }
+    let _ = std::fs::write(&log_path, "");
 }
