@@ -2,12 +2,12 @@
 ; Key: Skip uninstallation during upgrade to preserve shortcuts
 
 !macro customHeader
-  ; Skip uninstallation during upgrade - this is the key setting
-  ; that prevents the "uninstall then install" behavior
-  !define TAURI_SKIP_UNINSTALL_BEFORE_UPDATE
+  ; NSIS setting to allow overwriting existing installation
+  ; without running the uninstaller first
+  !define UNINSTALL_CMD "uninstall.exe"
 
-  ; Don't remove shortcuts during uninstall if it's an upgrade
-  !define MUI_STARTMENUPAGE_NOREMOVE
+  ; Set to allow overwriting files during upgrade
+  SetOverwrite on
 !macroend
 
 !macro customInstall
@@ -21,6 +21,8 @@
     ; Also clean root level JS/CSS files (if any)
     Delete "$INSTDIR\*.js"
     Delete "$INSTDIR\*.css"
+    ; Delete old uninstaller to prevent conflicts
+    Delete "$INSTDIR\uninstall.exe"
     Goto done
 
   freshInstall:
@@ -30,10 +32,14 @@
     CreateShortCut "$SMPROGRAMS\Kafka Manager\Kafka Manager.lnk" "$INSTDIR\Kafka Manager.exe"
 
   done:
+    ; Always create shortcuts (for both fresh install and upgrade)
+    CreateShortCut "$DESKTOP\Kafka Manager.lnk" "$INSTDIR\Kafka Manager.exe"
+    CreateDirectory "$SMPROGRAMS\Kafka Manager"
+    CreateShortCut "$SMPROGRAMS\Kafka Manager\Kafka Manager.lnk" "$INSTDIR\Kafka Manager.exe"
 !macroend
 
 !macro customUnInstall
-  ; Only remove shortcuts on genuine uninstall (not during upgrade)
+  ; Remove shortcuts on uninstall
   Delete "$DESKTOP\Kafka Manager.lnk"
   Delete "$SMPROGRAMS\Kafka Manager\Kafka Manager.lnk"
   RMDir "$SMPROGRAMS\Kafka Manager"
@@ -41,5 +47,7 @@
 
 !macro customUnInstallPrev
   ; Called before installing new version during upgrade
-  ; With TAURI_SKIP_UNINSTALL_BEFORE_UPDATE defined, this won't be called
+  ; Delete old uninstaller to prevent full uninstall
+  IfFileExists "$INSTDIR\uninstall.exe" 0 +2
+    Delete "$INSTDIR\uninstall.exe"
 !macroend
