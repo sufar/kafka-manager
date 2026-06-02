@@ -221,10 +221,8 @@
           <div class="flex flex-col gap-2">
             <!-- Documentation Link -->
             <a
-              href="http://wewiki.ky-tech.com.cn/pages/viewpage.action?pageId=145989789"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-xs text-primary hover:underline flex items-center gap-1"
+              class="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              @click.prevent="openDocLink"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
@@ -1270,6 +1268,19 @@ async function checkFeedbackConnection() {
     console.error('[Feedback] Connection check failed:', e);
     feedbackConnectionChecked.value = true;
     feedbackConnectionAvailable.value = false;
+  }
+}
+
+// 打开文档链接
+function openDocLink() {
+  const url = 'http://wewiki.ky-tech.com.cn/pages/viewpage.action?pageId=145989789';
+  const win = window as any;
+  // Tauri v2 环境，使用 shell.open
+  if (win.__TAURI__?.shell?.open) {
+    win.__TAURI__.shell.open(url);
+  } else {
+    // 非 Tauri 环境（浏览器），直接打开
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
 
