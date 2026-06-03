@@ -1866,7 +1866,7 @@ export const translations: Record<Language, Translation> = {
       description: 'Manage global settings',
       language: 'Language',
       theme: 'Theme',
-      languageZh: '中文',
+      languageZh: 'Chinese',
       languageEn: 'English',
       selectLanguage: 'Select Language',
       sidebarMode: 'Sidebar Mode',

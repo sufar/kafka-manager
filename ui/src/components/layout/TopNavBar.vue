@@ -29,7 +29,7 @@
           ref="searchInputRef"
           v-model="searchQuery"
           type="text"
-          class="input input-bordered input-xs w-56 h-7"
+          class="input input-bordered input-xs w-72 h-7"
           :placeholder="t.layout.searchPlaceholder"
           @focus="showSearchDropdown = true"
           @keydown="handleSearchKeydown"
@@ -40,7 +40,7 @@
         <div
           v-if="showSearchDropdown && (searchQuery || searchResults.length > 0)"
           ref="searchDropdownRef"
-          class="absolute top-full left-0 mt-1 w-[42rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-[100] max-h-96 overflow-y-auto"
+          class="absolute top-full left-0 mt-1 w-[42rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-[100] max-h-96 overflow-y-auto opacity-100"
         >
           <div v-if="searchLoading" class="p-4 text-center">
             <span class="loading loading-spinner loading-sm"></span>
