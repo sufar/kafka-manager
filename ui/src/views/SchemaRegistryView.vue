@@ -177,9 +177,19 @@
     <!-- Cluster Selector Dialog -->
     <Teleport to="body">
       <dialog ref="clusterDialogRef" class="modal modal-bottom sm:modal-middle" @click.self="clusterDialogRef?.close()" data-tour="sr-cluster-dialog">
-        <div class="modal-box w-11/12 max-w-lg mx-2 md:mx-auto p-5">
+        <div class="modal-box w-full max-w-lg mx-2 md:mx-auto p-5">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="font-bold text-base">{{ t.schemaRegistry.selectCluster }}</h3>
+            <div class="flex items-center gap-2">
+              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-primary">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-base">{{ t.schemaRegistry.selectCluster }}</h3>
+                <span class="text-xs text-base-content/60 font-mono">{{ t.schemaRegistry.selectClusterDesc || 'Choose a cluster to manage schemas' }}</span>
+              </div>
+            </div>
             <button class="btn btn-sm btn-circle btn-ghost" @click="clusterDialogRef?.close()">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -616,6 +616,7 @@ export interface Translation {
     connectionSuccess: string;
     connectionFailed: string;
     selectCluster: string;
+    selectClusterDesc: string;
   };
   tour: {
     prevStep: string;
@@ -1377,6 +1378,7 @@ export const translations: Record<Language, Translation> = {
       connectionSuccess: '连接成功',
       connectionFailed: '连接失败',
       selectCluster: '选择集群',
+      selectClusterDesc: '选择要管理 Schema Registry 的 Kafka 集群',
     },
     tour: {
       prevStep: '上一步',
@@ -2136,6 +2138,7 @@ export const translations: Record<Language, Translation> = {
       connectionSuccess: 'Connection successful',
       connectionFailed: 'Connection failed',
       selectCluster: 'Select Cluster',
+      selectClusterDesc: 'Choose a Kafka cluster to manage Schema Registry',
     },
     tour: {
       prevStep: 'Previous',
