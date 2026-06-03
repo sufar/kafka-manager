@@ -85,9 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 确保日志目录存在
     ensure_log_dir();
 
-    // 启动时清理旧日志文件（只保留今天的）
-    cleanup_old_log_files();
-
     // 使用普通日志文件（不滚动，每次启动时清理）
     let log_path = app_log_path();
     let log_dir = log_path.parent().unwrap_or(std::path::Path::new("."));
@@ -353,9 +350,3 @@ async fn load_clusters_from_db(
     Ok(clusters)
 }
 
-/// 清理日志文件（启动时直接清空日志文件）
-fn cleanup_old_log_files() {
-    let log_path = app_log_path();
-    // 直接清空日志文件
-    let _ = std::fs::write(&log_path, "");
-}
