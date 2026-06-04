@@ -1455,6 +1455,7 @@ fn set_system_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
                         "show" => {
                             if let Some(window) = app.webview_windows().values().next() {
                                 let _ = window.show();
+                                let _ = window.unminimize();
                                 let _ = window.set_focus();
                             }
                         }
@@ -2502,7 +2503,11 @@ pub fn run() {
             log("Another instance detected, focusing existing window");
             if let Some(window) = app.webview_windows().values().next() {
                 let _ = window.show();
+                let _ = window.unminimize();
                 let _ = window.set_focus();
+                log("Window shown and focused from single instance callback");
+            } else {
+                log("No window found to focus in single instance callback");
             }
         }))
         .plugin(tauri_plugin_shell::init())
@@ -2543,6 +2548,7 @@ pub fn run() {
                             "show" => {
                                 if let Some(window) = app.webview_windows().values().next() {
                                     let _ = window.show();
+                                    let _ = window.unminimize();
                                     let _ = window.set_focus();
                                 }
                             }
