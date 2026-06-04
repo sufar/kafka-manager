@@ -70,7 +70,7 @@
     <div
       v-if="!isMobile"
       ref="resizerRef"
-      class="resizer w-1 cursor-col-resize bg-base-content/5 hover:bg-base-content/10 transition-all z-50 flex-shrink-0 group flex items-center justify-center"
+      class="resizer w-1 cursor-col-resize bg-base-content/5 hover:bg-base-content/10 transition-all z-40 flex-shrink-0 group flex items-center justify-center"
       @mousedown="startResize"
       :title="t.mainLayout.dragToResize || '拖动以调整侧边栏宽度'"
     >
