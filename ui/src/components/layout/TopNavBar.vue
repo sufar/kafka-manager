@@ -40,7 +40,7 @@
         <div
           v-if="showSearchDropdown && (searchQuery || searchResults.length > 0)"
           ref="searchDropdownRef"
-          class="absolute top-full left-0 w-[42rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-[999] max-h-96 overflow-y-auto"
+          class="absolute top-full left-0 -mt-px w-[42rem] bg-base-100 border border-base-200 rounded-lg shadow-xl z-[999] max-h-96 overflow-y-auto"
         >
           <div v-if="searchLoading" class="p-4 text-center">
             <span class="loading loading-spinner loading-sm"></span>
