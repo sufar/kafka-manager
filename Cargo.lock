@@ -2888,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager"
-version = "1.1.54"
+version = "1.1.55"
 dependencies = [
  "arc-swap",
  "axum",
@@ -2913,6 +2913,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-plugin-window-state",
  "thiserror 2.0.18",
  "tokio",
  "toml 0.8.2",
@@ -2928,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "kafka-manager-api"
-version = "1.1.54"
+version = "1.1.55"
 dependencies = [
  "apache-avro",
  "arc-swap",
@@ -6443,6 +6444,21 @@ dependencies = [
  "url",
  "windows-sys 0.60.2",
  "zip 4.6.1",
+]
+
+[[package]]
+name = "tauri-plugin-window-state"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73736611e14142408d15353e21e3cca2f12a3cfb523ad0ce85999b6d2ef1a704"
+dependencies = [
+ "bitflags 2.11.1",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
