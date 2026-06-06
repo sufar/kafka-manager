@@ -15,11 +15,12 @@
       {
         "title": "Kafka Manager",
         "width": 1400,
-        "height": 900,
+        "height": 768,
         "resizable": true,
         "fullscreen": false,
-        "minWidth": 1024,
+        "minWidth": 768,
         "minHeight": 768,
+        "center": true,
         "devtools": false
       }
     ],
