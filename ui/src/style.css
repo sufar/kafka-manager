@@ -636,22 +636,5 @@ aside .hover\:bg-base-200:hover {
 }
 
 /* ============================================
-   CHART CONTAINER
-   ============================================ */
-.chart-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 200px;
-  border-radius: 20px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-}
-
-:root[data-theme="dark"] .chart-container {
-  background: rgba(99, 102, 241, 0.05);
-}
-
-/* ============================================
    DASHBOARD PARTICLES (removed for performance)
    ============================================ */

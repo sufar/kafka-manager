@@ -7,63 +7,72 @@
 
 **[中文文档](README-cn.md)** | **[English](README.md)**
 
-A cross-platform desktop application and RESTful API for managing Kafka clusters. Browse topics, explore messages, manage consumer groups, and monitor cluster health with an intuitive interface.
+A cross-platform desktop application for querying and managing Kafka clusters. Designed for developers and data engineers who need fast, intuitive access to Kafka messages, consumer groups, and cluster internals — without the command line.
 
 ![Kafka Manager](img/about.png)
 
 ## Features
 
+### Message Query & Browsing
+
+- Query messages across any partition with newest-first or oldest-first ordering
+- Keyword search through message values with real-time filtering
+- Time range filtering — pinpoint messages by start/end timestamp or use quick presets (5 min, 15 min, 1 hour, 1 day)
+- SSE real-time streaming for live message tailing with stop/resume control
+- Multi-format message viewer: **JSON** (with syntax highlighting and customizable themes), **raw text**, **hex dump**
+- Adjustable column widths and timestamp sorting in the message list
+- Export query results to **JSON**, **CSV**, or **TXT**
+- Send messages to any topic with custom partition and key selection
+- Sent message history with replay capability
+
 ### Cluster Management
 
-- Multi-cluster support with group organization
-- Real-time connection health monitoring
-- Cluster reconnection and disconnection
+- Multi-cluster support with group organization and horizontal scrollable group selector
+- Tree-style navigator: clusters → topics → partitions in a collapsible hierarchy
+- Real-time connection health monitoring with status indicators
+- One-click reconnect / disconnect per cluster
 - Broker information display
+- Browsing history — quickly revisit recently viewed topics
 
-### Topics
+### Topic Management
 
-- Create, delete, and configure topics
-- Partition details and distribution view
-- Topic templates for quick creation
-- Topic tagging and favorites with group management
+- Create topics with configurable partitions, replication factor, and retention policies
+- Delete topics with confirmation
+- Partition detail view with leader and replica distribution
+- Topic templates for one-click recurring creation
+- Topic tagging and favorites with named groups
 - Topic change history tracking
-
-### Messages
-
-- Browse and search messages across partitions
-- Time range filtering (recent 5min to 1 day)
-- SSE real-time streaming message fetch
-- Multiple view formats: JSON (with syntax highlighting), raw, hex
-- Message export (JSON/CSV/TXT)
-- Send messages to topics with custom keys and partitions
+- Topic-level consumer group overview
 
 ### Consumer Groups
 
-- View consumer group state and member details
-- Inspect committed offsets and lag per partition
-- Reset offsets to earliest, latest, or specific timestamp
-- Topic-level consumer group view
+- Browse all consumer groups with state and member counts
+- Drill into per-partition details: start offset, end offset, committed offset, and lag
+- Last commit time tracking per partition
+- Reset consumer group offsets to **earliest**, **latest**, or a **specific timestamp**
+- Delete consumer groups
+- View consumer groups scoped to a specific topic
 
 ### Schema Registry
 
-- Connect and configure Schema Registry
-- Browse and manage Avro/Protobuf schemas
+- Connect to Schema Registry per cluster
+- Browse and inspect Avro and Protobuf schemas
+- View schema versions and details
 
-### Desktop App Features
+### Desktop Experience
 
-- Automatic update with resume support and progress display
-- System tray with background running
+- Automatic updates with resume support and progress display
+- System tray with background running — stays out of your way
 - Single-instance enforcement
 - Application log viewer
-- Data import/export for settings migration
-- Dark/Light theme toggle
-- Chinese/English bilingual interface
+- Data import/export for settings migration between machines
+- Dark / Light theme toggle
+- Chinese / English bilingual interface (中英文双语)
+- Guided tour for first-time users
 
 ## Quick Start
 
-### Option 1: Desktop Application (Recommended)
-
-Prerequisites: [Tauri dependencies](https://tauri.app/start/prerequisites/)
+Prerequisites: Install [Tauri dependencies](https://tauri.app/start/prerequisites/)
 
 ```bash
 # Clone the repository
@@ -73,82 +82,19 @@ cd kafka-manager
 # Install frontend dependencies
 cd ui && npm install
 
-# Development mode
-cd ui && npm run tauri dev
+# Development mode (hot-reload)
+npm run tauri dev
 
 # Production build
 cd ui && npm run build
-npm run tauri build
+cd .. && npm run tauri build
 ```
 
 Built installers will be in `src-tauri/target/release/bundle/`.
 
-### Option 2: Web API + Frontend Dev Server
-
-```bash
-# Start the backend (port 9732)
-cargo run
-
-# In another terminal, start the frontend (port 9733)
-cd ui && npm install && npm run dev
-```
-
-Open `http://localhost:9733` in your browser.
-
 ## Configuration
 
-Create `config.toml` for server settings and multi-cluster configuration:
-
-```toml
-[server]
-host = "127.0.0.1"
-port = 9732
-
-[pool]
-max_size = 50
-min_size = 5
-acquire_timeout_secs = 15
-idle_timeout_secs = 300
-
-[kafka.clusters.development]
-brokers = "localhost:9092"
-request_timeout_ms = 5000
-operation_timeout_ms = 5000
-
-[kafka.clusters.production]
-brokers = "prod-kafka-1:9092,prod-kafka-2:9092,prod-kafka-3:9092"
-request_timeout_ms = 10000
-operation_timeout_ms = 10000
-```
-
-### Environment Variables
-
-Prefix: `KAFKA_MANAGER__` (double underscore for nested keys)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KAFKA_MANAGER__SERVER__PORT` | Server port | `9732` |
-| `HEALTH_CHECK_INTERVAL_SECS` | Health check interval | `30` |
-
-## Database
-
-SQLite is used for local data persistence. The database is created automatically on first run.
-
-| Table | Purpose |
-|-------|---------|
-| `kafka_clusters` | Cluster configurations |
-| `cluster_groups` | Cluster group organization |
-| `topic_metadata` | Cached topic metadata |
-| `consumer_group_metadata` | Cached consumer group info |
-| `consumer_group_offsets` | Cached consumer group offsets |
-| `favorites` / `favorite_groups` | Topic favorites with grouping |
-| `topic_templates` | Reusable topic creation templates |
-| `json_highlight_templates` | JSON syntax highlighting themes |
-| `resource_tags` | Resource tagging |
-| `topic_history` | Topic change history |
-| `sent_message_history` | Sent message records |
-| `user_settings` | User preferences (language, theme, etc.) |
-| `schema_registry_configs` | Schema Registry connection configs |
+Clusters are configured and managed directly from the UI at runtime.
 
 ## Tech Stack
 
@@ -156,27 +102,24 @@ SQLite is used for local data persistence. The database is created automatically
 
 | Technology | Purpose |
 |------------|---------|
-| [Axum](https://github.com/tokio-rs/axum) 0.7 | Web framework |
+| [Rust](https://www.rust-lang.org/) | Core language |
+| [Axum](https://github.com/tokio-rs/axum) 0.7 | Embedded HTTP server |
 | [Tokio](https://tokio.rs/) | Async runtime |
-| [SQLx](https://github.com/launchbadge/sqlx) 0.8 | Async SQLite |
+| [SQLx](https://github.com/launchbadge/sqlx) 0.8 | Async SQLite for local persistence |
 | [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka client |
 | [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | Connection pooling |
 | [Moka](https://github.com/moka-rs/moka) 0.12 | In-memory cache |
-| [apache-avro](https://github.com/apache/avro) 0.17 | Avro encoding/decoding |
-| [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf encoding/decoding |
-| [tracing](https://github.com/tokio-rs/tracing) | Structured logging |
-| [arc-swap](https://github.com/vorner/arc-swap) | Lock-free state updates |
+| [apache-avro](https://github.com/apache/avro) 0.17 | Avro encoding / decoding |
+| [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf encoding / decoding |
 
 ### Frontend
 
 | Technology | Purpose |
 |------------|---------|
 | [Vue 3](https://vuejs.org/) + TypeScript | UI framework |
-| [Tailwind CSS 4](https://tailwindcss.com/) | Styling |
+| [Tailwind CSS 4](https://tailwindcss.com/) | Utility-first styling |
 | [DaisyUI 5](https://daisyui.com/) | Component library |
 | [Pinia](https://pinia.vuejs.org/) | State management |
-| [vue-router](https://router.vuejs.org/) 5 | Client-side routing |
-| [Chart.js](https://www.chartjs.org/) 4 | Data visualization |
 | [Tauri 2](https://tauri.app/) | Desktop shell |
 | [Vite](https://vitejs.dev/) 7 | Build tool |
 
