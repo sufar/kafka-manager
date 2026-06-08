@@ -128,21 +128,6 @@
 
       <!-- Desktop Controls -->
       <div class="hidden md:flex items-center gap-0.5">
-        <!-- Toggle Sidebar -->
-        <button
-          class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
-          @click="$emit('toggle-sidebar-collapse')"
-          :title="sidebarCollapsed ? (t.layout.expandSidebar || '展开侧边栏') : (t.layout.collapseSidebar || '收起侧边栏')"
-          data-tour="toggle-sidebar"
-        >
-          <svg v-if="sidebarCollapsed" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6h16.5M3.75 12h16.5m-16.5 6h16.5" />
-          </svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          </svg>
-        </button>
-
         <!-- Share -->
         <button
           class="btn btn-ghost btn-circle btn-xs h-6 w-6 min-h-0"
@@ -218,12 +203,10 @@ const props = defineProps<{
   isMobile: boolean;
   isDark: boolean;
   sidebarMode: 'tree' | 'flat';
-  sidebarCollapsed: boolean;
 }>();
 
 const emit = defineEmits<{
   'toggle-sidebar': [];
-  'toggle-sidebar-collapse': [];
   'toggle-language': [];
   'toggle-theme': [];
   'open-mobile-search': [];

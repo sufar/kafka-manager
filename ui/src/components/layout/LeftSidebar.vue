@@ -4,13 +4,11 @@
     <aside
       v-if="!isMobile"
       ref="leftSidebarRef"
-      class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl ml-2 mt-2 mb-2 overflow-hidden transition-all duration-300"
-      :style="sidebarCollapsed
-        ? { width: '0px', minWidth: '0px', marginLeft: '0px', border: 'none' }
-        : { width: leftSidebarWidth + 'px', minWidth: '133px', maxWidth: '80vw' }"
+      class="flex flex-col h-[calc(100%-1rem)] glass gradient-border relative rounded-xl ml-2 mt-2 mb-2"
+      :style="{ width: leftSidebarWidth + 'px', minWidth: '133px', maxWidth: '80vw' }"
       data-tour="sidebar"
     >
-      <div class="flex-1 flex flex-col min-h-0" :class="{ 'opacity-0': sidebarCollapsed }">
+      <div class="flex-1 flex flex-col min-h-0">
         <!-- Tree Mode -->
         <ClusterTreeNavigator
           v-if="sidebarMode === 'tree'"
@@ -70,7 +68,7 @@
 
     <!-- Resizer Handle - Desktop Only -->
     <div
-      v-if="!isMobile && !sidebarCollapsed"
+      v-if="!isMobile"
       ref="resizerRef"
       class="resizer w-1 cursor-col-resize bg-base-content/5 hover:bg-base-content/10 transition-all z-40 flex-shrink-0 group flex items-center justify-center"
       @mousedown="startResize"
@@ -95,7 +93,6 @@ const props = defineProps<{
   isMobile: boolean;
   sidebarMode: 'tree' | 'flat';
   sidebarOpen: boolean;
-  sidebarCollapsed: boolean;
 }>();
 
 const emit = defineEmits<{
