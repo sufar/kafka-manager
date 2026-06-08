@@ -430,6 +430,8 @@ export interface Translation {
     refreshCancelled: string;
     shareVersion: string;
     shareCopied: string;
+    expandSidebar: string;
+    collapseSidebar: string;
   };
   update: {
     available: string;
@@ -1192,6 +1194,8 @@ export const translations: Record<Language, Translation> = {
       refreshCancelled: '刷新已取消',
       shareVersion: '分享安装包',
     shareCopied: '安装包已复制到您电脑的下载目录，请打开文件管理器查看',
+    expandSidebar: '展开侧边栏',
+    collapseSidebar: '收起侧边栏',
     },
     update: {
       available: '发现新版本',
@@ -1952,6 +1956,8 @@ export const translations: Record<Language, Translation> = {
       refreshCancelled: 'Refresh cancelled',
       shareVersion: 'Share Installer',
     shareCopied: 'Installer copied to your downloads folder, please open file manager to view',
+    expandSidebar: 'Expand Sidebar',
+    collapseSidebar: 'Collapse Sidebar',
     },
     update: {
       available: 'New Version Available',

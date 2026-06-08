@@ -6,7 +6,9 @@
         :is-mobile="isMobile"
         :is-dark="isDark"
         :sidebar-mode="sidebarMode"
+        :sidebar-collapsed="sidebarCollapsed"
         @toggle-sidebar="sidebarOpen = true"
+        @toggle-sidebar-collapse="sidebarCollapsed = !sidebarCollapsed"
         @toggle-language="toggleLanguage"
         @toggle-theme="toggleTheme"
         @open-mobile-search="showMobileSearch = true"
@@ -30,6 +32,8 @@
         :is-mobile="isMobile"
         :sidebar-mode="sidebarMode"
         :sidebar-open="sidebarOpen"
+        :sidebar-collapsed="sidebarCollapsed"
+        @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
         @navigate="handleNavigate"
         @cluster-context-menu="showClusterMenuFromTree"
         @topic-context-menu="showTopicMenuFromTree"
@@ -176,6 +180,9 @@ provide('showConfirm', (message: string) => {
 
 // Sidebar mode: 'tree' | 'flat'
 const sidebarMode = ref<'tree' | 'flat'>('flat');
+
+// Sidebar collapsed state
+const sidebarCollapsed = ref(false);
 
 // Mobile responsive state
 const isMobile = ref(false);
