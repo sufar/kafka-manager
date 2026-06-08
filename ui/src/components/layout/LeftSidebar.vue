@@ -85,6 +85,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import ClusterTreeNavigator from '@/components/ClusterTreeNavigator.vue';
 import TopicNavigator from '@/components/TopicNavigator.vue';
 import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
 
 const languageStore = useLanguageStore();
 const t = computed(() => languageStore.t);
@@ -106,7 +107,8 @@ const emit = defineEmits<{
 }>();
 
 // Sidebar width management
-const leftSidebarWidth = ref(460);
+const DEFAULT_SIDEBAR_WIDTH = 460;
+const leftSidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH);
 const leftSidebarRef = ref<HTMLElement>();
 const resizerRef = ref<HTMLElement>();
 const isResizing = ref(false);
@@ -127,10 +129,34 @@ function handleResize(e: MouseEvent) {
   leftSidebarWidth.value = Math.max(133, Math.min(startWidth.value + delta, window.innerWidth * 0.8));
 }
 
-function stopResize() {
+async function stopResize() {
   isResizing.value = false;
   document.removeEventListener('mousemove', handleResize);
   document.removeEventListener('mouseup', stopResize);
+
+  // Save width to database
+  try {
+    await apiClient.updateSetting('ui.sidebar_width', leftSidebarWidth.value.toString());
+  } catch (e) {
+    console.error('Failed to save sidebar width:', e);
+  }
+}
+
+// Load saved width from database
+async function loadSidebarWidth() {
+  try {
+    const settings = await apiClient.getSettings(['ui.sidebar_width']);
+    const saved = settings.find((s) => s.key === 'ui.sidebar_width');
+    if (saved) {
+      const width = parseInt(saved.value, 10);
+      if (!isNaN(width) && width >= 133 && width <= window.innerWidth * 0.8) {
+        leftSidebarWidth.value = width;
+      }
+    }
+  } catch (e) {
+    // Silent fail, use default
+    console.debug('Failed to load sidebar width, using default');
+  }
 }
 
 // Ref for ClusterTreeNavigator
@@ -139,6 +165,13 @@ const clusterTreeNavigatorRef = ref<InstanceType<typeof ClusterTreeNavigator>>()
 // Expose methods to parent
 defineExpose({
   clusterTreeNavigatorRef
+});
+
+// Load saved width on mount
+onMounted(() => {
+  if (!props.isMobile) {
+    loadSidebarWidth();
+  }
 });
 
 // Cleanup on unmount
