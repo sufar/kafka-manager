@@ -531,7 +531,7 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
                 tracing::info!("[SSE] Query completed for topic {}", topic_for_log);
             }
             // 超时保护
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            _ = tokio::time::sleep(Duration::from_secs(120)) => {
                 cancel_token.cancel();
                 // task_ref is the task_handle itself (wrapped in Box), can't abort after consuming
                 tracing::info!("[SSE] Cancelled query for topic {} after timeout", topic_for_log);
@@ -2913,12 +2913,14 @@ fn fetch_partition_messages_unified(
 
     let mut raw_messages: Vec<RawMessage> = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
+    let mut consecutive_empty = 0usize; // 连续空轮询计数（用于退避）
 
-    // 优化：空轮询150ms一次，最多10次（总共1.5秒）
+    // 自适应poll超时 + 指数退避，应对慢 broker
     const FIRST_POLL_TIMEOUT_MS: u64 = 500;  // 首次poll等待更长时间，因为可能需要建立连接
-    const POLL_TIMEOUT_MS: u64 = 150;
-    const MAX_EMPTY_POLLS: usize = 10;
-    const MAX_POLL_TIME_SECS: u64 = 30;
+    const BASE_POLL_TIMEOUT_MS: u64 = 200;
+    const MAX_POLL_TIMEOUT_MS: u64 = 2000;
+    const MAX_EMPTY_POLLS: usize = 25;
+    const MAX_POLL_TIME_SECS: u64 = 120;
 
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
@@ -2927,11 +2929,15 @@ fn fetch_partition_messages_unified(
         && empty_count < MAX_EMPTY_POLLS
         && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
     {
-        // 自适应poll超时：首次等待500ms，后续150ms
+        // 自适应poll超时：首次500ms，正常200ms，连续空轮询时指数退避
         let poll_timeout = if !got_first {
             Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
+        } else if consecutive_empty == 0 {
+            Duration::from_millis(BASE_POLL_TIMEOUT_MS)
         } else {
-            Duration::from_millis(POLL_TIMEOUT_MS)
+            let backoff = (BASE_POLL_TIMEOUT_MS.saturating_mul(1u64 << consecutive_empty.min(4)))
+                .min(MAX_POLL_TIMEOUT_MS);
+            Duration::from_millis(backoff)
         };
 
         match consumer.poll(poll_timeout) {
@@ -2941,6 +2947,7 @@ fn fetch_partition_messages_unified(
                     tracing::info!("[Unified Partition] First message received after {:?}", poll_start.elapsed());
                 }
                 empty_count = 0;
+                consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
 
@@ -3042,9 +3049,11 @@ fn fetch_partition_messages_unified(
             Some(Err(e)) => {
                 tracing::warn!("Poll error for partition {}: {}", partition, e);
                 empty_count += 1;
+                consecutive_empty += 1;
             }
             None => {
                 empty_count += 1;
+                consecutive_empty += 1;
             }
         }
     }
@@ -3208,18 +3217,20 @@ async fn fetch_partition_messages_streaming(
 
     let mut sent_count = 0usize;
     let mut empty_count = 0usize;
+    let mut consecutive_empty = 0usize; // 连续空轮询计数（用于退避）
 
     // === 动态调整空轮询次数 ===
-    // 基础次数 10 次，每 1000 条消息增加 5 次，最多 50 次
-    let base_empty_polls = 10usize;
+    // 基础次数 20 次，每 1000 条消息增加 5 次，最多 50 次
+    let base_empty_polls = 20usize;
     let additional_polls = (max_messages / 1000) * 5;
     let max_empty_polls = (base_empty_polls + additional_polls).min(50);
     tracing::info!("[Streaming] Partition {} dynamic max_empty_polls: {} (max_messages: {})",
         partition, max_empty_polls, max_messages);
 
     const FIRST_POLL_TIMEOUT_MS: u64 = 500;
-    const POLL_TIMEOUT_MS: u64 = 150;
-    const MAX_POLL_TIME_SECS: u64 = 60;
+    const BASE_POLL_TIMEOUT_MS: u64 = 200;    // 基础 poll 超时（收到数据后使用）
+    const MAX_POLL_TIMEOUT_MS: u64 = 2000;    // 最大 poll 超时（退避上限）
+    const MAX_POLL_TIME_SECS: u64 = 120;
 
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
@@ -3238,10 +3249,16 @@ async fn fetch_partition_messages_streaming(
             break;
         }
 
+        // 自适应 poll 超时：连续空轮询时指数退避，收到数据后恢复
         let poll_timeout = if !got_first {
             Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
+        } else if consecutive_empty == 0 {
+            Duration::from_millis(BASE_POLL_TIMEOUT_MS)
         } else {
-            Duration::from_millis(POLL_TIMEOUT_MS)
+            // 指数退避：200ms → 400ms → 800ms → 1600ms → 2000ms(capped)
+            let backoff = (BASE_POLL_TIMEOUT_MS.saturating_mul(1u64 << consecutive_empty.min(4)))
+                .min(MAX_POLL_TIMEOUT_MS);
+            Duration::from_millis(backoff)
         };
 
         match consumer.poll(poll_timeout) {
@@ -3251,6 +3268,7 @@ async fn fetch_partition_messages_streaming(
                     tracing::info!("[Streaming] First message received for partition {} after {:?}", partition, poll_start.elapsed());
                 }
                 empty_count = 0;
+                consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
 
@@ -3372,15 +3390,17 @@ async fn fetch_partition_messages_streaming(
             Some(Err(e)) => {
                 tracing::warn!("[Streaming] Poll error for partition {}: {}", partition, e);
                 empty_count += 1;
+                consecutive_empty += 1;
             }
             None => {
                 empty_count += 1;
+                consecutive_empty += 1;
             }
         }
     }
 
-    tracing::info!("[Streaming] Partition {} completed: sent {} messages, empty_count={}, elapsed={:?}",
-        partition, sent_count, empty_count, poll_start.elapsed());
+    tracing::info!("[Streaming] Partition {} completed: sent {} messages, empty_count={}/{}, elapsed={:?}",
+        partition, sent_count, empty_count, max_empty_polls, poll_start.elapsed());
 }
 
 /// Kafka消息包装器，用于堆排序

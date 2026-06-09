@@ -1217,7 +1217,8 @@ fn set_auto_launch(enabled: bool) -> Result<(), String> {
     {
         let exe_path = std::env::current_exe()
             .map_err(|e| format!("Failed to get exe path: {}", e))?;
-        let exe_str = exe_path.to_string_lossy().to_string();
+        // Windows 注册表路径需要引号包裹，防止路径中包含空格时解析失败
+        let exe_str = format!("\"{}\"", exe_path.to_string_lossy());
 
         use winreg::enums::*;
         use winreg::RegKey;
