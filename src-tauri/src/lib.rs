@@ -65,6 +65,7 @@ pub struct DownloadState {
     pub download_url: String,
     pub filename: String,
     pub download_path: Option<PathBuf>,
+    pub is_auto_download: bool,
     #[serde(skip)]
     pub cancel_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -78,6 +79,7 @@ impl Default for DownloadState {
             download_url: String::new(),
             filename: String::new(),
             download_path: None,
+            is_auto_download: false,
             cancel_requested: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -1203,9 +1205,20 @@ fn clear_download_status(app: tauri::AppHandle) -> Result<(), String> {
         guard.is_downloading = false;
         guard.downloaded = 0;
         guard.total = 0;
+        guard.is_auto_download = false;
     }
     // 注意：不清除缓存的下载文件，保留以便断点续传
     // install_update() 会检查现有文件并自动续传
+    Ok(())
+}
+
+/// 设置下载是否为自动下载（自动下载完成时不弹窗提醒）
+#[tauri::command]
+fn set_auto_download_flag(app: tauri::AppHandle, is_auto: bool) -> Result<(), String> {
+    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+        let mut guard = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+        guard.is_auto_download = is_auto;
+    }
     Ok(())
 }
 
@@ -2329,8 +2342,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 }
             }
 
-            // 使用系统对话框通知用户
+            // 使用系统对话框通知用户（自动下载时跳过弹窗，安装包已打开无需提醒）
             use tauri_plugin_dialog::DialogExt;
+            let is_auto = state.lock().map_or(false, |g| g.is_auto_download);
 
             #[cfg(target_os = "macos")]
             {
@@ -2353,16 +2367,19 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     .arg(&download_path)
                     .spawn();
 
-                // 通知用户
-                app_handle.dialog()
-                    .message("安装包已挂载，请将 Kafka Manager 拖拽到 Applications 文件夹完成安装。")
-                    .title("下载完成")
-                    .show(|_| {});
+                // 自动下载时不弹窗，手动下载时弹窗提醒
+                if !is_auto {
+                    app_handle.dialog()
+                        .message("安装包已挂载，请将 Kafka Manager 拖拽到 Applications 文件夹完成安装。")
+                        .title("下载完成")
+                        .show(|_| {});
+                }
 
-                // 立即退出应用，用户可继续在安装界面拖拽图标安装
+                // 退出应用，用户可继续在安装界面拖拽图标安装
                 let app_handle_clone = app_handle.clone();
+                let delay = if is_auto { 1 } else { 1 };
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    std::thread::sleep(std::time::Duration::from_secs(delay));
                     log("Exiting app for update installation...");
                     app_handle_clone.exit(0);
                 });
@@ -2399,14 +2416,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     }
                 }
 
-                app_handle.dialog()
-                    .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
-                    .title("下载完成")
-                    .show(|_| {});
+                // 自动下载时不弹窗，手动下载时弹窗提醒
+                if !is_auto {
+                    app_handle.dialog()
+                        .message("安装程序已启动，应用将在 3 秒后退出，请按照提示完成安装")
+                        .title("下载完成")
+                        .show(|_| {});
+                }
 
                 // 延迟退出应用
+                let delay = if is_auto { 2 } else { 3 };
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    std::thread::sleep(std::time::Duration::from_secs(delay));
                     log("Exiting app for update installation...");
                     std::process::exit(0);
                 });
@@ -2431,14 +2452,18 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                         .ok();
                 }
 
-                app_handle.dialog()
-                    .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
-                    .title("下载完成")
-                    .show(|_| {});
+                // 自动下载时不弹窗，手动下载时弹窗提醒
+                if !is_auto {
+                    app_handle.dialog()
+                        .message("安装包已打开，应用将在 3 秒后退出，请按照提示完成安装")
+                        .title("下载完成")
+                        .show(|_| {});
+                }
 
                 // 延迟退出应用
+                let delay = if is_auto { 2 } else { 3 };
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    std::thread::sleep(std::time::Duration::from_secs(delay));
                     log("Exiting app for update installation...");
                     std::process::exit(0);
                 });
@@ -2517,7 +2542,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_launch, get_auto_launch, set_system_tray, is_windows, share_current_version, open_url])
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_download_flag, set_auto_launch, get_auto_launch, set_system_tray, is_windows, share_current_version, open_url])
         .setup(|app| {
             // 启动时清理，只保留今天的日志
             cleanup_log_files();

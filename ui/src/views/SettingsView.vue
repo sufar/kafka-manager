@@ -914,6 +914,8 @@ async function installUpdate() {
 
     updateStore.setDownloading(true, initialProgress, status.downloaded, status.total, 0);
     updateStore.setAutoDownload(false); // 手动触发，非自动下载
+    // 告诉后端这是手动下载，完成时弹窗提醒
+    tauriInvoke('set_auto_download_flag', { isAuto: false }).catch(() => {});
 
     // 开始轮询下载状态
     startPollingDownloadStatus();
@@ -983,13 +985,20 @@ async function pollDownloadStatus() {
     } else {
       // 下载完成或停止
       if (status.downloaded > 0 && status.total > 0 && status.downloaded >= status.total) {
+        const wasAutoDownload = updateStore.isAutoDownload;
         updateStore.clearState();
         downloadInterrupted.value = false;
-        toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+        // 自动下载时不弹提示（安装包已自动打开，用户能看到）
+        if (!wasAutoDownload) {
+          toast.showSuccess(t.value.update.downloadComplete || '下载完成，安装包已打开');
+        }
       } else if (status.downloaded > 0 && status.total === 0) {
+        const wasAutoDownload = updateStore.isAutoDownload;
         updateStore.clearState();
         downloadInterrupted.value = false;
-        toast.showInfo(t.value.update.downloadComplete || '下载完成，安装包已打开');
+        if (!wasAutoDownload) {
+          toast.showInfo(t.value.update.downloadComplete || '下载完成，安装包已打开');
+        }
       } else if (status.downloaded > 0 || status.total > 0) {
         updateStore.setDownloading(false, 0);
         downloadInterrupted.value = true;
@@ -1180,6 +1189,8 @@ onMounted(() => {
       // 后端确实在下载，开始轮询（标记为自动下载，不弹提示）
       updateStore.setDownloading(true, 0);
       updateStore.setAutoDownload(true);
+      // 告诉后端这是自动下载，完成时不弹窗
+      tauriInvoke('set_auto_download_flag', { isAuto: true }).catch(() => {});
       startPollingDownloadStatus();
     } else if (status.downloaded > 0 && status.total > 0 && downloading.value) {
       // 只有当前端已经在显示下载状态时，才检查是否中断

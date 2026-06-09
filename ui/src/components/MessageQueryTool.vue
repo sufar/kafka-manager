@@ -1,5 +1,5 @@
 <template>
-  <div class="message-query-tool flex-1 flex flex-col min-h-0">
+  <div class="message-query-tool flex-1 flex flex-col min-h-0 relative">
     <!-- 简洁搜索栏 -->
     <div class="toolbar flex flex-wrap items-center gap-1.5 p-1.5 border-b border-base-300 bg-base-100">
       <!-- 返回按钮 -->
@@ -455,11 +455,6 @@
       @submit="handleSubmit"
     />
 
-    <!-- Sent Message History Panel -->
-    <div v-if="showHistory" class="absolute inset-0 top-[41px] overflow-y-auto bg-base-100 z-20">
-      <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" @close="showHistory = false" />
-    </div>
-
     <!-- Delete Topic Dialog -->
     <DeleteTopicDialog
       ref="deleteTopicDialogRef"
@@ -467,6 +462,11 @@
       :topic="selectedTopic || ''"
       @deleted="handleTopicDeleted"
     />
+
+    <!-- Sent Message History Panel (covers entire interface including toolbar) -->
+    <div v-if="showHistory" class="absolute inset-0 overflow-y-auto bg-base-100 z-30">
+      <SentMessageHistory :t="t" :cluster="selectedCluster" :topic="selectedTopic" @select="handleSelectHistory" @close="showHistory = false" />
+    </div>
   </div>
 </template>
 
