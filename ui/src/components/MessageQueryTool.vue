@@ -1241,7 +1241,10 @@ function parseDateTime(input: string): Date | null {
 // 设置预设时间范围
 function setPresetTime(minutes: number) {
   const now = new Date();
-  const start = new Date(now.getTime() - minutes * 60 * 1000);
+  // 时间窗口：[now - 2×X, now - X]
+  // 例如 "5分" → start=now-10min, end=now-5min（查询 5~10 分钟前的数据）
+  const start = new Date(now.getTime() - minutes * 2 * 60 * 1000);
+  const end = new Date(now.getTime() - minutes * 60 * 1000);
 
   // 格式化为文本输入框格式 (YYYY-MM-DD HH:mm:ss)
   const toLocalString = (date: Date) => {
@@ -1249,8 +1252,8 @@ function setPresetTime(minutes: number) {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   };
 
-  filters.endTime = toLocalString(now);
   filters.startTime = toLocalString(start);
+  filters.endTime = toLocalString(end);
   showTimeFilters.value = true;
 }
 
