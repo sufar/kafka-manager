@@ -1226,28 +1226,81 @@ fn set_auto_download_flag(app: tauri::AppHandle, is_auto: bool) -> Result<(), St
 #[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
 #[tauri::command]
 fn set_auto_launch(enabled: bool) -> Result<(), String> {
+    log(&format!("[AutoLaunch] set_auto_launch called with enabled={}", enabled));
+
     #[cfg(target_os = "windows")]
     {
         let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get exe path: {}", e))?;
+            .map_err(|e| {
+                let msg = format!("Failed to get exe path: {}", e);
+                log(&format!("[AutoLaunch] ERROR: {}", msg));
+                msg
+            })?;
+        let exe_str = exe_path.to_string_lossy().to_string();
+        log(&format!("[AutoLaunch] exe_path: {}", exe_str));
+
         // Windows 注册表路径需要引号包裹，防止路径中包含空格时解析失败
-        let exe_str = format!("\"{}\"", exe_path.to_string_lossy());
+        let exe_quoted = format!("\"{}\"", exe_str);
+        log(&format!("[AutoLaunch] registry value: {}", exe_quoted));
 
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let (run, _) = hkcu.create_subkey(RUN_REGISTRY_PATH)
-            .map_err(|e| format!("Failed to open Run registry: {}", e))?;
+            .map_err(|e| {
+                let msg = format!("Failed to open Run registry key: {}", e);
+                log(&format!("[AutoLaunch] ERROR: {}", msg));
+                msg
+            })?;
+        log(&format!("[AutoLaunch] opened registry key: {}", RUN_REGISTRY_PATH));
 
         if enabled {
-            run.set_value("KafkaManager", &exe_str)
-                .map_err(|e| format!("Failed to set registry value: {}", e))?;
+            run.set_value("KafkaManager", &exe_quoted)
+                .map_err(|e| {
+                    let msg = format!("Failed to set registry value: {}", e);
+                    log(&format!("[AutoLaunch] ERROR: {}", msg));
+                    msg
+                })?;
+            log("[AutoLaunch] registry value set successfully");
+
+            // 回读验证：确认写入成功
+            match run.get_value::<String, _>("KafkaManager") {
+                Ok(read_back) => {
+                    if read_back == exe_quoted {
+                        log(&format!("[AutoLaunch] verified OK: {}", read_back));
+                    } else {
+                        let msg = format!("Registry value mismatch! expected: {}, got: {}", exe_quoted, read_back);
+                        log(&format!("[AutoLaunch] WARNING: {}", msg));
+                        return Err(msg);
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("Failed to read back registry value after write: {}", e);
+                    log(&format!("[AutoLaunch] ERROR: {}", msg));
+                    return Err(msg);
+                }
+            }
+
+            // 额外检查：验证 exe 文件确实存在
+            if !exe_path.exists() {
+                let msg = format!("Exe file does not exist at: {}", exe_str);
+                log(&format!("[AutoLaunch] WARNING: {}", msg));
+                return Err(msg);
+            }
+            log("[AutoLaunch] auto launch ENABLED successfully");
         } else {
-            let _ = run.delete_value("KafkaManager");
+            match run.delete_value("KafkaManager") {
+                Ok(_) => log("[AutoLaunch] registry value deleted, auto launch DISABLED"),
+                Err(e) => {
+                    // 值不存在也视为成功（已经关闭了）
+                    log(&format!("[AutoLaunch] delete_value returned: {} (may already be deleted)", e));
+                }
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
+        log("[AutoLaunch] non-Windows platform, no-op");
         let _ = enabled;
     }
     Ok(())
@@ -1426,10 +1479,29 @@ fn get_auto_launch() -> Result<bool, String> {
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok(run) = hkcu.open_subkey(RUN_REGISTRY_PATH) {
-            let result: Result<String, _> = run.get_value("KafkaManager");
-            return Ok(result.is_ok());
+        match hkcu.open_subkey(RUN_REGISTRY_PATH) {
+            Ok(run) => {
+                let result: Result<String, _> = run.get_value("KafkaManager");
+                match result {
+                    Ok(val) => {
+                        log(&format!("[AutoLaunch] get_auto_launch: enabled=true, value={}", val));
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        log(&format!("[AutoLaunch] get_auto_launch: enabled=false (registry value not found: {})", e));
+                        return Ok(false);
+                    }
+                }
+            }
+            Err(e) => {
+                log(&format!("[AutoLaunch] get_auto_launch: enabled=false (registry key not found: {})", e));
+                return Ok(false);
+            }
         }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        log("[AutoLaunch] get_auto_launch: non-Windows, returning false");
     }
     Ok(false)
 }

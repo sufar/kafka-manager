@@ -1145,12 +1145,14 @@ async function loadAutoLaunchSetting() {
       try {
         const enabled = await tauriInvoke<boolean>('get_auto_launch');
         autoLaunchEnabled.value = enabled;
-      } catch {
+        console.log('[AutoLaunch] loaded setting:', enabled);
+      } catch (e) {
+        console.error('[AutoLaunch] failed to get auto launch setting:', e);
         autoLaunchEnabled.value = false;
       }
     }
   } catch (e) {
-    console.error('Failed to load auto launch setting:', e);
+    console.error('[AutoLaunch] failed to load auto launch setting:', e);
   }
 }
 
@@ -1164,9 +1166,10 @@ async function toggleAutoLaunch() {
     await apiClient.updateSetting('ui.auto_launch', newVal ? 'true' : 'false');
     autoLaunchEnabled.value = newVal;
     toast.showSuccess(newVal ? t.value.settings.autoLaunchEnabled : t.value.settings.autoLaunchDisabled);
-  } catch (e) {
-    console.error('Failed to toggle auto launch:', e);
-    toast.showError(t.value.settings.autoLaunchFailed);
+  } catch (e: any) {
+    const errorMsg = typeof e === 'string' ? e : (e as Error)?.message || String(e);
+    console.error('[AutoLaunch] Failed to toggle auto launch:', errorMsg);
+    toast.showError(`${t.value.settings.autoLaunchFailed}: ${errorMsg}`);
   }
 }
 
