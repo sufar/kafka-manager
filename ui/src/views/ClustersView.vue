@@ -782,7 +782,8 @@ function openCreateModal() {
   formData.brokers = '';
   formData.request_timeout_ms = 30000;
   formData.operation_timeout_ms = 30000;
-  formData.group_id = undefined;
+  // 如果当前选中了某个分组，则默认将该分组带入新建集群的表单
+  formData.group_id = selectedGroupId.value ?? undefined;
   modalRef.value?.showModal();
 }
 

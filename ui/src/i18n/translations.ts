@@ -347,8 +347,8 @@ export interface Translation {
     languageZh: string;
     languageEn: string;
     selectLanguage: string;
+    systemSettings: string;
     sidebarMode: string;
-    selectSidebarMode: string;
     treeMode: string;
     flatMode: string;
     treeModeDesc: string;
@@ -1109,8 +1109,8 @@ export const translations: Record<Language, Translation> = {
       languageZh: '中文',
       languageEn: 'English',
       selectLanguage: '选择语言',
+      systemSettings: '系统设置',
       sidebarMode: '侧边栏模式',
-      selectSidebarMode: '选择侧边栏显示模式',
       treeMode: '树形模式',
       flatMode: '列表模式',
       treeModeDesc: '按集群分组显示主题',
@@ -1869,8 +1869,8 @@ export const translations: Record<Language, Translation> = {
       languageZh: 'Chinese',
       languageEn: 'English',
       selectLanguage: 'Select Language',
+      systemSettings: 'System Settings',
       sidebarMode: 'Sidebar Mode',
-      selectSidebarMode: 'Select Sidebar Display Mode',
       treeMode: 'Tree Mode',
       flatMode: 'List Mode',
       treeModeDesc: 'Display topics grouped by cluster',

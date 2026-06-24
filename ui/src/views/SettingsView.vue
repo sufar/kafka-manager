@@ -26,109 +26,79 @@
     <div class="flex-1 overflow-auto min-h-0" data-tour="settings-sections">
       <!-- Settings Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
-      <!-- Language Setting -->
-      <div class="card glass gradient-border" data-tour="settings-language">
+      <!-- System Settings -->
+      <div class="md:col-span-2 card glass gradient-border" data-tour="settings-sidebar-mode">
         <div class="card-body p-3">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-primary">
-                <path stroke-linecap="round" stroke-linejoin="round" d="m10.5 21 5.25-13.5m0 0L10.5 21m0 0 5.25 5.25M15.75 7.5H2.25a.75.75 0 0 1-.75-.75v-1.5h15v1.5a.75.75 0 0 1-.75.75Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.5H2.25a.75.75 0 0 1-.75-.75v-1.5h15v1.5a.75.75 0 0 1-.75.75Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 10.5v3a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75v-3a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75Z" />
-              </svg>
-            </div>
-            <div>
-              <h2 class="text-base font-semibold text-gradient">{{ t.settings.language }}</h2>
-              <p class="text-xs text-base-content/60">{{ t.settings.selectLanguage }}</p>
-            </div>
-          </div>
-          <LanguageSelector />
-        </div>
-      </div>
-
-      <!-- Theme Setting -->
-      <div class="card glass gradient-border" data-tour="settings-theme">
-        <div class="card-body p-3">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-secondary">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-              </svg>
-            </div>
-            <div>
-              <h2 class="text-base font-semibold text-gradient-warm">{{ t.settings.theme }}</h2>
-              <p class="text-xs text-base-content/60">{{ t.settings.themeDesc }}</p>
-            </div>
-          </div>
-          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
-            <span class="text-sm font-medium">{{ isDark ? t.settings.darkMode : t.settings.lightMode }}</span>
-            <label class="cursor-pointer">
-              <input type="checkbox" class="toggle toggle-primary" :checked="isDark" @change="handleToggleTheme" />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Sidebar Mode Setting -->
-      <div class="card glass gradient-border" data-tour="settings-sidebar-mode">
-        <div class="card-body p-3">
-          <div class="flex items-center gap-2 mb-3">
+          <div class="flex items-center gap-2 mb-2">
             <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center glow-accent">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-accent">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
               </svg>
             </div>
-            <div>
-              <h2 class="text-base font-semibold text-gradient">{{ t.settings.sidebarMode }}</h2>
-              <p class="text-xs text-base-content/60">{{ t.settings.selectSidebarMode }}</p>
-            </div>
+            <h2 class="text-base font-semibold text-gradient">{{ t.settings.systemSettings }}</h2>
           </div>
-          <!-- Sidebar Mode Toggle -->
-          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50">
-            <div class="flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-              </svg>
-              <span class="text-xs font-medium">{{ sidebarMode === 'tree' ? t.settings.treeMode : t.settings.flatMode }}</span>
+          <div class="flex flex-col gap-1">
+            <!-- Theme Toggle -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.theme }} · {{ isDark ? t.settings.darkMode : t.settings.lightMode }}</span>
+              <label class="cursor-pointer">
+                <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="isDark" @change="handleToggleTheme" />
+              </label>
             </div>
-            <label class="cursor-pointer">
-              <input type="checkbox" class="toggle toggle-primary" :checked="sidebarMode === 'tree'" @change="toggleSidebarMode" />
-            </label>
-          </div>
-          <!-- System Tray Toggle -->
-          <div class="flex items-center justify-between p-3 rounded-xl bg-base-100/50 mt-2">
-            <div class="flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <div>
-                <span class="text-xs font-medium">{{ t.settings.systemTray || '系统托盘' }}</span>
-                <p class="text-[10px] text-base-content/50">{{ t.settings.systemTrayDesc || '关闭后，点击关闭按钮直接退出应用' }}</p>
+            <!-- Language Selector -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.language }} · {{ languageStore.currentLanguage === 'zh' ? t.settings.languageZh : t.settings.languageEn }}</span>
+              <select
+                :value="languageStore.currentLanguage"
+                class="select select-bordered select-xs"
+                @change="handleLanguageChange"
+              >
+                <option value="zh">{{ t.settings.languageZh }}</option>
+                <option value="en">{{ t.settings.languageEn }}</option>
+              </select>
+            </div>
+            <!-- Sidebar Mode Toggle -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.sidebarMode }} · {{ sidebarMode === 'tree' ? t.settings.treeMode : t.settings.flatMode }}</span>
+              <label class="cursor-pointer">
+                <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="sidebarMode === 'tree'" @change="toggleSidebarMode" />
+              </label>
+            </div>
+            <!-- System Tray Toggle -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.systemTray || '系统托盘' }}</span>
+              <label class="cursor-pointer">
+                <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="systemTrayEnabled" @change="toggleSystemTray" />
+              </label>
+            </div>
+            <!-- Auto Launch Toggle (Windows only) -->
+            <div v-if="isWindows" class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.autoLaunch || '开机自启动' }}</span>
+              <label class="cursor-pointer">
+                <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="autoLaunchEnabled" @change="toggleAutoLaunch" />
+              </label>
+            </div>
+            <!-- Export Data -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+              <span class="text-xs font-medium">{{ t.settings.importExport }}</span>
+              <div class="flex gap-1">
+                <button class="btn btn-primary btn-xs" @click="handleExport" :disabled="exporting">
+                  <span v-if="exporting" class="loading loading-spinner loading-xs"></span>
+                  {{ exporting ? t.settings.exporting : t.settings.exportData }}
+                </button>
+                <label class="btn btn-outline btn-xs cursor-pointer" :class="{ 'opacity-50': importing }">
+                  <span v-if="importing" class="loading loading-spinner loading-xs"></span>
+                  {{ importing ? t.settings.importing : t.settings.importData }}
+                  <input type="file" accept=".json" @change="handleImport" :disabled="importing" class="hidden" />
+                </label>
               </div>
             </div>
-            <label class="cursor-pointer">
-              <input type="checkbox" class="toggle toggle-primary" :checked="systemTrayEnabled" @change="toggleSystemTray" />
-            </label>
-          </div>
-          <div v-if="isWindows" class="flex items-center justify-between p-3 rounded-xl bg-base-100/50 mt-2">
-            <div class="flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-accent">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 1 0 12.728 0M12 3v10" />
-              </svg>
-              <div>
-                <span class="text-xs font-medium">{{ t.settings.autoLaunch || '开机自启动' }}</span>
-                <p class="text-[10px] text-base-content/50">{{ t.settings.autoLaunchDesc || '开机自动启动 Kafka Manager' }}</p>
-              </div>
-            </div>
-            <label class="cursor-pointer">
-              <input type="checkbox" class="toggle toggle-primary" :checked="autoLaunchEnabled" @change="toggleAutoLaunch" />
-            </label>
           </div>
         </div>
       </div>
 
       <!-- Version Info -->
-      <div class="card glass gradient-border hover:glow-primary transition-all duration-300" data-tour="settings-version">
+      <div class="md:col-span-2 card glass gradient-border hover:glow-primary transition-all duration-300" data-tour="settings-version">
         <div class="card-body p-3">
           <div class="flex items-center gap-2 mb-3">
             <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center glow-primary">
@@ -247,39 +217,6 @@
                 {{ feedbackSubmitting ? t.settings.feedbackSubmitting : t.settings.feedbackSubmit }}
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Import/Export -->
-      <div class="card glass gradient-border" data-tour="settings-import-export">
-        <div class="card-body p-3">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center glow-secondary">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-secondary">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-            </div>
-            <div>
-              <h2 class="text-base font-semibold text-gradient-warm">{{ t.settings.importExport }}</h2>
-              <p class="text-xs text-base-content/60">{{ t.settings.importExportDesc }}</p>
-            </div>
-          </div>
-          <div class="flex gap-2">
-            <button class="btn btn-sm btn-primary flex-1" @click="handleExport" :disabled="exporting">
-              <svg v-if="!exporting" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              <span v-else class="loading loading-spinner loading-xs mr-1"></span>
-              {{ exporting ? t.settings.exporting : t.settings.exportData }}
-            </button>
-            <label class="btn btn-sm btn-outline flex-1 cursor-pointer" :class="{ 'opacity-50': importing }">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-              </svg>
-              {{ importing ? t.settings.importing : t.settings.importData }}
-              <input type="file" accept=".json" @change="handleImport" :disabled="importing" class="hidden" />
-            </label>
           </div>
         </div>
       </div>
@@ -451,7 +388,6 @@ import { useUpdateStore } from '@/stores/update';
 import { useToast } from '@/composables/useToast';
 import { useCanGoBack } from '@/composables/useCanGoBack';
 import { apiClient } from '@/api/client';
-import LanguageSelector from '@/components/Settings/LanguageSelector.vue';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
 // 检测是否在 Tauri 环境下运行
@@ -1175,6 +1111,11 @@ async function toggleAutoLaunch() {
 
 function handleToggleTheme() {
   toggleTheme();
+}
+
+async function handleLanguageChange(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  await languageStore.setLanguage(target.value as 'zh' | 'en');
 }
 
 onMounted(() => {
