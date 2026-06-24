@@ -37,20 +37,20 @@
             </div>
             <h2 class="text-base font-semibold text-gradient">{{ t.settings.systemSettings }}</h2>
           </div>
-          <div class="flex flex-col gap-1">
+          <div class="divide-y divide-base-content/10 rounded-lg overflow-hidden bg-base-100/50">
             <!-- Theme Toggle -->
-            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.theme }} · {{ isDark ? t.settings.darkMode : t.settings.lightMode }}</span>
               <label class="cursor-pointer">
                 <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="isDark" @change="handleToggleTheme" />
               </label>
             </div>
             <!-- Language Selector -->
-            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.language }} · {{ languageStore.currentLanguage === 'zh' ? t.settings.languageZh : t.settings.languageEn }}</span>
               <select
                 :value="languageStore.currentLanguage"
-                class="select select-bordered select-xs"
+                class="select select-bordered select-xs w-auto"
                 @change="handleLanguageChange"
               >
                 <option value="zh">{{ t.settings.languageZh }}</option>
@@ -58,28 +58,28 @@
               </select>
             </div>
             <!-- Sidebar Mode Toggle -->
-            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.sidebarMode }} · {{ sidebarMode === 'tree' ? t.settings.treeMode : t.settings.flatMode }}</span>
               <label class="cursor-pointer">
                 <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="sidebarMode === 'tree'" @change="toggleSidebarMode" />
               </label>
             </div>
             <!-- System Tray Toggle -->
-            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.systemTray || '系统托盘' }}</span>
               <label class="cursor-pointer">
                 <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="systemTrayEnabled" @change="toggleSystemTray" />
               </label>
             </div>
             <!-- Auto Launch Toggle (Windows only) -->
-            <div v-if="isWindows" class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div v-if="isWindows" class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.autoLaunch || '开机自启动' }}</span>
               <label class="cursor-pointer">
                 <input type="checkbox" class="toggle toggle-primary toggle-sm" :checked="autoLaunchEnabled" @change="toggleAutoLaunch" />
               </label>
             </div>
             <!-- Export Data -->
-            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-base-100/50">
+            <div class="flex items-center justify-between py-2 px-3">
               <span class="text-xs font-medium">{{ t.settings.importExport }}</span>
               <div class="flex gap-1">
                 <button class="btn btn-primary btn-xs" @click="handleExport" :disabled="exporting">
