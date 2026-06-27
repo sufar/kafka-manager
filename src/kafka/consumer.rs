@@ -93,7 +93,6 @@ impl KafkaConsumer {
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
         // 快速响应配置
-        client_config.set("request.timeout.ms", "3000");
         client_config.set("socket.timeout.ms", "3000");
         client_config.set("fetch.wait.max.ms", "5");
         client_config.set("fetch.min.bytes", "1");
@@ -283,7 +282,6 @@ impl KafkaConsumer {
         client_config.set("bootstrap.servers", &kafka_config.brokers);
         client_config.set("group.id", &format!("kafka-manager-offset-finder-{}", std::process::id()));
         // 优化：增加超时时间，减少频繁切换时的超时错误
-        client_config.set("request.timeout.ms", "10000");
         client_config.set("socket.timeout.ms", "10000");
         client_config.set("socket.connection.setup.timeout.ms", "10000");
         // 强制使用 IPv4，避免 IPv6 连接问题
@@ -492,7 +490,6 @@ impl KafkaConsumer {
         let cancel = CancellationToken::new();
 
         let brokers = kafka_config.brokers.clone();
-        let request_timeout = kafka_config.request_timeout_ms;
         let timeout = self.timeout;
 
         // Drop guard: when stream is dropped, cancel the spawned task
@@ -510,7 +507,6 @@ impl KafkaConsumer {
             client_config.set("broker.address.family", "v4");
             client_config.set("enable.auto.commit", "false");
             client_config.set("auto.offset.reset", "earliest");
-            client_config.set("request.timeout.ms", &request_timeout.to_string());
 
             match client_config.create::<StreamConsumer>() {
                 Ok(consumer) => {
@@ -710,7 +706,6 @@ impl KafkaConsumer {
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
         // 优化：减少超时时间，加快响应
-        client_config.set("request.timeout.ms", "5000");
         client_config.set("socket.timeout.ms", "5000");
         client_config.set("socket.connection.setup.timeout.ms", "5000");
         // 优化：快速响应模式，不等待批量数据

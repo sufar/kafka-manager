@@ -9,7 +9,9 @@ pub struct KafkaProducer {
 
 impl KafkaProducer {
     pub fn new(kafka_config: &KafkaConfig) -> Result<Self> {
-        let client_config = super::create_client_config(kafka_config);
+        let mut client_config = super::create_client_config(kafka_config);
+        // Producer 需要 request.timeout.ms
+        client_config.set("request.timeout.ms", &kafka_config.request_timeout_ms.to_string());
         let producer: FutureProducer<KafkaClientContext> = client_config.create_with_context(KafkaClientContext)?;
 
         Ok(Self { producer })

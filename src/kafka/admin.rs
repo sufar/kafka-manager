@@ -18,7 +18,9 @@ pub struct KafkaAdmin {
 
 impl KafkaAdmin {
     pub fn new(kafka_config: &KafkaConfig) -> Result<Self> {
-        let client_config = super::create_client_config(kafka_config);
+        let mut client_config = super::create_client_config(kafka_config);
+        // AdminClient 需要 request.timeout.ms（Producer 属性）
+        client_config.set("request.timeout.ms", &kafka_config.request_timeout_ms.to_string());
         let client = Arc::new(client_config.create()?);
         let timeout = Duration::from_millis(kafka_config.operation_timeout_ms as u64);
 

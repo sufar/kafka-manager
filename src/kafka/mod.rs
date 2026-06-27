@@ -51,10 +51,8 @@ impl rdkafka::ClientContext for KafkaClientContext {
 pub fn create_client_config(kafka_config: &KafkaConfig) -> ClientConfig {
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", &kafka_config.brokers);
-    client_config.set(
-        "request.timeout.ms",
-        &kafka_config.request_timeout_ms.to_string(),
-    );
+    // 注意：request.timeout.ms 仅用于 Producer/AdminClient
+    // Consumer 不需要此参数，会触发 CONFWARN 警告
     client_config.set(
         "socket.timeout.ms",
         &kafka_config.request_timeout_ms.to_string(),

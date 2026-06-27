@@ -71,10 +71,7 @@ impl KafkaConsumerManager {
         client_config.set("group.id", group_id);
         client_config.set("enable.auto.commit", "false");
         client_config.set("auto.offset.reset", "earliest");
-        client_config.set(
-            "request.timeout.ms",
-            &self.config.request_timeout_ms.to_string(),
-        );
+        // 注意：request.timeout.ms 仅用于 Producer，Consumer 不需要
         client_config.set(
             "socket.timeout.ms",
             &self.config.request_timeout_ms.to_string(),

@@ -3130,7 +3130,7 @@ async fn fetch_partition_messages_streaming(
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "262144");
     cfg.set("socket.timeout.ms", "10000");
-    cfg.set("request.timeout.ms", "30000");
+    // 注意：request.timeout.ms 仅用于 Producer，Consumer 不需要
     cfg.set("enable.partition.eof", "false");
     cfg.set("connections.max.idle.ms", "540000");
     cfg.set("reconnect.backoff.ms", "50");
