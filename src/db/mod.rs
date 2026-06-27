@@ -3,9 +3,7 @@ pub mod cluster_group;
 pub mod consumer_group;
 pub mod favorite;
 pub mod settings;
-pub mod tag;
 pub mod topic;
-pub mod topic_template;
 pub mod topic_history;
 pub mod sent_message;
 pub mod json_highlight;
@@ -123,69 +121,6 @@ impl DbPool {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_kafka_clusters_name ON kafka_clusters(name)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建告警规则表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS resource_tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cluster_id TEXT NOT NULL,
-                resource_type TEXT NOT NULL,
-                resource_name TEXT NOT NULL,
-                tag_key TEXT NOT NULL,
-                tag_value TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(cluster_id, resource_type, resource_name, tag_key)
-            )
-            "#,
-        )
-        .execute(self.inner())
-        .await?;
-
-        // resource_tags 索引：优化按 cluster_id 和资源名称查询
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_resource_tags_cluster ON resource_tags(cluster_id)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_resource_tags_resource ON resource_tags(resource_type, resource_name)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        // resource_tags 标签键值索引：优化按标签查询和标签键去重
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_resource_tags_key ON resource_tags(tag_key)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_resource_tags_key_value ON resource_tags(tag_key, tag_value)",
-        )
-        .execute(self.inner())
-        .await?;
-
-        // 创建 Topic 模板表
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS topic_templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                num_partitions INTEGER NOT NULL DEFAULT 3,
-                replication_factor INTEGER NOT NULL DEFAULT 1,
-                config_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            "#,
         )
         .execute(self.inner())
         .await?;
@@ -391,13 +326,6 @@ impl DbPool {
 
     /// 运行索引优化迁移
     async fn run_indexes_migration(&self) -> Result<(), sqlx::Error> {
-        // Topic 标签索引
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_cluster_id ON resource_tags(cluster_id)")
-            .execute(self.inner()).await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_resource ON resource_tags(resource_type, resource_name)")
-            .execute(self.inner()).await?;
-
         Ok(())
     }
 

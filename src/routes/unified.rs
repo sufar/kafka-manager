@@ -6,8 +6,8 @@ use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterReques
 use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest, UpdateClusterGroupRequest};
 use crate::db::favorite::{
     create_favorite, create_group, delete_favorite, delete_favorite_by_topic,
-    delete_group, get_all_favorites_with_groups, get_all_groups_with_count, get_favorite_by_id,
-    get_group_by_id, is_topic_favorite, update_favorite, update_group,
+    delete_group, get_all_favorites_with_groups, get_all_groups_with_count,
+    is_topic_favorite, update_favorite, update_group,
     CreateFavoriteRequest, CreateGroupRequest, UpdateFavoriteRequest, UpdateGroupRequest,
 };
 use crate::db::topic_history::{
@@ -20,10 +20,6 @@ use crate::db::sent_message::{
 use crate::db::settings::SettingStore;
 use crate::routes::settings::ImportDataRequest;
 use crate::db::topic::TopicStore;
-use crate::db::topic_template::{
-    CreateTopicTemplateRequest, TopicTemplateStore,
-    UpdateTopicTemplateRequest,
-};
 use crate::error::{AppError, Result};
 use crate::kafka::offset::KafkaOffsetManager;
 use crate::kafka::throughput::KafkaThroughputCalculator;
@@ -568,14 +564,12 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "cluster_group.assign_cluster" => handle_cluster_group_assign_cluster(state, body).await,
 
         // Topic
-        "topic.list" => handle_topic_list(state, body).await,
         "topic.list_with_cluster" => handle_topic_list_with_cluster(state, body).await,
         "topic.get" => handle_topic_get(state, body).await,
         "topic.create" => handle_topic_create(state, body).await,
         "topic.delete" => handle_topic_delete(state, body).await,
         "topic.batch_create" => handle_topic_batch_create(state, body).await,
         "topic.batch_delete" => handle_topic_batch_delete(state, body).await,
-        "topic.delete_all" => handle_topic_delete_all(state, body).await,
         "topic.offsets" => handle_topic_offsets(state, body).await,
         "topic.config_get" => handle_topic_config_get(state, body).await,
         "topic.config_alter" => handle_topic_config_alter(state, body).await,
@@ -623,24 +617,13 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "json_highlight.update" => handle_json_highlight_update(state, body).await,
         "json_highlight.delete" => handle_json_highlight_delete(state, body).await,
 
-        // Topic Template
-        "template.list" => handle_template_list(state).await,
-        "template.get" => handle_template_get(state, body).await,
-        "template.create" => handle_template_create(state, body).await,
-        "template.update" => handle_template_update(state, body).await,
-        "template.delete" => handle_template_delete(state, body).await,
-        "template.presets" => handle_template_presets().await,
-        "template.create_topic" => handle_template_create_topic(state, body).await,
-
         // Favorite
         "favorite.group.list" => handle_favorite_group_list(state).await,
         "favorite.group.create" => handle_favorite_group_create(state, body).await,
-        "favorite.group.get" => handle_favorite_group_get(state, body).await,
         "favorite.group.update" => handle_favorite_group_update(state, body).await,
         "favorite.group.delete" => handle_favorite_group_delete(state, body).await,
         "favorite.list" => handle_favorite_list(state).await,
         "favorite.create" => handle_favorite_create(state, body).await,
-        "favorite.get" => handle_favorite_get(state, body).await,
         "favorite.update" => handle_favorite_update(state, body).await,
         "favorite.delete" => handle_favorite_delete(state, body).await,
         "favorite.check" => handle_favorite_check(state, body).await,
@@ -1276,31 +1259,6 @@ async fn reload_clients(state: &AppState) -> Result<()> {
 
 // ==================== Topic ====================
 
-async fn handle_topic_list(state: AppState, body: Value) -> Result<Value> {
-    // cluster_id is optional - when not provided, fetch topics from all clusters
-    let cluster_id = body.get("cluster_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-    // When cluster_id is not provided, fetch topics from all clusters
-    let cluster_id = match cluster_id {
-        Some(id) => id,
-        None => return handle_topic_list_all_clusters(state).await,
-    };
-
-    // 首先尝试从数据库获取（最快）
-    let db_topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await.ok();
-
-    // 从数据库获取（纯读，不触发 Kafka 同步）
-    if let Some(topics) = db_topics {
-        if !topics.is_empty() {
-            let topic_names: Vec<String> = topics.into_iter().map(|t| t.topic_name).collect();
-            return Ok(serde_json::json!({ "topics": topic_names }));
-        }
-    }
-
-    // 数据库没有数据，从 Kafka 获取
-    sync_topics_from_kafka(state, &cluster_id).await
-}
-
 /// Fetch topics with cluster info from all clusters
 async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<Value> {
     use crate::db::cluster::ClusterStore;
@@ -1435,70 +1393,6 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
 }
 
 /// Fetch topics from all clusters
-async fn handle_topic_list_all_clusters(state: AppState) -> Result<Value> {
-    use crate::db::cluster::ClusterStore;
-
-    // Get all clusters from database
-    let clusters = ClusterStore::list(state.db.inner()).await?;
-
-    let mut all_topics: Vec<String> = Vec::with_capacity(clusters.len() * 50);
-
-    // Fetch topics from each cluster
-    for cluster in clusters {
-        let cluster_name = &cluster.name;
-
-        if let Ok(topics) = TopicStore::list_by_cluster(state.db.inner(), cluster_name).await {
-            for topic in topics {
-                all_topics.push(topic.topic_name);
-            }
-        }
-    }
-
-    // Remove duplicates and sort
-    all_topics.sort();
-    all_topics.dedup();
-
-    Ok(serde_json::json!({ "topics": all_topics }))
-}
-
-/// 从 Kafka 同步主题列表到数据库，并返回结果
-async fn sync_topics_from_kafka(state: AppState, cluster_id: &str) -> Result<Value> {
-    let admin = get_or_create_admin_client(&state, cluster_id).await?;
-
-    // Use spawn_blocking to avoid blocking async runtime
-    // Add retry logic for initial connection establishment
-    let mut last_error = None;
-    for attempt in 0..3 {
-        let admin_clone = admin.clone();
-        let result = tokio::task::spawn_blocking(move || admin_clone.list_topics())
-            .await
-            .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
-
-        match result {
-            Ok(topics) => {
-                // 同步到数据库
-                let _ = TopicStore::sync_topics(state.db.inner(), cluster_id, &topics).await;
-
-                return Ok(serde_json::json!({ "topics": topics }));
-            }
-            Err(e) => {
-                last_error = Some(e);
-                if attempt < 2 {
-                    // Wait before retry (initial connection may need time to establish)
-                    let wait_ms = 200 * (attempt + 1) as u64;
-                    tracing::warn!("list_topics failed (attempt {}), retrying in {}ms: {}", attempt + 1, wait_ms, last_error.as_ref().map(|e| format!("{}", e)).unwrap_or_default());
-                    tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
-                }
-            }
-        }
-    }
-
-    last_error.map_or_else(
-        || Err(AppError::Internal("Unknown error occurred".to_string())),
-        Err
-    )
-}
-
 async fn handle_topic_get(state: AppState, body: Value) -> Result<Value> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let name = get_string_param(&body, "name")?;
@@ -1664,43 +1558,6 @@ async fn handle_topic_batch_delete(state: AppState, body: Value) -> Result<Value
         "success": failed.is_empty(),
         "deleted": deleted,
         "failed": failed
-    }))
-}
-
-/// 删除集群下所有 topic（仅删除数据库元数据）
-async fn handle_topic_delete_all(state: AppState, body: Value) -> Result<Value> {
-    use crate::db::topic::TopicStore;
-
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-
-    // 从数据库获取该集群下的所有 topic
-    let topics = TopicStore::list_by_cluster(state.db.inner(), &cluster_id).await?;
-    let topic_names: Vec<String> = topics.iter().map(|t| t.topic_name.clone()).collect();
-
-    if topic_names.is_empty() {
-        return Ok(serde_json::json!({
-            "success": true,
-            "deleted": Vec::<String>::new(),
-            "failed": Vec::<serde_json::Value>::new(),
-            "total_deleted": 0,
-            "total_failed": 0
-        }));
-    }
-
-    // 从数据库删除所有 topic 元数据及关联数据
-    for topic_name in &topic_names {
-        let _ = TopicStore::delete(state.db.inner(), &cluster_id, topic_name).await;
-        let _ = delete_history_by_topic(&state.db, &cluster_id, topic_name).await;
-        let _ = delete_favorite_by_topic(&state.db, &cluster_id, topic_name).await;
-        let _ = delete_sent_messages_by_topic(&state.db, &cluster_id, topic_name).await;
-    }
-
-    Ok(serde_json::json!({
-        "success": true,
-        "deleted": topic_names,
-        "failed": Vec::<serde_json::Value>::new(),
-        "total_deleted": topic_names.len(),
-        "total_failed": 0
     }))
 }
 
@@ -4413,204 +4270,6 @@ async fn handle_json_highlight_delete(state: AppState, body: Value) -> Result<Va
     Ok(serde_json::json!({ "success": true }))
 }
 
-// ==================== Topic Template ====================
-
-async fn handle_template_list(state: AppState) -> Result<Value> {
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-    let templates = store.list().await?;
-
-    let template_list: Vec<Value> = templates
-        .into_iter()
-        .map(|t| {
-            serde_json::json!({
-                "id": t.id,
-                "name": t.name,
-                "description": t.description,
-                "num_partitions": t.num_partitions,
-                "replication_factor": t.replication_factor,
-                "config": t.config_json,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "templates": template_list }))
-}
-
-async fn handle_template_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-    let template = store
-        .get(id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Template {} not found", id)))?;
-
-    Ok(serde_json::json!({
-        "id": template.id,
-        "name": template.name,
-        "description": template.description,
-        "num_partitions": template.num_partitions,
-        "replication_factor": template.replication_factor,
-        "config": template.config_json,
-        "created_at": template.created_at,
-        "updated_at": template.updated_at,
-    }))
-}
-
-async fn handle_template_create(state: AppState, body: Value) -> Result<Value> {
-    let name = get_string_param(&body, "name")?;
-    let description = get_optional_string_param(&body, "description");
-    let num_partitions = get_optional_i32_param(&body, "num_partitions").unwrap_or(3);
-    let replication_factor = get_optional_i32_param(&body, "replication_factor").unwrap_or(1);
-    let config = get_hashmap_param(&body, "config");
-
-    let req = CreateTopicTemplateRequest {
-        name,
-        description,
-        num_partitions,
-        replication_factor,
-        config,
-    };
-
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-    let id = store.create(&req).await?;
-
-    let template = store
-        .get(id)
-        .await?
-        .ok_or_else(|| AppError::Internal("Failed to get created template".to_string()))?;
-
-    Ok(serde_json::json!({
-        "id": template.id,
-        "name": template.name,
-        "description": template.description,
-        "num_partitions": template.num_partitions,
-        "replication_factor": template.replication_factor,
-        "config": template.config_json,
-        "created_at": template.created_at,
-        "updated_at": template.updated_at,
-    }))
-}
-
-async fn handle_template_update(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-    let name = get_optional_string_param(&body, "name");
-    let description = get_optional_string_param(&body, "description");
-    let num_partitions = get_optional_i32_param(&body, "num_partitions");
-    let replication_factor = get_optional_i32_param(&body, "replication_factor");
-    let config = if body.get("config").is_some() {
-        Some(get_hashmap_param(&body, "config"))
-    } else {
-        None
-    };
-
-    let req = UpdateTopicTemplateRequest {
-        name,
-        description,
-        num_partitions,
-        replication_factor,
-        config,
-    };
-
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-    store.update(id, &req).await?;
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_template_delete(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-    let deleted = store.delete(id).await?;
-
-    if !deleted {
-        return Err(AppError::NotFound(format!("Template {} not found", id)));
-    }
-
-    Ok(serde_json::json!({ "success": true }))
-}
-
-async fn handle_template_presets() -> Result<Value> {
-    use crate::db::topic_template::preset_templates::get_preset_templates;
-
-    let presets = get_preset_templates();
-
-    let preset_list: Vec<Value> = presets
-        .into_iter()
-        .map(|p| {
-            serde_json::json!({
-                "name": p.name,
-                "description": p.description,
-                "num_partitions": p.num_partitions,
-                "replication_factor": p.replication_factor,
-                "config": p.config,
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "presets": preset_list }))
-}
-
-async fn handle_template_create_topic(state: AppState, body: Value) -> Result<Value> {
-    let cluster_id = get_string_param(&body, "cluster_id")?;
-    let topic_name = get_string_param(&body, "topic_name")?;
-    let template_id = get_optional_i64_param(&body, "template_id");
-    let template_name = get_optional_string_param(&body, "template_name");
-    let override_config = if body.get("override_config").is_some() {
-        Some(get_hashmap_param(&body, "override_config"))
-    } else {
-        None
-    };
-
-    let clients = state.get_clients();
-    let admin = clients
-        .get_admin(&cluster_id)
-        .ok_or_else(|| AppError::NotConnected(format!("Cluster '{}' is not connected", cluster_id)))?;
-
-    let store = TopicTemplateStore::new(state.db.inner().clone());
-
-    // Get template
-    let template = if let Some(id) = template_id {
-        store.get(id).await?
-    } else if let Some(name) = &template_name {
-        store.get_by_name(&name).await?
-    } else {
-        // Default to default template
-        store.get_by_name("default").await?
-    }
-    .ok_or_else(|| AppError::NotFound("Template not found".to_string()))?;
-
-    // Merge config
-    let mut final_config: HashMap<String, String> =
-        serde_json::from_str(&template.config_json).unwrap_or_default();
-    if let Some(override_config) = override_config {
-        for (key, value) in override_config {
-            final_config.insert(key, value);
-        }
-    }
-
-    // Create topic
-    admin
-        .create_topic(
-            &topic_name,
-            template.num_partitions,
-            template.replication_factor,
-            final_config,
-        )
-        .await?;
-
-    Ok(serde_json::json!({
-        "success": true,
-        "topic": topic_name,
-        "template": template.name,
-        "num_partitions": template.num_partitions,
-        "replication_factor": template.replication_factor,
-    }))
-}
-
 // ==================== Additional Topic Handlers ====================
 
 async fn handle_topic_saved(state: AppState, body: Value) -> Result<Value> {
@@ -4644,16 +4303,6 @@ async fn handle_favorite_group_create(state: AppState, body: Value) -> Result<Va
 
     let group = create_group(&state.db, &req).await?;
     Ok(serde_json::json!(group))
-}
-
-async fn handle_favorite_group_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let group = get_group_by_id(&state.db, id).await?;
-    match group {
-        Some(g) => Ok(serde_json::json!(g)),
-        None => Err(AppError::NotFound(format!("Group {} not found", id))),
-    }
 }
 
 async fn handle_favorite_group_update(state: AppState, body: Value) -> Result<Value> {
@@ -4708,16 +4357,6 @@ async fn handle_favorite_create(state: AppState, body: Value) -> Result<Value> {
 
     let item = create_favorite(&state.db, &req).await?;
     Ok(serde_json::json!(item))
-}
-
-async fn handle_favorite_get(state: AppState, body: Value) -> Result<Value> {
-    let id = get_i64_param(&body, "id")?;
-
-    let item = get_favorite_by_id(&state.db, id).await?;
-    match item {
-        Some(i) => Ok(serde_json::json!(i)),
-        None => Err(AppError::NotFound(format!("Favorite {} not found", id))),
-    }
 }
 
 async fn handle_favorite_update(state: AppState, body: Value) -> Result<Value> {

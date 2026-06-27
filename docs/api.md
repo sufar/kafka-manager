@@ -92,12 +92,10 @@ X-API-Method: {method_name}
 
 | Method | Description | Parameters |
 |--------|-------------|------------|
-| `topic.list` | Get topic list | `cluster_id: string` |
 | `topic.list_with_cluster` | Get topic list with cluster info | `cluster_id: string` |
 | `topic.get` | Get topic details | `cluster_id: string, name: string` |
 | `topic.create` | Create topic | `cluster_id: string, name: string, num_partitions?: number, replication_factor?: number, config?: object` |
 | `topic.delete` | Delete topic | `cluster_id: string, name: string` |
-| `topic.delete_all` | Delete all topics in cluster | `cluster_id: string` |
 | `topic.batch_create` | Batch create topics | `cluster_id: string, topics: array, continue_on_error?: boolean` |
 | `topic.batch_delete` | Batch delete topics | `cluster_id: string, topics: string[], continue_on_error?: boolean` |
 | `topic.offsets` | Get topic offsets | `cluster_id: string, name: string` |
@@ -158,32 +156,16 @@ X-API-Method: {method_name}
 
 ---
 
-### Topic Templates
-
-| Method | Description | Parameters |
-|--------|-------------|------------|
-| `template.list` | Get template list | None |
-| `template.get` | Get template details | `id: number` |
-| `template.create` | Create template | `name: string, description?: string, num_partitions: number, replication_factor: number, config?: object` |
-| `template.update` | Update template | `id: number, name?: string, description?: string, num_partitions?: number, replication_factor?: number, config?: object` |
-| `template.delete` | Delete template | `id: number` |
-| `template.presets` | Get predefined templates | None |
-| `template.create_topic` | Create topic from template | `cluster_id: string, topic_name: string, template_id?: number, template_name?: string, override_config?: object` |
-
----
-
 ### Favorite Management
 
 | Method | Description | Parameters |
 |--------|-------------|------------|
 | `favorite.group.list` | Get favorite group list | None |
 | `favorite.group.create` | Create favorite group | `name: string, description?: string, sort_order?: number` |
-| `favorite.group.get` | Get favorite group details | `id: number` |
 | `favorite.group.update` | Update favorite group | `id: number, name?: string, description?: string, sort_order?: number` |
 | `favorite.group.delete` | Delete favorite group | `id: number` |
 | `favorite.list` | Get favorite list | `cluster_id?: string, group_id?: number` |
 | `favorite.create` | Create favorite | `cluster_id: string, topic_name: string, group_id?: number, remark?: string, sort_order?: number` |
-| `favorite.get` | Get favorite details | `id: number` |
 | `favorite.update` | Update favorite | `id: number, group_id?: number, remark?: string, sort_order?: number` |
 | `favorite.delete` | Delete favorite | `id: number` |
 | `favorite.check` | Check if topic is favorited | `cluster_id: string, topic_name: string` |

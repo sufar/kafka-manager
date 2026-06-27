@@ -386,35 +386,6 @@ class ApiClient {
     return this.request('topic.partition.watermarks', { cluster_id: clusterId, topic: topicName, partition });
   }
 
-  // Topic 标签管理
-  async getTopicTags(clusterId: string, topicName: string): Promise<Array<{ id: number; name: string; color: string }>> {
-    const data = await this.request<{ tags: Array<{ id: number; name: string; color: string }> }>('tag.list', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName
-    });
-    return data.tags || [];
-  }
-
-  async createTopicTag(clusterId: string, topicName: string, tagName: string, color: string): Promise<{ id: number; name: string; color: string }> {
-    return this.request('tag.create', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName,
-      tag_name: tagName,
-      color
-    });
-  }
-
-  async deleteTopicTag(clusterId: string, topicName: string, tagId: number): Promise<void> {
-    return this.request('tag.delete', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName,
-      tag_id: tagId
-    });
-  }
-
   // ==================== Consumer Groups ====================
   /**
    * Get consumer groups list with topics information from database

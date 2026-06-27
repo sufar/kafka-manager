@@ -90,12 +90,10 @@ X-API-Method: {method_name}
 
 | 方法 | 描述 | 参数 |
 |------|------|------|
-| `topic.list` | 获取 Topic 列表 | `cluster_id: string` |
 | `topic.list_with_cluster` | 获取带集群信息的 Topic 列表 | `cluster_id: string` |
 | `topic.get` | 获取 Topic 详情 | `cluster_id: string, name: string` |
 | `topic.create` | 创建 Topic | `cluster_id: string, name: string, num_partitions?: number, replication_factor?: number, config?: object` |
 | `topic.delete` | 删除 Topic | `cluster_id: string, name: string` |
-| `topic.delete_all` | 删除集群中的所有 Topic | `cluster_id: string` |
 | `topic.batch_create` | 批量创建 Topic | `cluster_id: string, topics: array, continue_on_error?: boolean` |
 | `topic.batch_delete` | 批量删除 Topic | `cluster_id: string, topics: string[], continue_on_error?: boolean` |
 | `topic.offsets` | 获取 Topic 的分区水位 | `cluster_id: string, name: string` |
@@ -156,32 +154,16 @@ X-API-Method: {method_name}
 
 ---
 
-### Topic 模板管理
-
-| 方法 | 描述 | 参数 |
-|------|------|------|
-| `template.list` | 获取模板列表 | 无 |
-| `template.get` | 获取模板详情 | `id: number` |
-| `template.create` | 创建模板 | `name: string, description?: string, num_partitions: number, replication_factor: number, config?: object` |
-| `template.update` | 更新模板 | `id: number, name?: string, description?: string, num_partitions?: number, replication_factor?: number, config?: object` |
-| `template.delete` | 删除模板 | `id: number` |
-| `template.presets` | 获取预定义模板 | 无 |
-| `template.create_topic` | 从模板创建 Topic | `cluster_id: string, topic_name: string, template_id?: number, template_name?: string, override_config?: object` |
-
----
-
 ### 收藏管理
 
 | 方法 | 描述 | 参数 |
 |------|------|------|
 | `favorite.group.list` | 获取收藏分组列表 | 无 |
 | `favorite.group.create` | 创建收藏分组 | `name: string, description?: string, sort_order?: number` |
-| `favorite.group.get` | 获取收藏分组详情 | `id: number` |
 | `favorite.group.update` | 更新收藏分组 | `id: number, name?: string, description?: string, sort_order?: number` |
 | `favorite.group.delete` | 删除收藏分组 | `id: number` |
 | `favorite.list` | 获取收藏列表 | `cluster_id?: string, group_id?: number` |
 | `favorite.create` | 创建收藏 | `cluster_id: string, topic_name: string, group_id?: number, remark?: string, sort_order?: number` |
-| `favorite.get` | 获取收藏详情 | `id: number` |
 | `favorite.update` | 更新收藏 | `id: number, group_id?: number, remark?: string, sort_order?: number` |
 | `favorite.delete` | 删除收藏 | `id: number` |
 | `favorite.check` | 检查 Topic 是否已收藏 | `cluster_id: string, topic_name: string` |

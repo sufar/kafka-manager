@@ -1,9 +1,7 @@
 pub mod cluster;
 pub mod health;
 pub mod settings;
-pub mod tag;
 pub mod topic;
-pub mod topic_template;
 pub mod unified;
 pub mod schema_registry;
 
