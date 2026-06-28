@@ -1,0 +1,433 @@
+<template>
+  <div class="flex h-screen overflow-hidden" ref="layoutContainer">
+    <!-- Sidebar -->
+    <div
+      class="bg-base-100 min-h-screen shadow-xl flex flex-col flex-shrink-0 transition-all duration-75"
+      :style="{ width: `${sidebarWidth}px` }"
+    >
+      <!-- Logo -->
+      <div class="p-4 border-b border-base-200 flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-primary-content">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-xl font-bold text-primary">Kafka Manager</h1>
+            <p class="text-xs text-base-content/60">{{ t.mainLayout.multiCluster }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="p-4 flex-shrink-0">
+        <ul class="menu menu-md gap-1">
+          <li>
+            <router-link to="/clusters" active-class="menu-active">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01" />
+              </svg>
+              {{ t.nav.clusters }}
+            </router-link>
+          </li>
+          <li>
+            <router-link to="/favorites" active-class="menu-active">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+              </svg>
+              {{ t.nav.favorites }}
+            </router-link>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- Cluster Navigation & Selection -->
+      <div class="flex-1 overflow-y-auto px-4 py-2">
+        <div class="flex items-center justify-between mb-2 flex-shrink-0">
+          <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.mainLayout.clustersLabel }}</span>
+          <div class="flex gap-1 flex-shrink-0">
+            <button
+              class="btn btn-xs btn-ghost"
+              @click="selectAllClusters"
+              :title="t.mainLayout.selectAll"
+            >
+              {{ t.mainLayout.selectAll }}
+            </button>
+            <button
+              class="btn btn-xs btn-ghost"
+              @click="clearSelection"
+              :title="t.mainLayout.clearSelection"
+            >
+              {{ t.mainLayout.clearSelection }}
+            </button>
+          </div>
+        </div>
+        <ul class="menu w-full gap-1">
+          <li v-for="cluster in clusters" :key="cluster.id">
+            <details :open="isClusterExpanded(cluster.name)" @toggle="onClusterToggle(cluster.name, $event)">
+              <summary class="cursor-pointer hover:bg-base-200 rounded-lg p-2 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  :checked="selectedClusterIds.includes(cluster.name)"
+                  @change="toggleCluster(cluster.name)"
+                  @click.stop
+                />
+                <span
+                  class="w-2 h-2 rounded-full flex-shrink-0"
+                  :class="getHealthClass(cluster.name)"
+                ></span>
+                <span class="font-medium truncate flex-1">{{ cluster.name }}</span>
+                <button
+                  class="btn btn-ghost btn-xs flex-shrink-0"
+                  @click.stop="testConnection(cluster.id)"
+                  :disabled="testing.has(cluster.id)"
+                >
+                  <span v-if="testing.has(cluster.id)" class="loading loading-spinner loading-xs"></span>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                </button>
+              </summary>
+              <ul class="ml-4">
+                <li>
+                  <router-link :to="`/topics?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
+                    {{ t.mainLayout.topics }}
+                  </router-link>
+                </li>
+                <li>
+                  <router-link :to="`/messages?cluster=${cluster.name}`" active-class="menu-active" @click.stop="connectCluster(cluster.name)">
+                    {{ t.mainLayout.messages }}
+                  </router-link>
+                </li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+
+        <!-- Topic Favorites -->
+        <div class="mt-6">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-base-content/60 uppercase">{{ t.favorites?.title || '收藏' }}</span>
+            <button
+              class="btn btn-ghost btn-xs"
+              @click="showFavorites = !showFavorites"
+              :title="showFavorites ? 'Collapse' : 'Expand'"
+            >
+              <svg v-if="showFavorites" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+          <div v-show="showFavorites" class="space-y-1">
+            <div v-if="favoriteGroups.length === 0" class="text-xs text-base-content/40 px-2 py-2">
+              {{ t.favorites?.empty || '暂无收藏' }}
+            </div>
+            <div v-for="group in favoriteGroups" :key="group.id" class="group">
+              <div class="flex items-center gap-1 px-2 py-1 rounded hover:bg-base-200 cursor-pointer" @click="toggleFavoriteGroup(group.id)">
+                <svg v-if="expandedFavoriteGroups.has(group.id)" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 text-base-content/60">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 text-base-content/60">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 text-amber-400">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.563 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                </svg>
+                <span class="text-sm truncate flex-1">{{ group.name }}</span>
+                <span class="text-xs text-base-content/40">{{ group.items?.length || 0 }}</span>
+              </div>
+              <div v-show="expandedFavoriteGroups.has(group.id)" class="ml-4 space-y-1">
+                <div
+                  v-for="item in group.items"
+                  :key="item.id"
+                  class="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-base-200 cursor-pointer"
+                  @click="navigateToFavorite(item)"
+                >
+                  <div class="w-4 h-4 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-2.5 h-2.5 text-primary">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0v3.75" />
+                    </svg>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs truncate">{{ item.topic_name }}</div>
+                    <div class="text-[10px] text-base-content/40 truncate">{{ item.cluster_id }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Cluster Button -->
+      <div class="p-4 border-t border-base-200 flex-shrink-0">
+        <router-link to="/clusters" class="btn btn-sm btn-block btn-outline">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          {{ t.mainLayout.manageClusters }}
+        </router-link>
+      </div>
+    </div>
+
+    <!-- Resizer -->
+    <div
+      class="w-2 h-full flex items-center justify-center bg-base-content/5 hover:bg-base-content/10 transition-all cursor-col-resize z-50 group"
+      :class="{ 'bg-primary/30': isResizing }"
+      @mousedown="startResize"
+      :title="t.mainLayout.dragToResize || '拖动以调整侧边栏宽度'"
+    >
+      <div class="w-px h-8 bg-base-content/20 group-hover:bg-primary/40 transition-all rounded"></div>
+    </div>
+
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col min-h-screen bg-base-200 overflow-hidden">
+      <!-- Navbar -->
+      <header class="navbar bg-base-100 shadow-sm sticky top-0 z-40 flex-shrink-0">
+        <div class="flex-1">
+          <!-- Selected clusters info -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-base-content/60">
+              {{ selectedClusterIds.length }} {{ t.mainLayout.clustersSelected }}
+            </span>
+          </div>
+        </div>
+        <div class="flex-none gap-2">
+          <button
+            class="btn btn-sm btn-ghost"
+            :class="{ 'btn-active': refreshingHealth }"
+            @click="handleRefreshHealth"
+            :title="t.mainLayout.refreshHealth"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="w-5 h-5"
+              :class="{ 'animate-spin': refreshingHealth }"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.058A10.98 10.98 0 0112 3.325 10.98 10.98 0 0120 8.05m0 0v5.95m0-5.95h-5.95M4 15.95h5.95m-5.95 0V10" />
+            </svg>
+          </button>
+          <slot name="navbar-end"></slot>
+        </div>
+      </header>
+
+      <!-- Page content -->
+      <main class="flex-1 p-6 overflow-auto">
+        <router-view />
+      </main>
+
+      <!-- Footer -->
+      <footer class="footer footer-center p-4 bg-base-100 text-base-content flex-shrink-0">
+        <div>
+          <p>{{ t.mainLayout.footerText }}</p>
+        </div>
+      </footer>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useClusterStore } from '@/stores/cluster';
+import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
+
+import { useRouter } from 'vue-router';
+
+const clusterStore = useClusterStore();
+const languageStore = useLanguageStore();
+const router = useRouter();
+const { t } = storeToRefs(languageStore);
+
+const clusters = computed(() => clusterStore.clusters);
+const selectedClusterIds = computed(() => clusterStore.selectedClusterIds);
+const refreshingHealth = computed(() => clusterStore.refreshingHealth);
+
+const testing = ref(new Set<number>());
+
+// 侧边栏宽度控制和调整大小
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 600;
+const SIDEBAR_DEFAULT_WIDTH = 280;
+
+const sidebarWidth = ref(SIDEBAR_DEFAULT_WIDTH);
+const isResizing = ref(false);
+
+// 从 localStorage 加载宽度
+function loadSidebarWidth() {
+  const saved = localStorage.getItem('kafka-manager-sidebar-width');
+  if (saved) {
+    const width = parseInt(saved, 10);
+    if (width >= SIDEBAR_MIN_WIDTH && width <= SIDEBAR_MAX_WIDTH) {
+      sidebarWidth.value = width;
+    }
+  }
+}
+
+// 保存宽度到 localStorage
+function saveSidebarWidth() {
+  localStorage.setItem('kafka-manager-sidebar-width', sidebarWidth.value.toString());
+}
+
+// 开始调整大小
+function startResize(e: MouseEvent) {
+  isResizing.value = true;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+
+  const startX = e.clientX;
+  const startWidth = sidebarWidth.value;
+
+  const handleMouseMove = (event: MouseEvent) => {
+    const delta = event.clientX - startX;
+    let newWidth = startWidth + delta;
+    newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth));
+    sidebarWidth.value = newWidth;
+  };
+
+  const handleMouseUp = () => {
+    isResizing.value = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    saveSidebarWidth();
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  };
+
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+
+  // 阻止默认事件
+  e.preventDefault();
+}
+
+// 集群展开状态（localStorage 持久化）
+const expandedClusters = ref<Set<string>>(new Set());
+
+function initExpandedClusters() {
+  const saved = localStorage.getItem('kafka-manager-expanded-clusters');
+  if (saved) {
+    try {
+      const names = JSON.parse(saved);
+      expandedClusters.value = new Set(names);
+    } catch {
+      expandedClusters.value = new Set();
+    }
+  }
+}
+
+function isClusterExpanded(clusterName: string): boolean {
+  return expandedClusters.value.has(clusterName);
+}
+
+function onClusterToggle(clusterName: string, event: Event) {
+  const target = event.target as HTMLDetailsElement;
+  // 使用 setTimeout 等待 DOM 更新后读取 open 状态
+  setTimeout(() => {
+    if (target.open) {
+      expandedClusters.value.add(clusterName);
+    } else {
+      expandedClusters.value.delete(clusterName);
+    }
+    localStorage.setItem('kafka-manager-expanded-clusters', JSON.stringify([...expandedClusters.value]));
+  }, 0);
+}
+
+function getHealthClass(clusterId: string): string {
+  const health = clusterStore.getClusterHealth(clusterId);
+  if (!health) return 'bg-base-300';
+  if (health.healthy) return 'bg-success';
+  return 'bg-error';
+}
+
+function toggleCluster(clusterId: string) {
+  clusterStore.toggleClusterSelection(clusterId);
+}
+
+function selectAllClusters() {
+  clusterStore.selectAllClusters();
+}
+
+function clearSelection() {
+  clusterStore.clearSelection();
+}
+
+async function handleRefreshHealth() {
+  await clusterStore.refreshAllHealth();
+}
+
+async function testConnection(id: number) {
+  testing.value.add(id);
+  try {
+    await clusterStore.testCluster(id);
+  } finally {
+    testing.value.delete(id);
+  }
+}
+
+// 连接集群（如果未连接）
+async function connectCluster(clusterName: string): Promise<void> {
+  const health = clusterStore.getClusterHealth(clusterName);
+  // 如果集群未连接或不健康，尝试重连
+  if (!health || !health.healthy) {
+    try {
+      await apiClient.reconnectCluster(clusterName);
+      // 重连后刷新健康状态
+      await clusterStore.refreshAllHealth();
+    } catch (e) {
+      console.error(`Failed to connect cluster ${clusterName}:`, e);
+    }
+  }
+}
+
+// ============ Topic Favorites ============
+const favoriteGroups = ref<any[]>([]);
+const showFavorites = ref(true);
+const expandedFavoriteGroups = ref<Set<number>>(new Set());
+
+async function loadFavorites() {
+  try {
+    const data = await apiClient.getFavorites();
+    favoriteGroups.value = data;
+    // 默认展开第一个分组
+    if (data.length > 0 && expandedFavoriteGroups.value.size === 0) {
+      const firstGroup = data[0];
+      if (firstGroup && firstGroup.id) {
+        expandedFavoriteGroups.value.add(firstGroup.id);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load favorites:', error);
+  }
+}
+
+function toggleFavoriteGroup(groupId: number) {
+  if (expandedFavoriteGroups.value.has(groupId)) {
+    expandedFavoriteGroups.value.delete(groupId);
+  } else {
+    expandedFavoriteGroups.value.add(groupId);
+  }
+}
+
+function navigateToFavorite(item: any) {
+  router.push({
+    path: '/messages',
+    query: { cluster: item.cluster_id, topic: item.topic_name },
+  });
+}
+
+onMounted(() => {
+  loadSidebarWidth();
+  initExpandedClusters();
+  clusterStore.fetchClusters();
+  loadFavorites();
+});
+</script>

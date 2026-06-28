@@ -1,0 +1,135 @@
+// Topic 数据结构（与 Rust TopicData 对应）
+export struct TopicInfo {
+    name: string,
+    cluster-id: string,
+    partitions-count: int,
+    replication-factor: int,
+    is-internal: bool,
+}
+
+// Topic 列表组件
+import { Theme } from "../theme.slint";
+import { ListView, Button, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+
+// 单个 Topic 项
+component TopicItem inherits Rectangle {
+    in property <TopicInfo> topic;
+    in property <bool> selected: false;
+
+    callback clicked();
+
+    height: 50px;
+    background: selected ? Theme.primary-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    border-radius: Theme.radius-md;
+
+    HorizontalBox {
+        padding: Theme.spacing-sm;
+        alignment: start;
+
+        // Topic 名称
+        VerticalBox {
+            alignment: start;
+            horizontal-stretch: 1;
+
+            Text {
+                text: topic.name;
+                font-size: 14px;
+                font-weight: 600;
+                color: selected ? white : Theme.text-primary;
+            }
+
+            HorizontalBox {
+                spacing: Theme.spacing-xs;
+
+                Text {
+                    text: "Partitions: " + topic.partitions-count;
+                    font-size: 11px;
+                    color: selected ? white : Theme.text-secondary;
+                }
+
+                Text {
+                    text: "Replicas: " + topic.replication-factor;
+                    font-size: 11px;
+                    color: selected ? white : Theme.text-secondary;
+                }
+            }
+        }
+
+        // 内部 Topic 标记
+        if topic.is-internal: Rectangle {
+            width: 60px;
+            background: Theme.warning;
+            border-radius: Theme.radius-sm;
+
+            Text {
+                text: "Internal";
+                color: white;
+                font-size: 10px;
+                font-weight: 600;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Topic 列表视图
+export component TopicList inherits VerticalBox {
+    in property <[TopicInfo]> topics: [];
+    in property <int> selected-index: -1;
+    in property <string> search-filter: "";
+
+    callback topic-selected(int);
+    callback load-topics();
+
+    // 工具栏
+    HorizontalBox {
+        padding: Theme.spacing-sm;
+        spacing: Theme.spacing-sm;
+
+        // 搜索框
+        LineEdit {
+            text: search-filter;
+            width: 200px;
+        }
+
+        // 刷新按钮
+        Button {
+            text: "🔄 Refresh";
+            clicked => { load-topics(); }
+        }
+    }
+
+    // Topic 统计
+    Rectangle {
+        height: 30px;
+        background: Theme.background;
+        border-radius: Theme.radius-sm;
+
+        HorizontalBox {
+            padding: Theme.spacing-sm;
+
+            Text {
+                text: "Total: " + topics.length + " topics";
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+        }
+    }
+
+    // Topic 列表
+    ListView {
+        for topic[idx] in topics: TopicItem {
+            topic: topic;
+            selected: idx == selected-index;
+
+            clicked => {
+                topic-selected(idx);
+            }
+        }
+    }
+}

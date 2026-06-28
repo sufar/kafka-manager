@@ -1,0 +1,196 @@
+// 左侧导航栏组件
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// 导航项组件
+component NavItem inherits Rectangle {
+    in property <string> icon: "";
+    in property <string> label: "";
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 40px;
+    background: active ? Theme.primary : transparent;
+    border-radius: Theme.radius-md;
+
+    HorizontalBox {
+        padding: Theme.spacing-sm;
+        alignment: start;
+
+        // 图标（使用 Unicode 字符）
+        Text {
+            text: icon;
+            font-size: 16px;
+            color: active ? white : Theme.text-secondary;
+            width: 24px;
+        }
+
+        // 标签
+        Text {
+            text: label;
+            font-size: 14px;
+            color: active ? white : Theme.text-primary;
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// 左侧导航栏
+export component Sidebar inherits Rectangle {
+    in property <string> current-view: "clusters";
+    in property <int> cluster-count: 0;
+    in property <int> topic-count: 0;
+
+    // 国际化字符串
+    in property <string> i18n-clusters: "Clusters";
+    in property <string> i18n-topics: "Topics";
+    in property <string> i18n-messages: "Messages";
+    in property <string> i18n-consumer-groups: "Consumer Groups";
+    in property <string> i18n-favorites: "Favorites";
+    in property <string> i18n-settings: "Settings";
+    in property <string> sidebar-statistics: "Statistics";
+    in property <string> sidebar-subtitle: "Slint Edition";
+
+    callback view-changed(string);
+
+    width: 220px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalBox {
+        padding: Theme.spacing-md;
+
+        // Logo 和标题
+        Rectangle {
+            height: 60px;
+
+            HorizontalBox {
+                alignment: start;
+                spacing: Theme.spacing-sm;
+
+                // Logo 图标（使用 Unicode）
+                Text {
+                    text: "⚡";
+                    font-size: 24px;
+                    color: Theme.primary;
+                    font-weight: 700;
+                }
+
+                VerticalBox {
+                    alignment: center;
+
+                    Text {
+                        text: "Kafka Manager";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.primary;
+                    }
+
+                    Text {
+                        text: sidebar-subtitle;
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+
+        // 分隔线
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // 导航项
+        NavItem {
+            icon: "📊";
+            label: i18n-clusters;
+            active: current-view == "clusters";
+            clicked => { view-changed("clusters"); }
+        }
+
+        NavItem {
+            icon: "📁";
+            label: i18n-topics;
+            active: current-view == "topics";
+            clicked => { view-changed("topics"); }
+        }
+
+        NavItem {
+            icon: "📨";
+            label: i18n-messages;
+            active: current-view == "messages";
+            clicked => { view-changed("messages"); }
+        }
+
+        NavItem {
+            icon: "👥";
+            label: i18n-consumer-groups;
+            active: current-view == "consumer-groups";
+            clicked => { view-changed("consumer-groups"); }
+        }
+
+        NavItem {
+            icon: "⭐";
+            label: i18n-favorites;
+            active: current-view == "favorites";
+            clicked => { view-changed("favorites"); }
+        }
+
+        // 分隔线
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        NavItem {
+            icon: "⚙️";
+            label: i18n-settings;
+            active: current-view == "settings";
+            clicked => { view-changed("settings"); }
+        }
+
+        // 底部统计信息
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        // 统计卡片（固定在底部）
+        Rectangle {
+            background: Theme.background;
+            border-radius: Theme.radius-md;
+            height: 80px;
+
+            VerticalBox {
+                padding: Theme.spacing-sm;
+
+                Text {
+                    text: sidebar-statistics;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                }
+
+                HorizontalBox {
+                    spacing: Theme.spacing-sm;
+
+                    Text {
+                        text: "📊 " + cluster-count;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: "📁 " + topic-count;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

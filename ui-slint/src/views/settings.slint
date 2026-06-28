@@ -1,0 +1,177 @@
+// Settings 页面
+import { Theme } from "../theme.slint";
+import { Button, VerticalBox, HorizontalBox, CheckBox, ComboBox } from "std-widgets.slint";
+
+export component SettingsView inherits VerticalBox {
+    in property <bool> system-tray-enabled: false;
+    in property <string> language: "en";
+    in property <string> theme: "light";
+
+    // 国际化字符串
+    in property <string> system-tray-title: "System Tray";
+    in property <string> enable-tray-label: "Enable system tray";
+    in property <string> tray-desc: "Show app in system tray for quick access";
+    in property <string> language-title: "Language";
+    in property <string> language-desc: "Select your preferred language";
+    in property <string> theme-title: "Theme";
+    in property <string> theme-desc: "Choose light or dark theme";
+    in property <string> theme-not-impl: "not implemented yet";
+    in property <string> save-button: "💾 Save Settings";
+
+    callback tray-enabled-changed(bool);
+    callback language-changed(string);
+    callback theme-changed(string);
+    callback save-settings();
+
+    padding: Theme.spacing-lg;
+
+    // 页面标题
+    Text {
+        text: "Settings";
+        font-size: 24px;
+        font-weight: 700;
+        color: Theme.text-primary;
+    }
+
+    // 分隔线
+    Rectangle {
+        height: 1px;
+        background: Theme.border;
+    }
+
+    // 系统托盘设置
+    VerticalBox {
+        padding: Theme.spacing-md;
+
+        Text {
+            text: system-tray-title;
+            font-size: 16px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        HorizontalBox {
+            spacing: Theme.spacing-md;
+
+            CheckBox {
+                text: enable-tray-label;
+                checked: system-tray-enabled;
+
+                toggled => {
+                    tray-enabled-changed(self.checked);
+                }
+            }
+
+            Text {
+                text: tray-desc;
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+        }
+    }
+
+    // 分隔线
+    Rectangle {
+        height: 1px;
+        background: Theme.border;
+    }
+
+    // 语言设置
+    VerticalBox {
+        padding: Theme.spacing-md;
+
+        Text {
+            text: language-title;
+            font-size: 16px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        HorizontalBox {
+            spacing: Theme.spacing-md;
+
+            ComboBox {
+                width: 150px;
+                model: ["English", "Chinese"];
+
+                current-index: language == "zh" ? 1 : 0;
+
+                selected(idx) => {
+                    language-changed(idx == 1 ? "zh" : "en");
+                }
+            }
+
+            Text {
+                text: language-desc;
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+        }
+    }
+
+    // 分隔线
+    Rectangle {
+        height: 1px;
+        background: Theme.border;
+    }
+
+    // 主题设置
+    VerticalBox {
+        padding: Theme.spacing-md;
+
+        Text {
+            text: theme-title;
+            font-size: 16px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        HorizontalBox {
+            spacing: Theme.spacing-md;
+
+            ComboBox {
+                width: 150px;
+                model: ["Light", "Dark"];
+
+                current-index: theme == "dark" ? 1 : 0;
+
+                selected(idx) => {
+                    theme-changed(idx == 1 ? "dark" : "light");
+                }
+            }
+
+            HorizontalBox {
+                spacing: Theme.spacing-xs;
+
+                Text {
+                    text: theme-desc;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                Text {
+                    text: "(" + theme-not-impl + ")";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+    }
+
+    // 分隔线
+    Rectangle {
+        height: 1px;
+        background: Theme.border;
+    }
+
+    // 保存按钮
+    HorizontalBox {
+        alignment: end;
+        padding: Theme.spacing-md;
+
+        Button {
+            text: save-button;
+            clicked => { save-settings(); }
+        }
+    }
+}

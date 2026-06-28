@@ -1,0 +1,155 @@
+// Consumer Group 数据结构（与 Rust ConsumerGroupData 对应）
+export struct ConsumerGroupInfo {
+    name: string,
+    state: string,
+    members-count: int,
+    lag: int,
+}
+
+// Consumer Group 列表组件
+import { Theme } from "../theme.slint";
+import { ListView, Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+// 单个 Consumer Group 项
+component ConsumerGroupItem inherits Rectangle {
+    in property <ConsumerGroupInfo> group;
+    in property <bool> selected: false;
+
+    callback clicked();
+
+    height: 50px;
+    background: selected ? Theme.primary-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    border-radius: Theme.radius-md;
+
+    HorizontalBox {
+        padding: Theme.spacing-sm;
+        alignment: start;
+
+        // Group 名称和状态
+        VerticalBox {
+            alignment: start;
+            horizontal-stretch: 1;
+
+            Text {
+                text: group.name;
+                font-size: 14px;
+                font-weight: 600;
+                color: selected ? white : Theme.text-primary;
+            }
+
+            Text {
+                text: "State: " + group.state;
+                font-size: 11px;
+                color: selected ? white : Theme.text-secondary;
+            }
+        }
+
+        // 统计信息
+        HorizontalBox {
+            spacing: Theme.spacing-sm;
+
+            Rectangle {
+                width: 70px;
+                background: Theme.background;
+                border-radius: Theme.radius-sm;
+
+                VerticalBox {
+                    alignment: center;
+
+                    Text {
+                        text: "Members";
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: group.members-count;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 70px;
+                background: group.lag > 1000 ? Theme.warning :
+                           group.lag > 0 ? Theme.success : Theme.background;
+                border-radius: Theme.radius-sm;
+
+                VerticalBox {
+                    alignment: center;
+
+                    Text {
+                        text: "Lag";
+                        font-size: 10px;
+                        color: group.lag > 1000 ? white : Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: group.lag;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: group.lag > 1000 ? white : Theme.text-primary;
+                    }
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Consumer Group 列表视图
+export component ConsumerGroupList inherits VerticalBox {
+    in property <[ConsumerGroupInfo]> groups: [];
+    in property <int> selected-index: -1;
+
+    callback group-selected(int);
+    callback load-groups();
+
+    // 工具栏
+    HorizontalBox {
+        padding: Theme.spacing-sm;
+        spacing: Theme.spacing-sm;
+
+        // 刷新按钮
+        Button {
+            text: "🔄 Refresh";
+            clicked => { load-groups(); }
+        }
+    }
+
+    // Group 统计
+    Rectangle {
+        height: 30px;
+        background: Theme.background;
+        border-radius: Theme.radius-sm;
+
+        HorizontalBox {
+            padding: Theme.spacing-sm;
+
+            Text {
+                text: "Total: " + groups.length + " groups";
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+        }
+    }
+
+    // Group 列表
+    ListView {
+        for group[idx] in groups: ConsumerGroupItem {
+            group: group;
+            selected: idx == selected-index;
+
+            clicked => {
+                group-selected(idx);
+            }
+        }
+    }
+}

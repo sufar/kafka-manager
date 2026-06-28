@@ -1,0 +1,685 @@
+<template>
+  <div class="h-[100dvh] bg-base-100 flex flex-col overflow-hidden">
+    <!-- Top Navigation Bar -->
+    <div class="flex-shrink-0">
+      <TopNavBar
+        :is-mobile="isMobile"
+        :is-dark="isDark"
+        :sidebar-mode="sidebarMode"
+        @toggle-sidebar="sidebarOpen = true"
+        @toggle-language="toggleLanguage"
+        @toggle-theme="toggleTheme"
+        @open-mobile-search="showMobileSearch = true"
+        @share="handleShare"
+        @start-tour="startTour"
+        @select-topic="handleSelectTopicInTree"
+      />
+    </div>
+
+    <!-- Mobile Search Drawer -->
+    <MobileSearchDrawer
+      v-if="isMobile && showMobileSearch"
+      @close="showMobileSearch = false"
+      @select-topic="handleSearchTopicSelect"
+    />
+
+    <!-- Main Layout Container -->
+    <div class="flex flex-1 overflow-hidden pt-10">
+      <LeftSidebar
+        ref="leftSidebarRef"
+        :is-mobile="isMobile"
+        :sidebar-mode="sidebarMode"
+        :sidebar-open="sidebarOpen"
+        @navigate="handleNavigate"
+        @cluster-context-menu="showClusterMenuFromTree"
+        @topic-context-menu="showTopicMenuFromTree"
+        @partition-context-menu="showPartitionMenuFromTree"
+        @topics-folder-context-menu="showTopicsFolderMenuFromTree"
+        @toast="handleToast"
+        @close-sidebar="sidebarOpen = false"
+      />
+
+      <!-- Main Content -->
+      <main class="flex-1 glass gradient-border overflow-auto flex flex-col rounded-xl mr-2 mt-2 mb-2">
+        <router-view />
+      </main>
+    </div>
+
+    <!-- Context Menus -->
+    <ContextMenus
+      ref="contextMenusRef"
+      @cluster-action="handleClusterAction"
+      @topics-folder-action="handleTopicsFolderAction"
+      @topic-action="handleTopicAction"
+      @partition-action="handlePartitionAction"
+    />
+
+    <!-- Toast Notifications and Confirm Dialog -->
+    <ToastAndConfirm ref="toastRef" />
+
+    <!-- Tour Overlay -->
+    <TourOverlay
+      :visible="tourActive"
+      :current-step="currentTourStep"
+      :current-step-index="tourStepIndex"
+      :total-steps="tourSteps.length"
+      :target-rect="tourTargetRect"
+      :t="t"
+      @close="tour.stop()"
+      @next="tour.next()"
+      @prev="tour.prev()"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useClusterStore } from '@/stores/cluster';
+import { useClusterConnectionStore } from '@/stores/clusterConnection';
+import { useThemeStore } from '@/stores/theme';
+import { useLanguageStore } from '@/stores/language';
+import { apiClient } from '@/api/client';
+
+// Import layout components
+import TopNavBar from '@/components/layout/TopNavBar.vue';
+import MobileSearchDrawer from '@/components/layout/MobileSearchDrawer.vue';
+import LeftSidebar from '@/components/layout/LeftSidebar.vue';
+import ContextMenus from '@/components/layout/ContextMenus.vue';
+import ToastAndConfirm from '@/components/layout/ToastAndConfirm.vue';
+import TourOverlay from '@/components/TourOverlay.vue';
+import { useTour } from '@/composables/useTour';
+import { tourDefinitions, defaultTourSteps, treeSidebarSteps, type TourStep } from '@/tour/definitions';
+
+const router = useRouter();
+const route = useRoute();
+const clusterStore = useClusterStore();
+const connectionStore = useClusterConnectionStore();
+const themeStore = useThemeStore();
+const languageStore = useLanguageStore();
+const t = computed(() => languageStore.t);
+
+// Tour state
+const tour = useTour();
+const tourSteps = ref<TourStep[]>([]);
+const tourActive = computed(() => tour.isActive.value);
+const tourStepIndex = computed(() => tour.currentStepIndex.value);
+const currentTourStep = computed(() => {
+  const idx = tour.currentStepIndex.value;
+  if (idx >= 0 && idx < tourSteps.value.length) {
+    return tourSteps.value[idx];
+  }
+  return null;
+});
+const tourTargetRect = computed(() => tour.targetRect.value);
+
+function startTour() {
+  let steps = tourDefinitions[route.path] || defaultTourSteps;
+
+  // 从实际渲染的 DOM 检测模式，避免 sidebarMode.value 状态时序问题
+  const hasTreeElements = !!document.querySelector('[data-tour="tree-collapse-btn"]');
+  const hasFlatElements = !!document.querySelector('[data-tour="sidebar-view-switcher"]');
+  const isTreeMode = hasTreeElements || (!hasFlatElements && sidebarMode.value === 'tree');
+
+  if (isTreeMode) {
+    // 树形模式：先展开第一个集群，确保后续步骤能正确聚焦
+    const clusterHeaders = document.querySelectorAll('.flex.items-center.p-2.rounded-xl');
+    for (const header of clusterHeaders) {
+      const expandBtn = header.querySelector('button.btn-ghost.btn-xs.p-0') as HTMLElement;
+      if (expandBtn && expandBtn.querySelector('svg')) {
+        expandBtn.click();
+        break; // Only expand first cluster
+      }
+    }
+
+    // 树形模式：移除列表模式的 sidebarSteps，加入 treeSidebarSteps
+    if (treeSidebarSteps) {
+      const sidebarStepNames = new Set([
+        'sidebar-view-switcher', 'sidebar-clusters-btn', 'sidebar-favorites-btn',
+        'sidebar-schema-btn', 'sidebar-history-btn', 'sidebar-cluster-selector',
+        'sidebar-refresh', 'sidebar-search', 'sidebar-topic-list',
+        'sidebar-consumer-group-list',
+        'sidebar-health-dot', 'sidebar-topic-name', 'sidebar-cluster-badge',
+      ]);
+      steps = steps.filter((s: { selector: string }) => {
+        const match = s.selector.match(/data-tour="([^"]+)"/);
+        const tourName = match?.[1];
+        return !tourName || !sidebarStepNames.has(tourName);
+      });
+      // 在 global 步骤之后插入 tree 步骤
+      const globalCount = 5; // search, share, lang, theme, settings
+      steps = [...steps.slice(0, globalCount), ...treeSidebarSteps, ...steps.slice(globalCount)];
+    }
+  }
+  tourSteps.value = steps;
+  tour.start(steps);
+}
+
+// Refs
+const contextMenusRef = ref<InstanceType<typeof ContextMenus>>();
+const toastRef = ref<InstanceType<typeof ToastAndConfirm>>();
+const leftSidebarRef = ref<InstanceType<typeof LeftSidebar>>();
+
+// Get clusterTreeNavigatorRef from LeftSidebar component
+const clusterTreeNavigatorRef = computed(() => {
+  const sidebar = leftSidebarRef.value as any;
+  return sidebar?.clusterTreeNavigatorRef?.value || null;
+});
+
+// Provide showToast globally for layout children (including router-view components)
+provide('showToast', (type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) => {
+  toastRef.value?.showToast(type, message, duration);
+});
+provide('showConfirm', (message: string) => {
+  return toastRef.value?.showConfirm(message) || Promise.resolve(false);
+});
+
+// Sidebar mode: 'tree' | 'flat'
+const sidebarMode = ref<'tree' | 'flat'>('flat');
+
+// Mobile responsive state
+const isMobile = ref(false);
+const sidebarOpen = ref(false);
+const showMobileSearch = ref(false);
+const MOBILE_BREAKPOINT = 768;
+
+// Check if mobile
+function checkMobile() {
+  isMobile.value = window.innerWidth < MOBILE_BREAKPOINT;
+  if (!isMobile.value) {
+    sidebarOpen.value = false;
+    showMobileSearch.value = false;
+  }
+}
+
+// Theme and language
+const { isDark, toggleTheme } = themeStore;
+const toggleLanguage = languageStore.toggleLanguage;
+const currentLanguage = computed(() => languageStore.currentLanguage);
+
+// Tauri invoke helper
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const win = window as any;
+  if (win.__TAURI__?.core?.invoke) {
+    return win.__TAURI__.core.invoke(cmd, args);
+  }
+  if (win.__TAURI__?.invoke) {
+    return win.__TAURI__.invoke(cmd, args);
+  }
+  throw new Error('Tauri not available');
+}
+
+// Share version: copy cached installer to downloads or open GitHub releases
+async function handleShare() {
+  try {
+    const result = await tauriInvoke<string>('share_current_version');
+    if (result) {
+      toastRef.value?.showToast('success', t.value.layout.shareCopied);
+    } else {
+      try {
+        await tauriInvoke('open_url', { url: 'https://github.com/sufar/kafka-manager/releases/latest' });
+      } catch {
+        window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+      }
+    }
+  } catch {
+    try {
+      await tauriInvoke('open_url', { url: 'https://github.com/sufar/kafka-manager/releases/latest' });
+    } catch {
+      window.open('https://github.com/sufar/kafka-manager/releases/latest', '_blank');
+    }
+  }
+}
+
+// Load sidebar mode setting
+async function loadSidebarModeSetting() {
+  try {
+    const settings = await apiClient.getSettings(['ui.sidebar_mode']);
+    const mode = settings.find((s: { key: string; value: string }) => s.key === 'ui.sidebar_mode')?.value;
+    if (mode === 'tree' || mode === 'flat') {
+      sidebarMode.value = mode;
+    }
+  } catch (e) {
+    console.error('Failed to load sidebar mode setting:', e);
+  }
+}
+
+// ==================== Navigation ====================
+function handleNavigate(routeParam: { path: string; query?: Record<string, string> }) {
+  router.push({ path: routeParam.path, query: routeParam.query });
+  if (isMobile.value) {
+    sidebarOpen.value = false;
+  }
+}
+
+function handleToast(type: 'success' | 'error' | 'warning' | 'info', message: string) {
+  toastRef.value?.showToast(type, message);
+}
+
+// Provide global toast and confirm methods
+function showToastWrapper(type: 'success' | 'error' | 'warning' | 'info', message: string, duration?: number) {
+  toastRef.value?.showToast(type, message, duration);
+}
+
+function showConfirmWrapper(message: string): Promise<boolean> {
+  return toastRef.value?.showConfirm(message) || Promise.resolve(false);
+}
+
+provide('showToast', showToastWrapper);
+provide('showConfirm', showConfirmWrapper);
+
+// Handle topic selection from search
+async function handleSearchTopicSelect(cluster: string, topic: string) {
+  router.push({ path: '/messages', query: { cluster, topic } });
+  if (sidebarMode.value === 'tree') {
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+    }
+    // 如果 ref 为空，router.push 已经执行了，不需要额外处理
+  }
+}
+
+// Handle topic selection in tree mode
+function handleSelectTopicInTree(cluster: string, topic: string) {
+  if (sidebarMode.value === 'tree') {
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topic, cluster);
+    } else {
+      // Fallback: directly navigate if clusterTreeNavigatorRef is not available
+      router.push({
+        path: '/messages',
+        query: { cluster, topic },
+      });
+    }
+  } else {
+    router.push({
+      path: '/messages',
+      query: { cluster, topic },
+    });
+  }
+}
+
+// Handle settings changes
+function handleSettingsChanged(event: CustomEvent) {
+  const { key, value } = event.detail;
+  if (key === 'ui.sidebar_mode' && (value === 'tree' || value === 'flat')) {
+    sidebarMode.value = value;
+  }
+}
+
+// Handle navigate from favorites
+function handleNavigateFromFavorites(clusterId: string, topicName: string) {
+  if (sidebarMode.value === 'tree') {
+    if (clusterTreeNavigatorRef.value) {
+      clusterTreeNavigatorRef.value?.highlightAndSelectTopic(topicName, clusterId);
+    } else {
+      // Fallback: directly navigate if clusterTreeNavigatorRef is not available
+      router.push({
+        path: '/messages',
+        query: { cluster: clusterId, topic: topicName },
+      });
+      if (isMobile.value) {
+        sidebarOpen.value = false;
+      }
+    }
+  } else {
+    router.push({
+      path: '/messages',
+      query: { cluster: clusterId, topic: topicName },
+    });
+    if (isMobile.value) {
+      sidebarOpen.value = false;
+    }
+  }
+}
+
+// ==================== Cluster Actions ====================
+const refreshingCluster = ref<string | null>(null);
+const disconnectingCluster = ref<string | null>(null);
+const reconnectingCluster = ref<string | null>(null);
+
+async function handleClusterAction(action: string, cluster: string) {
+  switch (action) {
+    case 'viewTopics':
+      router.push({ path: '/topics', query: { cluster } });
+      break;
+    case 'refreshTopics':
+      refreshClusterTopics(cluster);
+      break;
+    case 'refreshConnection':
+      refreshConnectionStatus(cluster);
+      break;
+    case 'createTopic':
+      router.push({ path: '/topics', query: { cluster, action: 'create' } });
+      break;
+    case 'testConnection':
+      testConnection(cluster);
+      break;
+    case 'disconnect':
+      disconnectCluster(cluster);
+      break;
+    case 'reconnect':
+      reconnectCluster(cluster);
+      break;
+    case 'editCluster':
+      editCluster(cluster);
+      break;
+    case 'deleteCluster':
+      if (await toastRef.value?.showConfirm(t.value.layout.confirmDeleteCluster.replace('{cluster}', cluster))) {
+        const clusterId = clusterStore.clusters.find((c) => c.name === cluster)?.id;
+        if (clusterId) {
+          clusterStore.deleteCluster(clusterId);
+        } else {
+          toastRef.value?.showToast('error', t.value.layout.clusterNotFound);
+        }
+      }
+      break;
+  }
+}
+
+async function testConnection(clusterName: string) {
+  const cluster = clusterStore.clusters.find((c) => c.name === clusterName);
+  if (!cluster) return;
+
+  contextMenusRef.value!.testingCluster = clusterName;
+  try {
+    const result = await clusterStore.testCluster(cluster.id);
+    if (result.success) {
+      toastRef.value?.showToast('success', t.value.clusters.connected);
+    } else {
+      toastRef.value?.showToast('error', t.value.clusters.connectionError);
+    }
+  } catch (e) {
+    toastRef.value?.showToast('error', `${t.value.clusters.connectionError}: ${(e as { message: string }).message}`);
+  } finally {
+    contextMenusRef.value!.testingCluster = null;
+  }
+}
+
+async function refreshConnectionStatus(clusterName: string) {
+  contextMenusRef.value!.refreshingCluster = clusterName;
+  try {
+    const health = await apiClient.healthCheckCluster(clusterName);
+    clusterStore.clusterHealth[clusterName] = {
+      clusterId: clusterName,
+      healthy: health.healthy,
+      lastChecked: Date.now(),
+      error: health.error_message,
+    };
+    if (health.healthy) {
+      toastRef.value?.showToast('success', 'Cluster status refreshed');
+    } else {
+      toastRef.value?.showToast('error', `Cluster connection issue: ${health.error_message || 'Unknown error'}`);
+    }
+  } catch (e) {
+    toastRef.value?.showToast('error', `Refresh failed: ${(e as { message: string }).message}`);
+  } finally {
+    contextMenusRef.value!.refreshingCluster = null;
+  }
+}
+
+async function disconnectCluster(clusterName: string) {
+  if (await toastRef.value?.showConfirm(t.value.clusters.disconnectConfirm.replace('{cluster}', clusterName))) {
+    contextMenusRef.value!.disconnectingCluster = clusterName;
+    try {
+      await connectionStore.disconnectCluster(clusterName);
+      clusterStore.clusterHealth[clusterName] = {
+        clusterId: clusterName,
+        healthy: false,
+        lastChecked: Date.now(),
+        error: 'Disconnected',
+      };
+      await connectionStore.fetchAllConnections();
+      toastRef.value?.showToast('success', 'Cluster disconnected successfully');
+    } catch (e) {
+      toastRef.value?.showToast('error', `Disconnect failed: ${(e as { message: string }).message}`);
+    } finally {
+      contextMenusRef.value!.disconnectingCluster = null;
+    }
+  }
+}
+
+async function reconnectCluster(clusterName: string) {
+  contextMenusRef.value!.reconnectingCluster = clusterName;
+  try {
+    await connectionStore.reconnectCluster(clusterName);
+    const health = await apiClient.healthCheckCluster(clusterName);
+    clusterStore.clusterHealth[clusterName] = {
+      clusterId: clusterName,
+      healthy: health.healthy,
+      lastChecked: Date.now(),
+      error: health.error_message,
+    };
+    await connectionStore.fetchAllConnections();
+    await clusterStore.fetchClusters();
+    toastRef.value?.showToast('success', 'Cluster reconnected successfully');
+  } catch (e) {
+    toastRef.value?.showToast('error', `Reconnect failed: ${(e as { message: string }).message}`);
+  } finally {
+    contextMenusRef.value!.reconnectingCluster = null;
+  }
+}
+
+function editCluster(clusterName: string) {
+  router.push({ path: '/clusters', query: { action: 'edit', cluster: clusterName } });
+}
+
+function handleTopicsFolderAction(action: string, cluster: string) {
+  switch (action) {
+    case 'refreshTopics':
+      refreshClusterTopics(cluster);
+      break;
+    case 'createTopic':
+      router.push({ path: '/topics', query: { cluster, action: 'create' } });
+      break;
+    case 'viewAllTopics':
+      router.push({ path: '/topics', query: { cluster } });
+      break;
+  }
+}
+
+async function refreshClusterTopics(cluster: string) {
+  if (contextMenusRef.value!.refreshingCluster === cluster) {
+    apiClient.cancelRequest();
+    contextMenusRef.value!.refreshingCluster = null;
+    return;
+  }
+
+  contextMenusRef.value!.refreshingCluster = cluster;
+
+  // 立即提示，不等待后端响应
+  toastRef.value?.showToast('success', t.value.clusters.refreshingBg, 3000);
+
+  // Fire-and-forget
+  apiClient.refreshTopics(cluster).catch(() => {});
+
+  // 立即释放按钮状态
+  contextMenusRef.value!.refreshingCluster = null;
+}
+
+async function handleTopicAction(action: string, topic: string, cluster: string) {
+  switch (action) {
+    case 'viewMessages':
+      router.push({ path: '/messages', query: { cluster, topic } });
+      break;
+    case 'viewDetails':
+      router.push({ path: '/topics', query: { cluster, topic } });
+      break;
+    case 'viewPartitions':
+      router.push({ path: '/topics', query: { cluster, topic, tab: 'partitions' } });
+      break;
+    case 'viewConsumerLag':
+      router.push({ path: '/consumer-lag', query: { cluster, topic } });
+      break;
+    case 'sendMessage':
+      router.push({ path: '/messages', query: { cluster, topic, action: 'send' } });
+      break;
+    case 'deleteTopic':
+      if (await toastRef.value?.showConfirm(t.value.layout.confirmDeleteTopic.replace('{topic}', topic))) {
+        try {
+          await apiClient.deleteTopic(cluster, topic);
+          toastRef.value?.showToast('success', 'Topic deleted successfully');
+          window.dispatchEvent(new CustomEvent('topic-deleted', { detail: { cluster, topic } }));
+        } catch (e) {
+          toastRef.value?.showToast('error', `${t.value.toast.operationFailed}: ${(e as { message: string }).message}`);
+        }
+      }
+      break;
+  }
+}
+
+function handlePartitionAction(action: string, topic: string, cluster: string, partitionId: number) {
+  switch (action) {
+    case 'viewMessages':
+      router.push({ path: '/messages', query: { cluster, topic, partition: String(partitionId) } });
+      break;
+    case 'sendMessage':
+      router.push({ path: '/messages', query: { cluster, topic, partition: String(partitionId), action: 'send' } });
+      break;
+  }
+}
+
+// Context menu handlers
+function showClusterMenuFromTree(event: MouseEvent, clusterName: string) {
+  contextMenusRef.value?.showClusterMenu(clusterName, event.clientX, event.clientY);
+}
+
+function showTopicsFolderMenuFromTree(event: MouseEvent, clusterName: string) {
+  contextMenusRef.value?.showTopicsFolderMenu(clusterName, event.clientX, event.clientY);
+}
+
+function showTopicMenuFromTree(event: MouseEvent, topicName: string, clusterName: string) {
+  contextMenusRef.value?.showTopicMenu(topicName, clusterName, event.clientX, event.clientY);
+}
+
+function showPartitionMenuFromTree(event: MouseEvent, topicName: string, clusterName: string, partitionId: number) {
+  contextMenusRef.value?.showPartitionMenu(topicName, clusterName, partitionId, event.clientX, event.clientY);
+}
+
+// ==================== State Persistence ====================
+const STORAGE_KEY = 'kafka-manager-last-state';
+
+interface LastState {
+  path: string;
+  query?: Record<string, string>;
+  timestamp: number;
+}
+
+function saveCurrentState() {
+  try {
+    const state: LastState = {
+      path: router.currentRoute.value.path,
+      query: router.currentRoute.value.query as Record<string, string>,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn('[State] Failed to save state:', e);
+  }
+}
+
+function restorePreviousState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    const state: LastState = JSON.parse(saved);
+    if (state.path && state.path !== '/' && state.path !== '/clusters') {
+      router.replace({ path: state.path, query: state.query });
+    }
+  } catch (e) {
+    console.warn('[State] Failed to restore state:', e);
+  }
+}
+
+router.afterEach(() => {
+  saveCurrentState();
+});
+
+// Global keydown handler
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    // Focus search input in TopNavBar
+  }
+}
+
+// Handle open create cluster modal
+function handleOpenCreateClusterModal() {
+  router.push({ path: '/clusters', query: { action: 'create', t: String(Date.now()) } });
+}
+
+// Lifecycle
+onMounted(async () => {
+  themeStore.initTheme();
+  languageStore.initLanguage();
+  await loadSidebarModeSetting();
+  await clusterStore.fetchClusters();
+
+  restorePreviousState();
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+  document.addEventListener('keydown', handleGlobalKeydown);
+
+  window.addEventListener('select-topic-in-tree', ((e: Event) => {
+    const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
+    const { topicName, clusterName } = event.detail;
+    handleSelectTopicInTree(clusterName, topicName);
+  }) as EventListener);
+
+  window.addEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  window.addEventListener('settings-changed', ((e: Event) => {
+    const event = e as CustomEvent<{ key: string; value: any }>;
+    handleSettingsChanged(event);
+  }) as EventListener);
+  window.addEventListener('navigate-to-topic-from-favorites', ((e: Event) => {
+    const event = e as CustomEvent<{ clusterId: string; topicName: string }>;
+    const { clusterId, topicName } = event.detail;
+    handleNavigateFromFavorites(clusterId, topicName);
+  }) as EventListener);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile);
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('open-create-cluster-modal', handleOpenCreateClusterModal);
+  window.removeEventListener('select-topic-in-tree', ((e: Event) => {
+    const event = e as CustomEvent<{ topicName: string; clusterName: string }>;
+    const { topicName, clusterName } = event.detail;
+    handleSelectTopicInTree(clusterName, topicName);
+  }) as EventListener);
+  window.removeEventListener('settings-changed', ((e: Event) => {
+    const event = e as CustomEvent<{ key: string; value: any }>;
+    handleSettingsChanged(event);
+  }) as EventListener);
+  window.removeEventListener('navigate-to-topic-from-favorites', ((e: Event) => {
+    const event = e as CustomEvent<{ clusterId: string; topicName: string }>;
+    const { clusterId, topicName } = event.detail;
+    handleNavigateFromFavorites(clusterId, topicName);
+  }) as EventListener);
+});
+</script>
+
+<style scoped>
+/* Resizer 样式 */
+.resizer:hover {
+  background: rgba(128, 128, 128, 0.2);
+}
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(var(--glass-bg, 255, 255, 255), 0.1);
+}
+
+/* Gradient border */
+.gradient-border {
+  position: relative;
+  background: linear-gradient(135deg, var(--gradient-from, #667eea), var(--gradient-to, #764ba2));
+  padding: 1px;
+}
+
+.gradient-border > * {
+  background: var(--glass-bg, base-100);
+  height: 100%;
+}
+</style>

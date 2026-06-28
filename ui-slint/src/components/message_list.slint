@@ -1,0 +1,195 @@
+// 虚拟滚动消息列表（Phase 7 - 性能优化）
+import { Theme } from "../theme.slint";
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+// 消息数据结构
+export struct MessageInfo {
+    partition: int,
+    offset: int,
+    key: string,
+    value: string,
+    timestamp: int,
+}
+
+// 消息列表项（单条消息）
+component MessageItem inherits Rectangle {
+    in property <MessageInfo> message;
+    in property <bool> selected: false;
+    in property <string> search-keyword: "";
+
+    callback clicked();
+
+    height: 60px;
+    background: selected ? Theme.primary-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    border-radius: Theme.radius-sm;
+
+    HorizontalBox {
+        padding: Theme.spacing-xs;
+        spacing: Theme.spacing-xs;
+
+        // Partition 和 Offset（左侧）
+        Rectangle {
+            width: 120px;
+            background: selected ? Theme.primary-hover : Theme.surface;
+            border-radius: Theme.radius-sm;
+
+            VerticalBox {
+                padding: Theme.spacing-xs;
+
+                Text {
+                    text: "P:" + message.partition;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: selected ? white : Theme.text-primary;
+                }
+
+                Text {
+                    text: "O:" + message.offset;
+                    font-size: 10px;
+                    color: selected ? white : Theme.text-secondary;
+                }
+            }
+        }
+
+        // Timestamp（时间戳）
+        Text {
+            width: 150px;
+            text: message.timestamp;
+            font-size: 12px;
+            color: selected ? white : Theme.text-secondary;
+        }
+
+        // Key（消息键）
+        Rectangle {
+            width: 100px;
+            background: transparent;
+            border-radius: Theme.radius-sm;
+
+            Text {
+                text: message.key == "" ? "(null)" : message.key;
+                font-size: 12px;
+                font-weight: 600;
+                color: selected ? white : Theme.text-primary;
+                horizontal-alignment: left;
+            }
+        }
+
+        // Value（消息值）
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+
+            Text {
+                text: message.value == "" ? "(empty)" : message.value;
+                font-size: 12px;
+                color: selected ? white : Theme.text-primary;
+                horizontal-alignment: left;
+                width: 200px;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// 虚拟滚动消息列表（核心组件）
+export component MessageList inherits Rectangle {
+    in property <[MessageInfo]> messages: [];
+    in property <int> selected-index: -1;
+    in property <string> search-keyword: "";
+    in property <bool> loading: false;
+
+    callback message-selected(int);
+
+    background: Theme.surface;
+    border-radius: Theme.radius-md;
+
+    VerticalBox {
+        padding: Theme.spacing-md;
+
+        // 加载指示器
+        if loading: Rectangle {
+            height: 40px;
+            background: Theme.primary-hover;
+            border-radius: Theme.radius-sm;
+
+            HorizontalBox {
+                padding: Theme.spacing-sm;
+
+                Text {
+                    text: "⏳ Loading messages...";
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // 空状态
+        if !loading && messages.length == 0: Rectangle {
+            height: 100px;
+            background: Theme.background;
+
+            VerticalBox {
+                alignment: center;
+
+                Text {
+                    text: "📭 No messages";
+                    font-size: 16px;
+                    color: Theme.text-secondary;
+                }
+
+                Text {
+                    text: "Click 'Query' to fetch messages from Kafka";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // 消息列表（虚拟滚动）
+        if !loading && messages.length > 0: Rectangle {
+            vertical-stretch: 1;
+            background: Theme.background;
+
+            // 使用标准 for 循环（Slint 自动处理虚拟滚动）
+            VerticalBox {
+                for message[idx] in messages: MessageItem {
+                    message: message;
+                    selected: idx == selected-index;
+                    search-keyword: root.search-keyword;
+
+                    clicked => {
+                        root.message-selected(idx);
+                    }
+                }
+            }
+        }
+
+        // 统计信息（底部）
+        if messages.length > 0: Rectangle {
+            height: 30px;
+            background: Theme.background;
+            border-radius: Theme.radius-sm;
+
+            HorizontalBox {
+                padding: Theme.spacing-sm;
+
+                Text {
+                    text: "📊 Total: " + messages.length + " messages";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                if selected-index >= 0: Text {
+                    text: "Selected: #" + (selected-index + 1);
+                    font-size: 12px;
+                    color: Theme.primary;
+                }
+            }
+        }
+    }
+}

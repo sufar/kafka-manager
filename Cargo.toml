@@ -1,11 +1,11 @@
 [package]
 name = "kafka-manager-api"
-version = "1.1.61"
+version = "1.2.0"
 edition = "2021"
-description = "A Kafka management tool with RESTful API"
+description = "A Kafka management tool core library"
 
 [workspace]
-members = ["src-tauri"]
+members = ["src-tauri", "ui-slint"]
 
 [dependencies]
 # Web framework

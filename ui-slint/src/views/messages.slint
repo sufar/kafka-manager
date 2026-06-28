@@ -1,0 +1,170 @@
+// 消息查看器（Phase 7 - 简化版本）
+import { Theme } from "../theme.slint";
+import { Button, VerticalBox, HorizontalBox, ComboBox } from "std-widgets.slint";
+import { MessageList } from "../components/message_list.slint";
+import { MessageInfo } from "../components/message_list.slint";
+
+// 消息查看器工具栏（简化版）
+component MessageToolbar inherits HorizontalBox {
+    in property <string> selected-cluster: "";
+    in property <string> selected-topic: "";
+    in property <int> selected-partition: -1;
+    in property <int> max-messages: 100;
+    in property <bool> loading: false;
+
+    callback query-messages();
+    callback stop-query();
+    callback partition-changed(int);
+
+    padding: Theme.spacing-sm;
+    spacing: Theme.spacing-xs;
+
+    // Cluster 信息
+    Rectangle {
+        width: 150px;
+        background: Theme.background;
+        border-radius: Theme.radius-sm;
+
+        VerticalBox {
+            padding: Theme.spacing-xs;
+
+            Text {
+                text: "Cluster:";
+                font-size: 10px;
+                color: Theme.text-secondary;
+            }
+
+            Text {
+                text: selected-cluster;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+        }
+    }
+
+    // Topic 信息
+    Rectangle {
+        width: 200px;
+        background: Theme.primary-hover;
+        border-radius: Theme.radius-sm;
+
+        VerticalBox {
+            padding: Theme.spacing-xs;
+
+            Text {
+                text: "Topic:";
+                font-size: 10px;
+                color: white;
+            }
+
+            Text {
+                text: selected-topic;
+                font-size: 14px;
+                font-weight: 600;
+                color: white;
+            }
+        }
+    }
+
+    // Partition 选择（简化版）
+    Text {
+        width: 100px;
+        text: "Partition: " + (selected-partition == -1 ? "All" : selected-partition);
+        font-size: 12px;
+        color: Theme.text-secondary;
+    }
+
+    // 消息数量显示
+    Text {
+        width: 80px;
+        text: "Max: " + max-messages;
+        font-size: 12px;
+        color: Theme.text-secondary;
+    }
+
+    // 查询按钮
+    Button {
+        text: loading ? "⏳ Loading..." : "🔍 Query";
+        enabled: !loading && selected-topic != "";
+
+        clicked => {
+            query-messages();
+        }
+    }
+
+    // 停止按钮（仅在加载时显示）
+    if loading: Button {
+        text: "✕ Stop";
+
+        clicked => {
+            stop-query();
+        }
+    }
+}
+
+// 消息查看器主视图（简化实现）
+export component MessageViewer inherits VerticalBox {
+    in property <[MessageInfo]> messages: [];
+    in property <string> selected-cluster: "";
+    in property <string> selected-topic: "";
+    in property <int> selected-partition: -1;
+    in property <int> max-messages: 100;
+    in property <bool> loading: false;
+    in property <int> received-count: 0;
+
+    callback query-messages();
+    callback stop-query();
+    callback partition-changed(int);
+
+    // 工具栏
+    MessageToolbar {
+        selected-cluster: root.selected-cluster;
+        selected-topic: root.selected-topic;
+        selected-partition: root.selected-partition;
+        max-messages: root.max-messages;
+        loading: root.loading;
+
+        query-messages => { root.query-messages(); }
+        stop-query => { root.stop-query(); }
+        partition-changed(p) => { root.partition-changed(p); }
+    }
+
+    // 实时状态栏
+    Rectangle {
+        height: 30px;
+        background: loading ? Theme.primary-hover : Theme.background;
+        border-radius: Theme.radius-sm;
+
+        HorizontalBox {
+            padding: Theme.spacing-sm;
+            spacing: Theme.spacing-sm;
+
+            if loading: Text {
+                text: "⏳ Receiving: " + received-count + " messages...";
+                font-size: 12px;
+                color: Theme.primary;
+            }
+
+            if !loading: Text {
+                text: "📊 Total: " + messages.length + " messages";
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+
+            if !loading && messages.length > 0: Text {
+                text: "From: " + selected-cluster + " / Topic: " + selected-topic;
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+        }
+    }
+
+    // 消息列表（虚拟滚动）
+    MessageList {
+        messages: root.messages;
+        selected-index: -1;
+        loading: root.loading;
+        vertical-stretch: 1;
+    }
+}

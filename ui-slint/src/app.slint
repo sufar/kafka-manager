@@ -1,0 +1,383 @@
+// 主应用界面
+import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox, ListView } from "std-widgets.slint";
+import { Sidebar } from "components/sidebar.slint";
+import { TopicList } from "components/topic_list.slint";
+import { ConsumerGroupList } from "components/consumer_group_list.slint";
+import { Theme } from "theme.slint";
+import { SettingsView } from "views/settings.slint";
+import { MessageViewer } from "views/messages.slint";
+
+// 集群数据结构（与 Rust ClusterData 对应）
+export struct ClusterInfo {
+    id: int,
+    name: string,
+    bootstrap-servers: string,
+    status: string,
+    topics-count: int,
+    partitions-count: int,
+}
+
+// Topic 数据结构
+export struct TopicInfo {
+    name: string,
+    cluster-id: string,
+    partitions-count: int,
+    replication-factor: int,
+    is-internal: bool,
+}
+
+// Consumer Group 数据结构
+export struct ConsumerGroupInfo {
+    name: string,
+    state: string,
+    members-count: int,
+    lag: int,
+}
+
+// 消息数据结构
+export struct MessageInfo {
+    partition: int,
+    offset: int,
+    key: string,
+    value: string,
+    timestamp: int,
+}
+
+// 导出全局主题变量（Phase 9 - 支持深色主题）
+export global Theme {
+    // 主题模式（light / dark）
+    in-out property <string> mode: "light";
+
+    // 浅色主题颜色
+    out property <color> primary: #3b82f6;
+    out property <color> primary-hover: #2563eb;
+    out property <color> background: mode == "dark" ? #1f2937 : #f5f5f5;
+    out property <color> surface: mode == "dark" ? #374151 : #ffffff;
+    out property <color> text-primary: mode == "dark" ? #f9fafb : #1f2937;
+    out property <color> text-secondary: mode == "dark" ? #d1d5db : #6b7280;
+    out property <color> border: mode == "dark" ? #4b5563 : #e0e0e0;
+
+    // 状态颜色（通用）
+    out property <color> success: #10b981;
+    out property <color> warning: #f59e0b;
+    out property <color> error: #ef4444;
+
+    // 间距
+    out property <length> spacing-sm: 8px;
+    out property <length> spacing-md: 16px;
+    out property <length> spacing-lg: 24px;
+
+    // 圆角
+    out property <length> radius-md: 8px;
+}
+
+// 主应用组件
+export component App inherits Window {
+    // 窗口属性
+    title: "Kafka Manager";
+    width: 1400px;
+    height: 768px;
+    background: Theme.background;
+
+    // 全局状态
+    in-out property <string> window-title: "Kafka Manager";
+    in-out property <string> current-view: "clusters";
+    in-out property <[ClusterInfo]> clusters: [];
+    in-out property <[TopicInfo]> topics: [];
+    in-out property <[ConsumerGroupInfo]> consumer-groups: [];
+    in-out property <[MessageInfo]> messages: [];
+    in-out property <string> selected-cluster: "";
+    in-out property <string> selected-topic: "";
+    in-out property <bool> loading: false;
+
+    // Messages 查询状态（Phase 7 新增）
+    in-out property <int> received-count: 0;
+    in-out property <int> selected-partition: -1;
+    in-out property <string> fetch-mode: "newest";
+    in-out property <int> max-messages: 100;
+    in-out property <string> search-keyword: "";
+
+    // Settings 状态
+    in-out property <bool> system-tray-enabled: false;
+    in-out property <string> language: "en";
+    in-out property <string> theme: "light";
+
+    // Phase 9: 主题切换回调（更新Theme.mode）
+    callback theme-mode-changed(string);
+
+    // 国际化字符串（导航栏）
+    in-out property <string> i18n-clusters: "Clusters";
+    in-out property <string> i18n-topics: "Topics";
+    in-out property <string> i18n-messages: "Messages";
+    in-out property <string> i18n-consumer-groups: "Consumer Groups";
+    in-out property <string> i18n-favorites: "Favorites";
+    in-out property <string> i18n-settings: "Settings";
+
+    // 国际化字符串（页面标题）
+    in-out property <string> page-title-clusters: "Clusters";
+    in-out property <string> page-title-topics: "Topics";
+    in-out property <string> page-title-messages: "Messages";
+    in-out property <string> page-title-consumer-groups: "Consumer Groups";
+    in-out property <string> page-title-favorites: "Favorites";
+    in-out property <string> page-title-settings: "Settings";
+
+    // 国际化字符串（Sidebar）
+    in-out property <string> sidebar-statistics: "Statistics";
+    in-out property <string> sidebar-subtitle: "Slint Edition";
+
+    // 国际化字符串（Settings 页面）
+    in-out property <string> settings-system-tray-title: "System Tray";
+    in-out property <string> settings-enable-tray-label: "Enable system tray";
+    in-out property <string> settings-tray-desc: "Show app in system tray for quick access";
+    in-out property <string> settings-language-title: "Language";
+    in-out property <string> settings-language-desc: "Select your preferred language";
+    in-out property <string> settings-theme-title: "Theme";
+    in-out property <string> settings-theme-desc: "Choose light or dark theme";
+    in-out property <string> settings-theme-not-impl: "not implemented yet";
+    in-out property <string> settings-save-button: "💾 Save Settings";
+
+    // 回调函数（连接到 Rust 后端）
+    callback load-clusters();
+    callback load-topics();
+    callback load-consumer-groups();
+    callback query-messages();
+    callback stop-query();
+    callback send-message(string, string, string, string, int);
+    callback partition-changed(int);
+    callback fetch-mode-changed(string);
+    callback max-messages-changed(int);
+    callback search-keyword-changed(string);
+    callback create-cluster(string, string);
+    callback delete-cluster(int);
+    callback save-settings();
+    callback tray-enabled-changed(bool);
+    callback language-changed(string);
+    callback theme-changed(string);
+
+    // Topic CRUD 回调（Phase 8 新增）
+    callback create-topic(string, string, int, int);
+    callback delete-topic(string, string);
+    callback get-topic-config(string, string);
+    // alter-topic-config 暂时不实现（Slint不支持map类型参数）
+
+    // Consumer Group 详情回调（Phase 8 新增）
+    callback get-consumer-group-detail(string, string);
+    callback get-consumer-group-lag(string, string, string);
+    callback get-consumer-group-total-lag(string, string);
+
+    // 主布局
+    HorizontalBox {
+        // 左侧导航栏
+        Sidebar {
+            current-view: root.current-view;
+            cluster-count: clusters.length;
+            topic-count: 0;  // 后续实现 topic 统计
+
+            // 传入国际化字符串
+            i18n-clusters: root.i18n-clusters;
+            i18n-topics: root.i18n-topics;
+            i18n-messages: root.i18n-messages;
+            i18n-consumer-groups: root.i18n-consumer-groups;
+            i18n-favorites: root.i18n-favorites;
+            i18n-settings: root.i18n-settings;
+            sidebar-statistics: root.sidebar-statistics;
+            sidebar-subtitle: root.sidebar-subtitle;
+
+            view-changed(view) => {
+                root.current-view = view;
+            }
+        }
+
+        // 主内容区域（后续实现具体页面）
+        Rectangle {
+            background: Theme.surface;
+
+            VerticalBox {
+                padding: Theme.spacing-lg;
+
+                // 页面标题（使用国际化）
+                Text {
+                    text: current-view == "clusters" ? page-title-clusters :
+                          current-view == "topics" ? page-title-topics :
+                          current-view == "messages" ? page-title-messages :
+                          current-view == "consumer-groups" ? page-title-consumer-groups :
+                          current-view == "favorites" ? page-title-favorites : page-title-settings;
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+
+                // 集群页面（当 current-view == "clusters")
+                if current-view == "clusters": Rectangle {
+                    background: Theme.background;
+                    border-radius: Theme.radius-md;
+
+                    VerticalBox {
+                        padding: Theme.spacing-md;
+
+                        // 集群列表
+                        ListView {
+                            for cluster in clusters: Rectangle {
+                                height: 60px;
+                                background: Theme.surface;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                border-radius: Theme.radius-md;
+
+                                HorizontalBox {
+                                    padding: Theme.spacing-sm;
+
+                                    VerticalBox {
+                                        alignment: start;
+
+                                        Text {
+                                            text: cluster.name;
+                                            font-size: 14px;
+                                            font-weight: 600;
+                                            color: Theme.text-primary;
+                                        }
+
+                                        Text {
+                                            text: cluster.bootstrap-servers;
+                                            font-size: 12px;
+                                            color: Theme.text-secondary;
+                                        }
+                                    }
+
+                                    // 状态指示器
+                                    Rectangle {
+                                        width: 60px;
+                                        background: cluster.status == "connected" ? #10b981 :
+                                                   cluster.status == "disconnected" ? #f59e0b : #ef4444;
+                                        border-radius: 4px;
+
+                                        Text {
+                                            text: cluster.status == "connected" ? "✓" :
+                                                  cluster.status == "disconnected" ? "○" : "×";
+                                            color: white;
+                                            font-size: 16px;
+                                            font-weight: 600;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Topics 页面
+                if current-view == "topics": TopicList {
+                    topics: root.topics;
+                    selected-index: -1;
+                    search-filter: "";
+
+                    topic-selected(idx) => {
+                        // 选中 topic
+                    }
+
+                    load-topics => {
+                        root.load-topics();
+                    }
+                }
+
+                // Consumer Groups 页面
+                if current-view == "consumer-groups": ConsumerGroupList {
+                    groups: root.consumer-groups;
+                    selected-index: -1;
+
+                    group-selected(idx) => {
+                        // 选中 consumer group
+                    }
+
+                    load-groups => {
+                        root.load-consumer-groups();
+                    }
+                }
+
+                // Messages 页面
+                if current-view == "messages": MessageViewer {
+                    messages: root.messages;
+                    selected-cluster: root.selected-cluster;
+                    selected-topic: root.selected-topic;
+                    selected-partition: root.selected-partition;
+                    max-messages: root.max-messages;
+                    loading: root.loading;
+                    received-count: root.received-count;
+
+                    query-messages => {
+                        root.query-messages();
+                    }
+
+                    stop-query => {
+                        root.stop-query();
+                    }
+
+                    partition-changed(p) => {
+                        root.selected-partition = p;
+                        root.partition-changed(p);
+                    }
+                }
+
+                // Settings 页面
+                if current-view == "settings": SettingsView {
+                    system-tray-enabled: root.system-tray-enabled;
+                    language: root.language;
+                    theme: root.theme;
+
+                    // 传入国际化字符串
+                    system-tray-title: root.settings-system-tray-title;
+                    enable-tray-label: root.settings-enable-tray-label;
+                    tray-desc: root.settings-tray-desc;
+                    language-title: root.settings-language-title;
+                    language-desc: root.settings-language-desc;
+                    theme-title: root.settings-theme-title;
+                    theme-desc: root.settings-theme-desc;
+                    theme-not-impl: root.settings-theme-not-impl;
+                    save-button: root.settings-save-button;
+
+                    tray-enabled-changed(enabled) => {
+                        root.system-tray-enabled = enabled;
+                        root.tray-enabled-changed(enabled);
+                    }
+
+                    language-changed(lang) => {
+                        root.language = lang;
+                        root.language-changed(lang);
+                    }
+
+                    theme-changed(theme) => {
+                        root.theme = theme;
+                        root.theme-changed(theme);
+                    }
+
+                    save-settings => {
+                        root.save-settings();
+                    }
+                }
+
+                // Favorites 页面（占位）
+                if current-view == "favorites": Rectangle {
+                    background: Theme.background;
+                    border-radius: Theme.radius-md;
+
+                    VerticalBox {
+                        padding: Theme.spacing-lg;
+
+                        Text {
+                            text: "Favorites";
+                            font-size: 20px;
+                            font-weight: 600;
+                            color: Theme.text-primary;
+                        }
+
+                        Text {
+                            text: "This page is under construction";
+                            color: Theme.text-secondary;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

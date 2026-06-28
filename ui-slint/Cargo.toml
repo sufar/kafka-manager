@@ -1,0 +1,63 @@
+[package]
+name = "kafka-manager-ui"
+version = "1.2.0"
+edition = "2021"
+description = "Kafka Manager UI built with Slint"
+
+[dependencies]
+# Slint UI framework (升级到最新版本)
+slint = "1.17"
+
+# Core business logic
+kafka-manager-api = { path = ".." }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Directory utilities
+dirs = "6.0"
+
+# Lock-free Arc for AppState
+arc-swap = "1.7"
+
+# Async utilities
+futures = "0.3"
+
+# System tray support (built into Slint 1.17)
+# slint = { version = "1.17", features = ["system-tray"] }
+
+[build-dependencies]
+slint-build = "1.17"
+
+# Bundle configuration for desktop app
+[package.metadata.bundle]
+name = "Kafka Manager"
+identifier = "com.kafka-manager"
+icon = ["../src-tauri/icons/icon.icns", "../src-tauri/icons/icon.ico"]
+version = "1.2.0"
+
+# Resources to include in the bundle
+resources = ["../assets/*"]
+
+# Linux specific
+[package.metadata.bundle.linux]
+deb = { depends = ["libgtk-3-0"] }
+
+# macOS specific
+[package.metadata.bundle.macOS]
+minimum_system_version = "10.13"
+
+# Windows specific
+[package.metadata.bundle.windows]
+allowed_downgrades = false
