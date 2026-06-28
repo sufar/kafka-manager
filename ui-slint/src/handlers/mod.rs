@@ -7,6 +7,7 @@ pub mod message;
 pub mod consumer_group;
 pub mod consumer_group_detail;
 pub mod settings;
+pub mod phase11;  // Phase 11 Week 5-6新增handlers
 
 // 重新导出所有处理器
 pub use cluster::*;
@@ -16,3 +17,4 @@ pub use message::*;
 pub use consumer_group::*;
 pub use consumer_group_detail::*;
 pub use settings::*;
+pub use phase11::*;  // 导出Phase 11新增handlers

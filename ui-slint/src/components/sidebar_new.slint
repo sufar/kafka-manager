@@ -1,0 +1,758 @@
+// 左侧导航栏组件（完整复刻原Vue版本）
+// Phase 11 Week 1-2：Sidebar完整复刻
+import { Button, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// ==================== 数据结构 ====================
+
+// 集群数据结构（对应原Vue版本）
+export struct ClusterNode {
+    name: string,
+    bootstrap-servers: string,
+    status: string,  // "connected" / "disconnected" / "error"
+    topics-count: int,
+    consumer-groups-count: int,
+    is-expanded: bool,
+    is-selected: bool,  // checkbox选中状态
+}
+
+// Topic数据结构
+export struct TopicNode {
+    name: string,
+    cluster-name: string,
+    is-internal: bool,
+}
+
+// Consumer Group数据结构
+export struct ConsumerGroupNode {
+    name: string,
+    cluster-name: string,
+    state: string,
+}
+
+// 收藏分组数据结构（简化版本，不嵌套数组）
+export struct FavoriteGroup {
+    id: int,
+    name: string,
+    items-count: int,  // 收藏数量（简化）
+    is-expanded: bool,
+}
+
+// 收藏项数据结构（独立）
+export struct FavoriteItem {
+    id: int,
+    topic-name: string,
+    cluster-id: string,
+    group-id: int,
+}
+
+// ==================== 状态指示器组件 ====================
+
+component StatusIndicator inherits Rectangle {
+    in property <string> status: "disconnected";  // "connected" / "disconnected" / "error"
+    in property <bool> refreshing: false;  // 正在刷新
+
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+
+    // 动态颜色（根据状态）
+    background: refreshing ? Theme.warning :
+                status == "connected" ? Theme.success :
+                status == "error" ? Theme.error : Theme.warning;
+
+    // 刷新时添加动画效果（脉冲）
+    if refreshing: Rectangle {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.warning;
+        opacity: 0.5;
+
+        // TODO: Slint不支持CSS动画，需要用timer实现
+    }
+}
+
+// ==================== Checkbox组件 ====================
+
+component Checkbox inherits Rectangle {
+    in property <bool> checked: false;
+    callback toggled(bool);
+
+    width: 16px;
+    height: 16px;
+    border-width: 1px;
+    border-color: Theme.border;
+    border-radius: 3px;
+    background: checked ? Theme.primary : Theme.surface;
+
+    // 选中标记
+    if checked: Text {
+        text: "✓";
+        color: white;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    TouchArea {
+        clicked => { root.toggled(!checked); }
+    }
+}
+
+// ==================== 展开/折叠按钮 ====================
+
+component ExpandButton inherits Rectangle {
+    in property <bool> expanded: false;
+    callback clicked();
+
+    width: 16px;
+    height: 16px;
+
+    Text {
+        text: expanded ? "▼" : "▶";
+        color: Theme.text-secondary;
+        font-size: 10px;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// ==================== 集群节点组件 ====================
+
+component ClusterNodeView inherits Rectangle {
+    in property <ClusterNode> cluster;
+    in property <string> i18n-topics: "Topics";  // 国际化字符串
+    in property <string> i18n-consumer-groups: "Consumer Groups";  // 国际化字符串
+    callback cluster-expanded(string);
+    callback cluster-selected(string, bool);  // cluster_name, is_checked
+    callback cluster-tested(string);
+    callback topics-folder-expanded(string);
+    callback consumer-groups-folder-expanded(string);
+    callback topic-selected(string, string);  // cluster_name, topic_name
+    callback consumer-group-selected(string, string);  // cluster_name, group_name
+    callback refresh-topics(string);
+    callback refresh-consumer-groups(string);
+
+    background: Theme.surface;
+    border-radius: Theme.radius-md;
+
+    VerticalBox {
+        // 集群头部（固定）
+        Rectangle {
+            height: 40px;
+            background: Theme.surface;
+            border-radius: Theme.radius-md;
+
+            HorizontalBox {
+                padding: 8px;
+                spacing: 8px;
+                alignment: start;
+
+                // 展开/折叠按钮
+                ExpandButton {
+                    expanded: cluster.is-expanded;
+                    clicked => { cluster-expanded(cluster.name); }
+                }
+
+                // Checkbox
+                Checkbox {
+                    checked: cluster.is-selected;
+                    toggled(checked) => { cluster-selected(cluster.name, checked); }
+                }
+
+                // 状态指示器
+                StatusIndicator {
+                    status: cluster.status;
+                    refreshing: false;  // TODO: 添加刷新状态
+                }
+
+                // 集群图标（Unicode替代SVG）
+                Text {
+                    text: "📊";
+                    font-size: 16px;
+                    color: Theme.primary;
+                    width: 20px;
+                }
+
+                // 集群名称
+                Text {
+                    text: cluster.name;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+            }
+
+            TouchArea {
+                // 双击跳转到集群详情（TODO: Slint不支持双击事件）
+            }
+        }
+
+        // 集群子节点（展开时显示，使用条件渲染）
+        if cluster.is-expanded: VerticalBox {
+            padding: 8px;
+            spacing: 8px;
+
+            // Topics文件夹（简化版本）
+            Rectangle {
+                height: 40px;
+                background: Theme.background;
+                border-radius: Theme.radius-md;
+
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "📁";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: cluster.topics-count + " " + i18n-topics;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    // 刷新按钮
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        background: Theme.primary;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "🔄";
+                            font-size: 12px;
+                            color: white;
+                        }
+
+                        TouchArea {
+                            clicked => { refresh-topics(cluster.name); }
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { topics-folder-expanded(cluster.name); }
+                }
+            }
+
+            // Consumer Groups文件夹（简化版本）
+            Rectangle {
+                height: 40px;
+                background: Theme.background;
+                border-radius: Theme.radius-md;
+
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "👥";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: cluster.consumer-groups-count + " " + i18n-consumer-groups;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    // 刷新按钮
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        background: Theme.primary;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "🔄";
+                            font-size: 12px;
+                            color: white;
+                        }
+
+                        TouchArea {
+                            clicked => { refresh-consumer-groups(cluster.name); }
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { consumer-groups-folder-expanded(cluster.name); }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 收藏分组组件（简化版本）====================
+
+component FavoriteGroupView inherits Rectangle {
+    in property <FavoriteGroup> group;
+    in property <[FavoriteItem]> favorite-items: [];  // 独立的收藏项列表
+    callback group-expanded(int);  // group_id
+    callback favorite-selected(int, string, string);  // favorite_id, cluster_id, topic_name
+
+    background: Theme.surface;
+    border-radius: Theme.radius-md;
+
+    VerticalBox {
+        // 分组头部
+        Rectangle {
+            height: 30px;
+            background: transparent;
+
+            HorizontalBox {
+                padding: 8px;
+                spacing: 8px;
+
+                // 展开/折叠按钮
+                ExpandButton {
+                    expanded: group.is-expanded;
+                    clicked => { group-expanded(group.id); }
+                }
+
+                // 收藏图标
+                Text {
+                    text: "⭐";
+                    font-size: 14px;
+                    color: #f59e0b;  // amber
+                }
+
+                // 分组名称
+                Text {
+                    text: group.name;
+                    font-size: 12px;
+                    color: Theme.text-primary;
+                }
+
+                // 收藏数量
+                Text {
+                    text: group.items-count;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // 收藏项列表（展开时显示）
+        if group.is-expanded: VerticalBox {
+            padding: 8px;
+            spacing: 4px;
+
+            // 显示该分组的收藏项（需要从favorite-items中过滤）
+            // 注意：Slint不支持在组件内部过滤数组，所以这里显示所有favorite-items
+            // 实际使用时，父组件应该只传递属于该group的favorite-items
+            for item in favorite-items: Rectangle {
+                height: 30px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    // Topic图标
+                    Text {
+                        text: "📨";
+                        font-size: 12px;
+                        color: Theme.primary;
+                    }
+
+                    VerticalBox {
+                        alignment: start;
+
+                        // Topic名称
+                        Text {
+                            text: item.topic-name;
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                        }
+
+                        // 集群名称
+                        Text {
+                            text: item.cluster-id;
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    clicked => { favorite-selected(item.id, item.cluster-id, item.topic-name); }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 主Sidebar组件 ====================
+
+export component SidebarNew inherits Rectangle {
+    // 数据属性
+    in property <[ClusterNode]> clusters: [];
+    in property <[FavoriteItem]> favorite-items: [];  // 收藏项列表（简化）
+    // in property <[FavoriteGroup]> favorite-groups: [];  // 收藏分组列表（暂不使用）
+    in property <string> current-view: "clusters";
+
+    // 国际化字符串
+    in property <string> i18n-clusters: "Clusters";
+    in property <string> i18n-favorites: "Favorites";
+    in property <string> i18n-manage-clusters: "Manage Clusters";
+    in property <string> i18n-multi-cluster: "Multi-Cluster Kafka Manager";
+    in property <string> i18n-clusters-label: "CLUSTERS";
+    in property <string> i18n-select-all: "Select All";
+    in property <string> i18n-clear: "Clear";
+    in property <string> i18n-topics: "Topics";
+    in property <string> i18n-consumer-groups: "Consumer Groups";
+    in property <string> i18n-favorites-empty: "No favorites";
+
+    // 回调函数
+    callback view-changed(string);  // 导航视图切换
+    callback cluster-expanded(string);  // 集群展开/折叠
+    callback cluster-selected(string, bool);  // 集群选中（checkbox）
+    callback cluster-tested(string);  // 集群连接测试
+    callback topics-folder-expanded(string);  // Topics文件夹展开/折叠
+    callback consumer-groups-folder-expanded(string);  // Consumer Groups文件夹展开/折叠
+    callback topic-selected(string, string);  // Topic选中
+    callback consumer-group-selected(string, string);  // Consumer Group选中
+    callback refresh-topics(string);  // 刷新Topics
+    callback refresh-consumer-groups(string);  // 刷新Consumer Groups
+    callback favorite-selected(int, string, string);  // 收藏选中
+    callback favorite-group-expanded(int);  // 收藏分组展开/折叠
+    callback manage-clusters-clicked();  // 管理集群按钮
+    callback select-all-clusters();  // 全选集群
+    callback clear-selection();  // 清空选择
+
+    // 宽度属性（可调整）
+    in-out property <int> sidebar-width: 280;  // 默认宽度280（纯数字，不带单位）
+
+    width: sidebar-width * 1px;  // 转换为长度单位
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalBox {
+        // ==================== Logo区域 ====================
+        Rectangle {
+            height: 80px;
+            background: Theme.surface;
+            // Slint不支持border-bottom-width，使用普通border替代
+            border-width: 1px;
+            border-color: Theme.border;
+
+            HorizontalBox {
+                padding: 16px;
+                spacing: 12px;
+                alignment: start;
+
+                // Logo图标（Unicode替代SVG）
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    background: Theme.primary;
+                    border-radius: 8px;
+
+                    Text {
+                        text: "⚡";
+                        font-size: 24px;
+                        color: white;
+                        font-weight: 700;
+                    }
+                }
+
+                // Logo标题
+                VerticalBox {
+                    alignment: center;
+
+                    Text {
+                        text: "Kafka Manager";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: Theme.primary;
+                    }
+
+                    Text {
+                        text: i18n-multi-cluster;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+
+        // ==================== 导航菜单 ====================
+        Rectangle {
+            height: 100px;
+            background: Theme.surface;
+            padding: 16px;
+
+            VerticalBox {
+                spacing: 8px;
+
+                // Clusters导航项
+                Rectangle {
+                    height: 40px;
+                    background: current-view == "clusters" ? Theme.primary : transparent;
+                    border-radius: Theme.radius-md;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        Text {
+                            text: "📊";
+                            font-size: 16px;
+                            color: current-view == "clusters" ? white : Theme.text-secondary;
+                        }
+
+                        Text {
+                            text: i18n-clusters;
+                            font-size: 14px;
+                            color: current-view == "clusters" ? white : Theme.text-primary;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { view-changed("clusters"); }
+                    }
+                }
+
+                // Favorites导航项
+                Rectangle {
+                    height: 40px;
+                    background: current-view == "favorites" ? Theme.primary : transparent;
+                    border-radius: Theme.radius-md;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        Text {
+                            text: "⭐";
+                            font-size: 16px;
+                            color: current-view == "favorites" ? white : Theme.text-secondary;
+                        }
+
+                        Text {
+                            text: i18n-favorites;
+                            font-size: 14px;
+                            color: current-view == "favorites" ? white : Theme.text-primary;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { view-changed("favorites"); }
+                    }
+                }
+            }
+        }
+
+        // ==================== 集群列表 ====================
+        Rectangle {
+            vertical-stretch: 1;  // 占据剩余空间
+            background: Theme.surface;
+            padding: 16px;
+
+            VerticalBox {
+                // 集群标签 + 操作按钮
+                Rectangle {
+                    height: 30px;
+                    background: transparent;
+
+                    HorizontalBox {
+                        spacing: 8px;
+
+                        Text {
+                            text: i18n-clusters-label;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text-secondary;
+                        }
+
+                        // 全选按钮
+                        Rectangle {
+                            width: 60px;
+                            height: 24px;
+                            background: Theme.background;
+                            border-radius: 4px;
+
+                            Text {
+                                text: i18n-select-all;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                            }
+
+                            TouchArea {
+                                clicked => { select-all-clusters(); }
+                            }
+                        }
+
+                        // 清空按钮
+                        Rectangle {
+                            width: 60px;
+                            height: 24px;
+                            background: Theme.background;
+                            border-radius: 4px;
+
+                            Text {
+                                text: i18n-clear;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                            }
+
+                            TouchArea {
+                                clicked => { clear-selection(); }
+                            }
+                        }
+                    }
+                }
+
+                // 集群节点列表
+                for cluster in clusters: ClusterNodeView {
+                    cluster: cluster;
+                    i18n-topics: root.i18n-topics;
+                    i18n-consumer-groups: root.i18n-consumer-groups;
+
+                    cluster-expanded(name) => { root.cluster-expanded(name); }
+                    cluster-selected(name, checked) => { root.cluster-selected(name, checked); }
+                    topics-folder-expanded(name) => { root.topics-folder-expanded(name); }
+                    consumer-groups-folder-expanded(name) => { root.consumer-groups-folder-expanded(name); }
+                    refresh-topics(name) => { root.refresh-topics(name); }
+                    refresh-consumer-groups(name) => { root.refresh-consumer-groups(name); }
+                }
+            }
+        }
+
+        // ==================== Topic收藏列表 ====================
+        Rectangle {
+            height: 150px;
+            background: Theme.surface;
+            padding: 16px;
+            // Slint不支持border-top-width，使用普通border替代
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalBox {
+                spacing: 8px;
+
+                // 收藏标签
+                Text {
+                    text: "⭐ " + i18n-favorites;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                }
+
+                // 收藏分组列表（简化版本）
+                // TODO: Phase 11 Week 3-4 实现分组展示
+                // 目前简化为直接显示收藏项列表
+                for item in favorite-items: Rectangle {
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        // Topic图标
+                        Text {
+                            text: "📨";
+                            font-size: 12px;
+                            color: Theme.primary;
+                        }
+
+                        VerticalBox {
+                            alignment: start;
+
+                            // Topic名称
+                            Text {
+                                text: item.topic-name;
+                                font-size: 12px;
+                                color: Theme.text-primary;
+                            }
+
+                            // 集群名称
+                            Text {
+                                text: item.cluster-id;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                            }
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { favorite-selected(item.id, item.cluster-id, item.topic-name); }
+                    }
+                }
+
+                // 空收藏提示
+                if favorite-items.length == 0: Text {
+                    text: i18n-favorites-empty;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // ==================== 底部按钮 ====================
+        Rectangle {
+            height: 60px;
+            background: Theme.surface;
+            // Slint不支持border-top-width，使用普通border替代
+            border-width: 1px;
+            border-color: Theme.border;
+            padding: 16px;
+
+            // Manage Clusters按钮
+            Rectangle {
+                height: 40px;
+                background: Theme.primary;
+                border-radius: Theme.radius-md;
+
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "+";
+                        font-size: 16px;
+                        color: white;
+                    }
+
+                    Text {
+                        text: i18n-manage-clusters;
+                        font-size: 14px;
+                        color: white;
+                    }
+                }
+
+                TouchArea {
+                    clicked => { manage-clusters-clicked(); }
+                }
+            }
+        }
+    }
+
+    // ==================== 宽度调整器 ====================
+    Rectangle {
+        x: sidebar-width * 1px - 4px;  // 右侧边缘
+        width: 4px;
+        height: parent.height;
+        background: Theme.border;
+
+        // TODO: 添加鼠标拖拽事件调整宽度
+        // Slint不支持mousedown/mousemove/mouseup事件组合
+        // 需要用TouchArea的mouse-move事件实现
+
+        TouchArea {
+            // 暂时不实现宽度调整功能
+        }
+    }
+}

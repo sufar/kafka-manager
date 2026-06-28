@@ -1,0 +1,173 @@
+// 主布局组件（完整复刻原Vue版本）
+// Phase 11 Week 1-2：MainLayout复刻
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SidebarNew, ClusterNode, FavoriteItem } from "components/sidebar_new.slint";
+import { TopNavBar } from "components/top_nav_bar.slint";
+
+// ==================== 主布局组件 ====================
+
+export component MainLayout inherits Rectangle {
+    // 数据属性
+    in property <[ClusterNode]> clusters: [];
+    in property <[FavoriteItem]> favorite-items: [];
+    in property <string> current-view: "clusters";
+    in property <string> page-title: "Clusters";
+    in property <string> language: "en";
+    in property <string> theme-mode: "light";
+    in property <bool> refreshing-health: false;
+
+    // 国际化字符串（传递给子组件）
+    in property <string> i18n-clusters: "Clusters";
+    in property <string> i18n-topics: "Topics";
+    in property <string> i18n-messages: "Messages";
+    in property <string> i18n-consumer-groups: "Consumer Groups";
+    in property <string> i18n-favorites: "Favorites";
+    in property <string> i18n-settings: "Settings";
+    in property <string> i18n-manage-clusters: "Manage Clusters";
+    in property <string> i18n-multi-cluster: "Multi-Cluster Kafka Manager";
+    in property <string> i18n-clusters-label: "CLUSTERS";
+    in property <string> i18n-select-all: "Select All";
+    in property <string> i18n-clear: "Clear";
+    in property <string> i18n-favorites-empty: "No favorites";
+    in property <string> i18n-search-placeholder: "Search topics...";
+    in property <string> i18n-no-topics-found: "No topics found";
+    in property <string> i18n-share: "Share";
+    in property <string> i18n-help: "Help";
+    in property <string> i18n-refresh-health: "Refresh Health";
+    in property <string> i18n-clusters-selected: "clusters selected";
+
+    // 回调函数（转发给父组件）
+    callback view-changed(string);  // 导航视图切换
+    callback cluster-expanded(string);  // 集群展开/折叠
+    callback cluster-selected(string, bool);  // 集群选中
+    callback topics-folder-expanded(string);  // Topics文件夹展开
+    callback consumer-groups-folder-expanded(string);  // Consumer Groups文件夹展开
+    callback refresh-topics(string);  // 刷新Topics
+    callback refresh-consumer-groups(string);  // 刷新Consumer Groups
+    callback favorite-selected(int, string, string);  // 收藏选中
+    callback manage-clusters-clicked();  // 管理集群按钮
+    callback select-all-clusters();  // 全选集群
+    callback clear-selection();  // 清空选择
+    callback toggle-language();  // 语言切换
+    callback toggle-theme();  // 主题切换
+    callback refresh-health-clicked();  // 刷新健康状态
+
+    background: Theme.background;
+
+    HorizontalBox {
+        // ==================== 左侧：Sidebar ====================
+        SidebarNew {
+            clusters: root.clusters;
+            favorite-items: root.favorite-items;
+            current-view: root.current-view;
+
+            // 国际化字符串
+            i18n-clusters: root.i18n-clusters;
+            i18n-topics: root.i18n-topics;
+            i18n-consumer-groups: root.i18n-consumer-groups;
+            i18n-favorites: root.i18n-favorites;
+            i18n-manage-clusters: root.i18n-manage-clusters;
+            i18n-multi-cluster: root.i18n-multi-cluster;
+            i18n-clusters-label: root.i18n-clusters-label;
+            i18n-select-all: root.i18n-select-all;
+            i18n-clear: root.i18n-clear;
+            i18n-favorites-empty: root.i18n-favorites-empty;
+
+            // 回调转发
+            view-changed(view) => { root.view-changed(view); }
+            cluster-expanded(name) => { root.cluster-expanded(name); }
+            cluster-selected(name, checked) => { root.cluster-selected(name, checked); }
+            topics-folder-expanded(name) => { root.topics-folder-expanded(name); }
+            consumer-groups-folder-expanded(name) => { root.consumer-groups-folder-expanded(name); }
+            refresh-topics(name) => { root.refresh-topics(name); }
+            refresh-consumer-groups(name) => { root.refresh-consumer-groups(name); }
+            favorite-selected(id, cluster, topic) => { root.favorite-selected(id, cluster, topic); }
+            manage-clusters-clicked() => { root.manage-clusters-clicked(); }
+            select-all-clusters() => { root.select-all-clusters(); }
+            clear-selection() => { root.clear-selection(); }
+        }
+
+        // ==================== 中间：Resizer（宽度调整器）====================
+        // TODO: Phase 11 Week 3-4 实现宽度调整功能
+        Rectangle {
+            width: 4px;
+            background: Theme.border;
+        }
+
+        // ==================== 右侧：Main Content ====================
+        VerticalBox {
+            // 顶部导航栏
+            TopNavBar {
+                page-title: root.page-title;
+                selected-cluster-count: root.clusters.length;  // TODO: 计算选中的集群数量
+                language: root.language;
+                theme-mode: root.theme-mode;
+                refreshing: root.refreshing-health;
+
+                // 国际化字符串
+                i18n-search-placeholder: root.i18n-search-placeholder;
+                i18n-no-topics-found: root.i18n-no-topics-found;
+                i18n-share: root.i18n-share;
+                i18n-help: root.i18n-help;
+                i18n-settings: root.i18n-settings;
+                i18n-refresh-health: root.i18n-refresh-health;
+                i18n-clusters-selected: root.i18n-clusters-selected;
+
+                // 回调转发
+                toggle-language() => { root.toggle-language(); }
+                toggle-theme() => { root.toggle-theme(); }
+                refresh-health-clicked() => { root.refresh-health-clicked(); }
+                // TODO: 添加其他回调
+            }
+
+            // 主内容区（占位符）
+            Rectangle {
+                vertical-stretch: 1;  // 占据剩余空间
+                background: Theme.background;
+
+                VerticalBox {
+                    padding: 24px;
+
+                    Text {
+                        text: "Page Content Placeholder";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Current view: " + root.current-view;
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Text {
+                        text: "This area will display the selected page content.";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+
+            // 底部 Footer
+            Rectangle {
+                height: 40px;
+                background: Theme.surface;
+                // Slint不支持border-top-width，使用普通border替代
+                border-width: 1px;
+                border-color: Theme.border;
+
+                HorizontalBox {
+                    alignment: center;
+
+                    Text {
+                        text: "Kafka Manager - Slint Edition v1.2.0";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

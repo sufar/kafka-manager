@@ -1,0 +1,146 @@
+// Badge徽章组件（完整复刻原Vue版本的 DaisyUI Badge）
+// Phase 11 Week 3-4：核心组件复刻 - Badge徽章系统
+import { Theme } from "../theme.slint";
+
+// ==================== Badge组件 ====================
+
+// 基础Badge（徽章）
+export component Badge inherits Rectangle {
+    in property <string> text: "";
+    in property <color> background-color: Theme.primary;
+    in property <color> text-color: white;
+    in property <string> size: "sm";  // "xs" / "sm" / "md"
+
+    // 根据size设置尺寸
+    height: size == "xs" ? 16px : size == "sm" ? 20px : 24px;
+    min-width: size == "xs" ? 40px : size == "sm" ? 50px : 60px;
+    background: background-color;
+    border-radius: size == "xs" ? 3px : size == "sm" ? 4px : 6px;
+
+    HorizontalBox {
+        padding: size == "xs" ? 4px : size == "sm" ? 6px : 8px;
+        alignment: center;
+
+        Text {
+            text: root.text;
+            font-size: size == "xs" ? 10px : size == "sm" ? 12px : 14px;
+            color: text-color;
+            font-weight: 600;
+        }
+    }
+}
+
+// ==================== 状态Badge（预定义颜色）====================
+
+// Status Badge（用于状态指示）
+export component StatusBadge inherits Badge {
+    in property <string> status: "default";  // "default" / "primary" / "success" / "warning" / "error"
+
+    // 根据status自动设置颜色
+    background-color: status == "primary" ? Theme.primary :
+                      status == "success" ? Theme.success :
+                      status == "warning" ? Theme.warning :
+                      status == "error" ? Theme.error : Theme.background;
+    text-color: status == "default" ? Theme.text-primary : white;
+}
+
+// ==================== 连接状态Badge（专用）====================
+
+// Connection Status Badge（用于集群连接状态）
+export component ConnectionBadge inherits StatusBadge {
+    in property <string> connection-status: "connected";  // "connected" / "disconnected" / "error"
+
+    text: connection-status == "connected" ? "✓ Connected" :
+          connection-status == "disconnected" ? "○ Disconnected" : "× Error";
+    status: connection-status == "connected" ? "success" :
+            connection-status == "disconnected" ? "warning" : "error";
+}
+
+// ==================== Internal Badge（Topic专用）====================
+
+// Internal Badge（用于Internal Topic标记）
+export component InternalBadge inherits Badge {
+    text: "Internal";
+    background-color: Theme.warning;
+    text-color: white;
+    size: "xs";
+}
+
+// ==================== Topic数量Badge（专用）====================
+
+// Topics Count Badge（显示Topic数量）
+export component TopicsBadge inherits Badge {
+    in property <int> count: 0;
+
+    text: count + " Topics";
+    background-color: Theme.primary;
+    size: "sm";
+}
+
+// ==================== Consumer Group数量Badge（专用）====================
+
+// Consumer Groups Count Badge
+export component ConsumerGroupsBadge inherits Badge {
+    in property <int> count: 0;
+
+    text: count + " Groups";
+    background-color: Theme.success;
+    size: "sm";
+}
+
+// ==================== Lag Badge（Consumer Group专用）====================
+
+// Lag Badge（显示消费延迟）
+export component LagBadge inherits Badge {
+    in property <int> lag: 0;
+
+    text: "Lag: " + lag;
+    // 根据lag值设置颜色
+    background-color: lag == 0 ? Theme.success :
+                      lag > 1000 ? Theme.error : Theme.warning;
+    size: "xs";
+}
+
+// ==================== Partition数量Badge（专用）====================
+
+// Partitions Badge
+export component PartitionsBadge inherits Badge {
+    in property <int> count: 0;
+
+    text: count + " Partitions";
+    background-color: Theme.background;
+    text-color: Theme.text-primary;
+    size: "xs";
+}
+
+// ==================== Replication Badge（专用）====================
+
+// Replication Factor Badge
+export component ReplicationBadge inherits Badge {
+    in property <int> factor: 1;
+
+    text: "RF: " + factor;
+    background-color: Theme.background;
+    text-color: Theme.text-secondary;
+    size: "xs";
+}
+
+// ==================== Badge组（多个Badge组合）====================
+
+// Badge Group（横向排列多个Badge）
+export component BadgeGroup inherits HorizontalBox {
+    in property <[string]> badges: [];
+    in property <string> status: "default";  // 所有Badge使用相同状态
+
+    spacing: 4px;
+
+    for text in badges: Badge {
+        text: text;
+        background-color: root.status == "primary" ? Theme.primary :
+                          root.status == "success" ? Theme.success :
+                          root.status == "warning" ? Theme.warning :
+                          root.status == "error" ? Theme.error : Theme.background;
+        text-color: root.status == "default" ? Theme.text-primary : white;
+        size: "xs";
+    }
+}

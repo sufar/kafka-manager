@@ -1,0 +1,150 @@
+// Toast提示组件（完整复刻原Vue版本的 ToastAndConfirm）
+// Phase 11 Week 3-4：核心组件复刻 - Toast提示系统
+import { Theme } from "../theme.slint";
+
+// ==================== Toast数据结构 ====================
+
+export struct ToastData {
+    id: int,
+    message: string,
+    type: string,  // "success" / "error" / "warning" / "info"
+    duration: int,  // 显示时长（毫秒）
+}
+
+// ==================== 单个Toast组件 ====================
+
+// Single Toast（单个提示）
+export component Toast inherits Rectangle {
+    in property <string> message: "Toast message";
+    in property <string> type: "success";  // "success" / "error" / "warning" / "info"
+    in property <int> duration: 3000;  // 3秒默认显示时长
+
+    callback close-clicked();
+
+    // 根据type设置颜色和图标
+    background: type == "success" ? Theme.success :
+                type == "error" ? Theme.error :
+                type == "warning" ? Theme.warning : Theme.primary;
+    border-radius: Theme.radius-md;
+    min-width: 300px;
+    height: 50px;
+
+    HorizontalBox {
+        padding: Theme.spacing-md;
+        spacing: Theme.spacing-sm;
+
+        // 图标（根据type）
+        Text {
+            text: type == "success" ? "✓" :
+                  type == "error" ? "×" :
+                  type == "warning" ? "⚠" : "ℹ";
+            font-size: 20px;
+            color: white;
+            font-weight: 700;
+        }
+
+        // 消息文本
+        Text {
+            text: message;
+            font-size: 14px;
+            color: white;
+            vertical-stretch: 1;
+        }
+
+        // 关闭按钮
+        Rectangle {
+            width: 24px;
+            height: 24px;
+            background: transparent;
+
+            Text {
+                text: "×";
+                font-size: 16px;
+                color: white;
+            }
+
+            TouchArea {
+                clicked => { close-clicked(); }
+            }
+        }
+    }
+}
+
+// ==================== Toast管理器（多个Toast）====================
+
+// Toast Manager（管理多个Toast，自动消失）
+export component ToastManager inherits Rectangle {
+    in property <[ToastData]> toasts: [];
+
+    // Toast容器（右上角）
+    x: parent.width - 350px;
+    y: 20px;
+    width: 300px;
+    background: transparent;
+
+    VerticalBox {
+        spacing: 8px;
+
+        // 显示所有Toast（从上到下）
+        for toast in toasts: Toast {
+            message: toast.message;
+            type: toast.type;
+
+            // TODO: 实现自动消失（需要Timer）
+            // Slint不支持Timer，需要外部Rust实现
+        }
+    }
+}
+
+// ==================== 预定义Toast ====================
+
+// Success Toast
+export component SuccessToast inherits Toast {
+    type: "success";
+    background: Theme.success;
+}
+
+// Error Toast
+export component ErrorToast inherits Toast {
+    type: "error";
+    background: Theme.error;
+}
+
+// Warning Toast
+export component WarningToast inherits Toast {
+    type: "warning";
+    background: Theme.warning;
+}
+
+// Info Toast
+export component InfoToast inherits Toast {
+    type: "info";
+    background: Theme.primary;
+}
+
+// ==================== Toast快捷方法（简化使用）====================
+
+// Toast Helper（简化调用）
+export component ToastHelper inherits Rectangle {
+    // 静态方法（不显示，仅定义Toast类型）
+
+    // 显示成功提示
+    callback show-success(string);
+
+    // 显示错误提示
+    callback show-error(string);
+
+    // 显示警告提示
+    callback show-warning(string);
+
+    // 显示信息提示
+    callback show-info(string);
+
+    // 隐藏所有Toast
+    callback hide-all();
+
+    // 不显示任何内容
+    background: transparent;
+    width: 0;
+    height: 0;
+}

@@ -1,0 +1,202 @@
+// 搜索组件（完整复刻原Vue版本的搜索功能）
+// Phase 11 Week 5-6：交互功能实现 - 搜索系统
+import { LineEdit, VerticalBox, HorizontalBox, ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// ==================== 搜索框组件 ====================
+
+// 基础搜索框
+export component SearchBox inherits Rectangle {
+    in property <string> placeholder: "Search...";
+    in-out property <string> query: "";
+    in property <bool> show-clear-button: true;
+
+    callback search-changed(string);  // 搜索关键字变更
+    callback clear-clicked();  // 清空搜索
+
+    width: 250px;
+    height: 30px;
+    background: Theme.background;
+    border-radius: 4px;
+
+    HorizontalBox {
+        padding: 8px;
+        spacing: 8px;
+
+        // 搜索图标
+        Text {
+            text: "🔍";
+            font-size: 14px;
+            color: Theme.text-secondary;
+        }
+
+        // 搜索输入框
+        LineEdit {
+            text: query;
+            placeholder-text: placeholder;
+            font-size: 12px;
+
+            // Slint的LineEdit不支持text-changed回调
+            // 要要外部处理
+        }
+
+        // 清空按钮（当有搜索内容时显示）
+        if show-clear-button && query != "": Rectangle {
+            width: 20px;
+            height: 20px;
+            background: Theme.border;
+            border-radius: 3px;
+
+            Text {
+                text: "×";
+                font-size: 12px;
+                color: Theme.text-secondary;
+            }
+
+            TouchArea {
+                clicked => { clear-clicked(); }
+            }
+        }
+    }
+}
+
+// ==================== Topic搜索框（专用）====================
+
+// Topic Search Box（用于 Topics 文件夹）
+export component TopicSearchBox inherits SearchBox {
+    in property <int> total-topics: 0;  // 总Topic数量
+    in property <int> matching-topics: 0;  // 匹配的Topic数量
+
+    placeholder: "Search " + total-topics + " topics...";
+
+    // 显示搜索统计
+    VerticalBox {
+        padding: 8px;
+
+        SearchBox {
+            // 搜索框本身
+        }
+
+        // 搜索统计（当有搜索内容时显示）
+        if query != "": HorizontalBox {
+            spacing: 8px;
+
+            Text {
+                text: matching-topics + " matching";
+                font-size: 10px;
+                color: Theme.primary;
+            }
+        }
+    }
+}
+
+// ==================== Consumer Group搜索框（专用）====================
+
+// Consumer Group Search Box
+export component ConsumerGroupSearchBox inherits SearchBox {
+    in property <int> total-groups: 0;
+    in property <int> matching-groups: 0;
+
+    placeholder: "Search " + total-groups + " consumer groups...";
+}
+
+// ==================== 全局Topic搜索（TopNavBar专用）====================
+
+// Global Topic Search（带下拉结果）
+export component GlobalTopicSearch inherits Rectangle {
+    in property <string> query: "";
+    in property <[string]> search-results: [];  // 搜索结果（Topic名称列表）
+    in property <bool> loading: false;
+    in property <bool> show-dropdown: false;
+
+    callback search-changed(string);
+    callback topic-selected(string);
+
+    width: 400px;
+    background: transparent;
+
+    VerticalBox {
+        // 搜索框
+        SearchBox {
+            query: root.query;
+            placeholder: "Search topics across all clusters...";
+            show-clear-button: true;
+
+            // 搜索结果下拉框（当有搜索内容且show-dropdown时显示）
+        }
+
+        // 搜索结果下拉框
+        if show-dropdown && query != "": Rectangle {
+            width: 400px;
+            background: Theme.surface;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalBox {
+                padding: 8px;
+
+                // 加载中
+                if loading: Text {
+                    text: "Loading...";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                // 无结果
+                if !loading && search-results.length == 0: Text {
+                    text: "No topics found";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                // 结果列表
+                if !loading: for topic in search-results: Rectangle {
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        // Topic图标
+                        Text {
+                            text: "📨";
+                            font-size: 12px;
+                            color: Theme.primary;
+                        }
+
+                        // Topic名称
+                        Text {
+                            text: topic;
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { topic-selected(topic); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 搜索结果高亮 ====================
+
+// Highlight Match（高亮匹配文本）
+export component HighlightText inherits Rectangle {
+    in property <string> full-text: "";
+    in property <string> query: "";
+
+    // TODO: Slint不支持HTML富文本，无法实现高亮
+    // 简化版本：显示完整文本，不高亮
+
+    Text {
+        text: full-text;
+        font-size: 12px;
+        color: Theme.text-primary;
+    }
+}

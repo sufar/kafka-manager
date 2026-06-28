@@ -1,0 +1,475 @@
+// MessagesView完整复刻（Phase 11 Week 7-8：页面复刻）
+// 完整复刻原Vue版本的 MessagesView.vue + MessageQueryTool.vue
+import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { MessageVirtualList } from "../components/virtual_list.slint";
+import { Badge } from "../components/badge.slint";
+import { SendMessageModal } from "../components/modal.slint";
+
+// ==================== 消息查询工具栏 ====================
+
+// Message Query Toolbar（完整的查询工具栏）
+component MessageQueryToolbar inherits Rectangle {
+    in property <string> selected-cluster: "";
+    in property <string> selected-topic: "";
+    in property <int> selected-partition: -1;
+    in property <string> fetch-mode: "newest";  // "newest" / "oldest" / "offset"
+    in property <int> max-messages: 100;
+    in property <string> search-keyword: "";
+    in property <bool> is-querying: false;
+    in property <int> received-count: 0;
+
+    callback query-messages();
+    callback stop-query();
+    callback send-message();
+    callback partition-changed(int);
+    callback fetch-mode-changed(string);
+    callback max-messages-changed(int);
+    callback search-keyword-changed(string);
+
+    height: 80px;
+    background: Theme.surface;
+    border-radius: Theme.radius-md;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 8px;
+
+        // 第一行：Cluster + Topic + Partition + Fetch Mode
+        HorizontalBox {
+            spacing: 8px;
+
+            // Cluster选择器
+            VerticalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Cluster:";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                }
+
+                Rectangle {
+                    width: 150px;
+                    height: 24px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: selected-cluster == "" ? "Select cluster" : selected-cluster;
+                        font-size: 12px;
+                        color: Theme.text-primary;
+                    }
+
+                    TouchArea {
+                        // TODO: 显示Cluster选择下拉框
+                    }
+                }
+            }
+
+            // Topic选择器
+            VerticalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Topic:";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                }
+
+                Rectangle {
+                    width: 200px;
+                    height: 24px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: selected-topic == "" ? "Select topic" : selected-topic;
+                        font-size: 12px;
+                        color: Theme.text-primary;
+                    }
+
+                    TouchArea {
+                        // TODO: 显示Topic选择下拉框
+                    }
+                }
+            }
+
+            // Partition选择器
+            VerticalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Partition:";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                }
+
+                Rectangle {
+                    width: 100px;
+                    height: 24px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: selected-partition == -1 ? "All" : selected-partition;
+                        font-size: 12px;
+                        color: Theme.text-primary;
+                    }
+
+                    TouchArea {
+                        // TODO: 显示Partition选择下拉框
+                    }
+                }
+            }
+
+            // Fetch Mode选择器
+            VerticalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Mode:";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                }
+
+                HorizontalBox {
+                    spacing: 4px;
+
+                    // Newest
+                    Rectangle {
+                        width: 60px;
+                        height: 24px;
+                        background: fetch-mode == "newest" ? Theme.primary : Theme.background;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Newest";
+                            font-size: 10px;
+                            color: fetch-mode == "newest" ? white : Theme.text-secondary;
+                        }
+
+                        TouchArea {
+                            clicked => { fetch-mode-changed("newest"); }
+                        }
+                    }
+
+                    // Oldest
+                    Rectangle {
+                        width: 60px;
+                        height: 24px;
+                        background: fetch-mode == "oldest" ? Theme.primary : Theme.background;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Oldest";
+                            font-size: 10px;
+                            color: fetch-mode == "oldest" ? white : Theme.text-secondary;
+                        }
+
+                        TouchArea {
+                            clicked => { fetch-mode-changed("oldest"); }
+                        }
+                    }
+                }
+            }
+
+            // Max Messages
+            VerticalBox {
+                spacing: 4px;
+
+                Text {
+                    text: "Max:";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                }
+
+                LineEdit {
+                    text: max-messages;
+                    font-size: 12px;
+                    width: 80px;
+                    height: 24px;
+                }
+            }
+        }
+
+        // 第二行：Search + Query/Stop/Send按钮 + Progress
+        HorizontalBox {
+            spacing: 8px;
+
+            // Search Keyword
+            Rectangle {
+                width: 200px;
+                height: 24px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                HorizontalBox {
+                    padding: 8px;
+
+                    Text {
+                        text: "🔍";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: search-keyword;
+                        placeholder-text: "Search keyword...";
+                        font-size: 12px;
+                    }
+                }
+            }
+
+            // Query按钮
+            Rectangle {
+                width: 100px;
+                height: 30px;
+                background: Theme.primary;
+                border-radius: 4px;
+
+                Text {
+                    text: is-querying ? "⏳ Querying" : "▶ Query";
+                    font-size: 12px;
+                    color: white;
+                }
+
+                TouchArea {
+                    enabled: !is-querying;
+                    clicked => { query-messages(); }
+                }
+            }
+
+            // Stop按钮（查询时显示）
+            if is-querying: Rectangle {
+                width: 80px;
+                height: 30px;
+                background: Theme.error;
+                border-radius: 4px;
+
+                Text {
+                    text: "⏹ Stop";
+                    font-size: 12px;
+                    color: white;
+                }
+
+                TouchArea {
+                    clicked => { stop-query(); }
+                }
+            }
+
+            // Send按钮
+            Rectangle {
+                width: 80px;
+                height: 30px;
+                background: Theme.success;
+                border-radius: 4px;
+
+                Text {
+                    text: "📤 Send";
+                    font-size: 12px;
+                    color: white;
+                }
+
+                TouchArea {
+                    clicked => { send-message(); }
+                }
+            }
+
+            // Progress Badge（查询时显示）
+            if is-querying: Badge {
+                text: received-count + " messages";
+                background-color: Theme.primary;
+                size: "sm";
+            }
+        }
+    }
+}
+
+// ==================== MessagesView完整版 ====================
+
+export component MessagesViewNew inherits Rectangle {
+    in property <string> selected-cluster: "";
+    in property <string> selected-topic: "";
+    in property <[string]> message-keys: [];  // Message Key列表（虚拟滚动）
+    in property <string> selected-message-key: "";  // 选中的Message Key
+    in property <string> message-value: "";  // Message Value（详情）
+    in property <bool> is-querying: false;
+    in property <int> received-count: 0;
+    in property <string> search-keyword: "";
+
+    callback query-messages();
+    callback stop-query();
+    callback send-message();
+    callback message-selected(string);
+
+    background: Theme.background;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 16px;
+
+        // ==================== 页面头部 ====================
+        HorizontalBox {
+            spacing: 16px;
+            alignment: start;
+
+            // 返回按钮
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: "←";
+                    font-size: 16px;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { back-clicked(); }
+                }
+            }
+
+            VerticalBox {
+                alignment: start;
+
+                // 页面标题
+                HorizontalBox {
+                    spacing: 8px;
+
+                    Text {
+                        text: "✉️";
+                        font-size: 24px;
+                        color: Theme.primary;
+                    }
+
+                    Text {
+                        text: "Messages";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+                }
+
+                // 页面描述（显示Topic名称）
+                if selected-topic != "": Text {
+                    text: "Topic: " + selected-topic + " (" + selected-cluster + ")";
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // ==================== 消息查询工具栏 ====================
+        MessageQueryToolbar {
+            selected-cluster: root.selected-cluster;
+            selected-topic: root.selected-topic;
+            is-querying: root.is-querying;
+            received-count: root.received-count;
+            search-keyword: root.search-keyword;
+
+            query-messages() => { root.query-messages(); }
+            stop-query() => { root.stop-query(); }
+            send-message() => { root.send-message(); }
+        }
+
+        // ==================== 消息列表 + 详情（左右布局）====================
+        HorizontalBox {
+            spacing: 8px;
+
+            // 左侧：消息列表（虚拟滚动）
+            Rectangle {
+                width: 300px;
+                background: Theme.surface;
+                border-radius: Theme.radius-md;
+
+                MessageVirtualList {
+                    message-keys: root.message-keys;
+                    cluster-name: root.selected-cluster;
+                    topic-name: root.selected-topic;
+
+                    message-selected(key) => { root.message-selected(key); }
+                }
+            }
+
+            // 右侧：消息详情
+            Rectangle {
+                vertical-stretch: 1;  // 占据剩余空间
+                background: Theme.surface;
+                border-radius: Theme.radius-md;
+
+                VerticalBox {
+                    padding: 16px;
+                    spacing: 8px;
+
+                    // 详情标题
+                    Text {
+                        text: "Message Details";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    // Message Key
+                    if selected-message-key != "": VerticalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Key:";
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                        }
+
+                        Rectangle {
+                            height: 30px;
+                            background: Theme.background;
+                            border-radius: 4px;
+
+                            Text {
+                                text: selected-message-key;
+                                font-size: 12px;
+                                color: Theme.text-primary;
+                            }
+                        }
+                    }
+
+                    // Message Value
+                    if message-value != "": VerticalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Value:";
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: Theme.background;
+                            border-radius: 4px;
+
+                            VerticalBox {
+                                padding: 8px;
+
+                                Text {
+                                    text: message-value;
+                                    font-size: 12px;
+                                    color: Theme.text-primary;
+                                }
+                            }
+                        }
+                    }
+
+                    // 无消息提示
+                    if selected-message-key == "": Text {
+                        text: "Select a message to view details";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

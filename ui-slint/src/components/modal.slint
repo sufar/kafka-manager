@@ -1,0 +1,533 @@
+// Modal对话框组件（完整复刻原Vue版本的 DaisyUI Modal）
+// Phase 11 Week 3-4：核心组件复刻 - Modal对话框系统
+import { Button, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// ==================== Modal基础组件 ====================
+
+// 基础Modal（使用PopupWindow）
+export component Modal inherits PopupWindow {
+    in property <string> title: "Modal Title";
+    in property <string> content: "";
+    in property <bool> show-close-button: true;
+
+    callback close-clicked();
+    callback confirm-clicked();
+
+    // Modal背景（半透明遮罩）
+    background: Theme.background;
+
+    // Modal容器（居中）
+    Rectangle {
+        x: (parent.width - 400px) / 2;
+        y: (parent.height - 300px) / 2;
+        width: 400px;
+        height: 300px;
+        background: Theme.surface;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border;
+
+        VerticalBox {
+            padding: Theme.spacing-md;
+            spacing: Theme.spacing-md;
+
+            // Modal头部
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+
+                Text {
+                    text: title;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    vertical-stretch: 1;
+                }
+
+                // 关闭按钮
+                if show-close-button: Rectangle {
+                    width: 30px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "×";
+                        font-size: 18px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+            }
+
+            // Modal内容
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.background;
+                border-radius: Theme.radius-md;
+
+                VerticalBox {
+                    padding: Theme.spacing-md;
+
+                    Text {
+                        text: content;
+                        font-size: 14px;
+                        color: Theme.text-primary;
+                    }
+                }
+            }
+
+            // Modal底部（操作按钮）
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+
+                // 取消按钮
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Cancel";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+
+                // 确认按钮
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.primary;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Confirm";
+                        font-size: 12px;
+                        color: white;
+                    }
+
+                    TouchArea {
+                        clicked => { confirm-clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 确认对话框 ====================
+
+// Confirm Dialog（删除确认等）
+export component ConfirmDialog inherits Modal {
+    in property <string> item-name: "";  // 要删除的项目名称
+    in property <string> action: "delete";  // "delete" / "edit" / "create"
+
+    title: action == "delete" ? "Confirm Delete" :
+           action == "edit" ? "Confirm Edit" : "Confirm Action";
+    content: action == "delete" ?
+             "Are you sure you want to delete '" + item-name + "'? This action cannot be undone." :
+             "Are you sure you want to edit '" + item-name + "'?";
+}
+
+// ==================== 输入对话框 ====================
+
+// Input Dialog（创建/编辑输入）
+export component InputDialog inherits PopupWindow {
+    in property <string> title: "Input Dialog";
+    in property <string> placeholder: "Enter value...";
+    in property <string> default-value: "";
+    in-out property <string> input-value: "";
+
+    callback close-clicked();
+    callback submit-clicked(string);
+
+    background: Theme.background;
+
+    Rectangle {
+        x: (parent.width - 400px) / 2;
+        y: (parent.height - 250px) / 2;
+        width: 400px;
+        height: 250px;
+        background: Theme.surface;
+        border-radius: Theme.radius-md;
+
+        VerticalBox {
+            padding: Theme.spacing-md;
+            spacing: Theme.spacing-md;
+
+            // 头部
+            Text {
+                text: title;
+                font-size: 18px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            // 输入框
+            LineEdit {
+                text: input-value;
+                placeholder-text: placeholder;
+                font-size: 14px;
+
+                // Slint的LineEdit不支持accepted回调
+                // 需要外部处理
+            }
+
+            // 底部按钮
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Cancel";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.primary;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Submit";
+                        font-size: 12px;
+                        color: white;
+                    }
+
+                    TouchArea {
+                        clicked => { submit-clicked(input-value); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 创建集群Modal ====================
+
+// Create Cluster Modal
+export component CreateClusterModal inherits PopupWindow {
+    in property <string> title: "Create Cluster";
+    in-out property <string> cluster-name: "";
+    in-out property <string> bootstrap-servers: "";
+    in-out property <int> request-timeout: 30000;
+    in-out property <int> operation-timeout: 60000;
+
+    callback close-clicked();
+    callback create-clicked(string, string, int, int);
+
+    background: Theme.background;
+
+    Rectangle {
+        x: (parent.width - 500px) / 2;
+        y: (parent.height - 400px) / 2;
+        width: 500px;
+        height: 400px;
+        background: Theme.surface;
+        border-radius: Theme.radius-md;
+
+        VerticalBox {
+            padding: Theme.spacing-lg;
+            spacing: Theme.spacing-md;
+
+            // 头部
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+
+                Text {
+                    text: title;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    vertical-stretch: 1;
+                }
+
+                Rectangle {
+                    width: 30px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "×";
+                        font-size: 18px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+            }
+
+            // 表单内容
+            VerticalBox {
+                spacing: Theme.spacing-md;
+
+                // Cluster Name
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Cluster Name";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: cluster-name;
+                        placeholder-text: "Enter cluster name...";
+                        font-size: 14px;
+                    }
+                }
+
+                // Bootstrap Servers
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Bootstrap Servers";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: bootstrap-servers;
+                        placeholder-text: "localhost:9092";
+                        font-size: 14px;
+                    }
+                }
+
+                // Request Timeout
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Request Timeout (ms)";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: request-timeout;
+                        placeholder-text: "30000";
+                        font-size: 14px;
+                    }
+                }
+
+                // Operation Timeout
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Operation Timeout (ms)";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: operation-timeout;
+                        placeholder-text: "60000";
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 底部按钮
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Cancel";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.primary;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Create";
+                        font-size: 12px;
+                        color: white;
+                    }
+
+                    TouchArea {
+                        clicked => { create-clicked(cluster-name, bootstrap-servers, request-timeout, operation-timeout); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 创建Topic Modal ====================
+
+// Create Topic Modal
+export component CreateTopicModal inherits PopupWindow {
+    in property <string> cluster-name: "";
+    in-out property <string> topic-name: "";
+    in-out property <int> num-partitions: 3;
+    in-out property <int> replication-factor: 1;
+
+    callback close-clicked();
+    callback create-clicked(string, string, int, int);
+
+    background: Theme.background;
+
+    Rectangle {
+        x: (parent.width - 400px) / 2;
+        y: (parent.height - 350px) / 2;
+        width: 400px;
+        height: 350px;
+        background: Theme.surface;
+        border-radius: Theme.radius-md;
+
+        VerticalBox {
+            padding: Theme.spacing-md;
+            spacing: Theme.spacing-md;
+
+            // 头部
+            Text {
+                text: "Create Topic in " + cluster-name;
+                font-size: 18px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            // 表单
+            VerticalBox {
+                spacing: Theme.spacing-md;
+
+                // Topic Name
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Topic Name";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: topic-name;
+                        placeholder-text: "Enter topic name...";
+                        font-size: 14px;
+                    }
+                }
+
+                // Partitions
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Number of Partitions";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: num-partitions;
+                        placeholder-text: "3";
+                        font-size: 14px;
+                    }
+                }
+
+                // Replication Factor
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Replication Factor";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    LineEdit {
+                        text: replication-factor;
+                        placeholder-text: "1";
+                        font-size: 14px;
+                    }
+                }
+            }
+
+            // 底部按钮
+            HorizontalBox {
+                spacing: Theme.spacing-sm;
+                alignment: end;
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.background;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Cancel";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+
+                    TouchArea {
+                        clicked => { close-clicked(); }
+                    }
+                }
+
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: Theme.primary;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "Create";
+                        font-size: 12px;
+                        color: white;
+                    }
+
+                    TouchArea {
+                        clicked => { create-clicked(cluster-name, topic-name, num-partitions, replication-factor); }
+                    }
+                }
+            }
+        }
+    }
+}

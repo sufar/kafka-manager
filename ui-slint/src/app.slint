@@ -1,8 +1,9 @@
-// 主应用界面
+// 主应用界面（Phase 11 Week 1-2：逐步迁移到新布局）
 import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox, ListView } from "std-widgets.slint";
-import { Sidebar } from "components/sidebar.slint";
-import { TopicList } from "components/topic_list.slint";
-import { ConsumerGroupList } from "components/consumer_group_list.slint";
+import { SidebarNew, ClusterNode, FavoriteItem } from "components/sidebar_new.slint";  // 新的Sidebar
+import { TopNavBar } from "components/top_nav_bar.slint";  // 新的TopNavBar
+import { TopicList } from "components/topic_list.slint";  // 保留现有组件
+import { ConsumerGroupList } from "components/consumer_group_list.slint";  // 保留现有组件
 import { Theme } from "theme.slint";
 import { SettingsView } from "views/settings.slint";
 import { MessageViewer } from "views/messages.slint";
@@ -41,6 +42,25 @@ export struct MessageInfo {
     key: string,
     value: string,
     timestamp: int,
+}
+
+// Phase 11 新增：集群节点数据结构（用于新的 Sidebar）
+export struct ClusterNodeData {
+    name: string,
+    bootstrap-servers: string,
+    status: string,
+    topics-count: int,
+    consumer-groups-count: int,
+    is-expanded: bool,
+    is-selected: bool,
+}
+
+// Phase 11 新增：收藏项数据结构
+export struct FavoriteItemData {
+    id: int,
+    topic-name: string,
+    cluster-id: string,
+    group-id: int,
 }
 
 // 导出全局主题变量（Phase 9 - 支持深色主题）
@@ -165,23 +185,25 @@ export component App inherits Window {
     callback get-consumer-group-lag(string, string, string);
     callback get-consumer-group-total-lag(string, string);
 
-    // 主布局
+    // 主布局（Phase 11 Week 1-2：测试新的SidebarNew）
     HorizontalBox {
-        // 左侧导航栏
-        Sidebar {
+        // 左侧导航栏（使用新的 SidebarNew）
+        SidebarNew {
+            clusters: [];  // TODO: 添加集群数据
+            favorite-items: [];  // TODO: 添加收藏数据
             current-view: root.current-view;
-            cluster-count: clusters.length;
-            topic-count: 0;  // 后续实现 topic 统计
 
-            // 传入国际化字符串
+            // 国际化字符串（TODO: 添加）
             i18n-clusters: root.i18n-clusters;
             i18n-topics: root.i18n-topics;
-            i18n-messages: root.i18n-messages;
             i18n-consumer-groups: root.i18n-consumer-groups;
             i18n-favorites: root.i18n-favorites;
-            i18n-settings: root.i18n-settings;
-            sidebar-statistics: root.sidebar-statistics;
-            sidebar-subtitle: root.sidebar-subtitle;
+            i18n-manage-clusters: "Manage Clusters";
+            i18n-multi-cluster: "Multi-Cluster Kafka Manager";
+            i18n-clusters-label: "CLUSTERS";
+            i18n-select-all: "Select All";
+            i18n-clear: "Clear";
+            i18n-favorites-empty: "No favorites";
 
             view-changed(view) => {
                 root.current-view = view;

@@ -1,0 +1,189 @@
+// ContextMenu右键菜单组件（完整复刻原Vue版本的 ContextMenus）
+// Phase 11 Week 3-4：核心组件复刻 - 右键菜单系统
+import { VerticalBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// ==================== MenuItem数据结构 ====================
+
+export struct MenuItem {
+    id: int,
+    label: string,
+    icon: string,  // Unicode图标
+    enabled: bool,
+}
+
+// ==================== 菜单项组件 ====================
+
+// Menu Item（单个菜单项）
+export component MenuItemView inherits Rectangle {
+    in property <MenuItem> item;
+    callback clicked();
+
+    height: 30px;
+    background: item.enabled ? Theme.surface : Theme.background;
+    border-radius: 4px;
+
+    HorizontalBox {
+        padding: 8px;
+        spacing: 8px;
+
+        // 图标
+        Text {
+            text: item.icon;
+            font-size: 14px;
+            color: item.enabled ? Theme.primary : Theme.text-secondary;
+        }
+
+        // 标签
+        Text {
+            text: item.label;
+            font-size: 12px;
+            color: item.enabled ? Theme.text-primary : Theme.text-secondary;
+        }
+    }
+
+    TouchArea {
+        enabled: item.enabled;
+        clicked => { clicked(); }
+    }
+}
+
+// ==================== ContextMenu组件 ====================
+
+// Context Menu（右键菜单，使用PopupWindow）
+export component ContextMenu inherits PopupWindow {
+    in property <[MenuItem]> items: [];
+    in property <string> title: "";  // 菜单标题（可选）
+    in property <int> x-position: 0;  // 菜单显示位置（相对于屏幕）
+    in property <int> y-position: 0;
+
+    callback item-clicked(int);  // 菜单项ID
+
+    background: transparent;  // 透明背景
+
+    // 菜单容器（定位在指定位置）
+    Rectangle {
+        x: x-position * 1px;
+        y: y-position * 1px;
+        width: 200px;
+        background: Theme.surface;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border;
+
+        VerticalBox {
+            padding: 8px;
+            spacing: 4px;
+
+            // 菜单标题（可选）
+            if title != "": Rectangle {
+                height: 30px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: title;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+            }
+
+            // 菜单项列表
+            for item in items: MenuItemView {
+                item: item;
+
+                clicked => { item-clicked(item.id); }
+            }
+        }
+    }
+}
+
+// ==================== Topic右键菜单（专用）====================
+
+// Topic Context Menu（Topic操作菜单）
+export component TopicContextMenu inherits ContextMenu {
+    in property <string> topic-name: "";
+    in property <string> cluster-name: "";
+    in property <bool> is-favorite: false;
+
+    title: "Topic: " + topic-name;
+
+    // 预定义菜单项
+    items: [
+        { id: 1, label: "View Messages", icon: "📨", enabled: true },
+        { id: 2, label: "View Config", icon: "⚙️", enabled: true },
+        { id: 3, label: "Edit Config", icon: "✏️", enabled: true },
+        { id: 4, label: "Delete Topic", icon: "🗑️", enabled: true },
+        { id: 5, label: is-favorite ? "Remove from Favorites" : "Add to Favorites", icon: "⭐", enabled: true },
+    ];
+}
+
+// ==================== Consumer Group右键菜单（专用）====================
+
+// Consumer Group Context Menu
+export component ConsumerGroupContextMenu inherits ContextMenu {
+    in property <string> group-name: "";
+    in property <string> cluster-name: "";
+
+    title: "Consumer Group: " + group-name;
+
+    // 预定义菜单项
+    items: [
+        { id: 1, label: "View Details", icon: "📋", enabled: true },
+        { id: 2, label: "View Members", icon: "👥", enabled: true },
+        { id: 3, label: "View Lag", icon: "📊", enabled: true },
+        { id: 4, label: "Reset Offsets", icon: "🔄", enabled: true },
+        { id: 5, label: "Delete Group", icon: "🗑️", enabled: true },
+    ];
+}
+
+// ==================== 集群右键菜单（专用）====================
+
+// Cluster Context Menu
+export component ClusterContextMenu inherits ContextMenu {
+    in property <string> cluster-name: "";
+
+    title: "Cluster: " + cluster-name;
+
+    // 预定义菜单项
+    items: [
+        { id: 1, label: "Connect", icon: "🔌", enabled: true },
+        { id: 2, label: "Disconnect", icon: "❌", enabled: true },
+        { id: 3, label: "Refresh Health", icon: "🔄", enabled: true },
+        { id: 4, label: "Edit Cluster", icon: "✏️", enabled: true },
+        { id: 5, label: "Delete Cluster", icon: "🗑️", enabled: true },
+    ];
+}
+
+// ==================== Topics文件夹右键菜单（专用）====================
+
+// Topics Folder Context Menu
+export component TopicsFolderContextMenu inherits ContextMenu {
+    in property <string> cluster-name: "";
+
+    title: "Topics";
+
+    items: [
+        { id: 1, label: "Create Topic", icon: "➕", enabled: true },
+        { id: 2, label: "Refresh Topics", icon: "🔄", enabled: true },
+        { id: 3, label: "Export Topics", icon: "⬇️", enabled: true },
+    ];
+}
+
+// ==================== Partition右键菜单（专用）====================
+
+// Partition Context Menu
+export component PartitionContextMenu inherits ContextMenu {
+    in property <int> partition-id: 0;
+    in property <string> topic-name: "";
+    in property <string> cluster-name: "";
+
+    title: "Partition " + partition-id;
+
+    items: [
+        { id: 1, label: "View Offsets", icon: "📊", enabled: true },
+        { id: 2, label: "View Messages", icon: "📨", enabled: true },
+        { id: 3, label: "Reset Offset", icon: "🔄", enabled: true },
+    ];
+}

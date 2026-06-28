@@ -1,0 +1,202 @@
+// 图标系统（Unicode图标库）
+// Phase 11 Week 11-12：样式优化 - 图标系统
+// 由于Slint不支持SVG嵌入，使用Unicode字符替代
+
+// ==================== 图标常量定义 ====================
+
+// 导出图标常量（便于统一管理和引用）
+export global Icons {
+    // 导航图标
+    out property <string> nav-clusters: "📊";
+    out property <string> nav-topics: "📨";
+    out property <string> nav-messages: "✉️";
+    out property <string> nav-consumer-groups: "👥";
+    out property <string> nav-favorites: "⭐";
+    out property <string> nav-settings: "⚙️";
+
+    // 操作图标
+    out property <string> action-add: "+";
+    out property <string> action-edit: "✏️";
+    out property <string> action-delete: "🗑️";
+    out property <string> action-refresh: "🔄";
+    out property <string> action-connect: "🔌";
+    out property <string> action-disconnect: "❌";
+    out property <string> action-search: "🔍";
+    out property <string> action-filter: "🔽";
+    out property <string> action-sort: "↕️";
+    out property <string> action-export: "⬇️";
+    out property <string> action-import: "⬆️";
+    out property <string> action-copy: "📋";
+    out property <string> action-paste: "📌";
+
+    // 状态图标
+    out property <string> status-success: "✓";
+    out property <string> status-error: "×";
+    out property <string> status-warning: "⚠️";
+    out property <string> status-info: "ℹ️";
+    out property <string> status-loading: "⏳";
+    out property <string> status-connected: "✓";
+    out property <string> status-disconnected: "○";
+    out property <string> status-offline: "×";
+
+    // Kafka对象图标
+    out property <string> kafka-cluster: "📊";
+    out property <string> kafka-topic: "📨";
+    out property <string> kafka-topic-internal: "🔒";
+    out property <string> kafka-message: "✉️";
+    out property <string> kafka-consumer-group: "👥";
+    out property <string> kafka-partition: "📁";
+    out property <string> kafka-broker: "🖥️";
+    out property <string> kafka-schema: "📄";
+
+    // 文件和数据图标
+    out property <string> file-folder: "📁";
+    out property <string> file-document: "📄";
+    out property <string> file-config: "⚙️";
+    out property <string> file-log: "📝";
+    out property <string> file-json: "📋";
+    out property <string> file-avro: "📦";
+    out property <string> file-protobuf: "📦";
+
+    // UI控件图标
+    out property <string> ui-arrow-left: "←";
+    out property <string> ui-arrow-right: "→";
+    out property <string> ui-arrow-up: "↑";
+    out property <string> ui-arrow-down: "↓";
+    out property <string> ui-arrow-expand: "▶";
+    out property <string> ui-arrow-collapse: "▼";
+    out property <string> ui-close: "×";
+    out property <string> ui-check: "✓";
+    out property <string> ui-checkbox: "☐";
+    out property <string> ui-checkbox-checked: "☑️";
+    out property <string> ui-radio: "○";
+    out property <string> ui-radio-checked: "●";
+    out property <string> ui-dropdown: "▼";
+
+    // 分组和收藏图标
+    out property <string> group-folder: "📁";
+    out property <string> group-new: "+";
+    out property <string> favorite-star: "⭐";
+    out property <string> favorite-star-filled: "⭐";
+    out property <string> favorite-bookmark: "🔖";
+
+    // 消息相关图标
+    out property <string> message-send: "📤";
+    out property <string> message-receive: "📥";
+    out property <string> message-query: "🔍";
+    out property <string> message-stop: "⏹️";
+    out property <string> message-pause: "⏸️";
+    out property <string> message-play: "▶️";
+    out property <string> message-key: "🔑";
+    out property <string> message-value: "📦";
+    out property <string> message-header: "📋";
+
+    // 时间和日期图标
+    out property <string> time-clock: "🕐";
+    out property <string> time-calendar: "📅";
+    out property <string> time-timestamp: "⏱️";
+
+    // 其他图标
+    out property <string> help-question: "❓";
+    out property <string> help-info: "ℹ️";
+    out property <string> warning-alert: "⚠️";
+    out property <string> error-exclamation: "❗";
+    out property <string> success-check: "✅";
+    out property <string> user-person: "👤";
+    out property <string> user-group: "👥";
+    out property <string> link: "🔗";
+    out property <string> home: "🏠";
+    out property <string> menu: "☰";
+    out property <string> more: "⋯";
+}
+
+// ==================== 图标组件 ====================
+
+// 基础图标组件（可复用）
+export component Icon inherits Text {
+    in property <string> icon: "";
+    in property <length> size: 16px;  // 默认16px
+    in property <color> color: Theme.text-primary;
+
+    text: icon;
+    font-size: size;
+    color: color;
+}
+
+// ==================== 常用图标组件快捷方式 ====================
+
+// Cluster图标
+export component ClusterIcon inherits Icon {
+    icon: Icons.nav-clusters;
+    color: Theme.primary;
+}
+
+// Topic图标
+export component TopicIcon inherits Icon {
+    in property <bool> is-internal: false;
+
+    icon: is-internal ? Icons.kafka-topic-internal : Icons.kafka-topic;
+    color: Theme.primary;
+}
+
+// Message图标
+export component MessageIcon inherits Icon {
+    icon: Icons.kafka-message;
+    color: Theme.primary;
+}
+
+// Consumer Group图标
+export component ConsumerGroupIcon inherits Icon {
+    icon: Icons.nav-consumer-groups;
+    color: Theme.primary;
+}
+
+// Refresh图标
+export component RefreshIcon inherits Icon {
+    in property <bool> spinning: false;  // 是否旋转（Slint不支持动画，仅显示）
+
+    icon: spinning ? Icons.status-loading : Icons.action-refresh;
+    color: Theme.primary;
+}
+
+// Add图标
+export component AddIcon inherits Icon {
+    icon: Icons.action-add;
+    color: Theme.primary;
+}
+
+// Edit图标
+export component EditIcon inherits Icon {
+    icon: Icons.action-edit;
+    color: Theme.primary;
+}
+
+// Delete图标
+export component DeleteIcon inherits Icon {
+    icon: Icons.action-delete;
+    color: Theme.error;
+}
+
+// Search图标
+export component SearchIcon inherits Icon {
+    icon: Icons.action-search;
+    color: Theme.text-secondary;
+}
+
+// Status图标
+export component StatusIcon inherits Icon {
+    in property <string> status: "success";  // "success" / "error" / "warning"
+
+    icon: status == "success" ? Icons.status-success :
+          status == "error" ? Icons.status-error : Icons.status-warning;
+    color: status == "success" ? Theme.success :
+           status == "error" ? Theme.error : Theme.warning;
+}
+
+// Favorite图标
+export component FavoriteIcon inherits Icon {
+    in property <bool> filled: false;
+
+    icon: Icons.favorite-star;
+    color: filled ? #f59e0b : Theme.text-secondary;  // amber color
+}

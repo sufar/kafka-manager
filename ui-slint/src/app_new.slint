@@ -1,0 +1,293 @@
+// 主应用界面（Phase 11 Week 1-2：测试新的MainLayout）
+// 这是一个新的测试版本，用于验证新的布局
+import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { MainLayout } from "views/main_layout.slint";
+import { ClusterNode, FavoriteItem } from "components/sidebar_new.slint";
+import { SettingsView } from "views/settings.slint";
+import { MessageViewer } from "views/messages.slint";
+
+// 集群数据结构（与 Rust ClusterData 对应）
+export struct ClusterInfo {
+    id: int,
+    name: string,
+    bootstrap-servers: string,
+    status: string,
+    topics-count: int,
+    partitions-count: int,
+}
+
+// Topic 数据结构
+export struct TopicInfo {
+    name: string,
+    cluster-id: string,
+    partitions-count: int,
+    replication-factor: int,
+    is-internal: bool,
+}
+
+// Consumer Group 数据结构
+export struct ConsumerGroupInfo {
+    name: string,
+    state: string,
+    members-count: int,
+    lag: int,
+}
+
+// 消息数据结构
+export struct MessageInfo {
+    partition: int,
+    offset: int,
+    key: string,
+    value: string,
+    timestamp: int,
+}
+
+// 导出全局主题变量（Phase 9 - 支持深色主题）
+export global Theme {
+    // 主题模式（light / dark）
+    in-out property <string> mode: "light";
+
+    // 浅色主题颜色
+    out property <color> primary: #3b82f6;
+    out property <color> primary-hover: #2563eb;
+    out property <color> background: mode == "dark" ? #1f2937 : #f5f5f5;
+    out property <color> surface: mode == "dark" ? #374151 : #ffffff;
+    out property <color> text-primary: mode == "dark" ? #f9fafb : #1f2937;
+    out property <color> text-secondary: mode == "dark" ? #d1d5db : #6b7280;
+    out property <color> border: mode == "dark" ? #4b5563 : #e0e0e0;
+
+    // 状态颜色（通用）
+    out property <color> success: #10b981;
+    out property <color> warning: #f59e0b;
+    out property <color> error: #ef4444;
+
+    // 间距
+    out property <length> spacing-sm: 8px;
+    out property <length> spacing-md: 16px;
+    out property <length> spacing-lg: 24px;
+
+    // 圆角
+    out property <length> radius-md: 8px;
+}
+
+// 主应用组件（使用新的 MainLayout）
+export component AppNew inherits Window {
+    // 窗口属性
+    title: "Kafka Manager - New Layout Test";
+    width: 1400px;
+    height: 768px;
+    background: Theme.background;
+
+    // 全局状态
+    in-out property <string> window-title: "Kafka Manager";
+    in-out property <string> current-view: "clusters";
+    in-out property <[ClusterInfo]> clusters: [];
+    in-out property <[ClusterNode]> cluster-nodes: [];  // 新的集群节点数据
+    in-out property <[FavoriteItem]> favorite-items: [];  // 收藏项数据
+    in-out property <[TopicInfo]> topics: [];
+    in-out property <[ConsumerGroupInfo]> consumer-groups: [];
+    in-out property <[MessageInfo]> messages: [];
+    in-out property <string> selected-cluster: "";
+    in-out property <string> selected-topic: "";
+    in-out property <bool> loading: false;
+
+    // Messages 查询状态（Phase 7 新增）
+    in-out property <int> received-count: 0;
+    in-out property <int> selected-partition: -1;
+    in-out property <string> fetch-mode: "newest";
+    in-out property <int> max-messages: 100;
+    in-out property <string> search-keyword: "";
+
+    // Settings 状态
+    in-out property <bool> system-tray-enabled: false;
+    in-out property <string> language: "en";
+    in-out property <string> theme: "light";
+    in-out property <bool> refreshing-health: false;
+
+    // Phase 9: 主题切换回调（更新Theme.mode）
+    callback theme-mode-changed(string);
+
+    // 国际化字符串（导航栏）
+    in-out property <string> i18n-clusters: "Clusters";
+    in-out property <string> i18n-topics: "Topics";
+    in-out property <string> i18n-messages: "Messages";
+    in-out property <string> i18n-consumer-groups: "Consumer Groups";
+    in-out property <string> i18n-favorites: "Favorites";
+    in-out property <string> i18n-settings: "Settings";
+
+    // 国际化字符串（页面标题）
+    in-out property <string> page-title-clusters: "Clusters";
+    in-out property <string> page-title-topics: "Topics";
+    in-out property <string> page-title-messages: "Messages";
+    in-out property <string> page-title-consumer-groups: "Consumer Groups";
+    in-out property <string> page-title-favorites: "Favorites";
+    in-out property <string> page-title-settings: "Settings";
+
+    // 国际化字符串（Sidebar）
+    in-out property <string> i18n-manage-clusters: "Manage Clusters";
+    in-out property <string> i18n-multi-cluster: "Multi-Cluster Kafka Manager";
+    in-out property <string> i18n-clusters-label: "CLUSTERS";
+    in-out property <string> i18n-select-all: "Select All";
+    in-out property <string> i18n-clear: "Clear";
+    in-out property <string> i18n-favorites-empty: "No favorites";
+
+    // 国际化字符串（TopNavBar）
+    in-out property <string> i18n-search-placeholder: "Search topics...";
+    in-out property <string> i18n-no-topics-found: "No topics found";
+    in-out property <string> i18n-share: "Share";
+    in-out property <string> i18n-help: "Help";
+    in-out property <string> i18n-refresh-health: "Refresh Health";
+    in-out property <string> i18n-clusters-selected: "clusters selected";
+
+    // 国际化字符串（Settings 页面）
+    in-out property <string> settings-system-tray-title: "System Tray";
+    in-out property <string> settings-enable-tray-label: "Enable system tray";
+    in-out property <string> settings-tray-desc: "Show app in system tray for quick access";
+    in-out property <string> settings-language-title: "Language";
+    in-out property <string> settings-language-desc: "Select your preferred language";
+    in-out property <string> settings-theme-title: "Theme";
+    in-out property <string> settings-theme-desc: "Choose light or dark theme";
+    in-out property <string> settings-theme-not-impl: "not implemented yet";
+    in-out property <string> settings-save-button: "💾 Save Settings";
+
+    // 回调函数（连接到 Rust 后端）
+    callback load-clusters();
+    callback load-topics();
+    callback load-consumer-groups();
+    callback query-messages();
+    callback stop-query();
+    callback send-message(string, string, string, string, int);
+    callback partition-changed(int);
+    callback fetch-mode-changed(string);
+    callback max-messages-changed(int);
+    callback search-keyword-changed(string);
+    callback create-cluster(string, string);
+    callback delete-cluster(int);
+    callback save-settings();
+    callback tray-enabled-changed(bool);
+    callback language-changed(string);
+    callback theme-changed(string);
+
+    // Phase 11 新增回调（MainLayout）
+    callback view-changed(string);  // 导航视图切换
+    callback cluster-expanded(string);  // 集群展开/折叠
+    callback cluster-selected(string, bool);  // 集群选中
+    callback topics-folder-expanded(string);  // Topics文件夹展开
+    callback consumer-groups-folder-expanded(string);  // Consumer Groups文件夹展开
+    callback refresh-topics(string);  // 刷新Topics
+    callback refresh-consumer-groups(string);  // 刷新Consumer Groups
+    callback favorite-selected(int, string, string);  // 收藏选中
+    callback manage-clusters-clicked();  // 管理集群按钮
+    callback select-all-clusters();  // 全选集群
+    callback clear-selection();  // 清空选择
+    callback refresh-health-clicked();  // 刷新健康状态
+
+    // Topic CRUD 回调（Phase 8 新增）
+    callback create-topic(string, string, int, int);
+    callback delete-topic(string, string);
+    callback get-topic-config(string, string);
+
+    // Consumer Group 详情回调（Phase 8 新增）
+    callback get-consumer-group-detail(string, string);
+    callback get-consumer-group-lag(string, string, string);
+    callback get-consumer-group-total-lag(string, string);
+
+    // 主布局（使用新的 MainLayout）
+    MainLayout {
+        clusters: root.cluster-nodes;
+        favorite-items: root.favorite-items;
+        current-view: root.current-view;
+        page-title: root.current-view == "clusters" ? root.page-title-clusters :
+                    root.current-view == "topics" ? root.page-title-topics :
+                    root.current-view == "messages" ? root.page-title-messages :
+                    root.current-view == "consumer-groups" ? root.page-title-consumer-groups :
+                    root.current-view == "favorites" ? root.page-title-favorites : root.page-title-settings;
+        language: root.language;
+        theme-mode: root.theme;
+        refreshing-health: root.refreshing-health;
+
+        // 国际化字符串
+        i18n-clusters: root.i18n-clusters;
+        i18n-topics: root.i18n-topics;
+        i18n-messages: root.i18n-messages;
+        i18n-consumer-groups: root.i18n-consumer-groups;
+        i18n-favorites: root.i18n-favorites;
+        i18n-settings: root.i18n-settings;
+        i18n-manage-clusters: root.i18n-manage-clusters;
+        i18n-multi-cluster: root.i18n-multi-cluster;
+        i18n-clusters-label: root.i18n-clusters-label;
+        i18n-select-all: root.i18n-select-all;
+        i18n-clear: root.i18n-clear;
+        i18n-favorites-empty: root.i18n-favorites-empty;
+        i18n-search-placeholder: root.i18n-search-placeholder;
+        i18n-no-topics-found: root.i18n-no-topics-found;
+        i18n-share: root.i18n-share;
+        i18n-help: root.i18n-help;
+        i18n-refresh-health: root.i18n-refresh-health;
+        i18n-clusters-selected: root.i18n-clusters-selected;
+
+        // 回调转发
+        view-changed(view) => {
+            root.current-view = view;
+            root.view-changed(view);
+        }
+
+        cluster-expanded(name) => {
+            root.cluster-expanded(name);
+        }
+
+        cluster-selected(name, checked) => {
+            root.cluster-selected(name, checked);
+        }
+
+        topics-folder-expanded(name) => {
+            root.topics-folder-expanded(name);
+        }
+
+        consumer-groups-folder-expanded(name) => {
+            root.consumer-groups-folder-expanded(name);
+        }
+
+        refresh-topics(name) => {
+            root.refresh-topics(name);
+        }
+
+        refresh-consumer-groups(name) => {
+            root.refresh-consumer-groups(name);
+        }
+
+        favorite-selected(id, cluster, topic) => {
+            root.favorite-selected(id, cluster, topic);
+        }
+
+        manage-clusters-clicked() => {
+            root.manage-clusters-clicked();
+        }
+
+        select-all-clusters() => {
+            root.select-all-clusters();
+        }
+
+        clear-selection() => {
+            root.clear-selection();
+        }
+
+        toggle-language() => {
+            root.language = root.language == "en" ? "zh" : "en";
+            root.language-changed(root.language);
+        }
+
+        toggle-theme() => {
+            root.theme = root.theme == "light" ? "dark" : "light";
+            root.theme-changed(root.theme);
+
+            // 更新全局主题
+            Theme.mode = root.theme;
+        }
+
+        refresh-health-clicked() => {
+            root.refresh-health-clicked();
+        }
+    }
+}

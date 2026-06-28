@@ -1,0 +1,248 @@
+// 顶部导航栏组件（完整复刻原Vue版本）
+// Phase 11 Week 1-2：TopNavBar复刻
+import { Button, VerticalBox, HorizontalBox, LineEdit, ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// ==================== 顶部导航栏组件 ====================
+
+export component TopNavBar inherits Rectangle {
+    // 数据属性
+    in property <string> page-title: "Clusters";
+    in property <int> selected-cluster-count: 0;
+    in property <string> language: "en";  // "en" / "zh"
+    in property <string> theme-mode: "light";  // "light" / "dark"
+    in property <bool> refreshing: false;  // 正在刷新
+
+    // 国际化字符串
+    in property <string> i18n-search-placeholder: "Search topics...";
+    in property <string> i18n-no-topics-found: "No topics found";
+    in property <string> i18n-share: "Share";
+    in property <string> i18n-help: "Help";
+    in property <string> i18n-settings: "Settings";
+    in property <string> i18n-refresh-health: "Refresh Health";
+    in property <string> i18n-clusters-selected: "clusters selected";
+
+    // 回调函数
+    callback toggle-sidebar();  // 移动端侧边栏切换
+    callback toggle-language();  // 语言切换
+    callback toggle-theme();  // 主题切换
+    callback open-mobile-search();  // 移动端搜索
+    callback share-clicked();  // 分享按钮
+    callback help-clicked();  // 帮助按钮
+    callback settings-clicked();  // 设置按钮
+    callback refresh-health-clicked();  // 刷新健康状态
+    callback search-topic(string);  // Topic搜索
+
+    height: 40px;  // 固定高度（对应原Vue版本 h-10）
+    background: Theme.surface;
+    // Slint不支持border-bottom-width，使用Rectangle替代
+    border-width: 1px;
+    border-color: Theme.border;
+
+    HorizontalBox {
+        padding: 8px;
+        spacing: 8px;
+
+        // ==================== 左侧：Logo + Brand + Search ====================
+        HorizontalBox {
+            spacing: 8px;
+            alignment: start;
+
+            // Logo + Brand（固定）
+            Rectangle {
+                width: 150px;
+                background: transparent;
+
+                HorizontalBox {
+                    spacing: 8px;
+
+                    // Logo图标（Unicode替代SVG）
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: Theme.primary;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "⚡";
+                            font-size: 16px;
+                            color: white;
+                            font-weight: 700;
+                        }
+                    }
+
+                    // Brand标题
+                    Text {
+                        text: "Kafka Manager";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+                }
+            }
+
+            // Topic搜索框（桌面端）
+            Rectangle {
+                width: 300px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                HorizontalBox {
+                    padding: 8px;
+
+                    // 搜索图标
+                    Text {
+                        text: "🔍";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    // 搜索输入框
+                    LineEdit {
+                        text: "";
+                        placeholder-text: i18n-search-placeholder;
+                        font-size: 12px;
+                        // Slint的LineEdit不支持color属性，移除
+                        // color: Theme.text-primary;
+
+                        // TODO: 添加搜索事件处理
+                        // accepted => { search-topic(self.text); }
+                    }
+                }
+
+                // TODO: 添加下拉搜索结果（Phase 11 Week 3-4）
+            }
+        }
+
+        // ==================== 中间：选中集群数量 ====================
+        Rectangle {
+            vertical-stretch: 1;  // 占据剩余空间
+            background: transparent;
+
+            HorizontalBox {
+                alignment: center;
+
+                Text {
+                    text: selected-cluster-count + " " + i18n-clusters-selected;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+
+        // ==================== 右侧：控制按钮 ====================
+        HorizontalBox {
+            spacing: 4px;
+            alignment: end;
+
+            // 刷新健康状态按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.primary;
+                border-radius: 4px;
+
+                Text {
+                    text: refreshing ? "⏳" : "🔄";  // 刷新时显示加载图标
+                    font-size: 14px;
+                    color: white;
+                }
+
+                TouchArea {
+                    clicked => { refresh-health-clicked(); }
+                }
+            }
+
+            // 分享按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: "⬇️";  // 下载/分享图标
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { share-clicked(); }
+                }
+            }
+
+            // 帮助按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: "❓";  // 帮助图标
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { help-clicked(); }
+                }
+            }
+
+            // 语言切换按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: language == "zh" ? "EN" : "中";  // 显示切换后的语言
+                    font-size: 10px;
+                    font-weight: 700;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { toggle-language(); }
+                }
+            }
+
+            // 主题切换按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: theme-mode == "dark" ? "☀️" : "🌙";  // 显示切换后的主题图标
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { toggle-theme(); }
+                }
+            }
+
+            // 设置按钮
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.background;
+                border-radius: 4px;
+
+                Text {
+                    text: "⚙️";  // 设置图标
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                }
+
+                TouchArea {
+                    clicked => { settings-clicked(); }
+                }
+            }
+        }
+    }
+}
