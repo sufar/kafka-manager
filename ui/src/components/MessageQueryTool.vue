@@ -1107,6 +1107,9 @@ async function handleSubmit(data: { partition: number; key: string | undefined; 
 
     showSuccess(`${t.value.messages.messageSent}! Offset: ${result.offset}`);
 
+    // 发送成功后自动查询消息
+    await queryMessages();
+
     // 只在不需要保持打开时关闭弹框
     if (!keepOpen) {
       showSendModal.value = false;
@@ -1362,6 +1365,9 @@ function highlightTextInElement(container: HTMLElement, query: string) {
     detailMatchIndex.value = 0;
     return;
   }
+
+  // 首先合并相邻的文本节点，确保搜索能正确处理跨节点的内容
+  container.normalize();
 
   const lowerQuery = query.toLowerCase();
   // Only search within leaf text nodes that are not inside <button>, <input>, <select>
