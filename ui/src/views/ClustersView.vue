@@ -612,6 +612,10 @@ const clusters = computed(() => clusterStore.clusters);
 const loading = computed(() => clusterStore.loading);
 const error = computed(() => clusterStore.error);
 
+// 本地集群列表（用于页面内的分组和搜索过滤，不影响左侧导航）
+const localClusters = ref<Cluster[]>([]);
+const localLoading = ref(false);
+
 // 翻译
 const t = computed(() => languageStore.t);
 
@@ -638,10 +642,22 @@ function handleHorizontalScroll(event: WheelEvent) {
   }
 }
 
-// 过滤后的集群列表（分组和搜索都由后端处理）
+// 过滤后的集群列表（分组和搜索都由后端处理，使用本地状态）
 const filteredClusters = computed(() => {
-  return clusters.value;
+  return localClusters.value;
 });
+
+// 获取集群列表（不影响左侧导航）
+async function fetchClustersForPage(groupId?: number, search?: string) {
+  localLoading.value = true;
+  try {
+    localClusters.value = await apiClient.getClusters(groupId, search);
+  } catch (e) {
+    console.error('[ClustersView] Failed to fetch clusters:', e);
+  } finally {
+    localLoading.value = false;
+  }
+}
 
 const editingCluster = ref<Cluster | null>(null);
 const testing = ref(new Set<number>());
@@ -781,6 +797,8 @@ async function confirmDeleteGroupAction() {
     // 刷新分组列表和集群列表
     await clusterStore.fetchGroups();
     await clusterStore.fetchClusters();
+    // 同时更新页面本地列表
+    await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
     closeDeleteGroupModal();
   } catch (e) {
     showError((e as { message: string }).message);
@@ -894,6 +912,8 @@ async function handleSubmit() {
       });
       // 更新后刷新集群列表，确保数据同步
       await clusterStore.fetchClusters();
+      // 同时更新页面本地列表
+      await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
     } else {
       await clusterStore.createCluster({
         name: trimmedName,
@@ -904,6 +924,8 @@ async function handleSubmit() {
       });
       // 创建后刷新集群列表和分组列表
       await clusterStore.fetchClusters();
+      // 同时更新页面本地列表
+      await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
     }
     showSuccess(editingCluster.value ? t.value.clusters.updated : t.value.clusters.created);
     closeModal();
@@ -965,8 +987,8 @@ function formatDate(dateStr: string): string {
 
 function selectGroup(groupId: number | null) {
   selectedGroupId.value = groupId;
-  // 使用后端过滤获取集群列表，同时传递搜索关键词
-  clusterStore.fetchClusters(groupId ?? undefined, searchKeyword.value.trim() || undefined);
+  // 使用后端过滤获取集群列表，同时传递搜索关键词（不影响左侧导航）
+  fetchClustersForPage(groupId ?? undefined, searchKeyword.value.trim() || undefined);
 }
 
 function getConnectionStatus(clusterName: string) {
@@ -1007,6 +1029,8 @@ async function reconnectCluster(clusterName: string) {
     await connectionStore.reconnectCluster(clusterName);
     await connectionStore.fetchAllConnections();
     await clusterStore.fetchClusters();
+    // 同时更新页面本地列表
+    await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
     const status = connectionStore.getConnectionStatus(clusterName);
     const statusText = status?.status === 'connected' ? t.value.clusters.connected :
                        status?.status === 'error' ? t.value.clusters.connectionError :
@@ -1039,13 +1063,17 @@ async function refreshClusterTopics(clusterName: string) {
 }
 
 async function refreshClusters() {
+  // 同时更新 store（左侧导航）和本地列表（页面显示）
   await clusterStore.fetchClusters();
+  await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
   await connectionStore.fetchAllConnections();
 }
 
-onMounted(() => {
-  // 只加载集群列表和连接状态（都是轻量级查询，不涉及 Kafka 连接）
-  clusterStore.fetchClusters();
+onMounted(async () => {
+  // 加载集群列表（store 用于左侧导航）
+  await clusterStore.fetchClusters();
+  // 加载页面本地的集群列表（用于分组和搜索过滤）
+  await fetchClustersForPage();
   clusterStore.fetchGroups();
   connectionStore.fetchAllConnections();
 
@@ -1092,8 +1120,8 @@ watch(searchKeyword, (newKeyword) => {
     clearTimeout(searchTimer);
   }
   searchTimer = setTimeout(() => {
-    // 使用后端搜索获取集群列表
-    clusterStore.fetchClusters(selectedGroupId.value ?? undefined, newKeyword.trim() || undefined);
+    // 使用后端搜索获取集群列表（不影响左侧导航）
+    fetchClustersForPage(selectedGroupId.value ?? undefined, newKeyword.trim() || undefined);
   }, 300); // 300ms 防抖
 });
 </script>
