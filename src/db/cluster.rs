@@ -45,13 +45,22 @@ fn default_timeout() -> i64 {
 pub struct ClusterStore;
 
 impl ClusterStore {
-    /// 列出所有集群
-    pub async fn list(pool: &sqlx::SqlitePool) -> Result<Vec<KafkaCluster>> {
-        let clusters = sqlx::query_as::<_, KafkaCluster>(
-            "SELECT * FROM kafka_clusters ORDER BY created_at DESC",
-        )
-        .fetch_all(pool)
-        .await?;
+    /// 列出所有集群（支持按分组过滤）
+    pub async fn list(pool: &sqlx::SqlitePool, group_id: Option<i64>) -> Result<Vec<KafkaCluster>> {
+        let clusters = if let Some(gid) = group_id {
+            sqlx::query_as::<_, KafkaCluster>(
+                "SELECT * FROM kafka_clusters WHERE group_id = ? ORDER BY created_at DESC",
+            )
+            .bind(gid)
+            .fetch_all(pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, KafkaCluster>(
+                "SELECT * FROM kafka_clusters ORDER BY created_at DESC",
+            )
+            .fetch_all(pool)
+            .await?
+        };
 
         Ok(clusters)
     }

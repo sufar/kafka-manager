@@ -60,14 +60,14 @@ export const useClusterStore = defineStore('clusters', () => {
     return counts;
   });
 
-  async function fetchClusters() {
+  async function fetchClusters(groupId?: number) {
     // 如果正在加载，跳过重复请求
     if (loading.value) return;
 
     loading.value = true;
     error.value = null;
     try {
-      clusters.value = await apiClient.getClusters();
+      clusters.value = await apiClient.getClusters(groupId);
       // 如果没有选中集群且存在集群，自动选择第一个
       if (selectedClusterIds.value.length === 0 && clusters.value.length > 0) {
         const firstName = clusters.value[0]?.name;

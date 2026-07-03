@@ -3,11 +3,11 @@ use crate::error::{AppError, Result};
 use crate::kafka::KafkaClients;
 use crate::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -40,8 +40,16 @@ pub struct TestConnectionResponse {
     pub error: Option<String>,
 }
 
-async fn list_clusters(State(state): State<AppState>) -> Result<Json<ClusterListResponse>> {
-    let clusters: Vec<_> = ClusterStore::list(state.db.inner()).await?;
+#[derive(Debug, Deserialize)]
+pub struct ListClustersQuery {
+    pub group_id: Option<i64>,
+}
+
+async fn list_clusters(
+    State(state): State<AppState>,
+    Query(query): Query<ListClustersQuery>,
+) -> Result<Json<ClusterListResponse>> {
+    let clusters: Vec<_> = ClusterStore::list(state.db.inner(), query.group_id).await?;
 
     let cluster_infos: Vec<ClusterInfo> = clusters
         .into_iter()
@@ -197,7 +205,7 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     use futures::future::join_all;
 
     // 从数据库获取所有集群
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None).await?;
 
     let mut new_clusters = std::collections::HashMap::with_capacity(clusters.len());
     for cluster in &clusters {

@@ -758,7 +758,7 @@ async fn handle_app_logs_clear() -> Result<Value> {
 // ==================== Cluster ====================
 
 async fn handle_cluster_list(state: AppState) -> Result<Value> {
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None).await?;
 
     let cluster_infos: Vec<Value> = clusters
         .into_iter()
@@ -1212,7 +1212,7 @@ async fn reconnect_client_for_cluster(state: &AppState, cluster_name: &str, conf
 async fn reload_clients(state: &AppState) -> Result<()> {
 
     // Get all clusters from database
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None).await?;
 
     let mut new_clusters = std::collections::HashMap::with_capacity(clusters.len());
     for cluster in &clusters {
@@ -1332,7 +1332,7 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
         // Multi-cluster selection: fetch topics from specified cluster IDs
         if ids.is_empty() {
             // Empty array means "all clusters"
-            ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+            ClusterStore::list(state.db.inner(), None).await.ok().unwrap_or_default()
                 .into_iter().map(|c| (c.id, c.name)).collect()
         } else {
             // Fetch only specified clusters
@@ -1353,7 +1353,7 @@ async fn handle_topic_list_with_cluster(state: AppState, body: Value) -> Result<
         }
     } else {
         // No cluster selection - fetch from all clusters
-        ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+        ClusterStore::list(state.db.inner(), None).await.ok().unwrap_or_default()
             .into_iter().map(|c| (c.id, c.name)).collect()
     };
 
@@ -1439,7 +1439,7 @@ async fn handle_topic_list_all_clusters(state: AppState) -> Result<Value> {
     use crate::db::cluster::ClusterStore;
 
     // Get all clusters from database
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None).await?;
 
     let mut all_topics: Vec<String> = Vec::with_capacity(clusters.len() * 50);
 
@@ -2142,7 +2142,7 @@ async fn refresh_all_clusters(state: AppState) {
     use crate::db::cluster::ClusterStore;
 
     // 获取所有集群
-    let clusters = match ClusterStore::list(state.db.inner()).await {
+    let clusters = match ClusterStore::list(state.db.inner(), None).await {
         Ok(clusters) => clusters,
         Err(e) => {
             tracing::error!("Failed to list clusters: {}", e);
@@ -2216,7 +2216,7 @@ async fn handle_topic_cleanup_orphans(state: AppState, _body: Value) -> Result<V
     use crate::db::topic::TopicStore;
 
     // 获取所有有效的集群 ID
-    let clusters = ClusterStore::list(state.db.inner()).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None).await?;
     let valid_cluster_ids: Vec<String> = clusters.into_iter().map(|c| c.name).collect();
 
     // 清理孤儿 Topic
@@ -5383,7 +5383,7 @@ async fn refresh_all_consumer_groups(state: AppState) {
     use crate::db::cluster::ClusterStore;
 
     // 获取所有集群
-    let clusters = match ClusterStore::list(state.db.inner()).await {
+    let clusters = match ClusterStore::list(state.db.inner(), None).await {
         Ok(clusters) => clusters,
         Err(e) => {
             tracing::error!("Failed to list clusters: {}", e);
@@ -5450,7 +5450,7 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
     let clusters_to_fetch: Vec<String> = if let Some(ref ids) = cluster_ids {
         if ids.is_empty() {
             // Empty array means "all clusters"
-            crate::db::cluster::ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+            crate::db::cluster::ClusterStore::list(state.db.inner(), None).await.ok().unwrap_or_default()
                 .into_iter().map(|c| c.name).collect()
         } else {
             ids.clone()
@@ -5459,7 +5459,7 @@ async fn handle_consumer_group_list(state: AppState, body: Value) -> Result<Valu
         vec![id.clone()]
     } else {
         // Default to all clusters
-        crate::db::cluster::ClusterStore::list(state.db.inner()).await.ok().unwrap_or_default()
+        crate::db::cluster::ClusterStore::list(state.db.inner(), None).await.ok().unwrap_or_default()
             .into_iter().map(|c| c.name).collect()
     };
 

@@ -292,7 +292,7 @@ async fn do_export(state: &AppState) -> Result<Json<ExportData>> {
         .collect();
 
     // 获取所有集群
-    let clusters_db = ClusterStore::list(state.db.inner()).await?;
+    let clusters_db = ClusterStore::list(state.db.inner(), None).await?;
     let clusters: Vec<ExportCluster> = clusters_db
         .into_iter()
         .map(|c| {

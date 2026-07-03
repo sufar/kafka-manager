@@ -180,8 +180,12 @@ class ApiClient {
   }
 
   // ==================== Clusters ====================
-  async getClusters(): Promise<Cluster[]> {
-    return this.request('cluster.list', {});
+  async getClusters(groupId?: number): Promise<Cluster[]> {
+    const params: Record<string, any> = {};
+    if (groupId !== undefined) {
+      params.group_id = groupId;
+    }
+    return this.request('cluster.list', params);
   }
 
   async getCluster(id: number): Promise<Cluster> {

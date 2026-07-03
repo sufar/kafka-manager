@@ -134,6 +134,7 @@ export interface Translation {
     reconnectSuccessToast: string;
     clusterDeletedToast: string;
     clusters: string;
+    searchPlaceholder: string;
   };
   topics: {
     title: string;
@@ -896,6 +897,7 @@ export const translations: Record<Language, Translation> = {
       reconnectSuccessToast: '重连成功',
       clusterDeletedToast: '集群已删除',
       clusters: '集群',
+      searchPlaceholder: '搜索集群名称或 Brokers...',
     },
     topics: {
       title: '主题',
@@ -1656,6 +1658,7 @@ export const translations: Record<Language, Translation> = {
       reconnectSuccessToast: 'Reconnected successfully',
       clusterDeletedToast: 'Cluster deleted',
       clusters: 'Clusters',
+      searchPlaceholder: 'Search cluster name or brokers...',
     },
     topics: {
       title: 'Topics',

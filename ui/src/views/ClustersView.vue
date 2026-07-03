@@ -30,6 +30,20 @@
           </button>
         </div>
       </div>
+      <!-- Search Box -->
+      <div class="mt-3 relative">
+        <input
+          v-model="searchKeyword"
+          type="text"
+          class="input input-bordered input-sm w-full pr-8"
+          :placeholder="t.clusters.searchPlaceholder"
+        />
+        <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
       <!-- Group Selector -->
       <div v-if="clusterStore.groups.length > 0" class="flex items-center gap-1 overflow-x-auto scrollbar-hide py-2 mt-2 relative" data-tour="clusters-group">
         <span class="text-sm font-medium text-base-content/60 mr-2 flex-shrink-0">{{ t.clusters.group }}:</span>
@@ -603,6 +617,8 @@ const t = computed(() => languageStore.t);
 
 // 选中的分组 ID
 const selectedGroupId = ref<number | null>(null);
+// 搜索关键词
+const searchKeyword = ref('');
 
 // Group selector ref for scrolling
 const groupSelectorRef = ref<HTMLElement | null>(null);
@@ -622,12 +638,20 @@ function handleHorizontalScroll(event: WheelEvent) {
   }
 }
 
-// 过滤后的集群列表
+// 过滤后的集群列表（只处理搜索关键词，分组过滤由后端处理）
 const filteredClusters = computed(() => {
-  if (selectedGroupId.value === null) {
-    return clusters.value;
+  let result = clusters.value;
+
+  // 按搜索关键词过滤（搜索名称和 brokers）
+  if (searchKeyword.value.trim()) {
+    const keyword = searchKeyword.value.trim().toLowerCase();
+    result = result.filter(c =>
+      c.name.toLowerCase().includes(keyword) ||
+      c.brokers.toLowerCase().includes(keyword)
+    );
   }
-  return clusters.value.filter(c => (c.group_id ?? null) === selectedGroupId.value);
+
+  return result;
 });
 
 const editingCluster = ref<Cluster | null>(null);
@@ -952,6 +976,8 @@ function formatDate(dateStr: string): string {
 
 function selectGroup(groupId: number | null) {
   selectedGroupId.value = groupId;
+  // 使用后端过滤获取集群列表
+  clusterStore.fetchClusters(groupId ?? undefined);
 }
 
 function getConnectionStatus(clusterName: string) {
