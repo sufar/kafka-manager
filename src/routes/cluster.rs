@@ -43,13 +43,14 @@ pub struct TestConnectionResponse {
 #[derive(Debug, Deserialize)]
 pub struct ListClustersQuery {
     pub group_id: Option<i64>,
+    pub search: Option<String>,
 }
 
 async fn list_clusters(
     State(state): State<AppState>,
     Query(query): Query<ListClustersQuery>,
 ) -> Result<Json<ClusterListResponse>> {
-    let clusters: Vec<_> = ClusterStore::list(state.db.inner(), query.group_id).await?;
+    let clusters: Vec<_> = ClusterStore::list(state.db.inner(), query.group_id, query.search).await?;
 
     let cluster_infos: Vec<ClusterInfo> = clusters
         .into_iter()
@@ -205,7 +206,7 @@ async fn reload_clients(state: &AppState) -> Result<()> {
     use futures::future::join_all;
 
     // 从数据库获取所有集群
-    let clusters = ClusterStore::list(state.db.inner(), None).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None, None).await?;
 
     let mut new_clusters = std::collections::HashMap::with_capacity(clusters.len());
     for cluster in &clusters {

@@ -333,7 +333,7 @@ async fn load_clusters_from_db(
     use crate::config::KafkaConfig;
     use crate::db::cluster::ClusterStore;
 
-    let db_clusters = ClusterStore::list(pool, None).await?;
+    let db_clusters = ClusterStore::list(pool, None, None).await?;
     let mut clusters = std::collections::HashMap::with_capacity(db_clusters.len());
 
     for cluster in db_clusters {

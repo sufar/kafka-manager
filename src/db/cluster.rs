@@ -45,23 +45,36 @@ fn default_timeout() -> i64 {
 pub struct ClusterStore;
 
 impl ClusterStore {
-    /// 列出所有集群（支持按分组过滤）
-    pub async fn list(pool: &sqlx::SqlitePool, group_id: Option<i64>) -> Result<Vec<KafkaCluster>> {
-        let clusters = if let Some(gid) = group_id {
-            sqlx::query_as::<_, KafkaCluster>(
-                "SELECT * FROM kafka_clusters WHERE group_id = ? ORDER BY created_at DESC",
-            )
-            .bind(gid)
-            .fetch_all(pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, KafkaCluster>(
-                "SELECT * FROM kafka_clusters ORDER BY created_at DESC",
-            )
-            .fetch_all(pool)
-            .await?
+    /// 列出所有集群（支持按分组和关键词过滤）
+    pub async fn list(pool: &sqlx::SqlitePool, group_id: Option<i64>, search: Option<String>) -> Result<Vec<KafkaCluster>> {
+        let search_pattern = search.as_ref().filter(|s| !s.is_empty()).map(|s| format!("%{}%", s));
+
+        let (query, has_group, has_search) = match (group_id, &search_pattern) {
+            (Some(_), Some(_)) => {
+                ("SELECT * FROM kafka_clusters WHERE group_id = ? AND (name LIKE ? OR brokers LIKE ?) ORDER BY created_at DESC", true, true)
+            }
+            (Some(_), _) => {
+                ("SELECT * FROM kafka_clusters WHERE group_id = ? ORDER BY created_at DESC", true, false)
+            }
+            (_, Some(_)) => {
+                ("SELECT * FROM kafka_clusters WHERE name LIKE ? OR brokers LIKE ? ORDER BY created_at DESC", false, true)
+            }
+            _ => {
+                ("SELECT * FROM kafka_clusters ORDER BY created_at DESC", false, false)
+            }
         };
 
+        let mut q = sqlx::query_as::<_, KafkaCluster>(query);
+
+        if has_group {
+            q = q.bind(group_id.unwrap());
+        }
+        if has_search {
+            let pattern = search_pattern.as_ref().unwrap();
+            q = q.bind(pattern).bind(pattern);
+        }
+
+        let clusters = q.fetch_all(pool).await?;
         Ok(clusters)
     }
 

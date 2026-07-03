@@ -600,7 +600,7 @@ async fn cleanup_orphan_topics(
     use crate::db::topic::TopicStore;
 
     // 获取所有有效的集群 ID
-    let clusters = ClusterStore::list(state.db.inner(), None).await?;
+    let clusters = ClusterStore::list(state.db.inner(), None, None).await?;
     let valid_cluster_ids: Vec<String> = clusters.into_iter().map(|c| c.name).collect();
 
     // 清理孤儿 Topic
