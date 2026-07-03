@@ -190,7 +190,7 @@
         <div class="card-body p-3">
           <div class="mb-2">
             <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">{{ t.clusters.brokersLabel }}</div>
-            <div class="text-xs font-mono truncate">{{ cluster.brokers }}</div>
+            <div class="text-xs font-mono break-all">{{ cluster.brokers }}</div>
           </div>
           <div class="mb-2">
             <div class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">{{ t.clusters.timeoutsLabel }}</div>
