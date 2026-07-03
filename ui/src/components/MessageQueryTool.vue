@@ -40,7 +40,7 @@
 
       <!-- 搜索 -->
       <div class="flex-1 min-w-[120px] relative" data-tour="messages-search">
-        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.valuePlaceholder" @keyup.enter="queryMessages" />
+        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.searchPlaceholder" @keyup.enter="queryMessages" />
         <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''; queryMessages()">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -960,7 +960,7 @@ async function queryMessages() {
 
     if (searchKeyword.value.trim()) {
       params.search = searchKeyword.value.trim();
-      params.search_in = 'value';
+      params.search_in = 'all';
     }
 
     // 时间范围筛选
