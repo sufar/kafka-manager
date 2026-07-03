@@ -339,6 +339,17 @@ fn get_i64_param(body: &Value, key: &str) -> Result<i64> {
         .ok_or_else(|| AppError::BadRequest(format!("Missing or invalid parameter: {}", key)))
 }
 
+fn get_i64_param_opt(body: &Value, key: &str) -> Option<i64> {
+    body.get(key).and_then(|v| v.as_i64())
+}
+
+fn get_string_param_opt(body: &Value, key: &str) -> Option<String> {
+    body.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn get_i32_param(body: &Value, key: &str) -> Result<i32> {
     body.get(key)
         .and_then(|v| v.as_i64())
@@ -549,7 +560,7 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "health" => handle_health().await,
 
         // Cluster
-        "cluster.list" => handle_cluster_list(state).await,
+        "cluster.list" => handle_cluster_list(state, body).await,
         "cluster.get" => handle_cluster_get(state, body).await,
         "cluster.create" => handle_cluster_create(state, body).await,
         "cluster.update" => handle_cluster_update(state, body).await,
@@ -757,8 +768,11 @@ async fn handle_app_logs_clear() -> Result<Value> {
 
 // ==================== Cluster ====================
 
-async fn handle_cluster_list(state: AppState) -> Result<Value> {
-    let clusters = ClusterStore::list(state.db.inner(), None, None).await?;
+async fn handle_cluster_list(state: AppState, body: Value) -> Result<Value> {
+    let group_id = get_i64_param_opt(&body, "group_id");
+    let search = get_string_param_opt(&body, "search");
+
+    let clusters = ClusterStore::list(state.db.inner(), group_id, search).await?;
 
     let cluster_infos: Vec<Value> = clusters
         .into_iter()
