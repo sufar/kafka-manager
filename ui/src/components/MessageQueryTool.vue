@@ -204,18 +204,40 @@
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
         <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full" data-tour="messages-table-header">
-          <div class="flex-shrink-0" :style="{ width: columnWidths.partition + 'px' }">
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+            :style="{ width: columnWidths.partition + 'px' }"
+            @click="togglePartitionSort">
             {{ t.messages.partitionLabel2 }}
+            <svg v-if="partitionSort === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+            </svg>
+            <svg v-else-if="partitionSort === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 opacity-30">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+            </svg>
           </div>
           <div
-            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('partition', $event)"
           ></div>
-          <div class="flex-shrink-0" :style="{ width: columnWidths.offset + 'px' }">
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+            :style="{ width: columnWidths.offset + 'px' }"
+            @click="toggleOffsetSort">
             {{ t.messages.offsetLabel }}
+            <svg v-if="offsetSort === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+            </svg>
+            <svg v-else-if="offsetSort === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 opacity-30">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+            </svg>
           </div>
           <div
-            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('offset', $event)"
           ></div>
           <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
@@ -233,17 +255,30 @@
             </svg>
           </div>
           <div
-            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('timestamp', $event)"
           ></div>
-          <div class="flex-shrink-0" :style="{ width: columnWidths.key + 'px' }">{{ t.messages.key }}</div>
-          <div class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+            :style="{ width: columnWidths.key + 'px' }"
+            @click="toggleKeySort">
+            {{ t.messages.key }}
+            <svg v-if="keySort === 'asc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+            </svg>
+            <svg v-else-if="keySort === 'desc'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 opacity-30">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+            </svg>
+          </div>
+          <div class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('key', $event)"
           ></div>
           <div class="flex-1" :style="{ minWidth: columnWidths.value + 'px' }">{{ t.messages.value }}</div>
           <div class="flex-shrink-0 text-center" :style="{ width: columnWidths.actions + 'px' }">{{ t.messages.actions }}</div>
           <div
-            class="resizer w-1 cursor-col-resize hover:bg-primary/40 transition-colors rounded-sm"
+            class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('actions', $event)"
           ></div>
         </div>
@@ -534,6 +569,12 @@ const valuePreRef = ref<HTMLElement | null>(null);
 
 // 按时间戳排序状态：'asc' | 'desc' | null（null 表示按查询顺序）
 const timestampSort = ref<'asc' | 'desc' | null>('desc');
+// 按键排序状态：'asc' | 'desc' | null（null 表示不按键排序）
+const keySort = ref<'asc' | 'desc' | null>(null);
+// 按偏移量排序状态：'asc' | 'desc' | null（null 表示不按偏移量排序）
+const offsetSort = ref<'asc' | 'desc' | null>(null);
+// 按分区排序状态：'asc' | 'desc' | null（null 表示不按分区排序）
+const partitionSort = ref<'asc' | 'desc' | null>(null);
 
 // 排序后的消息数组 - 维护单一引用避免重复创建副本
 const sortedMessages = shallowRef<Message[]>([]);
@@ -541,31 +582,107 @@ const sortedMessages = shallowRef<Message[]>([]);
 // 重新计算排序结果
 function recomputeSortedMessages() {
   const src = messages.value;
-  if (!timestampSort.value) {
+  // 如果没有任何排序，直接返回原始数据
+  if (!timestampSort.value && !keySort.value && !offsetSort.value && !partitionSort.value) {
     sortedMessages.value = src;
     return;
   }
   // 复用同一数组引用，避免 shallowRef 每次都触发新订阅者
   const result = [...src];
   result.sort((a, b) => {
+    // 优先按分区排序（如果启用了）
+    if (partitionSort.value) {
+      const partA = a.p ?? 0;
+      const partB = b.p ?? 0;
+      if (partA !== partB) {
+        return partitionSort.value === 'asc' ? partA - partB : partB - partA;
+      }
+    }
+    // 其次按偏移量排序（如果启用了）
+    if (offsetSort.value) {
+      const offsetA = a.o ?? 0;
+      const offsetB = b.o ?? 0;
+      if (offsetA !== offsetB) {
+        return offsetSort.value === 'asc' ? offsetA - offsetB : offsetB - offsetA;
+      }
+    }
+    // 其次按键排序（如果启用了）
+    if (keySort.value) {
+      const keyA = a.k ?? '';
+      const keyB = b.k ?? '';
+      const cmp = keyA.localeCompare(keyB);
+      if (cmp !== 0) {
+        return keySort.value === 'asc' ? cmp : -cmp;
+      }
+    }
+    // 最后按时间戳排序
     const tsA = a.ts ?? 0;
     const tsB = b.ts ?? 0;
-    return timestampSort.value === 'asc' ? tsA - tsB : tsB - tsA;
+    if (tsA !== tsB && timestampSort.value) {
+      return timestampSort.value === 'asc' ? tsA - tsB : tsB - tsA;
+    }
+    return 0;
   });
   sortedMessages.value = result;
 }
 
-// 监听 messages 和 timestampSort 变化，按需重算
-watch([messages, timestampSort], recomputeSortedMessages);
+// 监听 messages 和排序状态变化，按需重算
+watch([messages, timestampSort, keySort, offsetSort, partitionSort], recomputeSortedMessages);
 
 // 切换时间戳排序
 function toggleTimestampSort() {
+  // 切换时间戳排序时，清除其他排序
+  keySort.value = null;
+  offsetSort.value = null;
+  partitionSort.value = null;
   if (timestampSort.value === null) {
     timestampSort.value = 'desc'; // 默认降序（最新的在前）
   } else if (timestampSort.value === 'desc') {
     timestampSort.value = 'asc';
   } else {
     timestampSort.value = null; // 回到原始顺序
+  }
+}
+
+// 切换键排序
+function toggleKeySort() {
+  // 切换键排序时，清除偏移量和分区排序
+  offsetSort.value = null;
+  partitionSort.value = null;
+  if (keySort.value === null) {
+    keySort.value = 'asc'; // 默认升序（A-Z）
+  } else if (keySort.value === 'asc') {
+    keySort.value = 'desc';
+  } else {
+    keySort.value = null; // 回到不按键排序
+  }
+}
+
+// 切换偏移量排序
+function toggleOffsetSort() {
+  // 切换偏移量排序时，清除其他排序
+  keySort.value = null;
+  partitionSort.value = null;
+  if (offsetSort.value === null) {
+    offsetSort.value = 'asc'; // 默认升序（从小到大）
+  } else if (offsetSort.value === 'asc') {
+    offsetSort.value = 'desc';
+  } else {
+    offsetSort.value = null; // 回到不按偏移量排序
+  }
+}
+
+// 切换分区排序
+function togglePartitionSort() {
+  // 切换分区排序时，清除其他排序
+  keySort.value = null;
+  offsetSort.value = null;
+  if (partitionSort.value === null) {
+    partitionSort.value = 'asc'; // 默认升序（从小到大）
+  } else if (partitionSort.value === 'asc') {
+    partitionSort.value = 'desc';
+  } else {
+    partitionSort.value = null; // 回到不按分区排序
   }
 }
 
