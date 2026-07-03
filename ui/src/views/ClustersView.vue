@@ -89,7 +89,7 @@
     <!-- Content Area (scrollable) -->
     <div class="flex-1 overflow-auto min-h-0">
       <!-- Loading State -->
-      <div v-if="loading" class="flex justify-center items-center py-8">
+      <div v-if="localLoading" class="flex justify-center items-center py-8">
       <div class="flex flex-col items-center">
         <span class="loading loading-spinner loading-md text-primary"></span>
         <p class="mt-2 text-base-content/60 text-sm">{{ t.common.loading }}...</p>
@@ -97,14 +97,14 @@
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-error">
+    <div v-else-if="localError" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-error">
       <div class="text-base-content/40 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
         </svg>
       </div>
       <h3 class="text-lg font-semibold mb-1">{{ t.clusters.connectionError }}</h3>
-      <p class="text-base-content/60 mb-3 max-w-md text-sm">{{ error }}</p>
+      <p class="text-base-content/60 mb-3 max-w-md text-sm">{{ localError }}</p>
       <div class="flex gap-2">
         <button class="btn btn-primary btn-sm" @click="refreshClusters">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
@@ -122,7 +122,7 @@
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="clusters.length === 0" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-empty">
+    <div v-else-if="filteredClusters.length === 0" class="flex flex-col items-center justify-center py-8 text-center" data-tour="clusters-empty">
       <div class="text-base-content/40 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-16 h-16">
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
@@ -615,6 +615,7 @@ const error = computed(() => clusterStore.error);
 // 本地集群列表（用于页面内的分组和搜索过滤，不影响左侧导航）
 const localClusters = ref<Cluster[]>([]);
 const localLoading = ref(false);
+const localError = ref<string | null>(null);
 
 // 翻译
 const t = computed(() => languageStore.t);
@@ -650,9 +651,11 @@ const filteredClusters = computed(() => {
 // 获取集群列表（不影响左侧导航）
 async function fetchClustersForPage(groupId?: number, search?: string) {
   localLoading.value = true;
+  localError.value = null;
   try {
     localClusters.value = await apiClient.getClusters(groupId, search);
   } catch (e) {
+    localError.value = (e as { message: string }).message;
     console.error('[ClustersView] Failed to fetch clusters:', e);
   } finally {
     localLoading.value = false;
