@@ -131,21 +131,13 @@ impl ClusterGroupStore {
 
     /// 删除分组
     pub async fn delete(pool: &sqlx::SqlitePool, id: i64) -> Result<()> {
-        // 检查是否有集群使用该分组
-        let clusters_in_group = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM kafka_clusters WHERE group_id = ?",
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+        // 先将该分组下所有集群的 group_id 设置为 NULL
+        sqlx::query("UPDATE kafka_clusters SET group_id = NULL WHERE group_id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
 
-        if clusters_in_group > 0 {
-            return Err(AppError::BadRequest(format!(
-                "Cannot delete group: {} clusters are assigned to this group",
-                clusters_in_group
-            )));
-        }
-
+        // 删除分组
         let result = sqlx::query("DELETE FROM cluster_groups WHERE id = ?")
             .bind(id)
             .execute(pool)
