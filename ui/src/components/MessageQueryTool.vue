@@ -610,6 +610,11 @@ function recomputeSortedMessages() {
     if (keySort.value) {
       const keyA = a.k ?? '';
       const keyB = b.k ?? '';
+      // 先按字符长度排序
+      if (keyA.length !== keyB.length) {
+        return keySort.value === 'asc' ? keyA.length - keyB.length : keyB.length - keyA.length;
+      }
+      // 长度相同按字典序排序
       const cmp = keyA.localeCompare(keyB);
       if (cmp !== 0) {
         return keySort.value === 'asc' ? cmp : -cmp;

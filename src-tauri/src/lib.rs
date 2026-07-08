@@ -1246,13 +1246,28 @@ fn set_auto_launch(enabled: bool) -> Result<(), String> {
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let (run, _) = hkcu.create_subkey(RUN_REGISTRY_PATH)
-            .map_err(|e| {
-                let msg = format!("Failed to open Run registry key: {}", e);
-                log(&format!("[AutoLaunch] ERROR: {}", msg));
-                msg
-            })?;
-        log(&format!("[AutoLaunch] opened registry key: {}", RUN_REGISTRY_PATH));
+
+        // 先尝试打开现有的键（使用 KEY_WRITE 权限，避免 KEY_ALL_ACCESS 可能导致的权限问题）
+        let run = match hkcu.open_subkey_with_flags(RUN_REGISTRY_PATH, KEY_WRITE) {
+            Ok(key) => {
+                log(&format!("[AutoLaunch] opened existing registry key: {}", RUN_REGISTRY_PATH));
+                key
+            }
+            Err(_) => {
+                // 键不存在，尝试创建
+                log(&format!("[AutoLaunch] registry key not found, creating: {}", RUN_REGISTRY_PATH));
+                hkcu.create_subkey(RUN_REGISTRY_PATH)
+                    .map(|(key, _)| {
+                        log(&format!("[AutoLaunch] created registry key: {}", RUN_REGISTRY_PATH));
+                        key
+                    })
+                    .map_err(|e| {
+                        let msg = format!("Failed to create Run registry key: {}", e);
+                        log(&format!("[AutoLaunch] ERROR: {}", msg));
+                        msg
+                    })?
+            }
+        };
 
         if enabled {
             run.set_value("KafkaManager", &exe_quoted)
@@ -1484,17 +1499,19 @@ fn get_auto_launch() -> Result<bool, String> {
                 let result: Result<String, _> = run.get_value("KafkaManager");
                 match result {
                     Ok(val) => {
-                        log(&format!("[AutoLaunch] get_auto_launch: enabled=true, value={}", val));
+                        log(&format!("[AutoLaunch] get_auto_launch: enabled=true, registry value=\"{}\"", val));
                         return Ok(true);
                     }
-                    Err(e) => {
-                        log(&format!("[AutoLaunch] get_auto_launch: enabled=false (registry value not found: {})", e));
+                    Err(_) => {
+                        // 注册表值不存在，开机自启动未启用（正常情况）
+                        log("[AutoLaunch] get_auto_launch: enabled=false (registry value not found, auto launch is disabled)");
                         return Ok(false);
                     }
                 }
             }
-            Err(e) => {
-                log(&format!("[AutoLaunch] get_auto_launch: enabled=false (registry key not found: {})", e));
+            Err(_) => {
+                // 注册表键不存在，开机自启动未启用（正常情况）
+                log("[AutoLaunch] get_auto_launch: enabled=false (registry key not found, auto launch is disabled)");
                 return Ok(false);
             }
         }

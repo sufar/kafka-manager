@@ -945,7 +945,11 @@ async function confirmDelete(cluster: Cluster) {
   const confirmed = await confirm(t.value.clusters.confirmDelete.replace('{name}', cluster.name));
   if (!confirmed) return;
 
-  clusterStore.deleteCluster(cluster.id);
+  await clusterStore.deleteCluster(cluster.id);
+  // 删除后刷新页面数据，保持当前的搜索和分组条件
+  await clusterStore.fetchClusters();
+  await fetchClustersForPage(selectedGroupId.value ?? undefined, searchKeyword.value.trim() || undefined);
+  await connectionStore.fetchAllConnections();
 }
 
 function formatDate(dateStr: string): string {
