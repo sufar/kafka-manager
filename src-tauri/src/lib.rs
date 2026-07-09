@@ -1278,19 +1278,28 @@ fn set_auto_launch(enabled: bool) -> Result<(), String> {
                 })?;
             log("[AutoLaunch] registry value set successfully");
 
-            // 回读验证：确认写入成功
-            match run.get_value::<String, _>("KafkaManager") {
-                Ok(read_back) => {
-                    if read_back == exe_quoted {
-                        log(&format!("[AutoLaunch] verified OK: {}", read_back));
-                    } else {
-                        let msg = format!("Registry value mismatch! expected: {}, got: {}", exe_quoted, read_back);
-                        log(&format!("[AutoLaunch] WARNING: {}", msg));
-                        return Err(msg);
+            // 回读验证：重新打开键并请求读取权限（因为之前是用 KEY_WRITE 打开的）
+            match hkcu.open_subkey_with_flags(RUN_REGISTRY_PATH, KEY_READ) {
+                Ok(read_key) => {
+                    match read_key.get_value::<String, _>("KafkaManager") {
+                        Ok(read_back) => {
+                            if read_back == exe_quoted {
+                                log(&format!("[AutoLaunch] verified OK: {}", read_back));
+                            } else {
+                                let msg = format!("Registry value mismatch! expected: {}, got: {}", exe_quoted, read_back);
+                                log(&format!("[AutoLaunch] WARNING: {}", msg));
+                                return Err(msg);
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("Failed to read back registry value after write: {}", e);
+                            log(&format!("[AutoLaunch] ERROR: {}", msg));
+                            return Err(msg);
+                        }
                     }
                 }
                 Err(e) => {
-                    let msg = format!("Failed to read back registry value after write: {}", e);
+                    let msg = format!("Failed to open registry key for verification: {}", e);
                     log(&format!("[AutoLaunch] ERROR: {}", msg));
                     return Err(msg);
                 }
