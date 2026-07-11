@@ -242,6 +242,9 @@ export interface Translation {
     copyKey: string;
     valuePlaceholder: string;
     searchPlaceholder: string;
+    searchInKey: string;
+    searchInValue: string;
+    searchInAll: string;
     elapsedTime: string;
     totalMessages: string;
     actions: string;
@@ -1004,7 +1007,10 @@ export const translations: Record<Language, Translation> = {
       copyValue: '复制 Value',
       copyKey: '复制 Key',
       valuePlaceholder: '搜索消息内容...',
-      searchPlaceholder: '搜索键或值...',
+      searchPlaceholder: '搜索...',
+      searchInKey: '键',
+      searchInValue: '值',
+      searchInAll: '键和值',
       elapsedTime: '耗时',
       totalMessages: '共',
       actions: '操作',
@@ -1765,7 +1771,10 @@ export const translations: Record<Language, Translation> = {
       copyValue: 'Copy Value',
       copyKey: 'Copy Key',
       valuePlaceholder: 'Search message content...',
-      searchPlaceholder: 'Search key or value...',
+      searchPlaceholder: 'Search...',
+      searchInKey: 'Key',
+      searchInValue: 'Value',
+      searchInAll: 'Key & Value',
       elapsedTime: 'Elapsed',
       totalMessages: 'Total',
       actions: 'Actions',

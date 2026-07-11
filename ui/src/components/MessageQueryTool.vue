@@ -39,8 +39,15 @@
       </button>
 
       <!-- 搜索 -->
-      <div class="flex-1 min-w-[120px] relative" data-tour="messages-search">
-        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pr-8" :placeholder="t.messages.searchPlaceholder" @keyup.enter="queryMessages" />
+      <div class="flex-1 min-w-[120px] relative flex" data-tour="messages-search">
+        <!-- 搜索范围选择器 -->
+        <select v-model="searchIn" class="select select-bordered select-sm border-r-0 rounded-r-none w-20 pr-7 text-xs">
+          <option value="all">{{ t.messages.searchInAll }}</option>
+          <option value="key">{{ t.messages.searchInKey }}</option>
+          <option value="value">{{ t.messages.searchInValue }}</option>
+        </select>
+        <!-- 搜索输入框 -->
+        <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full rounded-l-none pl-2 pr-8" :placeholder="t.messages.searchPlaceholder" @keyup.enter="queryMessages" />
         <button v-if="searchKeyword" class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content" @click="searchKeyword = ''; queryMessages()">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -699,6 +706,7 @@ const selectedPartition = ref<string | number>('all');
 const fetchMode = ref<'newest' | 'oldest'>('newest');
 const maxMessages = ref(100);
 const searchKeyword = ref('');
+const searchIn = ref<'all' | 'key' | 'value'>('all');
 
 // 时间范围筛选
 const showTimeFilters = ref(false);
@@ -965,7 +973,7 @@ async function queryMessages() {
 
     if (searchKeyword.value.trim()) {
       params.search = searchKeyword.value.trim();
-      params.search_in = 'all';
+      params.search_in = searchIn.value;
     }
 
     // 时间范围筛选
