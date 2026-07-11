@@ -42,7 +42,7 @@
       <div class="flex-1 min-w-[120px] relative" data-tour="messages-search">
         <input v-model="searchKeyword" type="text" class="input input-bordered input-sm w-full pl-20 pr-8" :placeholder="t.messages.searchPlaceholder" @keyup.enter="queryMessages" />
         <!-- 搜索范围选择器（绝对定位在输入框内左侧） -->
-        <select v-model="searchIn" class="absolute left-1 top-1/2 -translate-y-1/2 select select-ghost select-xs w-16 p-0 h-auto text-xs bg-transparent border-none focus:outline-none cursor-pointer text-base-content/70 hover:text-base-content">
+        <select v-model="searchIn" class="absolute left-2 top-1/2 -translate-y-1/2 text-xs bg-transparent border-none focus:outline-none cursor-pointer text-base-content/70 hover:text-base-content appearance-none pr-4">
           <option value="all">{{ t.messages.searchInAll }}</option>
           <option value="key">{{ t.messages.searchInKey }}</option>
           <option value="value">{{ t.messages.searchInValue }}</option>

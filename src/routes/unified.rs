@@ -484,6 +484,7 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
     let start_time = get_optional_i64_param(&body, "start_time");
     let end_time = get_optional_i64_param(&body, "end_time");
     let search = get_optional_string_param(&body, "search");
+    let search_in = get_optional_string_param(&body, "search_in");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
     let sort = get_optional_string_param(&body, "sort");
 
@@ -509,6 +510,7 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
             start_time,
             end_time,
             search,
+            search_in,
             fetch_mode.as_deref(),
             sort.as_deref(),
             tx.clone(),
@@ -2255,6 +2257,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
     let start_time = get_optional_i64_param(&body, "start_time");
     let end_time = get_optional_i64_param(&body, "end_time");
     let search = get_optional_string_param(&body, "search");
+    let search_in = get_optional_string_param(&body, "search_in");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
     let sort = get_optional_string_param(&body, "sort");
 
@@ -2273,6 +2276,7 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
         start_time,
         end_time,
         search,
+        search_in,
         fetch_mode.as_deref(),
         sort.as_deref(),
     )
@@ -2346,6 +2350,7 @@ async fn fetch_messages_streaming_sse(
     start_time: Option<i64>,
     end_time: Option<i64>,
     search: Option<String>,
+    search_in: Option<String>,
     fetch_mode: Option<&str>,
     sort: Option<&str>,
     sse_tx: mpsc::Sender<std::result::Result<Event, std::convert::Infallible>>,
@@ -2359,6 +2364,7 @@ async fn fetch_messages_streaming_sse(
     let topic = topic.to_string();
     let brokers = brokers.to_string();
     let search = search.clone();
+    let search_in = search_in.clone();
     let fetch_mode = fetch_mode.map(|s| s.to_string());
     let sort = sort.map(|s| s.to_string());
 
@@ -2411,6 +2417,7 @@ async fn fetch_messages_streaming_sse(
         let brokers_clone = brokers.clone();
         let topic_clone = topic.clone();
         let search_clone = search.clone();
+        let search_in_clone = search_in.clone();
         let fetch_mode_clone = fetch_mode.clone();
         let cancel_token_clone = cancel_token.clone();
         let part_offset = if partition.is_some() { offset } else { None };
@@ -2418,7 +2425,7 @@ async fn fetch_messages_streaming_sse(
         let handle = tokio::spawn(async move {
             fetch_partition_messages_streaming(
                 brokers_clone, topic_clone, part_id, max_messages,
-                part_offset, start_time, end_time, search_clone, fetch_mode_clone, tx, cancel_token_clone,
+                part_offset, start_time, end_time, search_clone, search_in_clone, fetch_mode_clone, tx, cancel_token_clone,
             ).await;
         });
         handles.push(handle);
@@ -2588,6 +2595,7 @@ async fn fetch_messages_with_temp_consumer(
     start_time: Option<i64>,
     end_time: Option<i64>,
     search: Option<String>,
+    search_in: Option<String>,
     fetch_mode: Option<&str>,
     sort: Option<&str>,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
@@ -2599,6 +2607,7 @@ async fn fetch_messages_with_temp_consumer(
     let topic = topic.to_string();
     let brokers = brokers.to_string();
     let search = search.clone();
+    let search_in = search_in.clone();
     let fetch_mode = fetch_mode.map(|s| s.to_string());
     let sort = sort.map(|s| s.to_string());
 
@@ -2652,13 +2661,14 @@ async fn fetch_messages_with_temp_consumer(
             let brokers = brokers.clone();
             let topic = topic.clone();
             let search = search.clone();
+            let search_in = search_in.clone();
             let fetch_mode = fetch_mode.clone();
             let part_offset = if partition_has_specific_offset { partition_offset_val } else { None };
 
             let handle = tokio::spawn(async move {
                 fetch_partition_messages_streaming(
                     brokers, topic, part_id, msgs_per_partition, part_offset,
-                    start_time, end_time, search, fetch_mode, tx, CancellationToken::new(),
+                    start_time, end_time, search, search_in, fetch_mode, tx, CancellationToken::new(),
                 ).await;
             });
             handles.push(handle);
@@ -2735,7 +2745,7 @@ async fn fetch_messages_with_temp_consumer(
         tokio::task::spawn_blocking(move || {
             fetch_partition_messages_unified(
                 brokers, topic, 0, max_messages, offset,
-                start_time, end_time, search, fetch_mode,
+                start_time, end_time, search, search_in, fetch_mode,
             )
         }).await.map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
     };
@@ -2759,12 +2769,29 @@ fn message_matches_search(
     key_bytes: &Option<Vec<u8>>,
     value_bytes: &Option<Vec<u8>>,
     search_term: &str,
+    search_in: &Option<String>,
 ) -> bool {
     let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
     let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
-    let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(search_term));
-    let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(search_term));
-    key_match || value_match
+
+    let search_in = search_in.as_deref().unwrap_or("all");
+
+    match search_in {
+        "key" => {
+            // 只搜索键
+            key_str.map_or(false, |k| k.to_lowercase().contains(search_term))
+        }
+        "value" => {
+            // 只搜索值
+            value_str.map_or(false, |v| v.to_lowercase().contains(search_term))
+        }
+        _ => {
+            // 默认搜索键和值
+            let key_match = key_str.map_or(false, |k| k.to_lowercase().contains(search_term));
+            let value_match = value_str.map_or(false, |v| v.to_lowercase().contains(search_term));
+            key_match || value_match
+        }
+    }
 }
 
 /// 统一分区消息获取 - 优化版
@@ -2778,6 +2805,7 @@ fn fetch_partition_messages_unified(
     start_time: Option<i64>,
     end_time: Option<i64>,
     search: Option<String>,
+    search_in: Option<String>,
     fetch_mode: Option<String>,
 ) -> Vec<crate::kafka::consumer::KafkaMessage> {
     use rdkafka::consumer::{Consumer, BaseConsumer, DefaultConsumerContext};
@@ -3012,7 +3040,7 @@ fn fetch_partition_messages_unified(
                     // 搜索过滤
                     if need_search {
                         if let Some(term) = search_lower.as_ref() {
-                            if !message_matches_search(&key_bytes, &value_bytes, term) {
+                            if !message_matches_search(&key_bytes, &value_bytes, term, &search_in) {
                                 // 不匹配，直接退出（已经到末尾了）
                                 break;
                             }
@@ -3046,7 +3074,7 @@ fn fetch_partition_messages_unified(
                 // 如果需要搜索，立即进行过滤（避免保存不需要的消息）
                 if need_search {
                     if let Some(term) = search_lower.as_ref() {
-                        if !message_matches_search(&key_bytes, &value_bytes, term) {
+                        if !message_matches_search(&key_bytes, &value_bytes, term, &search_in) {
                             continue; // 不匹配搜索条件，跳过
                         }
                     }
@@ -3102,6 +3130,7 @@ async fn fetch_partition_messages_streaming(
     start_time: Option<i64>,
     end_time: Option<i64>,
     search: Option<String>,
+    search_in: Option<String>,
     fetch_mode: Option<String>,
     tx: mpsc::Sender<crate::kafka::consumer::KafkaMessage>,
     cancel_token: CancellationToken,
@@ -3332,7 +3361,7 @@ async fn fetch_partition_messages_streaming(
                     // 搜索过滤
                     if need_search {
                         if let Some(term) = search_lower.as_ref() {
-                            if !message_matches_search(&key_bytes, &value_bytes, term) {
+                            if !message_matches_search(&key_bytes, &value_bytes, term, &search_in) {
                                 break;
                             }
                         }
@@ -3381,7 +3410,7 @@ async fn fetch_partition_messages_streaming(
                 // 搜索过滤
                 if need_search {
                     if let Some(term) = search_lower.as_ref() {
-                        if !message_matches_search(&key_bytes, &value_bytes, term) {
+                        if !message_matches_search(&key_bytes, &value_bytes, term, &search_in) {
                             continue;
                         }
                     }
@@ -3827,6 +3856,7 @@ async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
     let start_time = get_optional_i64_param(&body, "start_time");
     let end_time = get_optional_i64_param(&body, "end_time");
     let search = get_optional_string_param(&body, "search");
+    let search_in = get_optional_string_param(&body, "search_in");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
 
     // 首先确保集群客户端已创建（如果未创建则自动创建）
@@ -3844,6 +3874,7 @@ async fn handle_message_export(state: AppState, body: Value) -> Result<Value> {
         start_time,
         end_time,
         search,
+        search_in,
         fetch_mode.as_deref(),
         Some("asc"), // 导出默认按升序
     )
