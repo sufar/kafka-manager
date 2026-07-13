@@ -42,7 +42,7 @@
       <div class="flex-1 min-w-[120px] relative" data-tour="messages-search">
         <div class="flex items-center input input-bordered input-sm w-full p-0">
           <!-- 搜索范围选择器 -->
-          <select v-model="searchIn" class="select select-ghost select-sm h-full min-h-0 rounded-r-none border-r border-base-content/20 text-xs font-medium px-2">
+          <select v-model="searchIn" class="select select-ghost select-sm h-full min-h-0 w-auto rounded-r-none border-r border-base-content/20 text-xs font-medium px-2">
             <option value="all">{{ t.messages.searchInAll }}</option>
             <option value="key">{{ t.messages.searchInKey }}</option>
             <option value="value">{{ t.messages.searchInValue }}</option>
