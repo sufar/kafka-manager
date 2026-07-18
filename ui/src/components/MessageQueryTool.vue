@@ -212,8 +212,8 @@
       <!-- Desktop Table with Virtual Scroll -->
       <div class="hidden md:flex md:flex-col h-full">
         <!-- Table Header -->
-        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide w-full" data-tour="messages-table-header">
-          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+        <div class="flex bg-base-200 px-2 py-0.5 text-[10px] font-semibold w-full" data-tour="messages-table-header">
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors whitespace-nowrap overflow-hidden"
             :style="{ width: columnWidths.partition + 'px' }"
             @click="togglePartitionSort">
             {{ t.messages.partitionLabel2 }}
@@ -231,7 +231,7 @@
             class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('partition', $event)"
           ></div>
-          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors whitespace-nowrap overflow-hidden"
             :style="{ width: columnWidths.offset + 'px' }"
             @click="toggleOffsetSort">
             {{ t.messages.offsetLabel }}
@@ -249,7 +249,7 @@
             class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('offset', $event)"
           ></div>
-          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors whitespace-nowrap overflow-hidden"
             :style="{ width: columnWidths.timestamp + 'px' }"
             @click="toggleTimestampSort">
             {{ t.messages.timestampLabel }}
@@ -267,7 +267,7 @@
             class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('timestamp', $event)"
           ></div>
-          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+          <div class="flex-shrink-0 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors whitespace-nowrap overflow-hidden"
             :style="{ width: columnWidths.key + 'px' }"
             @click="toggleKeySort">
             {{ t.messages.key }}
@@ -284,8 +284,8 @@
           <div class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('key', $event)"
           ></div>
-          <div class="flex-1" :style="{ minWidth: columnWidths.value + 'px' }">{{ t.messages.value }}</div>
-          <div class="flex-shrink-0 text-center" :style="{ width: columnWidths.actions + 'px' }">{{ t.messages.actions }}</div>
+          <div class="flex-1 whitespace-nowrap overflow-hidden" :style="{ minWidth: columnWidths.value + 'px' }">{{ t.messages.value }}</div>
+          <div class="flex-shrink-0 text-center whitespace-nowrap overflow-hidden" :style="{ width: columnWidths.actions + 'px' }">{{ t.messages.actions }}</div>
           <div
             class="resizer w-1 cursor-col-resize bg-base-content/10 hover:bg-primary/40 transition-colors rounded-sm"
             @mousedown="startColumnResize('actions', $event)"
@@ -781,13 +781,15 @@ const showHistory = ref(false);
 
 // Column widths for the message table (in px)
 type ColumnKey = 'partition' | 'offset' | 'timestamp' | 'key' | 'value' | 'actions';
-const columnWidths = ref<Record<ColumnKey, number>>({
-  partition: 48,
-  offset: 64,
-  timestamp: 112,
-  key: 80,
-  value: 200,
-  actions: 40,
+// 英文表头（大写 + 字距）比中文宽很多，需要更大的默认列宽避免重叠
+const DEFAULT_COLUMN_WIDTHS: Record<'zh' | 'en', Record<ColumnKey, number>> = {
+  zh: { partition: 48, offset: 64, timestamp: 112, key: 80, value: 200, actions: 40 },
+  en: { partition: 70, offset: 62, timestamp: 104, key: 60, value: 200, actions: 50 },
+};
+const columnWidths = ref<Record<ColumnKey, number>>({ ...DEFAULT_COLUMN_WIDTHS[languageStore.currentLanguage] });
+// 切换语言时重置为该语言的默认列宽
+watch(() => languageStore.currentLanguage, (lang) => {
+  columnWidths.value = { ...DEFAULT_COLUMN_WIDTHS[lang] };
 });
 const columnResizing = ref(false);
 const resizeColumn = ref<ColumnKey | null>(null);
