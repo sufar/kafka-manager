@@ -5,7 +5,7 @@ edition = "2021"
 description = "A Kafka management tool (Tauri desktop app)"
 
 [workspace]
-members = ["src-tauri"]
+members = ["src-tauri", "app"]
 
 [dependencies]
 # Async runtime
