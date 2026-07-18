@@ -388,9 +388,10 @@ import { useUpdateStore } from '@/stores/update';
 import { useToast } from '@/composables/useToast';
 import { useCanGoBack } from '@/composables/useCanGoBack';
 import { apiClient } from '@/api/client';
+import { invoke } from '@tauri-apps/api/core';
 import JsonHighlightSelector from '@/components/Settings/JsonHighlightSelector.vue';
 
-// 检测是否在 Tauri 环境下运行
+// Tauri 环境检测（应用始终以 Tauri 运行；浏览器 dev 预览时部分桌面功能不可用）
 function isTauri(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -403,32 +404,9 @@ function isTauri(): boolean {
   );
 }
 
-// 安全的 invoke 调用（Tauri 环境）
+// 统一的 Tauri 命令调用
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  // 在调用时检测 Tauri 环境，使用 @tauri-apps/api 的 invoke 函数
-  const win = window as any;
-  if (win.__TAURI__?.core?.invoke || win.__TAURI__?.invoke) {
-    // Tauri 环境，使用 Tauri invoke
-    if (win.__TAURI__.core?.invoke) {
-      return win.__TAURI__.core.invoke(cmd, args);
-    } else {
-      return win.__TAURI__.invoke(cmd, args);
-    }
-  }
-  // 非 Tauri 环境，通过 HTTP 调用后端 API
-  const response = await fetch('http://localhost:9732/api', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Method': cmd,
-    },
-    body: JSON.stringify(args || {}),
-  });
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.error || 'API call failed');
-  }
-  return data.data as T;
+  return invoke<T>(cmd, args);
 }
 
 const themeStore = useThemeStore();

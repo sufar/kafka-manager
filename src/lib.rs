@@ -1,16 +1,17 @@
 //! Kafka Manager API
 //!
-//! A Kafka management tool with RESTful API
+//! A Kafka management tool; business logic exposed to the Tauri shell via IPC commands
 #![allow(dead_code)]
 
+pub mod api;
+pub mod api_import_export;
+pub mod api_schema_registry;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod kafka;
-pub mod middleware;
 pub mod models;
 pub mod pool;
-pub mod routes;
 pub mod telemetry;
 pub mod utils;
 
@@ -67,5 +68,3 @@ impl AppState {
         self.db.inner().clone()
     }
 }
-
-pub use routes::create_router;

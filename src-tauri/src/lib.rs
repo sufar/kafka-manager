@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -8,19 +7,20 @@ use std::time::Duration;
 use std::fs::OpenOptions;
 
 use arc_swap::ArcSwap;
-use axum::extract::DefaultBodyLimit;
-use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, compression::CompressionLayer};
 
 // 引用主项目的 kafka-manager-api crate
 use kafka_manager_api::{
     Config, DbPool, KafkaClients, ClusterPools,
     RefreshState, ImportExportLock,
-    AppState, create_router,
+    AppState,
     telemetry,
 };
 use tauri::Manager;
 use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
+
+mod api_commands;
+use api_commands::{BackendState, StreamRegistry};
 
 /// Windows 开机自启动：注册表路径
 #[cfg(target_os = "windows")]
@@ -233,8 +233,8 @@ fn spawn_periodic_log_cleanup() {
     });
 }
 
-/// 启动后端服务器
-async fn start_backend(ready_tx: mpsc::Sender<bool>) {
+/// 初始化后端（数据库、Kafka 客户端、遥测），完成后通过 channel 返回 AppState
+async fn start_backend(state_tx: mpsc::Sender<Option<AppState>>) {
     log("=========================================");
     log("Backend starting...");
     log("=========================================");
@@ -292,7 +292,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         }
     };
 
-    log(&format!("Server will bind to {}:{}", config.server.host, config.server.port));
+    log(&format!("Backend config loaded ({} cluster(s) configured)", config.clusters.len()));
 
     // 创建数据库路径 - 开发模式和生产模式都使用用户目录
     // 避免在 src-tauri 目录下创建数据库文件导致 Tauri 热重载循环
@@ -337,7 +337,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         }
         Err(e) => {
             log(&format!("FATAL: Failed to create database pool: {}", e));
-            let _ = ready_tx.send(false);
+            let _ = state_tx.send(None);
             return;
         }
     };
@@ -346,7 +346,7 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
     log("Initializing database...");
     if let Err(e) = pool.init().await {
         log(&format!("FATAL: Failed to init database: {}", e));
-        let _ = ready_tx.send(false);
+        let _ = state_tx.send(None);
         return;
     }
     log("Database initialized OK");
@@ -415,86 +415,10 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         tracing::info!("Log file: {}", log_path_tauri.display());
     }
 
-    // 自定义 TraceLayer：请求和响应都在 INFO 级别记录
-    let trace_layer = tower_http::trace::TraceLayer::new_for_http()
-        .on_request(|req: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
-            tracing::info!("[http] {} {}", req.method(), req.uri().path());
-        })
-        .on_response(|res: &axum::http::Response<_>, _latency: Duration, _span: &tracing::Span| {
-            tracing::info!("[http] response {} ({:?})", res.status(), _latency);
-        })
-        .on_failure(|_error: tower_http::classify::ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
-            tracing::warn!("[http] failure ({:?})", _latency);
-        });
-
-    // 创建路由
-    let app = create_router(state)
-        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
-        .layer(trace_layer)
-        .layer(TimeoutLayer::new(Duration::from_secs(60)))
-        .layer(CompressionLayer::new())
-        .layer(CorsLayer::permissive());
-
-    // 绑定地址
-    let addr_str = format!("{}:{}", config.server.host, config.server.port);
-    log(&format!("Binding to: {}", addr_str));
-
-    let addr: SocketAddr = match addr_str.parse() {
-        Ok(a) => a,
-        Err(e) => {
-            log(&format!("FATAL: Invalid address: {}", e));
-            let _ = ready_tx.send(false);
-            return;
-        }
-    };
-
-    let socket = match addr.ip() {
-        std::net::IpAddr::V4(_) => tokio::net::TcpSocket::new_v4(),
-        std::net::IpAddr::V6(_) => tokio::net::TcpSocket::new_v6(),
-    };
-    let socket = match socket {
-        Ok(s) => s,
-        Err(e) => {
-            log(&format!("FATAL: Failed to create socket: {}", e));
-            let _ = ready_tx.send(false);
-            return;
-        }
-    };
-    if let Err(e) = socket.set_reuseaddr(true) {
-        log(&format!("Warning: Failed to set SO_REUSEADDR: {}", e));
-    }
-    if let Err(e) = socket.bind(addr) {
-        log(&format!("FATAL: Failed to bind: {}", e));
-        let _ = ready_tx.send(false);
-        return;
-    }
-    let listener = match socket.listen(1024) {
-        Ok(l) => {
-            log(&format!("Successfully bound to {}", addr));
-            l
-        }
-        Err(e) => {
-            log(&format!("FATAL: Failed to listen: {}", e));
-            let _ = ready_tx.send(false);
-            return;
-        }
-    };
-
-    // 通知前端后端已启动（Kafka 连接在后台建立中）
+    // 业务逻辑通过 Tauri IPC 暴露（不再启动 HTTP 服务器）
     log("=========================================");
-    log("SERVER READY - Starting HTTP service");
+    log("BACKEND READY - AppState initialized, serving via Tauri IPC");
     log("=========================================");
-
-    if let Err(e) = ready_tx.send(true) {
-        log(&format!("Warning: Failed to send ready signal: {:?}", e));
-    }
-
-    // 启动服务器（在后台任务中阻塞）
-    let server_handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
-            log(&format!("Server error: {}", e));
-        }
-    });
 
     // 后台异步建立 Kafka 连接
     let cluster_count = config.clusters.len();
@@ -583,8 +507,14 @@ async fn start_backend(ready_tx: mpsc::Sender<bool>) {
         }
     });
 
-    // 等待服务器结束
-    let _ = server_handle.await;
+    // 将初始化完成的 AppState 交给 Tauri 主线程（通过 IPC 命令使用）
+    if let Err(e) = state_tx.send(Some(state)) {
+        log(&format!("FATAL: Failed to send AppState to main thread: {:?}", e));
+        return;
+    }
+
+    // 保持后端 tokio runtime 存活（DB 连接池的后台任务、Kafka 客户端、遥测任务都运行在此 runtime 上）
+    std::future::pending::<()>().await;
 }
 
 #[tauri::command]
@@ -2584,41 +2514,39 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     log("Tauri application starting...");
 
-    // 创建通道
-    let (ready_tx, ready_rx) = mpsc::channel::<bool>();
+    // 创建通道（后端初始化完成后回传 AppState）
+    let (state_tx, state_rx) = mpsc::channel::<Option<AppState>>();
 
-    // 在后台线程启动后端
+    // 在后台线程启动后端（独立的 tokio runtime，供 DB 连接池与 Kafka 客户端使用）
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(r) => r,
             Err(e) => {
                 log(&format!("FATAL: Failed to create tokio runtime: {}", e));
-                let _ = ready_tx.send(false);
+                let _ = state_tx.send(None);
                 return;
             }
         };
 
-        rt.block_on(start_backend(ready_tx));
+        rt.block_on(start_backend(state_tx));
     });
 
-    // 等待后端启动信号
-    log("Waiting for backend to be ready...");
-    let backend_ready = match ready_rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(ready) => {
-            log(&format!("Backend ready signal received: {}", ready));
-            ready
+    // 等待后端初始化（最多 30 秒）
+    log("Waiting for backend to initialize...");
+    let app_state = match state_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(Some(state)) => {
+            log("Backend initialized, starting UI...");
+            Some(state)
+        }
+        Ok(None) => {
+            log("WARNING: Backend failed to initialize");
+            None
         }
         Err(_) => {
-            log("Backend startup timed out after 30 seconds");
-            false
+            log("WARNING: Backend initialization timed out after 30 seconds");
+            None
         }
     };
-
-    if backend_ready {
-        log("Backend is ready, starting UI...");
-    } else {
-        log("WARNING: Backend failed to start or timed out");
-    }
 
     // 启动 Tauri
     tauri::Builder::default()
@@ -2635,12 +2563,13 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_download_flag, set_auto_launch, get_auto_launch, set_system_tray, is_windows, share_current_version, open_url])
+        .manage(BackendState(app_state))
+        .manage(StreamRegistry::default())
+        .invoke_handler(tauri::generate_handler![greet, get_app_version, check_for_updates, install_update, get_app_logs, clear_app_logs, get_download_status, clear_download_status, set_auto_download_flag, set_auto_launch, get_auto_launch, set_system_tray, is_windows, share_current_version, open_url, api_commands::api_request, api_commands::message_list_stream, api_commands::cancel_message_list])
         .setup(|app| {
             // 启动时清理，只保留今天的日志
             cleanup_log_files();

@@ -519,6 +519,7 @@ import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick, rea
 import { useRoute, useRouter } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import { apiClient } from '@/api/client';
+import type { StreamHandle } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 import { useLanguageStore } from '@/stores/language';
 import { useCanGoBack } from '@/composables/useCanGoBack';
@@ -724,7 +725,7 @@ const lastQueryTime = ref(0);
 
 // SSE 流式状态
 const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
-let currentAbortController: AbortController | null = null;
+let currentAbortController: StreamHandle | null = null;
 let currentRequestId = 0;
 let isAborted = false;  // 取消标志
 let finalizedSort: 'desc' | undefined = undefined;
@@ -1138,21 +1139,6 @@ function stopQuery() {
   isAborted = true;
 }
 
-// 检测是否在 Tauri 环境下运行
-function isTauri(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const win = window as any;
-  return !!(
-    win.__TAURI__ ||
-    win.__TAURI_INTERNALS__ ||
-    win.__TAURI_IPC__ ||
-    win._TAURI_VERSION_ ||
-    win.navigator?.userAgent?.includes('Tauri')
-  );
-}
-
 function exportMessages() {
   if (messages.value.length === 0) return;
 
@@ -1169,35 +1155,24 @@ function exportMessages() {
   const data = JSON.stringify(exportData, null, 2);
   const filename = `${selectedTopic.value}_messages_${Date.now()}.json`;
 
-  if (isTauri()) {
-    // Tauri 环境下使用原生文件保存对话框
-    save({
-      defaultPath: filename,
-      filters: [{
-        name: 'JSON Files',
-        extensions: ['json']
-      }]
-    }).then(async (filePath) => {
-      if (filePath) {
-        const encoder = new TextEncoder();
-        const bytes = encoder.encode(data);
-        await writeFile(filePath, bytes);
-        showSuccess(t.value.messages.exportSuccess);
-      }
-    }).catch((err) => {
-      console.error('Failed to save file:', err);
-      showError(t.value.messages.exportFailed);
-    });
-  } else {
-    // 浏览器环境下使用传统下载方式
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  // 使用原生文件保存对话框
+  save({
+    defaultPath: filename,
+    filters: [{
+      name: 'JSON Files',
+      extensions: ['json']
+    }]
+  }).then(async (filePath) => {
+    if (filePath) {
+      const encoder = new TextEncoder();
+      const bytes = encoder.encode(data);
+      await writeFile(filePath, bytes);
+      showSuccess(t.value.messages.exportSuccess);
+    }
+  }).catch((err) => {
+    console.error('Failed to save file:', err);
+    showError(t.value.messages.exportFailed);
+  });
 }
 
 // 发送消息弹框控制

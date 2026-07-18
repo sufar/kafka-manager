@@ -3,7 +3,6 @@ pub mod cluster_group;
 pub mod consumer_group;
 pub mod favorite;
 pub mod settings;
-pub mod tag;
 pub mod topic;
 pub mod topic_template;
 pub mod topic_history;

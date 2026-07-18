@@ -18,7 +18,7 @@ A cross-platform desktop application for querying and managing Kafka clusters. D
 - Query messages across any partition with newest-first or oldest-first ordering
 - Keyword search through message values with real-time filtering
 - Time range filtering — pinpoint messages by start/end timestamp or use quick presets (5 min, 15 min, 1 hour, 1 day)
-- SSE real-time streaming for live message tailing with stop/resume control
+- Real-time streaming message query with progressive rendering and stop control (pushed over Tauri IPC Channel)
 - Multi-format message viewer: **JSON** (with syntax highlighting and customizable themes), **raw text**, **hex dump**
 - Adjustable column widths and timestamp sorting in the message list
 - Export query results to **JSON**, **CSV**, or **TXT**
@@ -40,7 +40,7 @@ A cross-platform desktop application for querying and managing Kafka clusters. D
 - Delete topics with confirmation
 - Partition detail view with leader and replica distribution
 - Topic templates for one-click recurring creation
-- Topic tagging and favorites with named groups
+- Topic favorites with named groups
 - Topic change history tracking
 - Topic-level consumer group overview
 
@@ -84,17 +84,31 @@ cd ui && npm install
 
 # Development mode (hot-reload)
 npm run tauri dev
+# or from the repo root: ./start-tauri-dev.sh
 
 # Production build
-cd ui && npm run build
-cd .. && npm run tauri build
+npm run build
+npm run tauri build
 ```
 
 Built installers will be in `src-tauri/target/release/bundle/`.
 
 ## Configuration
 
-Clusters are configured and managed directly from the UI at runtime.
+Clusters are configured and managed directly from the UI at runtime. An optional `config.toml` next to the executable can pre-configure clusters and connection-pool sizes.
+
+## Architecture
+
+The app is a single self-contained Tauri 2 desktop application — there is **no HTTP server**. The Vue frontend talks to the Rust core exclusively over **Tauri IPC**:
+
+- **Unified dispatcher**: all business operations go through one `api_request` command (~113 methods: clusters, topics, consumer groups, messages, schema registry, favorites, settings, …)
+- **Streaming**: message queries push events over a Tauri `Channel` with cooperative cancellation (`cancel_message_list`)
+- **Persistence**: SQLite (sqlx, WAL) in the OS data directory; topic/consumer-group metadata is cached locally for instant navigation
+
+See the docs for details:
+
+- [Architecture Design](docs/architecture.md) ([中文](docs/architecture-cn.md))
+- [IPC API Reference](docs/api.md) ([中文](docs/api-cn.md))
 
 ## Tech Stack
 
@@ -103,12 +117,11 @@ Clusters are configured and managed directly from the UI at runtime.
 | Technology | Purpose |
 |------------|---------|
 | [Rust](https://www.rust-lang.org/) | Core language |
-| [Axum](https://github.com/tokio-rs/axum) 0.7 | Embedded HTTP server |
+| [Tauri 2](https://tauri.app/) | Desktop shell & IPC bridge |
 | [Tokio](https://tokio.rs/) | Async runtime |
 | [SQLx](https://github.com/launchbadge/sqlx) 0.8 | Async SQLite for local persistence |
 | [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka client |
 | [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | Connection pooling |
-| [Moka](https://github.com/moka-rs/moka) 0.12 | In-memory cache |
 | [apache-avro](https://github.com/apache/avro) 0.17 | Avro encoding / decoding |
 | [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf encoding / decoding |
 
@@ -120,7 +133,7 @@ Clusters are configured and managed directly from the UI at runtime.
 | [Tailwind CSS 4](https://tailwindcss.com/) | Utility-first styling |
 | [DaisyUI 5](https://daisyui.com/) | Component library |
 | [Pinia](https://pinia.vuejs.org/) | State management |
-| [Tauri 2](https://tauri.app/) | Desktop shell |
+| [vue-virtual-scroller](https://github.com/Akryum/vue-virtual-scroller) | Large-list rendering |
 | [Vite](https://vitejs.dev/) 7 | Build tool |
 
 ## Development
@@ -129,7 +142,7 @@ Clusters are configured and managed directly from the UI at runtime.
 # Build frontend
 cd ui && npm run build
 
-# Build backend
+# Build workspace (core library + Tauri shell)
 cargo build --release
 
 # Run tests

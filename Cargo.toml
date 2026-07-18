@@ -2,17 +2,14 @@
 name = "kafka-manager-api"
 version = "1.1.64"
 edition = "2021"
-description = "A Kafka management tool with RESTful API"
+description = "A Kafka management tool (Tauri desktop app)"
 
 [workspace]
 members = ["src-tauri"]
 
 [dependencies]
-# Web framework
-axum = { version = "0.7", features = ["macros"] }
+# Async runtime
 tokio = { version = "1", features = ["full"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "compression-br", "compression-zstd", "timeout"] }
 
 # Kafka client
 rdkafka = { version = "0.39", features = ["cmake-build", "libz", "zstd", "external-lz4"] }

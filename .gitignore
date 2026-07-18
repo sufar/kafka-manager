@@ -56,3 +56,4 @@ leetcode/.problemlist_cn
 not_git/
 .vite/
 .claude/worktrees/
+*.db

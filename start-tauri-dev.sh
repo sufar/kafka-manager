@@ -19,18 +19,7 @@ if ! command -v npm &> /dev/null; then
     exit 1
 fi
 
-# 启动后端
-echo "Starting backend server..."
-cargo run --release &
-BACKEND_PID=$!
-
-# 等待后端启动
-sleep 3
-
-# 启动 Tauri 开发模式
+# 启动 Tauri 开发模式（后端逻辑内嵌于 Tauri 应用，通过 IPC 调用，无需单独启动）
 echo "Starting Tauri dev mode..."
 cd ui
 npm run tauri dev
-
-# 清理
-kill $BACKEND_PID 2>/dev/null

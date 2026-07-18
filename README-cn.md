@@ -18,7 +18,7 @@
 - 跨任意分区查询消息，支持最新消息优先或最旧消息优先
 - 关键词搜索消息内容，实时过滤
 - 时间范围过滤——通过起止时间戳精确定位消息，或使用快捷预设（5 分钟、15 分钟、1 小时、1 天）
-- SSE 实时流式消息追踪，支持暂停/恢复控制
+- 实时流式消息查询，渐进式渲染，支持随时停止（通过 Tauri IPC Channel 推送）
 - 多格式消息查看器：**JSON**（支持语法高亮和自定义主题）、**原始文本**、**十六进制转储**
 - 消息列表支持自定义列宽与时间戳排序
 - 查询结果导出为 **JSON**、**CSV** 或 **TXT**
@@ -40,7 +40,7 @@
 - 删除主题（带确认提示）
 - 分区详情视图，展示 Leader 与副本分布
 - 主题模板，一键重复创建
-- 主题标签与收藏，支持命名分组
+- 主题收藏，支持命名分组
 - 主题变更历史追踪
 - 主题级消费者组概览
 
@@ -84,17 +84,31 @@ cd ui && npm install
 
 # 开发模式（热重载）
 npm run tauri dev
+# 或在仓库根目录执行：./start-tauri-dev.sh
 
 # 生产构建
-cd ui && npm run build
-cd .. && npm run tauri build
+npm run build
+npm run tauri build
 ```
 
 构建的安装包位于 `src-tauri/target/release/bundle/`。
 
 ## 配置
 
-集群通过界面在运行时直接添加和管理。
+集群通过界面在运行时直接添加和管理。也可以在可执行文件旁放置可选的 `config.toml` 预置集群和连接池参数。
+
+## 架构
+
+本应用是完全自包含的 Tauri 2 桌面应用——**没有 HTTP 服务器**。Vue 前端完全通过 **Tauri IPC** 与 Rust 核心通信：
+
+- **统一分发器**：所有业务操作经过一个 `api_request` 命令（约 113 个方法：集群、主题、消费组、消息、Schema Registry、收藏、设置等）
+- **流式传输**：消息查询通过 Tauri `Channel` 推送事件，支持协作式取消（`cancel_message_list`）
+- **持久化**：SQLite（sqlx，WAL 模式）存储在系统数据目录；Topic/消费组元数据本地缓存，导航秒开
+
+详见文档：
+
+- [架构设计](docs/architecture-cn.md)（[English](docs/architecture.md)）
+- [IPC API 参考](docs/api-cn.md)（[English](docs/api.md)）
 
 ## 技术栈
 
@@ -103,12 +117,11 @@ cd .. && npm run tauri build
 | 技术 | 用途 |
 |------|------|
 | [Rust](https://www.rust-lang.org/) | 核心语言 |
-| [Axum](https://github.com/tokio-rs/axum) 0.7 | 嵌入式 HTTP 服务器 |
+| [Tauri 2](https://tauri.app/) | 桌面壳与 IPC 桥接 |
 | [Tokio](https://tokio.rs/) | 异步运行时 |
 | [SQLx](https://github.com/launchbadge/sqlx) 0.8 | 异步 SQLite 本地持久化 |
 | [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka 客户端 |
 | [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | 连接池 |
-| [Moka](https://github.com/moka-rs/moka) 0.12 | 内存缓存 |
 | [apache-avro](https://github.com/apache/avro) 0.17 | Avro 编解码 |
 | [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf 编解码 |
 
@@ -120,7 +133,7 @@ cd .. && npm run tauri build
 | [Tailwind CSS 4](https://tailwindcss.com/) | 原子化 CSS |
 | [DaisyUI 5](https://daisyui.com/) | 组件库 |
 | [Pinia](https://pinia.vuejs.org/) | 状态管理 |
-| [Tauri 2](https://tauri.app/) | 桌面壳 |
+| [vue-virtual-scroller](https://github.com/Akryum/vue-virtual-scroller) | 大列表渲染 |
 | [Vite](https://vitejs.dev/) 7 | 构建工具 |
 
 ## 开发
@@ -129,7 +142,7 @@ cd .. && npm run tauri build
 # 构建前端
 cd ui && npm run build
 
-# 构建后端
+# 构建 workspace（核心库 + Tauri 壳）
 cargo build --release
 
 # 运行测试

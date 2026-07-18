@@ -1,5 +1,5 @@
-/// 统一 API 路由处理器
-/// 所有 API 请求都通过 POST /api 发送，method 放在 header 中，参数放在 body 中
+/// 统一 API 分发器
+/// 前端通过 Tauri command 调用，method 为字符串（如 "cluster.list"），参数为 JSON Value
 
 use crate::config::KafkaConfig;
 use crate::db::cluster::{ClusterStore, CreateClusterRequest, UpdateClusterRequest};
@@ -18,7 +18,7 @@ use crate::db::sent_message::{
     clear_sent_message_history, delete_sent_message, delete_sent_messages_by_topic, get_sent_message_list, record_sent_message,
 };
 use crate::db::settings::SettingStore;
-use crate::routes::settings::ImportDataRequest;
+use crate::api_import_export::ImportDataRequest;
 use crate::db::topic::TopicStore;
 use crate::db::topic_template::{
     CreateTopicTemplateRequest, TopicTemplateStore,
@@ -34,15 +34,6 @@ use crate::kafka::protobuf::ProtobufCodec;
 use crate::telemetry;
 use crate::AppState;
 use crate::RefreshState;
-use axum::{
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response, Sse},
-    routing::post,
-    Json, Router,
-};
-use axum::response::sse::Event;
-use tokio_stream::wrappers::ReceiverStream;
 use serde_json::Value;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -50,13 +41,18 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 use std::cmp::Reverse;
 use tokio_util::sync::CancellationToken;
-use std::time::Duration;
 
-// 创建统一路由
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", post(handle_unified_request))
-        .route("/stream", post(handle_stream_request))
+/// 流式消息事件（通过 Tauri Channel 发送给前端，data 为 JSON 字符串）
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct StreamEvent {
+    pub event: String,
+    pub data: String,
+}
+
+impl StreamEvent {
+    fn new(event: &str, data: String) -> Self {
+        Self { event: event.to_string(), data }
+    }
 }
 
 /// RefreshGuard - RAII guard to automatically clear refresh state when refresh completes
@@ -412,69 +408,15 @@ fn get_string_array_param(body: &Value, key: &str) -> Vec<String> {
 }
 
 // Main request handler
-async fn handle_unified_request(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<Value>,
-) -> Result<Response> {
-    // Get method from header
-    let method = headers
-        .get("X-API-Method")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::BadRequest("Missing X-API-Method header".to_string()))?;
-
-    // Dispatch request
-    let result = dispatch_request(method, state, body).await;
-
-    match result {
-        Ok(data) => {
-            // 包装成前端期望的格式
-            let response = serde_json::json!({
-                "success": true,
-                "data": data
-            });
-            Ok((StatusCode::OK, Json(response)).into_response())
-        }
-        Err(e) => {
-            // 错误响应也包装成统一格式
-            let (status, error_msg) = match &e {
-                AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-                AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-                AppError::Kafka(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Kafka error: {}", err)),
-                AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            };
-            let response = serde_json::json!({
-                "success": false,
-                "error": error_msg
-            });
-            Ok((status, Json(response)).into_response())
-        }
-    }
-}
-
-/// SSE 流式请求处理器
-async fn handle_stream_request(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<Value>,
-) -> Result<Response> {
-    // Get method from header
-    let method = headers
-        .get("X-API-Method")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::BadRequest("Missing X-API-Method header".to_string()))?;
-
-    match method {
-        "message.list" => handle_message_list_stream(state, body).await,
-        _ => Err(AppError::BadRequest(format!("Method '{}' does not support streaming", method))),
-    }
-}
-
-/// 使用 SSE 流式返回消息列表
-async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Response> {
-    use std::result::Result as StdResult;
-
+/// 启动流式消息查询，返回事件接收端（由 Tauri command 转发到前端 Channel）
+///
+/// 事件流：start -> batch* -> order? -> complete / error
+/// 调用方负责：消费 receiver 并转发、超时/取消时调用 cancel_token.cancel()
+pub async fn start_message_list_stream(
+    state: AppState,
+    body: Value,
+    cancel_token: CancellationToken,
+) -> Result<mpsc::Receiver<StreamEvent>> {
     let cluster_id = get_string_param(&body, "cluster_id")?;
     let topic = get_string_param(&body, "topic")?;
     let partition = get_optional_i32_param(&body, "partition");
@@ -492,15 +434,12 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
-    // 创建取消令牌和 SSE 事件流
-    let cancel_token = CancellationToken::new();
-    let (tx, rx) = mpsc::channel::<StdResult<Event, std::convert::Infallible>>(100);
+    let (tx, rx) = mpsc::channel::<StreamEvent>(100);
     let brokers = config.brokers.clone();
-    let topic_for_log = topic.clone();
     let cancel_token_clone = cancel_token.clone();
 
     // 在后台任务中执行消息获取和流式发送
-    let task_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         let result = fetch_messages_streaming_sse(
             &brokers,
             &topic,
@@ -520,43 +459,21 @@ async fn handle_message_list_stream(state: AppState, body: Value) -> Result<Resp
         match result {
             Ok(_) => {
                 // 发送完成标记
-                let _ = tx.send(Ok(Event::default().event("complete").data("{}"))).await;
+                let _ = tx.send(StreamEvent::new("complete", "{}".to_string())).await;
             }
             Err(e) => {
                 // 发送错误
                 let error_json = serde_json::json!({"error": e.to_string()}).to_string();
-                let _ = tx.send(Ok(Event::default().event("error").data(error_json))).await;
+                let _ = tx.send(StreamEvent::new("error", error_json)).await;
             }
         }
     });
 
-    // 返回 SSE 响应
-    let stream = ReceiverStream::new(rx);
-    let sse_stream = Sse::new(stream);
-
-    // 在单独 task 中运行查询 + 超时管理
-    // 使用 select! 避免 zombie task：查询正常完成时立即取消超时
-    let _timeout_guard = tokio::spawn(async move {
-        let mut task_ref = Box::pin(task_handle);
-        tokio::select! {
-            // 查询正常完成
-            _ = &mut task_ref => {
-                tracing::info!("[SSE] Query completed for topic {}", topic_for_log);
-            }
-            // 超时保护
-            _ = tokio::time::sleep(Duration::from_secs(120)) => {
-                cancel_token.cancel();
-                // task_ref is the task_handle itself (wrapped in Box), can't abort after consuming
-                tracing::info!("[SSE] Cancelled query for topic {} after timeout", topic_for_log);
-            }
-        }
-    });
-
-    Ok(sse_stream.into_response())
+    Ok(rx)
 }
 
 // Dispatch function
-async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<Value> {
+pub async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<Value> {
     match method {
         // Health
         "health" => handle_health().await,
@@ -683,20 +600,20 @@ async fn dispatch_request(method: &str, state: AppState, body: Value) -> Result<
         "consumer_group.delete" => handle_consumer_group_delete(state, body).await,
 
         // Schema Registry
-        "schema_registry.config.get" => crate::routes::schema_registry::handle_config_get(state, body).await,
-        "schema_registry.config.save" => crate::routes::schema_registry::handle_config_save(state, body).await,
-        "schema_registry.config.delete" => crate::routes::schema_registry::handle_config_delete(state, body).await,
-        "schema_registry.config.test" => crate::routes::schema_registry::handle_config_test(state, body).await,
-        "schema_registry.subject.list" => crate::routes::schema_registry::handle_subject_list(state, body).await,
-        "schema_registry.version.list" => crate::routes::schema_registry::handle_version_list(state, body).await,
-        "schema_registry.get" => crate::routes::schema_registry::handle_schema_get(state, body).await,
-        "schema_registry.get_latest" => crate::routes::schema_registry::handle_schema_get_latest(state, body).await,
-        "schema_registry.register" => crate::routes::schema_registry::handle_schema_register(state, body).await,
-        "schema_registry.compatibility.test" => crate::routes::schema_registry::handle_compatibility_test(state, body).await,
-        "schema_registry.compatibility.get" => crate::routes::schema_registry::handle_compatibility_get(state, body).await,
-        "schema_registry.compatibility.set" => crate::routes::schema_registry::handle_compatibility_set(state, body).await,
-        "schema_registry.list" => crate::routes::schema_registry::handle_schema_list(state, body).await,
-        "schema_registry.delete" => crate::routes::schema_registry::handle_schema_delete(state, body).await,
+        "schema_registry.config.get" => crate::api_schema_registry::handle_config_get(state, body).await,
+        "schema_registry.config.save" => crate::api_schema_registry::handle_config_save(state, body).await,
+        "schema_registry.config.delete" => crate::api_schema_registry::handle_config_delete(state, body).await,
+        "schema_registry.config.test" => crate::api_schema_registry::handle_config_test(state, body).await,
+        "schema_registry.subject.list" => crate::api_schema_registry::handle_subject_list(state, body).await,
+        "schema_registry.version.list" => crate::api_schema_registry::handle_version_list(state, body).await,
+        "schema_registry.get" => crate::api_schema_registry::handle_schema_get(state, body).await,
+        "schema_registry.get_latest" => crate::api_schema_registry::handle_schema_get_latest(state, body).await,
+        "schema_registry.register" => crate::api_schema_registry::handle_schema_register(state, body).await,
+        "schema_registry.compatibility.test" => crate::api_schema_registry::handle_compatibility_test(state, body).await,
+        "schema_registry.compatibility.get" => crate::api_schema_registry::handle_compatibility_get(state, body).await,
+        "schema_registry.compatibility.set" => crate::api_schema_registry::handle_compatibility_set(state, body).await,
+        "schema_registry.list" => crate::api_schema_registry::handle_schema_list(state, body).await,
+        "schema_registry.delete" => crate::api_schema_registry::handle_schema_delete(state, body).await,
 
         // Telemetry
         "telemetry.check_connection" => handle_telemetry_check_connection(state).await,
@@ -2353,7 +2270,7 @@ async fn fetch_messages_streaming_sse(
     search_in: Option<String>,
     fetch_mode: Option<&str>,
     sort: Option<&str>,
-    sse_tx: mpsc::Sender<std::result::Result<Event, std::convert::Infallible>>,
+    sse_tx: mpsc::Sender<StreamEvent>,
     cancel_token: CancellationToken,
 ) -> Result<()> {
     use rdkafka::consumer::{Consumer, BaseConsumer};
@@ -2402,8 +2319,8 @@ async fn fetch_messages_streaming_sse(
         "partitions": partition_count,
         "total_target": total_target
     });
-    sse_tx.send(Ok(Event::default().event("start").data(start_event.to_string()))).await
-        .map_err(|_| AppError::Internal("SSE channel closed".to_string()))?;
+    sse_tx.send(StreamEvent::new("start", start_event.to_string())).await
+        .map_err(|_| AppError::Internal("Stream channel closed".to_string()))?;
 
     // 为每个分区创建 channel，预分配 Vec 容量
     let mut rxs: Vec<(i32, mpsc::Receiver<crate::kafka::consumer::KafkaMessage>)> = Vec::with_capacity(partition_count);
@@ -2504,9 +2421,9 @@ async fn fetch_messages_streaming_sse(
                         tracing::info!("[SSE Stream] Cancelled while sending batch, stopping");
                         break;
                     }
-                    result = sse_tx.send(Ok(Event::default().event("batch").data(batch_json))) => {
+                    result = sse_tx.send(StreamEvent::new("batch", batch_json)) => {
                         if result.is_err() {
-                            tracing::info!("[SSE Stream] SSE channel closed, stopping");
+                            tracing::info!("[SSE Stream] Stream channel closed, stopping");
                             break;
                         }
                     }
@@ -2560,7 +2477,7 @@ async fn fetch_messages_streaming_sse(
                 return Err(AppError::Internal(format!("Serialization failed: {}", e)));
             }
         };
-        let _ = sse_tx.send(Ok(Event::default().event("batch").data(batch_json))).await;
+        let _ = sse_tx.send(StreamEvent::new("batch", batch_json)).await;
     }
 
     // 取消所有分区任务
@@ -4324,24 +4241,13 @@ async fn handle_settings_update(state: AppState, body: Value) -> Result<Value> {
 // ==================== Settings Import/Export ====================
 
 async fn handle_settings_export(state: AppState) -> Result<Value> {
-    use crate::routes::settings::export_data;
-    use axum::extract::State;
-    use axum::Json;
-    use std::sync::Arc;
-
-    let Json(data) = export_data(State(Arc::new(state))).await?;
+    let data = crate::api_import_export::export_data(&state).await?;
     Ok(serde_json::to_value(&data)?)
 }
 
 async fn handle_settings_import(state: AppState, body: Value) -> Result<Value> {
-    use crate::routes::settings::import_data;
-    use axum::extract::State;
-    use axum::Json;
-    use std::sync::Arc;
-
     let req: ImportDataRequest = serde_json::from_value(body)?;
-    let Json(result) = import_data(State(Arc::new(state)), Json(req)).await?;
-    Ok(serde_json::to_value(&result)?)
+    crate::api_import_export::import_data(state, req).await
 }
 
 // ==================== JSON Highlight Templates ====================

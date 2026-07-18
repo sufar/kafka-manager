@@ -1,3 +1,4 @@
+import { invoke, Channel } from '@tauri-apps/api/core';
 import type {
   Cluster,
   CreateClusterRequest,
@@ -17,161 +18,37 @@ import type {
   ClusterGroup,
 } from '@/types/api';
 
-// 检测是否在 Tauri 环境下运行
-function isTauri(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const win = window as any;
-  return !!(
-    win.__TAURI__ ||
-    win.__TAURI_INTERNALS__ ||
-    win.__TAURI_IPC__ ||
-    win._TAURI_VERSION_ ||
-    win.navigator?.userAgent?.includes('Tauri')
-  );
+/// 流式消息事件（与后端 StreamEvent 对应，data 为 JSON 字符串）
+interface StreamEvent {
+  event: string;
+  data: string;
 }
 
-// 获取 API 基础 URL
-function getBaseURL(): string {
-  if (isTauri()) {
-    return 'http://localhost:9732';
-  }
-  return '';
+/// 流式查询句柄（替代原 AbortController，abort 通过 IPC 取消后端查询）
+export interface StreamHandle {
+  abort(): void;
 }
 
 class ApiClient {
-  private baseURL: string;
-  private currentAbortController: AbortController | null = null;
-  private backendReady: boolean | null = null;
-
-  constructor(baseURL: string = getBaseURL()) {
-    this.baseURL = baseURL;
-  }
-
-  // 检查后端是否就绪
+  // 后端就绪检查（Tauri IPC 下无需等待，保留方法以兼容调用方）
   async checkBackendReady(): Promise<boolean> {
-    if (this.backendReady === true) {
-      return true;
-    }
-
-    // 在 Tauri 环境下，增加重试次数和超时时间
-    const maxRetries = isTauri() ? 60 : 1; // Tauri 下最多尝试 60 次（30 秒）
-    const retryDelay = 500; // 每次等待 500ms
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await this.request('health', {});
-        if (response) {
-          this.backendReady = true;
-          return true;
-        }
-      } catch (e) {
-        const error = e as { message?: string };
-        console.warn(`[ApiClient] Backend health check attempt ${i + 1}/${maxRetries} failed:`, error.message || e);
-
-        // 如果不是最后一次，等待后重试
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-        }
-      }
-    }
-
-    console.error('[ApiClient] Backend health check failed after all retries');
-    this.backendReady = false;
-    return false;
+    return true;
   }
 
-  // 取消当前的 API 请求
+  // 取消当前的 API 请求（Tauri IPC 请求无法中途取消，保留方法以兼容调用方；
+  // 流式消息查询的取消请使用 getMessagesStream 返回的 StreamHandle.abort()）
   cancelRequest() {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort();
-      this.currentAbortController = null;
-    }
+    // no-op
   }
 
-  // 统一请求方法
-  private async request<T>(method: string, body: Record<string, any>, timeoutMs?: number): Promise<T> {
-    this.currentAbortController = new AbortController();
-    const { signal } = this.currentAbortController;
-
-    // 设置请求超时（默认 30 秒，消息查询可能需要更长时间）
-    const requestTimeout = timeoutMs || 30000;
-    const timeoutId = setTimeout(() => {
-      if (this.currentAbortController) {
-        this.currentAbortController.abort();
-      }
-    }, requestTimeout);
-
-    const url = `${this.baseURL}/api`;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-API-Method': method,
-    };
-
-    // 在 Tauri 环境下，添加更多重试
-    const maxRetries = isTauri() ? 3 : 1; // Tauri 下最多重试 3 次（原来是 10 次）
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal,
-        });
-
-        if (!response.ok) {
-          let message = `HTTP ${response.status}: ${response.statusText}`;
-          try {
-            const errorData = await response.json();
-            message = errorData.error || message;
-          } catch {
-            // 忽略解析错误
-          }
-          clearTimeout(timeoutId);
-          throw { message, status: response.status } as ApiError;
-        }
-
-        const data = await response.json();
-
-        if (!data.success) {
-          clearTimeout(timeoutId);
-          throw { message: data.error || 'Unknown error', status: response.status } as ApiError;
-        }
-
-        clearTimeout(timeoutId);
-        return data.data as T;
-      } catch (e) {
-        const error = e as { message?: string; type?: string; name?: string };
-        // 处理超时错误
-        if (error.name === 'AbortError') {
-          clearTimeout(timeoutId);
-          throw { message: `请求超时（${requestTimeout / 1000}秒），请检查网络连接或减少查询数据量`, status: 408 } as ApiError;
-        }
-        if (isTauri() && attempt < maxRetries - 1) {
-          if (error.message?.includes('Failed to fetch') ||
-              error.message?.includes('NetworkError') ||
-              error.message?.includes('fetch') ||
-              error.type === 'TypeError') {
-            await new Promise(resolve => setTimeout(resolve, 100)); // 从 1 秒减少到 100ms
-            lastError = e as Error;
-            continue;
-          }
-        }
-        clearTimeout(timeoutId);
-        throw e;
-      }
+  // 统一请求方法（通过 Tauri IPC 调用后端统一分发器）
+  private async request<T>(method: string, body: Record<string, any>, _timeoutMs?: number): Promise<T> {
+    try {
+      return await invoke<T>('api_request', { method, params: body });
+    } catch (e) {
+      const message = typeof e === 'string' ? e : (e as { message?: string })?.message || 'Unknown error';
+      throw { message, status: 0 } as ApiError;
     }
-
-    clearTimeout(timeoutId);
-    if (lastError) {
-      throw lastError;
-    }
-
-    throw new Error('Request failed');
   }
 
   // ==================== Health ====================
@@ -196,12 +73,6 @@ class ApiClient {
   }
 
   async createCluster(cluster: CreateClusterRequest): Promise<Cluster> {
-    if (isTauri()) {
-      const ready = await this.checkBackendReady();
-      if (!ready) {
-        throw new Error('后端服务未就绪，请等待应用完全启动后再试（约 5-10 秒）');
-      }
-    }
     return this.request('cluster.create', cluster);
   }
 
@@ -393,35 +264,6 @@ class ApiClient {
     return this.request('topic.partition.watermarks', { cluster_id: clusterId, topic: topicName, partition });
   }
 
-  // Topic 标签管理
-  async getTopicTags(clusterId: string, topicName: string): Promise<Array<{ id: number; name: string; color: string }>> {
-    const data = await this.request<{ tags: Array<{ id: number; name: string; color: string }> }>('tag.list', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName
-    });
-    return data.tags || [];
-  }
-
-  async createTopicTag(clusterId: string, topicName: string, tagName: string, color: string): Promise<{ id: number; name: string; color: string }> {
-    return this.request('tag.create', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName,
-      tag_name: tagName,
-      color
-    });
-  }
-
-  async deleteTopicTag(clusterId: string, topicName: string, tagId: number): Promise<void> {
-    return this.request('tag.delete', {
-      cluster_id: clusterId,
-      resource_type: 'topic',
-      resource_name: topicName,
-      tag_id: tagId
-    });
-  }
-
   // ==================== Consumer Groups ====================
   /**
    * Get consumer groups list with topics information from database
@@ -538,25 +380,6 @@ class ApiClient {
     return data.offsets || [];
   }
 
-  async refreshConsumerGroupOffsets(clusterId: string, groupName: string): Promise<{
-    topic: string;
-    partition: number;
-    start_offset: number;
-    end_offset: number;
-    committed_offset: number;
-    lag: number;
-  }[]> {
-    const data = await this.request<{ offsets: Array<{
-      topic: string;
-      partition: number;
-      start_offset: number;
-      end_offset: number;
-      committed_offset: number;
-      lag: number;
-    }> }>('consumer_group.refresh_offsets', { cluster_id: clusterId, group: groupName });
-    return data.offsets || [];
-  }
-
   async resetConsumerGroupOffset(
     clusterId: string,
     groupName: string,
@@ -577,45 +400,8 @@ class ApiClient {
     });
   }
 
-  async resetConsumerGroupOffsetToEarliest(clusterId: string, groupName: string, topic: string, partition: number): Promise<{ offset: number }> {
-    return this.request('consumer_group.reset_offset_earliest', {
-      cluster_id: clusterId,
-      group: groupName,
-      topic,
-      partition
-    });
-  }
-
-  async resetConsumerGroupOffsetToLatest(clusterId: string, groupName: string, topic: string, partition: number): Promise<{ offset: number }> {
-    return this.request('consumer_group.reset_offset_latest', {
-      cluster_id: clusterId,
-      group: groupName,
-      topic,
-      partition
-    });
-  }
-
-  async resetConsumerGroupOffsetToTimestamp(clusterId: string, groupName: string, topic: string, partition: number, timestamp: number): Promise<{ offset: number }> {
-    return this.request('consumer_group.reset_offset_timestamp', {
-      cluster_id: clusterId,
-      group: groupName,
-      topic,
-      partition,
-      timestamp
-    });
-  }
-
   async deleteConsumerGroup(clusterId: string, groupName: string): Promise<void> {
     return this.request('consumer_group.delete', { cluster_id: clusterId, group: groupName });
-  }
-
-  async searchConsumerGroups(keyword?: string): Promise<{ cluster: string; group: string }[]> {
-    const params: Record<string, any> = {};
-    if (keyword && keyword.trim()) {
-      params.keyword = keyword.trim();
-    }
-    const data = await this.request<{ results: { cluster: string; group: string }[] }>('consumer_group.search', params);
-    return data.results || [];
   }
 
   // ==================== 消息管理 ====================
@@ -645,12 +431,12 @@ class ApiClient {
   }
 
   /**
-   * 使用 SSE 流式获取消息
+   * 流式获取消息（通过 Tauri Channel 接收后端推送的事件）
    * @param clusterId 集群ID
    * @param topic 主题名
    * @param params 查询参数
    * @param callbacks 回调函数
-   * @returns EventSource 实例，可用于取消请求
+   * @returns StreamHandle，调用 abort() 取消查询
    */
   getMessagesStream(
     clusterId: string,
@@ -674,8 +460,11 @@ class ApiClient {
       onComplete?: (data?: { actual_total?: number }) => void;
       onError?: (error: string) => void;
     }
-  ): AbortController {
-    const url = `${this.baseURL}/api/stream`;
+  ): StreamHandle {
+    const requestId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let aborted = false;
+    let terminalReceived = false; // 收到 complete / error 终态事件
+    let totalMessagesReceived = 0;
 
     const body = {
       cluster_id: clusterId,
@@ -683,189 +472,66 @@ class ApiClient {
       ...params
     };
 
-    // 使用 fetch 获取 SSE 流（EventSource 不支持 POST）
-    const controller = new AbortController();
-    const { signal } = controller;
+    const channel = new Channel<StreamEvent>();
+    channel.onmessage = (evt) => {
+      if (aborted) return;
 
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Method': 'message.list'
-      },
-      body: JSON.stringify(body),
-      signal
-    }).then(async (response) => {
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        callbacks?.onError?.(errorData.error || `HTTP ${response.status}`);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(evt.data);
+      } catch (e) {
+        console.error('[Stream Client] Failed to parse event data:', evt, e);
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        callbacks?.onError?.('No response body');
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let batchCount = 0;
-      let totalMessagesReceived = 0;
-      let aborted = false;
-
-      while (true) {
-        // 检查是否被取消
-        if (signal.aborted) {
-          console.log('[SSE Client] Aborted by user, stopping read loop');
-          aborted = true;
+      switch (evt.event) {
+        case 'start':
+          console.log(`[Stream Client] Start: partitions=${parsed.partitions}, total_target=${parsed.total_target}`);
+          callbacks?.onStart?.(parsed);
           break;
-        }
-
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // 使用 \n\n 分割完整的 SSE 事件
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-
-        for (const part of parts) {
-          const trimmed = part.trim();
-          if (!trimmed) continue;
-
-          // 再次检查是否被取消
-          if (signal.aborted) {
-            console.log('[SSE Client] Aborted during parsing, stopping');
-            aborted = true;
-            break;
-          }
-
-          // 解析 event 和 data 行
-          const lines = trimmed.split('\n');
-          let event = '';
-          let data = '';
-
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              event = line.slice(7).trim();
-            } else if (line.startsWith('data: ')) {
-              data = line.slice(6).trim();
-            }
-          }
-
-          if (!event || !data) continue;
-
-          try {
-            const parsed = JSON.parse(data);
-            // 检查取消状态
-            if (signal.aborted) {
-              console.log('[SSE Client] Aborted, skipping callback');
-              continue;
-            }
-            switch (event) {
-              case 'start':
-                console.log(`[SSE Client] Start: partitions=${parsed.partitions}, total_target=${parsed.total_target}`);
-                // 再次检查取消状态
-                if (signal.aborted) break;
-                callbacks?.onStart?.(parsed);
-                break;
-              case 'batch':
-                batchCount++;
-                const msgCount = parsed.messages?.length || 0;
-                totalMessagesReceived += msgCount;
-                console.log(`[SSE Client] Batch #${batchCount}: ${msgCount} messages, total received: ${totalMessagesReceived}, progress=${parsed.progress}/${parsed.total}`);
-                // 再次检查取消状态
-                if (signal.aborted) break;
-                callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
-                break;
-              case 'order':
-                console.log(`[SSE Client] Order: sort=${parsed.sort}`);
-                // 再次检查取消状态
-                if (signal.aborted) break;
-                callbacks?.onOrder?.(parsed.sort);
-                break;
-              case 'complete':
-                console.log(`[SSE Client] Complete event received: actual_total=${parsed.actual_total}, target_total=${parsed.target_total}`);
-                // 检查取消状态
-                if (!signal.aborted) {
-                  callbacks?.onComplete?.(parsed);
-                }
-                break;
-              case 'error':
-                // 检查取消状态
-                if (!signal.aborted) {
-                  callbacks?.onError?.(parsed.error);
-                }
-                break;
-            }
-          } catch (e) {
-            console.error('[SSE Client] Failed to parse event:', trimmed, e);
-          }
-        }
-
-        if (aborted) break;
+        case 'batch':
+          totalMessagesReceived += parsed.messages?.length || 0;
+          callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
+          break;
+        case 'order':
+          callbacks?.onOrder?.(parsed.sort);
+          break;
+        case 'complete':
+          terminalReceived = true;
+          console.log(`[Stream Client] Complete: actual_total=${parsed.actual_total}, target_total=${parsed.target_total}`);
+          callbacks?.onComplete?.(parsed);
+          break;
+        case 'error':
+          terminalReceived = true;
+          callbacks?.onError?.(parsed.error);
+          break;
       }
+    };
 
-      // 处理流结束后剩余的 buffer 数据
-      if (buffer.trim() && !aborted && !signal.aborted) {
-        const trimmed = buffer.trim();
-        const lines = trimmed.split('\n');
-        let event = '';
-        let data = '';
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            event = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            data = line.slice(6).trim();
-          }
+    // invoke 的 Promise 在后端事件流结束时 resolve（命令内部等待转发循环结束）
+    invoke<void>('message_list_stream', { requestId, params: body, channel })
+      .then(() => {
+        // 流结束但未收到终态事件（异常情况），按已收到的消息数补发 complete
+        if (!aborted && !terminalReceived) {
+          callbacks?.onComplete?.({ actual_total: totalMessagesReceived });
         }
-
-        if (event && data) {
-          try {
-            const parsed = JSON.parse(data);
-            // 再次检查是否被取消
-            if (!signal.aborted) {
-              switch (event) {
-                case 'start':
-                  callbacks?.onStart?.(parsed);
-                  break;
-                case 'batch': {
-                  const msgCount = parsed.messages?.length || 0;
-                  totalMessagesReceived += msgCount;
-                  console.log(`[SSE Client] Final buffer batch: ${msgCount} messages, total: ${totalMessagesReceived}`);
-                  callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
-                  break;
-                }
-                case 'order':
-                  callbacks?.onOrder?.(parsed.sort);
-                  break;
-                case 'error':
-                  callbacks?.onError?.(parsed.error);
-                  break;
-              }
-            }
-          } catch (e) {
-            console.error('[SSE Client] Failed to parse final buffer:', buffer, e);
-          }
+      })
+      .catch((e) => {
+        if (!aborted && !terminalReceived) {
+          const message = typeof e === 'string' ? e : (e as { message?: string })?.message || 'Stream error';
+          callbacks?.onError?.(message);
         }
-      }
+      });
 
-      console.log(`[SSE Client] Stream complete. Total batches: ${batchCount}, Total messages: ${totalMessagesReceived}`);
-      // 传递 complete 事件数据（包括 actual_total）
-      // 如果是被取消的，不调用 onComplete
-      if (!aborted && !signal.aborted) {
-        callbacks?.onComplete?.({ actual_total: totalMessagesReceived });
+    return {
+      abort: () => {
+        if (aborted) return;
+        aborted = true;
+        invoke('cancel_message_list', { requestId }).catch((e) => {
+          console.warn('[Stream Client] Failed to cancel stream:', e);
+        });
       }
-    }).catch((error) => {
-      if (error.name !== 'AbortError') {
-        callbacks?.onError?.(error.message || 'Network error');
-      }
-    });
-
-    return controller;
+    };
   }
 
   async sendMessage(clusterId: string, topic: string, message: import('@/types/api').SendMessageRequest): Promise<import('@/types/api').SendMessageResponse> {
@@ -1192,8 +858,3 @@ class ApiClient {
 
 // 导出单例
 export const apiClient = new ApiClient();
-
-// 用于测试环境设置 baseURL
-export function setupApiClient(baseURL?: string) {
-  return new ApiClient(baseURL);
-}

@@ -1,97 +1,9 @@
-/// 全局用户设置路由
+//! 设置数据导入导出（集群、分组、Topic 元数据、收藏、历史记录）
 
-use crate::db::settings::SettingStore;
+use serde::{Deserialize, Serialize};
+
 use crate::error::{AppError, Result};
 use crate::AppState;
-use axum::{
-    extract::{Query, State},
-    routing::{get, post},
-    Json, Router,
-};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
-pub fn routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/", get(get_settings).put(update_setting))
-        .route("/export", post(export_data))
-        .route("/import", post(import_data))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SettingsQuery {
-    keys: Option<String>, // 逗号分隔的 key 列表
-}
-
-#[derive(Debug, Serialize)]
-pub struct SettingValue {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SettingsResponse {
-    pub settings: Vec<SettingValue>,
-}
-
-/// 获取设置
-async fn get_settings(
-    State(state): State<Arc<AppState>>,
-    query: Query<SettingsQuery>,
-) -> Result<Json<SettingsResponse>> {
-    let keys: Vec<&str> = query
-        .keys
-        .as_ref()
-        .map(|s| s.split(',').map(|k| k.trim()).collect())
-        .unwrap_or_default();
-
-    let settings = if keys.is_empty() {
-        // 获取所有设置
-        let all: Vec<(String, String)> = sqlx::query_as(
-            "SELECT key, value FROM user_settings ORDER BY key"
-        )
-        .fetch_all(state.db.inner())
-        .await?;
-        all.into_iter()
-            .map(|(k, v)| SettingValue { key: k, value: v })
-            .collect()
-    } else {
-        // 获取指定的设置
-        let mut result = Vec::with_capacity(keys.len());
-        for key in keys {
-            if let Some(value) = SettingStore::get(state.db.inner(), key).await? {
-                result.push(SettingValue {
-                    key: key.to_string(),
-                    value,
-                });
-            }
-        }
-        result
-    };
-
-    Ok(Json(SettingsResponse { settings }))
-}
-
-/// 更新设置
-#[derive(Debug, Deserialize)]
-pub struct UpdateSettingRequest {
-    pub key: String,
-    pub value: String,
-}
-
-async fn update_setting(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<UpdateSettingRequest>,
-) -> Result<Json<SettingValue>> {
-    SettingStore::set(state.db.inner(), &req.key, &req.value).await?;
-
-    Ok(Json(SettingValue {
-        key: req.key,
-        value: req.value,
-    }))
-}
-
-// ==================== 导入导出功能 ====================
 
 /// 导出数据响应
 #[derive(Debug, Serialize)]
@@ -239,9 +151,7 @@ pub struct ImportResult {
 }
 
 /// 导出数据
-pub(crate) async fn export_data(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<ExportData>> {
+pub async fn export_data(state: &AppState) -> Result<ExportData> {
     // 检查是否有其他导入导出正在进行
     {
         let lock = state.import_export_lock.lock().unwrap();
@@ -261,7 +171,7 @@ pub(crate) async fn export_data(
         lock.operation = Some("export".to_string());
     }
 
-    let result = do_export(&state).await;
+    let result = do_export(state).await;
 
     // 释放导出锁
     {
@@ -273,7 +183,7 @@ pub(crate) async fn export_data(
     result
 }
 
-async fn do_export(state: &AppState) -> Result<Json<ExportData>> {
+async fn do_export(state: &AppState) -> Result<ExportData> {
     use crate::db::cluster::ClusterStore;
     use crate::db::cluster_group::ClusterGroupStore;
     use crate::db::favorite::get_all_favorites_with_groups;
@@ -358,7 +268,7 @@ async fn do_export(state: &AppState) -> Result<Json<ExportData>> {
         })
         .collect();
 
-    let export_data = ExportData {
+    Ok(ExportData {
         version: env!("CARGO_PKG_VERSION").to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         cluster_groups,
@@ -366,16 +276,11 @@ async fn do_export(state: &AppState) -> Result<Json<ExportData>> {
         topics,
         favorites,
         history,
-    };
-
-    Ok(Json(export_data))
+    })
 }
 
-/// 导入数据
-pub(crate) async fn import_data(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ImportDataRequest>,
-) -> Result<Json<serde_json::Value>> {
+/// 导入数据（立即返回，后台异步执行）
+pub async fn import_data(state: AppState, req: ImportDataRequest) -> Result<serde_json::Value> {
     // 检查是否有其他导入导出正在进行
     {
         let lock = state.import_export_lock.lock().unwrap();
@@ -405,13 +310,13 @@ pub(crate) async fn import_data(
         lock.operation = None;
     });
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": "Import started in background",
-    })))
+    }))
 }
 
-async fn do_import(state: &AppState, req: ImportDataRequest) -> Result<Json<ImportResult>> {
+async fn do_import(state: &AppState, req: ImportDataRequest) -> Result<ImportResult> {
     use crate::db::cluster::{ClusterStore, CreateClusterRequest};
     use crate::db::cluster_group::{ClusterGroupStore, CreateClusterGroupRequest};
     use crate::db::favorite::{
@@ -573,7 +478,7 @@ async fn do_import(state: &AppState, req: ImportDataRequest) -> Result<Json<Impo
         }
     }
 
-    Ok(Json(ImportResult {
+    Ok(ImportResult {
         cluster_groups_imported,
         cluster_groups_skipped,
         clusters_imported,
@@ -584,5 +489,5 @@ async fn do_import(state: &AppState, req: ImportDataRequest) -> Result<Json<Impo
         favorites_skipped,
         history_imported,
         history_skipped,
-    }))
+    })
 }
