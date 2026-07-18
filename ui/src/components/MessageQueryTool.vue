@@ -16,7 +16,7 @@
       </select>
 
       <!-- 查询模式 -->
-      <select v-model="fetchMode" class="select select-bordered select-sm w-24" data-tour="messages-mode">
+      <select v-model="fetchMode" class="select select-bordered select-sm w-auto" data-tour="messages-mode">
         <option value="newest">{{ t.messages.newest }}</option>
         <option value="oldest">{{ t.messages.oldest }}</option>
       </select>
