@@ -51,6 +51,9 @@ pub struct MessagesPage {
     max_input: Entity<InputState>,
     search_input: Entity<InputState>,
 
+    cluster_options: Vec<String>,
+    topic_options: Vec<String>,
+    pending_topic: Option<String>,
     messages: Rc<Vec<Message>>,
     streaming: bool,
     received: usize,
@@ -107,6 +110,9 @@ impl MessagesPage {
             window_handle: window.window_handle(),
             cluster_state: None,
             topic_state: None,
+            cluster_options: Vec::new(),
+            topic_options: Vec::new(),
+            pending_topic: None,
             mode_state,
             search_in_state,
             partition_input,
@@ -165,6 +171,7 @@ impl MessagesPage {
 
             this.update_in(cx, |this, window, cx| {
                 let has_options = !options.is_empty();
+                this.cluster_options = options.iter().map(|o| o.value.to_string()).collect();
                 let select = cx.new(|cx| {
                     SelectState::new(
                         SearchableVec::new(options),
@@ -189,6 +196,25 @@ impl MessagesPage {
             .ok();
         })
         .detach();
+    }
+
+    /// 外部导航：预选集群 + Topic（由工作区在导航器/全局搜索选中时调用）
+    pub fn select_cluster_topic(&mut self, cluster: String, topic: String, cx: &mut Context<Self>) {
+        if let Some(ix) = self.cluster_options.iter().position(|c| c == &cluster) {
+            if let Some(state) = &self.cluster_state {
+                let handle = self.window_handle;
+                let state = state.clone();
+                handle
+                    .update(cx, |_, window, cx| {
+                        state.update(cx, |s, cx| {
+                            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+                        });
+                    })
+                    .ok();
+            }
+        }
+        self.pending_topic = Some(topic);
+        self.load_topics_for_cluster(cx);
     }
 
     /// 集群变化后加载 Topic 列表并创建 Topic 选择器
@@ -219,6 +245,7 @@ impl MessagesPage {
 
             this.update(cx, |this, cx| {
                 let has_options = !options.is_empty();
+                this.topic_options = options.iter().map(|o| o.value.to_string()).collect();
                 let window_handle = this.window_handle;
                 let select = window_handle
                     .update(cx, |_, window, cx| {
@@ -233,6 +260,25 @@ impl MessagesPage {
                     })
                     .ok();
                 this.topic_state = select;
+
+                // 处理外部预选：加载完成后定位 Topic 并自动查询
+                if let Some(pending) = this.pending_topic.take() {
+                    if let Some(ix) = this.topic_options.iter().position(|t| t == &pending) {
+                        if let Some(state) = &this.topic_state {
+                            let handle = this.window_handle;
+                            let state = state.clone();
+                            handle
+                                .update(cx, |_, window, cx| {
+                                    state.update(cx, |s, cx| {
+                                        s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+                                    });
+                                })
+                                .ok();
+                        }
+                        cx.notify();
+                        this.start_query(cx);
+                    }
+                }
                 cx.notify();
             })
             .ok();

@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::i18n::{t, I18n};
 use crate::pages::clusters::notify;
-use crate::state::{Backend, TokioRuntime};
+use crate::state::{Backend, SidebarMode, TokioRuntime};
 
 pub struct SettingsPage {
     version: String,
@@ -18,6 +18,7 @@ pub struct SettingsPage {
     auto_launch: bool,
     tray_enabled: bool,
     checking_update: bool,
+    tree_mode: bool,
 }
 
 impl SettingsPage {
@@ -32,6 +33,7 @@ impl SettingsPage {
             auto_launch,
             tray_enabled: false,
             checking_update: false,
+            tree_mode: SidebarMode::is_tree(cx),
         };
         this.load_version(cx);
         this.load_tray_setting(cx);
@@ -300,6 +302,27 @@ impl SettingsPage {
         cx.notify();
     }
 
+    /// 切换侧边栏模式（树形/平铺）
+    fn set_tree_mode(&mut self, tree: bool, cx: &mut Context<Self>) {
+        self.tree_mode = tree;
+        SidebarMode::set(cx, tree);
+        let rt = TokioRuntime::handle(cx);
+        if let Some(state) = Backend::state(cx) {
+            cx.spawn(async move |_this, _cx| {
+                let _ = crate::service::call(
+                    &rt,
+                    state,
+                    "settings.update",
+                    json!({ "key": "ui.sidebar_mode", "value": if tree { "tree" } else { "flat" } }),
+                )
+                .await;
+            })
+            .detach();
+        }
+        cx.refresh_windows();
+        cx.notify();
+    }
+
     /// 检查更新
     fn check_updates(&mut self, cx: &mut Context<Self>) {
         if self.checking_update {
@@ -409,6 +432,7 @@ impl Render for SettingsPage {
         let auto_launch = self.auto_launch;
         let tray_enabled = self.tray_enabled;
         let checking_update = self.checking_update;
+        let tree_mode = self.tree_mode;
         let version = if self.version.is_empty() {
             "...".to_string()
         } else {
@@ -451,6 +475,26 @@ impl Render for SettingsPage {
                     .label(if english { "English" } else { "中文" })
                     .on_click(cx.listener(|this, checked: &bool, _, cx| {
                         this.set_english(*checked, cx);
+                    }))
+                    .into_any_element(),
+                cx,
+            ))
+            .child(self.render_row(
+                t(cx, "settings.sidebarMode"),
+                if tree_mode {
+                    t(cx, "settings.treeModeDesc")
+                } else {
+                    t(cx, "settings.flatModeDesc")
+                },
+                Switch::new("sidebar-mode-switch")
+                    .checked(tree_mode)
+                    .label(if tree_mode {
+                        t(cx, "settings.treeMode")
+                    } else {
+                        t(cx, "settings.flatMode")
+                    })
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.set_tree_mode(*checked, cx);
                     }))
                     .into_any_element(),
                 cx,

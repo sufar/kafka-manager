@@ -27,6 +27,26 @@ impl TokioRuntime {
     }
 }
 
+/// 侧边栏模式（flat=平铺 / tree=树形）
+pub struct SidebarMode(pub bool);
+
+impl Global for SidebarMode {}
+
+impl SidebarMode {
+    /// 是否为树形模式
+    pub fn is_tree(cx: &App) -> bool {
+        cx.try_global::<SidebarMode>().map(|m| m.0).unwrap_or(false)
+    }
+
+    pub fn set(cx: &mut App, tree: bool) {
+        if cx.has_global::<SidebarMode>() {
+            cx.global_mut::<SidebarMode>().0 = tree;
+        } else {
+            cx.set_global(SidebarMode(tree));
+        }
+    }
+}
+
 /// 应用页面
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {

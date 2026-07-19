@@ -33,6 +33,8 @@ struct OffsetInfo {
 }
 
 pub struct ConsumerGroupsPage {
+    window_handle: AnyWindowHandle,
+    cluster_options: Vec<String>,
     cluster_state: Option<Entity<SelectState<SearchableVec<StringOption>>>>,
     search_input: Entity<InputState>,
     groups: Vec<GroupInfo>,
@@ -57,6 +59,8 @@ impl ConsumerGroupsPage {
         ));
 
         let this = Self {
+            window_handle: window.window_handle(),
+            cluster_options: Vec::new(),
             cluster_state: None,
             search_input,
             groups: Vec::new(),
@@ -96,6 +100,7 @@ impl ConsumerGroupsPage {
 
             this.update_in(cx, |this, window, cx| {
                 let has_options = !options.is_empty();
+                this.cluster_options = options.iter().map(|o| o.value.to_string()).collect();
                 let select = cx.new(|cx| {
                     SelectState::new(
                         SearchableVec::new(options),
@@ -121,6 +126,24 @@ impl ConsumerGroupsPage {
             .ok();
         })
         .detach();
+    }
+
+    /// 外部导航：预选集群（由工作区调用）
+    pub fn select_cluster(&mut self, cluster: String, cx: &mut Context<Self>) {
+        if let Some(ix) = self.cluster_options.iter().position(|c| c == &cluster) {
+            if let Some(state) = &self.cluster_state {
+                let handle = self.window_handle;
+                let state = state.clone();
+                handle
+                    .update(cx, |_, window, cx| {
+                        state.update(cx, |s, cx| {
+                            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+                        });
+                    })
+                    .ok();
+            }
+        }
+        self.load_groups(cx);
     }
 
     fn load_groups(&self, cx: &mut Context<Self>) {

@@ -53,6 +53,8 @@ struct CreateTopicForm {
 }
 
 pub struct TopicsPage {
+    window_handle: AnyWindowHandle,
+    cluster_options: Vec<String>,
     cluster_state: Option<Entity<ClusterSelect>>,
     search_state: Entity<InputState>,
     topics: Vec<String>,
@@ -81,6 +83,8 @@ impl TopicsPage {
         ));
 
         let this = Self {
+            window_handle: window.window_handle(),
+            cluster_options: Vec::new(),
             cluster_state: None,
             search_state,
             topics: Vec::new(),
@@ -128,6 +132,7 @@ impl TopicsPage {
 
             this.update_in(cx, |this, window, cx| {
                 let has_options = !options.is_empty();
+                this.cluster_options = options.iter().map(|o| o.name.to_string()).collect();
                 let select = cx.new(|cx| {
                     SelectState::new(
                         SearchableVec::new(options),
@@ -154,6 +159,24 @@ impl TopicsPage {
             .ok();
         })
         .detach();
+    }
+
+    /// 外部导航：预选集群（由工作区调用）
+    pub fn select_cluster(&mut self, cluster: String, cx: &mut Context<Self>) {
+        if let Some(ix) = self.cluster_options.iter().position(|c| c == &cluster) {
+            if let Some(state) = &self.cluster_state {
+                let handle = self.window_handle;
+                let state = state.clone();
+                handle
+                    .update(cx, |_, window, cx| {
+                        state.update(cx, |s, cx| {
+                            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+                        });
+                    })
+                    .ok();
+            }
+        }
+        self.load_topics(cx);
     }
 
     /// 加载 Topic 列表（含收藏状态）
