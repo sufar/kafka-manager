@@ -24,3 +24,17 @@ tracing-appender = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 arc-swap = "1.7"
 dirs = "6"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"] }
+rfd = "0.15"
+
+# 自动更新
+reqwest = { version = "0.12", features = ["json", "stream"] }
+semver = "1"
+zip = "2"
+futures = "0.3"
+
+# 桌面集成
+tray-icon = "0.19"
+auto-launch = "0.5"
+single-instance = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }

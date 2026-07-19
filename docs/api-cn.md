@@ -2,81 +2,69 @@
 
 ## 概述
 
-Kafka Manager 是一个 **Tauri 2 桌面应用**。前端（Vue 3）不再通过 HTTP 访问后端——所有业务操作都通过 **Tauri IPC 命令** 调用 Rust 核心库（`kafka-manager-api`）中的统一分发器。
+Kafka Manager 是一个纯 Rust 的 **GPUI 桌面应用**。没有 HTTP 层、没有 IPC 桥——界面（`app/`）**直接在进程内调用**核心库（`src/`，crate `kafka-manager-api`）。所有业务操作经过统一分发器。
 
 英文版见 [api.md](./api.md)。
 
-业务操作共有三个 IPC 命令：
+核心库暴露两个入口：
 
-| 命令 | 用途 |
+| 函数 | 用途 |
 |------|------|
-| `api_request` | 所有请求/响应式操作的统一入口 |
-| `message_list_stream` | 流式消息查询（通过 Tauri `Channel` 推送事件） |
-| `cancel_message_list` | 取消进行中的流式查询 |
+| `api::dispatch_request(method, state, params)` | 所有请求/响应式操作的统一入口（约 113 个方法） |
+| `api::start_message_list_stream(state, params, cancel_token)` | 流式消息查询（事件经 `tokio::mpsc` 推送） |
 
-此外还有一组**桌面 shell 命令**（自动更新、开机启动、系统托盘、日志等），见[桌面 Shell 命令](#桌面-shell-命令)。
+桌面集成（自动更新、开机启动、系统托盘）位于应用 crate（`app/src/updater.rs`、`app/src/tray.rs`），见架构文档。
 
 ## 请求 / 响应格式
 
-### `api_request`
+### `dispatch_request`
 
-```ts
-import { invoke } from '@tauri-apps/api/core';
+```rust
+use serde_json::json;
 
-const data = await invoke('api_request', {
-  method: 'topic.list',          // 统一方法名
-  params: { cluster_id: 'prod' } // 操作参数（JSON）
-});
+let data = kafka_manager_api::api::dispatch_request(
+    "topic.list",                       // 统一方法名
+    app_state.clone(),                  // 共享 AppState
+    json!({ "cluster_id": "prod" }),    // 操作参数
+).await?;
 ```
 
-- **成功**：Promise 直接 resolve 为操作结果数据（无包装信封）。
-- **失败**：Promise reject 为**错误消息字符串**（如 `"Cluster not found"`、`"Kafka error: ..."`）。
+- **成功**：直接返回操作结果的 `serde_json::Value`（无包装信封）。
+- **失败**：返回 `AppError`；`AppError::to_message()` 给出面向用户的错误消息。
 
-前端在 `ui/src/api/client.ts` 中做了封装，为每个操作提供类型化方法，失败时抛出 `{ message, status }` 对象，组件无需直接调用 `invoke`。
+应用中各页面通过薄封装（`app/src/service.rs`）调用：实际工作在后端 tokio runtime 上执行，GPUI 任务直接 await 其 JoinHandle。
 
-```ts
-import { apiClient } from '@/api/client';
+### `start_message_list_stream`
 
-try {
-  const topics = await apiClient.getTopics('prod');
-} catch (e) {
-  console.error((e as { message: string }).message);
+流式消息查询返回 `tokio::sync::mpsc::Receiver<StreamEvent>`：
+
+```rust
+pub struct StreamEvent { pub event: String, pub data: String } // data 为 JSON 字符串
+
+let cancel = CancellationToken::new();
+let mut rx = api::start_message_list_stream(
+    app_state.clone(),
+    json!({ "cluster_id": "prod", "topic": "events" }),
+    cancel.clone(),
+).await?;
+
+while let Some(evt) = rx.recv().await {
+    match evt.event.as_str() {
+        "start"    => /* { partitions, total_target } */,
+        "batch"    => /* { messages, progress, total } */,
+        "order"    => /* { sort } */,
+        "complete" => /* { actual_total?, target_total? } */,
+        "error"    => /* { error } */,
+        _ => {}
+    }
 }
-```
 
-### `message_list_stream`
-
-流式消息查询通过 `tauri.Channel` 推送事件：
-
-```ts
-import { invoke, Channel } from '@tauri-apps/api/core';
-
-interface StreamEvent { event: string; data: string } // data 为 JSON 字符串
-
-const requestId = crypto.randomUUID();
-const channel = new Channel<StreamEvent>();
-channel.onmessage = (evt) => {
-  const payload = JSON.parse(evt.data);
-  switch (evt.event) {
-    case 'start':    /* { partitions, total_target } */ break;
-    case 'batch':    /* { messages, progress, total } */ break;
-    case 'order':    /* { sort } */ break;
-    case 'complete': /* { actual_total?, target_total? } */ break;
-    case 'error':    /* { error } */ break;
-  }
-};
-
-// 事件流结束时 Promise resolve
-await invoke('message_list_stream', { requestId, params: { cluster_id: 'prod', topic: 'events' }, channel });
-
-// 前端可随时取消：
-await invoke('cancel_message_list', { requestId });
+// 可随时取消：
+cancel.cancel();
 ```
 
 事件顺序：`start` → `batch`* → `order`? → `complete` | `error`。
-后端强制 120 秒超时；取消操作会通过取消令牌（cancellation token）停止服务端 Kafka 消费者。
-
-`ui/src/api/client.ts#getMessagesStream` 将以上封装为回调式 API（`onStart/onBatch/onOrder/onComplete/onError`），并返回带 `abort()` 的 `StreamHandle`。
+服务端 120 秒超时自动取消令牌；取消操作会协作式停止 Kafka 消费者（批次间检查）。
 
 ---
 
@@ -281,69 +269,44 @@ await invoke('cancel_message_list', { requestId });
 
 ---
 
-## 桌面 Shell 命令
+## 调用示例（应用代码）
 
-以下命令由 Tauri 壳（`src-tauri`）直接暴露，不经过统一分发器：
-
-| 命令 | 说明 |
-|------|------|
-| `get_app_version` | 应用版本号（取自 Cargo.toml） |
-| `check_for_updates` | 检查新版本 |
-| `install_update` | 下载并安装更新 |
-| `get_download_status` / `clear_download_status` / `set_auto_download_flag` | 更新下载状态管理 |
-| `get_app_logs` / `clear_app_logs` | 应用日志读取/清空 |
-| `set_auto_launch` / `get_auto_launch` | 开机自启（Windows 注册表） |
-| `set_system_tray` | 启用/禁用系统托盘图标 |
-| `is_windows` | 平台判断 |
-| `share_current_version` | 分享版本信息 |
-| `open_url` | 用系统浏览器打开链接 |
-
----
-
-## 前端调用示例
-
-```ts
-import { apiClient } from '@/api/client';
-
+```rust
 // 创建集群
-const cluster = await apiClient.createCluster({
-  name: 'prod',
-  brokers: 'broker1:9092,broker2:9092',
-});
+service::call(&rt, state, "cluster.create",
+    json!({ "name": "prod", "brokers": "broker1:9092,broker2:9092" })).await?;
 
 // Topic 列表
-const topics = await apiClient.getTopics('prod');
+service::call(&rt, state, "topic.list", json!({ "cluster_id": "prod" })).await?;
 
 // 发送消息
-await apiClient.sendMessage('prod', 'events', {
-  key: 'user-123',
-  value: JSON.stringify({ event: 'user_login', userId: 123 }),
-});
-
-// 流式消息查询（可取消）
-const handle = apiClient.getMessagesStream('prod', 'events',
-  { max_messages: 1000, fetchMode: 'newest' },
-  {
-    onBatch: (messages, progress, total) => render(messages),
-    onComplete: () => console.log('done'),
-    onError: (err) => console.error(err),
-  });
-// 之后可随时：handle.abort();
+service::call(&rt, state, "message.send", json!({
+    "cluster_id": "prod",
+    "topic": "events",
+    "key": "user-123",
+    "value": r#"{"event":"user_login","userId":123}"#,
+})).await?;
 
 // 重置消费组偏移量到最新
-await apiClient.resetConsumerGroupOffset('prod', 'my-group', 'events', 0, 'latest');
+service::call(&rt, state, "consumer_group.reset_offset", json!({
+    "cluster_id": "prod",
+    "group_name": "my-group",
+    "topic": "events",
+    "partition": 0,
+    "reset_to": "latest",
+})).await?;
 ```
 
 ## 错误处理
 
-- `api_request` 失败时 reject 为纯错误消息字符串；`apiClient` 会重新包装为 `{ message, status }` 抛出。
+- `dispatch_request` 返回 `Err(AppError)`；`AppError::to_message()` 给出面向用户的错误消息。
 - 未知方法名返回 `Unknown method: <name>`。
-- 流式错误通过 `error` 事件（`{ error: string }`）传递，而不是 Promise reject。
+- 流式错误通过 `error` 事件（`{ error: string }`）传递，而不是返回 `Err`。
 
 ## 注意事项
 
-1. **无 HTTP 层**：没有 REST 服务、没有端口、没有 CORS——前端只通过 Tauri IPC 与 Rust 通信。
+1. **无 HTTP 层、无 IPC**：界面直接在进程内调用核心库——没有 REST 服务、没有端口、没有序列化边界。
 2. **参数命名**：`snake_case`；时间戳为 Unix 毫秒。
 3. **流式超时**：流式消息查询在服务端 120 秒后自动取消。
 4. **后台导入**：`settings.import` 立即返回并在后台执行；并发的导入/导出操作会被拒绝。
-5. **权威来源**：方法分发表见 `src/api.rs`（`dispatch_request`）；流式事件见 `src/api.rs`（`start_message_list_stream`）；Shell 命令见 `src-tauri/src/lib.rs` 与 `src-tauri/src/api_commands.rs`。
+5. **权威来源**：方法分发表见 `src/api.rs`（`dispatch_request`）；流式事件见 `src/api.rs`（`start_message_list_stream`）；应用封装见 `app/src/service.rs`。

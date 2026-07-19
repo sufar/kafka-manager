@@ -6,16 +6,34 @@ use gpui_component::*;
 
 use crate::i18n::{t, I18n};
 use crate::pages::clusters::ClustersPage;
+use crate::pages::consumer_groups::ConsumerGroupsPage;
+use crate::pages::favorites::FavoritesPage;
+use crate::pages::messages::MessagesPage;
+use crate::pages::schema_registry::SchemaRegistryPage;
+use crate::pages::settings::SettingsPage;
+use crate::pages::topics::TopicsPage;
 use crate::state::{Backend, Page, TokioRuntime};
 
 pub struct Workspace {
     page: Page,
     clusters_page: Entity<ClustersPage>,
+    topics_page: Entity<TopicsPage>,
+    messages_page: Entity<MessagesPage>,
+    consumer_groups_page: Entity<ConsumerGroupsPage>,
+    schema_registry_page: Entity<SchemaRegistryPage>,
+    favorites_page: Entity<FavoritesPage>,
+    settings_page: Entity<SettingsPage>,
 }
 
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let clusters_page = cx.new(|cx| ClustersPage::new(window, cx));
+        let topics_page = cx.new(|cx| TopicsPage::new(window, cx));
+        let messages_page = cx.new(|cx| MessagesPage::new(window, cx));
+        let consumer_groups_page = cx.new(|cx| ConsumerGroupsPage::new(window, cx));
+        let schema_registry_page = cx.new(|cx| SchemaRegistryPage::new(window, cx));
+        let favorites_page = cx.new(|cx| FavoritesPage::new(window, cx));
+        let settings_page = cx.new(|cx| SettingsPage::new(window, cx));
 
         // 启动后从设置中加载语言与主题
         let rt = TokioRuntime::handle(cx);
@@ -61,6 +79,12 @@ impl Workspace {
         Self {
             page: Page::Clusters,
             clusters_page,
+            topics_page,
+            messages_page,
+            consumer_groups_page,
+            schema_registry_page,
+            favorites_page,
+            settings_page,
         }
     }
 
@@ -119,14 +143,12 @@ impl Render for Workspace {
         let theme = cx.theme();
         let content: AnyElement = match self.page {
             Page::Clusters => self.clusters_page.clone().into_any_element(),
-            other => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.muted_foreground)
-                .child(format!("{} — coming soon", t(cx, other.i18n_key())))
-                .into_any_element(),
+            Page::Topics => self.topics_page.clone().into_any_element(),
+            Page::Messages => self.messages_page.clone().into_any_element(),
+            Page::ConsumerGroups => self.consumer_groups_page.clone().into_any_element(),
+            Page::SchemaRegistry => self.schema_registry_page.clone().into_any_element(),
+            Page::Favorites => self.favorites_page.clone().into_any_element(),
+            Page::Settings => self.settings_page.clone().into_any_element(),
         };
 
         h_flex()

@@ -1,8 +1,7 @@
 # Kafka Manager
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
-[![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
-[![Tauri](https://img.shields.io/badge/tauri-2.x-blue.svg)](https://tauri.app/)
+[![GPUI](https://img.shields.io/badge/gpui-0.2-blue.svg)](https://gpui.rs/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **[中文文档](README-cn.md)** | **[English](README.md)**
@@ -68,7 +67,6 @@ A cross-platform desktop application for querying and managing Kafka clusters. D
 - Data import/export for settings migration between machines
 - Dark / Light theme toggle
 - Chinese / English bilingual interface (中英文双语)
-- Guided tour for first-time users
 
 ## Quick Start
 
@@ -79,19 +77,15 @@ Prerequisites: Install [Tauri dependencies](https://tauri.app/start/prerequisite
 git clone <repo-url>
 cd kafka-manager
 
-# Install frontend dependencies
-cd ui && npm install
-
-# Development mode (hot-reload)
-npm run tauri dev
-# or from the repo root: ./start-tauri-dev.sh
+# Development mode
+cargo run -p kafka-manager-app
+# or: ./start-dev.sh
 
 # Production build
-npm run build
-npm run tauri build
+cargo build --release -p kafka-manager-app
 ```
 
-Built installers will be in `src-tauri/target/release/bundle/`.
+The release binary will be at `target/release/kafka-manager-app`.
 
 ## Configuration
 
@@ -99,50 +93,38 @@ Clusters are configured and managed directly from the UI at runtime. An optional
 
 ## Architecture
 
-The app is a single self-contained Tauri 2 desktop application — there is **no HTTP server**. The Vue frontend talks to the Rust core exclusively over **Tauri IPC**:
+Kafka Manager is a pure-Rust desktop application built with [GPUI](https://gpui.rs/) (the GPU-accelerated UI framework from Zed) and [gpui-component](https://github.com/longbridge/gpui-component) — no webview, no JavaScript, no HTTP server:
 
-- **Unified dispatcher**: all business operations go through one `api_request` command (~113 methods: clusters, topics, consumer groups, messages, schema registry, favorites, settings, …)
-- **Streaming**: message queries push events over a Tauri `Channel` with cooperative cancellation (`cancel_message_list`)
+- **UI**: native GPUI widgets (`app/`), 60+ components from gpui-component (virtualized tables, dialogs, notifications, themes)
+- **Core library** (`src/`, crate `kafka-manager-api`): all business logic — Kafka clients (rdkafka), SQLite persistence, and a unified dispatcher (~113 methods) shared by every page
+- **Streaming**: message queries run per-partition consumers on a dedicated tokio runtime and stream batches into the UI with cooperative cancellation
 - **Persistence**: SQLite (sqlx, WAL) in the OS data directory; topic/consumer-group metadata is cached locally for instant navigation
 
 See the docs for details:
 
 - [Architecture Design](docs/architecture.md) ([中文](docs/architecture-cn.md))
-- [IPC API Reference](docs/api.md) ([中文](docs/api-cn.md))
+- [API Reference](docs/api.md) ([中文](docs/api-cn.md))
 
 ## Tech Stack
-
-### Backend
 
 | Technology | Purpose |
 |------------|---------|
 | [Rust](https://www.rust-lang.org/) | Core language |
-| [Tauri 2](https://tauri.app/) | Desktop shell & IPC bridge |
+| [GPUI](https://gpui.rs/) 0.2 | GPU-accelerated native UI framework (from Zed) |
+| [gpui-component](https://github.com/longbridge/gpui-component) 0.5 | UI component library |
 | [Tokio](https://tokio.rs/) | Async runtime |
 | [SQLx](https://github.com/launchbadge/sqlx) 0.8 | Async SQLite for local persistence |
 | [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka client |
 | [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | Connection pooling |
 | [apache-avro](https://github.com/apache/avro) 0.17 | Avro encoding / decoding |
 | [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf encoding / decoding |
-
-### Frontend
-
-| Technology | Purpose |
-|------------|---------|
-| [Vue 3](https://vuejs.org/) + TypeScript | UI framework |
-| [Tailwind CSS 4](https://tailwindcss.com/) | Utility-first styling |
-| [DaisyUI 5](https://daisyui.com/) | Component library |
-| [Pinia](https://pinia.vuejs.org/) | State management |
-| [vue-virtual-scroller](https://github.com/Akryum/vue-virtual-scroller) | Large-list rendering |
-| [Vite](https://vitejs.dev/) 7 | Build tool |
+| [tray-icon](https://github.com/tauri-apps/tray-icon) | System tray |
+| [rfd](https://github.com/PolyMeilex/rfd) | Native file dialogs |
 
 ## Development
 
 ```bash
-# Build frontend
-cd ui && npm run build
-
-# Build workspace (core library + Tauri shell)
+# Build workspace (core library + GPUI app)
 cargo build --release
 
 # Run tests

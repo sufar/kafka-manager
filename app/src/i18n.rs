@@ -39,10 +39,6 @@ impl I18n {
         cx.global_mut::<I18n>()
     }
 
-    pub fn lang(&self) -> &'static str {
-        self.lang
-    }
-
     pub fn is_zh(&self) -> bool {
         self.lang == "zh"
     }

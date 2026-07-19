@@ -1,8 +1,7 @@
 # Kafka Manager
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
-[![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
-[![Tauri](https://img.shields.io/badge/tauri-2.x-blue.svg)](https://tauri.app/)
+[![GPUI](https://img.shields.io/badge/gpui-0.2-blue.svg)](https://gpui.rs/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **[English](README.md)** | **[中文文档](README-cn.md)**
@@ -68,7 +67,6 @@
 - 数据导入/导出，方便在设备间迁移设置
 - 深色 / 浅色主题切换
 - 中英文双语界面
-- 新用户引导教程
 
 ## 快速开始
 
@@ -79,19 +77,15 @@
 git clone <repo-url>
 cd kafka-manager
 
-# 安装前端依赖
-cd ui && npm install
-
-# 开发模式（热重载）
-npm run tauri dev
-# 或在仓库根目录执行：./start-tauri-dev.sh
+# 开发模式
+cargo run -p kafka-manager-app
+# 或：./start-dev.sh
 
 # 生产构建
-npm run build
-npm run tauri build
+cargo build --release -p kafka-manager-app
 ```
 
-构建的安装包位于 `src-tauri/target/release/bundle/`。
+Release 二进制位于 `target/release/kafka-manager-app`。
 
 ## 配置
 
@@ -99,42 +93,33 @@ npm run tauri build
 
 ## 架构
 
-本应用是完全自包含的 Tauri 2 桌面应用——**没有 HTTP 服务器**。Vue 前端完全通过 **Tauri IPC** 与 Rust 核心通信：
+本应用是基于 [GPUI](https://gpui.rs/)（Zed 的 GPU 加速 UI 框架）与 [gpui-component](https://github.com/longbridge/gpui-component) 构建的纯 Rust 桌面应用——无 webview、无 JavaScript、无 HTTP 服务器：
 
-- **统一分发器**：所有业务操作经过一个 `api_request` 命令（约 113 个方法：集群、主题、消费组、消息、Schema Registry、收藏、设置等）
-- **流式传输**：消息查询通过 Tauri `Channel` 推送事件，支持协作式取消（`cancel_message_list`）
+- **界面**：原生 GPUI 组件（`app/`），60+ gpui-component 组件（虚拟表格、对话框、通知、主题）
+- **核心库**（`src/`，crate `kafka-manager-api`）：全部业务逻辑——Kafka 客户端（rdkafka）、SQLite 持久化、统一分发器（约 113 个方法）
+- **流式传输**：消息查询在独立 tokio runtime 上按分区并发拉取，批次事件流式推入界面，支持协作式取消
 - **持久化**：SQLite（sqlx，WAL 模式）存储在系统数据目录；Topic/消费组元数据本地缓存，导航秒开
 
 详见文档：
 
 - [架构设计](docs/architecture-cn.md)（[English](docs/architecture.md)）
-- [IPC API 参考](docs/api-cn.md)（[English](docs/api.md)）
+- [API 参考](docs/api-cn.md)（[English](docs/api.md)）
 
 ## 技术栈
-
-### 后端
 
 | 技术 | 用途 |
 |------|------|
 | [Rust](https://www.rust-lang.org/) | 核心语言 |
-| [Tauri 2](https://tauri.app/) | 桌面壳与 IPC 桥接 |
+| [GPUI](https://gpui.rs/) 0.2 | GPU 加速原生 UI 框架（来自 Zed） |
+| [gpui-component](https://github.com/longbridge/gpui-component) 0.5 | UI 组件库 |
 | [Tokio](https://tokio.rs/) | 异步运行时 |
 | [SQLx](https://github.com/launchbadge/sqlx) 0.8 | 异步 SQLite 本地持久化 |
 | [rdkafka](https://github.com/fede1024/rust-rdkafka) 0.39 | Kafka 客户端 |
 | [deadpool](https://github.com/bikeshedder/deadpool) 0.12 | 连接池 |
 | [apache-avro](https://github.com/apache/avro) 0.17 | Avro 编解码 |
 | [prost](https://github.com/tokio-rs/prost) 0.12 | Protobuf 编解码 |
-
-### 前端
-
-| 技术 | 用途 |
-|------|------|
-| [Vue 3](https://vuejs.org/) + TypeScript | 前端框架 |
-| [Tailwind CSS 4](https://tailwindcss.com/) | 原子化 CSS |
-| [DaisyUI 5](https://daisyui.com/) | 组件库 |
-| [Pinia](https://pinia.vuejs.org/) | 状态管理 |
-| [vue-virtual-scroller](https://github.com/Akryum/vue-virtual-scroller) | 大列表渲染 |
-| [Vite](https://vitejs.dev/) 7 | 构建工具 |
+| [tray-icon](https://github.com/tauri-apps/tray-icon) | 系统托盘 |
+| [rfd](https://github.com/PolyMeilex/rfd) | 原生文件对话框 |
 
 ## 开发
 
@@ -142,7 +127,7 @@ npm run tauri build
 # 构建前端
 cd ui && npm run build
 
-# 构建 workspace（核心库 + Tauri 壳）
+# 构建 workspace（核心库 + GPUI 应用）
 cargo build --release
 
 # 运行测试

@@ -64,7 +64,7 @@ pub struct ClustersPage {
 }
 
 /// 向所有窗口推送通知（异步回调中使用）
-fn notify(cx: &mut App, note_type: NotificationType, text: String) {
+pub fn notify(cx: &mut App, note_type: NotificationType, text: String) {
     for w in cx.windows() {
         let text = text.clone();
         let _ = w.update(cx, |_, window, cx| {

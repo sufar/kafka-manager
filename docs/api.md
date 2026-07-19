@@ -2,81 +2,69 @@
 
 ## Overview
 
-Kafka Manager is a **Tauri 2 desktop application**. The frontend (Vue 3) does not use HTTP — all business operations are invoked through **Tauri IPC commands** backed by a unified dispatcher in the Rust core (`kafka-manager-api`).
+Kafka Manager is a pure-Rust **GPUI desktop application**. There is no HTTP layer and no IPC bridge — the UI (`app/`) calls the core library (`src/`, crate `kafka-manager-api`) **directly in-process**. All business operations go through a unified dispatcher.
 
 For Chinese version, see [api-cn.md](./api-cn.md).
 
-There are three IPC commands for business operations:
+The core exposes two entry points:
 
-| Command | Purpose |
-|---------|---------|
-| `api_request` | Unified entry for all request/response operations |
-| `message_list_stream` | Streaming message query (events pushed over a Tauri `Channel`) |
-| `cancel_message_list` | Cancel an in-flight streaming query |
+| Function | Purpose |
+|----------|---------|
+| `api::dispatch_request(method, state, params)` | Unified entry for all request/response operations (~113 methods) |
+| `api::start_message_list_stream(state, params, cancel_token)` | Streaming message query (events via `tokio::mpsc`) |
 
-Additionally, a set of **desktop shell commands** (updater, auto-launch, system tray, logs, etc.) is exposed directly — see [Desktop Shell Commands](#desktop-shell-commands).
+Desktop integration (updater, auto-launch, system tray) lives in the app crate (`app/src/updater.rs`, `app/src/tray.rs`) — see the architecture doc.
 
 ## Request / Response Format
 
-### `api_request`
+### `dispatch_request`
 
-```ts
-import { invoke } from '@tauri-apps/api/core';
+```rust
+use serde_json::json;
 
-const data = await invoke('api_request', {
-  method: 'topic.list',          // unified method name
-  params: { cluster_id: 'prod' } // operation parameters (JSON)
-});
+let data = kafka_manager_api::api::dispatch_request(
+    "topic.list",                       // unified method name
+    app_state.clone(),                  // shared AppState
+    json!({ "cluster_id": "prod" }),    // operation parameters
+).await?;
 ```
 
-- **Success**: the Promise resolves with the operation's result data directly (no envelope).
-- **Failure**: the Promise rejects with an **error message string** (e.g. `"Cluster not found"`, `"Kafka error: ..."`).
+- **Success**: returns the operation's result as `serde_json::Value` directly (no envelope).
+- **Failure**: returns `AppError`; `AppError::to_message()` yields the user-facing message string.
 
-The frontend wraps this in `ui/src/api/client.ts`, which exposes one typed method per operation and throws `{ message, status }` objects on failure, so components never call `invoke` directly.
+In the app, pages call it through a small wrapper (`app/src/service.rs`) that runs the future on the backend tokio runtime and is awaited from GPUI tasks.
 
-```ts
-import { apiClient } from '@/api/client';
+### `start_message_list_stream`
 
-try {
-  const topics = await apiClient.getTopics('prod');
-} catch (e) {
-  console.error((e as { message: string }).message);
+Streaming message queries return a `tokio::sync::mpsc::Receiver<StreamEvent>`:
+
+```rust
+pub struct StreamEvent { pub event: String, pub data: String } // data is a JSON string
+
+let cancel = CancellationToken::new();
+let mut rx = api::start_message_list_stream(
+    app_state.clone(),
+    json!({ "cluster_id": "prod", "topic": "events" }),
+    cancel.clone(),
+).await?;
+
+while let Some(evt) = rx.recv().await {
+    match evt.event.as_str() {
+        "start"    => /* { partitions, total_target } */,
+        "batch"    => /* { messages, progress, total } */,
+        "order"    => /* { sort } */,
+        "complete" => /* { actual_total?, target_total? } */,
+        "error"    => /* { error } */,
+        _ => {}
+    }
 }
-```
 
-### `message_list_stream`
-
-Streaming message queries push events over a `tauri.Channel`:
-
-```ts
-import { invoke, Channel } from '@tauri-apps/api/core';
-
-interface StreamEvent { event: string; data: string } // data is a JSON string
-
-const requestId = crypto.randomUUID();
-const channel = new Channel<StreamEvent>();
-channel.onmessage = (evt) => {
-  const payload = JSON.parse(evt.data);
-  switch (evt.event) {
-    case 'start':    /* { partitions, total_target } */ break;
-    case 'batch':    /* { messages, progress, total } */ break;
-    case 'order':    /* { sort } */ break;
-    case 'complete': /* { actual_total?, target_total? } */ break;
-    case 'error':    /* { error } */ break;
-  }
-};
-
-// The Promise resolves when the event stream ends
-await invoke('message_list_stream', { requestId, params: { cluster_id: 'prod', topic: 'events' }, channel });
-
-// Cancel from the frontend at any time:
-await invoke('cancel_message_list', { requestId });
+// Cancel at any time:
+cancel.cancel();
 ```
 
 Event sequence: `start` → `batch`* → `order`? → `complete` | `error`.
-The backend enforces a 120 s timeout; cancellation stops the Kafka consumers server-side via a cancellation token.
-
-`ui/src/api/client.ts#getMessagesStream` wraps all of this behind a callback API (`onStart/onBatch/onOrder/onComplete/onError`) and returns a `StreamHandle` with `abort()`.
+A 120 s timeout guard cancels the token automatically; cancellation stops the Kafka consumers cooperatively (checked between batches).
 
 ---
 
@@ -281,69 +269,44 @@ All methods below are invoked via `api_request` with the given `method` name. Pa
 
 ---
 
-## Desktop Shell Commands
+## Usage Examples (App Code)
 
-These commands are exposed by the Tauri shell (`src-tauri`) directly, independent of the unified dispatcher:
-
-| Command | Description |
-|---------|-------------|
-| `get_app_version` | Application version (from Cargo.toml) |
-| `check_for_updates` | Check for new releases |
-| `install_update` | Download and install an update |
-| `get_download_status` / `clear_download_status` / `set_auto_download_flag` | Update download state |
-| `get_app_logs` / `clear_app_logs` | Application log access |
-| `set_auto_launch` / `get_auto_launch` | Launch at login (Windows registry) |
-| `set_system_tray` | Enable/disable system tray icon |
-| `is_windows` | Platform check |
-| `share_current_version` | Share version info |
-| `open_url` | Open URL in system browser |
-
----
-
-## Usage Examples (Frontend)
-
-```ts
-import { apiClient } from '@/api/client';
-
+```rust
 // Create a cluster
-const cluster = await apiClient.createCluster({
-  name: 'prod',
-  brokers: 'broker1:9092,broker2:9092',
-});
+service::call(&rt, state, "cluster.create",
+    json!({ "name": "prod", "brokers": "broker1:9092,broker2:9092" })).await?;
 
 // List topics
-const topics = await apiClient.getTopics('prod');
+service::call(&rt, state, "topic.list", json!({ "cluster_id": "prod" })).await?;
 
 // Send a message
-await apiClient.sendMessage('prod', 'events', {
-  key: 'user-123',
-  value: JSON.stringify({ event: 'user_login', userId: 123 }),
-});
-
-// Streaming message query with cancellation
-const handle = apiClient.getMessagesStream('prod', 'events',
-  { max_messages: 1000, fetchMode: 'newest' },
-  {
-    onBatch: (messages, progress, total) => render(messages),
-    onComplete: () => console.log('done'),
-    onError: (err) => console.error(err),
-  });
-// ... later: handle.abort();
+service::call(&rt, state, "message.send", json!({
+    "cluster_id": "prod",
+    "topic": "events",
+    "key": "user-123",
+    "value": r#"{"event":"user_login","userId":123}"#,
+})).await?;
 
 // Reset a consumer group offset to latest
-await apiClient.resetConsumerGroupOffset('prod', 'my-group', 'events', 0, 'latest');
+service::call(&rt, state, "consumer_group.reset_offset", json!({
+    "cluster_id": "prod",
+    "group_name": "my-group",
+    "topic": "events",
+    "partition": 0,
+    "reset_to": "latest",
+})).await?;
 ```
 
 ## Error Handling
 
-- `api_request` rejects with a plain error message string; `apiClient` rethrows it as `{ message, status }`.
+- `dispatch_request` returns `Err(AppError)`; `AppError::to_message()` yields the user-facing string.
 - Unknown method names return `Unknown method: <name>`.
-- Streaming errors are delivered as an `error` event (`{ error: string }`), not as a rejection.
+- Streaming errors are delivered as an `error` event (`{ error: string }`), not as a returned `Err`.
 
 ## Notes
 
-1. **No HTTP layer**: there is no REST server, no port, no CORS — the frontend talks to Rust exclusively over Tauri IPC.
+1. **No HTTP layer, no IPC**: the UI calls the core library directly in-process; there is no REST server, no port, no serialization boundary.
 2. **Parameter naming**: `snake_case`; timestamps are Unix milliseconds.
 3. **Streaming timeout**: streaming message queries are cancelled server-side after 120 s.
 4. **Background import**: `settings.import` returns immediately and runs in the background; concurrent import/export operations are rejected.
-5. **Source of truth**: the method dispatch table lives in `src/api.rs` (`dispatch_request`); stream events in `src/api.rs` (`start_message_list_stream`); shell commands in `src-tauri/src/lib.rs` and `src-tauri/src/api_commands.rs`.
+5. **Source of truth**: the method dispatch table lives in `src/api.rs` (`dispatch_request`); stream events in `src/api.rs` (`start_message_list_stream`); the app wrapper in `app/src/service.rs`.
