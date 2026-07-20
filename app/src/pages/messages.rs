@@ -1366,7 +1366,6 @@ fn format_button(
 
 impl Render for MessagesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        tracing::info!("[RENDER] MessagesPage");
         let (border_c, secondary_c, muted_c, primary_c, info_c, success_c, danger_c, table_head_c, table_active_c, list_hover_c, bg_c) = {
             let theme = cx.theme();
             (

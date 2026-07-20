@@ -449,7 +449,6 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        tracing::info!("[RENDER] Workspace");
         let (bg, border) = {
             let theme = cx.theme();
             (theme.background, theme.border)

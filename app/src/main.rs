@@ -110,7 +110,7 @@ fn main() {
     // 托盘（根据设置）
     let tray_enabled = read_tray_enabled(&backend::db_path());
 
-    Application::new().run(move |cx| {
+    Application::new().with_assets(gpui_component_assets::Assets).run(move |cx| {
         gpui_component::init(cx);
         i18n::I18n::init(cx);
         cx.set_global(Backend(app_state));
