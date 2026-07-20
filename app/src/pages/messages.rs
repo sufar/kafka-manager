@@ -1759,10 +1759,12 @@ impl Render for MessagesPage {
                                     cx.notify();
                                 });
                             })
+                            .size_full()
                             .into_any_element()
                     })
                     .collect()
             })
+            .size_full()
             .into_any_element()
         };
 

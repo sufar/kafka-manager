@@ -615,6 +615,7 @@ impl Render for TopicsPage {
                         })
                         .collect()
                 })
+                .size_full()
                 .into_any_element()
             };
 

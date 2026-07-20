@@ -481,7 +481,7 @@ impl Navigator {
                 this.loading = false;
                 match &result {
                     Ok(value) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "[Navigator] topics response: total={:?}, topics_len={:?}",
                             value.get("total"),
                             value.get("topics").and_then(|t| t.as_array()).map(|a| a.len())
@@ -1255,7 +1255,6 @@ impl Render for Navigator {
             let colors = RowColors::from_cx(cx);
             match self.view {
                 NavView::Topics => {
-                    tracing::debug!("[Navigator] render topics list: {} items", self.topics.len());
                     if self.topics.is_empty() {
                         div()
                             .size_full()
@@ -1314,6 +1313,7 @@ impl Render for Navigator {
                                 })
                                 .collect()
                         })
+                        .size_full()
                         .into_any_element()
                     }
                 }
@@ -1364,6 +1364,7 @@ impl Render for Navigator {
                                 })
                                 .collect()
                         })
+                        .size_full()
                         .into_any_element()
                     }
                 }

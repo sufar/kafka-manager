@@ -16,7 +16,7 @@ use serde_json::json;
 
 use crate::components::notify;
 use crate::i18n::{t, I18n};
-use crate::state::{Backend, TokioRuntime};
+use crate::state::{Backend, SidebarMode, TokioRuntime};
 
 /// 更新检查结果（页面内使用）
 #[derive(Clone, Debug)]
@@ -39,6 +39,7 @@ pub struct SettingsPage {
     dark_mode: bool,
     tray_enabled: bool,
     auto_launch: bool,
+    tree_mode: bool,
     lang_state: Entity<SelectState<SearchableVec<crate::components::option_select::StringOption>>>,
     checking_update: bool,
     update_info: Option<UpdateInfo>,
@@ -104,6 +105,7 @@ impl SettingsPage {
             dark_mode: cx.theme().is_dark(),
             tray_enabled: false,
             auto_launch: current_auto_launch().unwrap_or(false),
+            tree_mode: SidebarMode::is_tree(cx),
             lang_state,
             checking_update: false,
             update_info: None,
@@ -208,6 +210,27 @@ impl SettingsPage {
             self.auto_launch = !enabled;
             notify(cx, NotificationType::Error, e);
         }
+        cx.notify();
+    }
+
+    /// 切换侧边栏模式（树形/平铺）
+    fn set_tree_mode(&mut self, tree: bool, cx: &mut Context<Self>) {
+        self.tree_mode = tree;
+        SidebarMode::set(cx, tree);
+        let rt = TokioRuntime::handle(cx);
+        if let Some(state) = Backend::state(cx) {
+            cx.spawn(async move |_this, _cx| {
+                let _ = crate::service::call(
+                    &rt,
+                    state,
+                    "settings.update",
+                    json!({ "key": "ui.sidebar_mode", "value": if tree { "tree" } else { "flat" } }),
+                )
+                .await;
+            })
+            .detach();
+        }
+        cx.refresh_windows();
         cx.notify();
     }
 
@@ -700,6 +723,7 @@ impl Render for SettingsPage {
         let dark = self.dark_mode;
         let tray = self.tray_enabled;
         let auto_launch = self.auto_launch;
+        let tree_mode = self.tree_mode;
         let checking = self.checking_update;
         let version = if self.version.is_empty() { "...".to_string() } else { self.version.clone() };
 
@@ -724,6 +748,22 @@ impl Render for SettingsPage {
                     t(cx, "settings.language"),
                     String::new(),
                     div().w_32().child(Select::new(&self.lang_state).small()).into_any_element(),
+                    cx,
+                )
+                .into_any_element(),
+                Self::setting_row(
+                    t(cx, "settings.sidebarMode"),
+                    if tree_mode {
+                        t(cx, "settings.treeModeDesc")
+                    } else {
+                        t(cx, "settings.flatModeDesc")
+                    },
+                    Switch::new("sidebar-mode-switch")
+                        .checked(tree_mode)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.set_tree_mode(*checked, cx);
+                        }))
+                        .into_any_element(),
                     cx,
                 )
                 .into_any_element(),
