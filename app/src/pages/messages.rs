@@ -878,13 +878,12 @@ impl MessagesPage {
     }
 
     /// 删除 Topic（确认对话框）
-    fn confirm_delete_topic(&mut self, cx: &mut Context<Self>) {
+    fn confirm_delete_topic(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let Some(topic) = self.topic.clone() else { return };
         let entity = cx.entity();
         let title = t(cx, "messages.deleteTopic");
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, _cx| {
                 let entity = entity.clone();
                 let cluster = cluster.clone();
                 let topic = topic.clone();
@@ -931,12 +930,11 @@ impl MessagesPage {
                         });
                         true
                     })
-            });
         });
     }
 
     /// 打开发送消息模态（选中消息时预填）
-    fn open_send(&mut self, prefill: Option<Message>, cx: &mut Context<Self>) {
+    fn open_send(&mut self, prefill: Option<Message>, window: &mut Window, cx: &mut Context<Self>) {
         let topic = self.topic.clone().unwrap_or_default();
 
         let partition_options: Vec<StringOption> = self
@@ -953,42 +951,34 @@ impl MessagesPage {
         let prefill_partition = prefill
             .as_ref()
             .and_then(|m| self.partitions.iter().position(|p| *p == m.partition));
-        let handle = self.window_handle;
         let key_value = prefill.as_ref().and_then(|m| m.key.clone());
         let value_value = prefill.as_ref().and_then(|m| m.value.clone());
 
-        let created = handle.update(cx, |_, window, cx| {
-            let partition_state = cx.new(|cx| {
-                SelectState::new(
-                    SearchableVec::new(partition_options),
-                    Some(IndexPath::new(prefill_partition.unwrap_or(0))),
-                    window,
-                    cx,
-                )
-            });
-            let key_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(t(cx, "messages.keyOptional"));
-                if let Some(k) = key_value {
-                    state.set_value(k, window, cx);
-                }
-                state
-            });
-            let value_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx)
-                    .multi_line(true)
-                    .auto_grow(5, 12)
-                    .placeholder(t(cx, "messages.valuePlaceholder"));
-                if let Some(v) = value_value {
-                    state.set_value(v, window, cx);
-                }
-                state
-            });
-            (partition_state, key_state, value_state)
+        let partition_state = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(partition_options),
+                Some(IndexPath::new(prefill_partition.unwrap_or(0))),
+                window,
+                cx,
+            )
         });
-
-        let Ok((partition_state, key_state, value_state)) = created else {
-            return;
-        };
+        let key_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder(t(cx, "messages.keyOptional"));
+            if let Some(k) = key_value {
+                state.set_value(k, window, cx);
+            }
+            state
+        });
+        let value_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(5, 12)
+                .placeholder(t(cx, "messages.valuePlaceholder"));
+            if let Some(v) = value_value {
+                state.set_value(v, window, cx);
+            }
+            state
+        });
 
         self.send_form = Some(SendForm {
             partition: partition_state.clone(),
@@ -1005,8 +995,7 @@ impl MessagesPage {
         let send_label = t(cx, "messages.send");
         let send_continue_label = t(cx, "messages.sendAndNew");
 
-        let _ = handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, _cx| {
                 let entity = entity.clone();
                 let entity_continue = entity.clone();
                 let send_label_f = send_label.clone();
@@ -1137,7 +1126,6 @@ impl MessagesPage {
                         ]
                     })
                     .overlay_closable(false)
-            });
         });
     }
 
@@ -1301,7 +1289,7 @@ impl MessagesPage {
     }
 
     /// 双击历史条目：预填发送表单
-    fn resend_from_history(&mut self, item: SentItem, cx: &mut Context<Self>) {
+    fn resend_from_history(&mut self, item: SentItem, window: &mut Window, cx: &mut Context<Self>) {
         self.show_history = false;
         cx.notify();
         self.open_send(
@@ -1312,6 +1300,7 @@ impl MessagesPage {
                 key: item.key,
                 value: Some(item.value),
             }),
+            window,
             cx,
         );
     }
@@ -1452,9 +1441,9 @@ impl Render for MessagesPage {
                     .small()
                     .disabled(!has_topic)
                     .tooltip(t(cx, "messages.sendMessage"))
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_click(cx.listener(|this, _, window, cx| {
                         let prefill = this.selected.and_then(|ix| this.messages.get(ix).cloned());
-                        this.open_send(prefill, cx);
+                        this.open_send(prefill, window, cx);
                     })),
             );
 
@@ -1602,8 +1591,8 @@ impl Render for MessagesPage {
                     .icon(IconName::Delete)
                     .disabled(!has_topic)
                     .tooltip(t(cx, "messages.deleteTopic"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.confirm_delete_topic(cx);
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.confirm_delete_topic(window, cx);
                     })),
             );
 
@@ -2078,9 +2067,9 @@ impl Render for MessagesPage {
                                 .child(item.value.clone()),
                         )
                         .id(("history-item", ix))
-                        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                             if event.click_count() == 2 {
-                                this.resend_from_history(item.clone(), cx);
+                                this.resend_from_history(item.clone(), window, cx);
                             }
                         }))
                         .into_any_element()

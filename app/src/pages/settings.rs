@@ -288,7 +288,7 @@ impl SettingsPage {
         let notes_label = t(cx, "update.releaseNotes");
         let download_label = t(cx, "update.updateAndRestart");
 
-        if let Some(w) = cx.windows().first() {
+        if let Some(w) = cx.windows().first().cloned() {
             let _ = w.update(cx, |_, window, cx| {
                 let muted = cx.theme().muted_foreground;
                 let primary = cx.theme().primary;

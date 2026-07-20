@@ -76,7 +76,6 @@ struct ResetForm {
 }
 
 pub struct ConsumerGroupsPage {
-    window_handle: AnyWindowHandle,
     cluster: Option<String>,
     group: Option<String>,
     group_state: Option<String>,
@@ -94,9 +93,8 @@ pub struct ConsumerGroupsPage {
 impl EventEmitter<NavEvent> for ConsumerGroupsPage {}
 
 impl ConsumerGroupsPage {
-    pub fn new(window: &mut Window, _cx: &mut Context<Self>) -> Self {
+    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
         Self {
-            window_handle: window.window_handle(),
             cluster: None,
             group: None,
             group_state: None,
@@ -211,7 +209,7 @@ impl ConsumerGroupsPage {
     }
 
     /// 打开重置偏移对话框
-    fn open_reset(&mut self, cx: &mut Context<Self>) {
+    fn open_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.offsets.is_empty() {
             return;
         }
@@ -225,8 +223,7 @@ impl ConsumerGroupsPage {
             .map(|t| StringOption::new(t.clone(), t.clone()))
             .collect();
 
-        let handle = self.window_handle;
-        let created = handle.update(cx, |_, window, cx| {
+        let created = {
             let topic_state = cx.new(|cx| {
                 SelectState::new(SearchableVec::new(topic_options), Some(IndexPath::new(0)), window, cx)
             });
@@ -253,10 +250,8 @@ impl ConsumerGroupsPage {
                 InputState::new(window, cx).placeholder("YYYY-MM-DD HH:mm:ss")
             });
             (topic_state, partition_state, reset_to_state, offset_input, timestamp_input)
-        });
-        let Ok((topic_state, partition_state, reset_to_state, offset_input, timestamp_input)) = created else {
-            return;
         };
+        let (topic_state, partition_state, reset_to_state, offset_input, timestamp_input) = created;
 
         // 初始化第一个 topic 的分区选项
         self.rebuild_partition_options(&partition_state, topics.first().cloned(), cx);
@@ -290,12 +285,11 @@ impl ConsumerGroupsPage {
         let partition_label = t(cx, "consumerGroups.partitions");
         let reset_to_label = t(cx, "consumerGroups.resetOffset");
 
-        let _ = handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                dialog
-                    .confirm()
-                    .title(title.clone())
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
                     .w(px(480.0))
                     .child(
                         v_flex()
@@ -312,7 +306,6 @@ impl ConsumerGroupsPage {
                         true
                     })
                     .on_cancel(|_, _, _| true)
-            });
         });
     }
 
@@ -332,11 +325,20 @@ impl ConsumerGroupsPage {
                 StringOption::new(s.clone(), s)
             })
             .collect();
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            partition_state.update(cx, |state, cx| {
-                *state = SelectState::new(SearchableVec::new(partitions), Some(IndexPath::new(0)), window, cx);
+        let partition_state = partition_state.clone();
+        cx.spawn(async move |_this, cx| {
+            let _ = cx.update(|cx| {
+                let w = cx.windows().first().cloned();
+                if let Some(w) = w {
+                    let _ = w.update(cx, |_, window, cx| {
+                        partition_state.update(cx, |state, cx| {
+                            *state = SelectState::new(SearchableVec::new(partitions), Some(IndexPath::new(0)), window, cx);
+                        });
+                    });
+                }
             });
-        });
+        })
+        .detach();
     }
 
     fn submit_reset(&mut self, cx: &mut Context<Self>) {
@@ -410,20 +412,19 @@ impl ConsumerGroupsPage {
     }
 
     /// 删除消费组（确认对话框）
-    fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+    fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let Some(group) = self.group.clone() else { return };
         let entity = cx.entity();
         let title = t(cx, "common.delete");
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let cluster = cluster.clone();
-                let group = group.clone();
-                dialog
-                    .confirm()
-                    .title(title.clone())
-                    .child(group.clone())
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let cluster = cluster.clone();
+            let group = group.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
+                .child(group.clone())
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
                     .on_ok(move |_, _window, cx| {
                         entity.update(cx, |_this, cx| {
@@ -463,7 +464,6 @@ impl ConsumerGroupsPage {
                         });
                         true
                     })
-            });
         });
     }
 
@@ -607,8 +607,8 @@ impl Render for ConsumerGroupsPage {
                             .primary()
                             .label(t(cx, "consumerGroups.resetOffset"))
                             .disabled(!has_group || self.offsets.is_empty())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_reset(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_reset(window, cx);
                             })),
                     )
                     .child(
@@ -616,8 +616,8 @@ impl Render for ConsumerGroupsPage {
                             .danger()
                             .label(t(cx, "common.delete"))
                             .disabled(!has_group)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.confirm_delete(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm_delete(window, cx);
                             })),
                     ),
             );

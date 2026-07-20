@@ -53,7 +53,6 @@ struct RegisterForm {
 }
 
 pub struct SchemaRegistryPage {
-    window_handle: AnyWindowHandle,
     clusters: Vec<String>,
     cluster: Option<String>,
     config: Option<RegistryConfig>,
@@ -66,9 +65,8 @@ pub struct SchemaRegistryPage {
 }
 
 impl SchemaRegistryPage {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let this = Self {
-            window_handle: window.window_handle(),
             clusters: Vec::new(),
             cluster: None,
             config: None,
@@ -205,15 +203,14 @@ impl SchemaRegistryPage {
     }
 
     /// 集群选择对话框（radio 列表）
-    fn open_cluster_selector(&mut self, cx: &mut Context<Self>) {
+    fn open_cluster_selector(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity();
         let title = t(cx, "schemaRegistry.selectCluster");
         let clusters = self.clusters.clone();
         let current = self.cluster.clone();
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            let border = cx.theme().border;
-            window.open_dialog(cx, move |dialog, _window, _cx| {
+        let border = cx.theme().border;
+        window.open_dialog(cx, move |dialog, _window, _cx| {
                 let entity = entity.clone();
                 let rows: Vec<AnyElement> = clusters
                     .iter()
@@ -256,37 +253,32 @@ impl SchemaRegistryPage {
                             .child(v_flex().children(rows)),
                     )
                     .alert()
-            });
         });
     }
 
     /// 打开配置表单
-    fn open_config_form(&mut self, cx: &mut Context<Self>) {
+    fn open_config_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let url_value = self.config.as_ref().map(|c| c.url.clone());
         let username_value = self.config.as_ref().and_then(|c| c.username.clone());
 
-        let created = self.window_handle.update(cx, |_, window, cx| {
-            let url_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx)
-                    .placeholder(t(cx, "schemaRegistry.registryUrlPlaceholder"));
-                if let Some(u) = url_value {
-                    state.set_value(u, window, cx);
-                }
-                state
-            });
-            let username_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(t(cx, "schemaRegistry.username"));
-                if let Some(u) = username_value {
-                    state.set_value(u, window, cx);
-                }
-                state
-            });
-            let password_state = cx.new(|cx| {
-                InputState::new(window, cx).placeholder(t(cx, "schemaRegistry.password"))
-            });
-            (url_state, username_state, password_state)
+        let url_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx)
+                .placeholder(t(cx, "schemaRegistry.registryUrlPlaceholder"));
+            if let Some(u) = url_value {
+                state.set_value(u, window, cx);
+            }
+            state
         });
-        let Ok((url_state, username_state, password_state)) = created else { return };
+        let username_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder(t(cx, "schemaRegistry.username"));
+            if let Some(u) = username_value {
+                state.set_value(u, window, cx);
+            }
+            state
+        });
+        let password_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "schemaRegistry.password"))
+        });
 
         self.config_form = Some(ConfigForm {
             url: url_state.clone(),
@@ -302,13 +294,12 @@ impl SchemaRegistryPage {
         let pass_label = t(cx, "schemaRegistry.password");
         let test_label = t(cx, "schemaRegistry.testConnection");
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let entity_test = entity.clone();
-                dialog
-                    .title(title.clone())
-                    .w(px(480.0))
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let entity_test = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(480.0))
                     .child(
                         v_flex()
                             .gap_3()
@@ -334,11 +325,10 @@ impl SchemaRegistryPage {
                     )
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                     .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.submit_config(cx));
-                        true
-                    })
-                    .on_cancel(|_, _, _| true)
-            });
+                    entity.update(cx, |this, cx| this.submit_config(cx));
+                    true
+                })
+                .on_cancel(|_, _, _| true)
         });
     }
 
@@ -431,18 +421,17 @@ impl SchemaRegistryPage {
     }
 
     /// 删除配置（确认）
-    fn confirm_delete_config(&mut self, cx: &mut Context<Self>) {
+    fn confirm_delete_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let entity = cx.entity();
         let title = t(cx, "common.delete");
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let cluster = cluster.clone();
-                dialog
-                    .confirm()
-                    .title(title.clone())
-                    .child(t(_cx, "schemaRegistry.configTitle"))
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let cluster = cluster.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
+                .child(t(_cx, "schemaRegistry.configTitle"))
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
                     .on_ok(move |_, _window, cx| {
                         entity.update(cx, |_this, cx| {
@@ -473,37 +462,32 @@ impl SchemaRegistryPage {
                         });
                         true
                     })
-            });
         });
     }
 
     /// 打开注册 Schema 对话框
-    fn open_register(&mut self, cx: &mut Context<Self>) {
-        let created = self.window_handle.update(cx, |_, window, cx| {
-            let name_state = cx.new(|cx| {
-                InputState::new(window, cx).placeholder("my-subject")
-            });
-            let type_state = cx.new(|cx| {
-                SelectState::new(
-                    SearchableVec::new(vec![
-                        StringOption::new("AVRO", "AVRO"),
-                        StringOption::new("PROTOBUF", "PROTOBUF"),
-                        StringOption::new("JSON", "JSON"),
-                    ]),
-                    Some(IndexPath::new(0)),
-                    window,
-                    cx,
-                )
-            });
-            let content_state = cx.new(|cx| {
-                InputState::new(window, cx)
-                    .multi_line(true)
-                    .auto_grow(8, 16)
-                    .placeholder("{}")
-            });
-            (name_state, type_state, content_state)
+    fn open_register(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("my-subject")
         });
-        let Ok((name_state, type_state, content_state)) = created else { return };
+        let type_state = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(vec![
+                    StringOption::new("AVRO", "AVRO"),
+                    StringOption::new("PROTOBUF", "PROTOBUF"),
+                    StringOption::new("JSON", "JSON"),
+                ]),
+                Some(IndexPath::new(0)),
+                window,
+                cx,
+            )
+        });
+        let content_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(8, 16)
+                .placeholder("{}")
+        });
 
         self.register_form = Some(RegisterForm {
             name: name_state.clone(),
@@ -518,13 +502,12 @@ impl SchemaRegistryPage {
         let content_label = "Schema";
         let test_compat_label = t(cx, "schemaRegistry.testCompatibility");
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let entity_test = entity.clone();
-                dialog
-                    .title(title.clone())
-                    .w(px(640.0))
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let entity_test = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(640.0))
                     .child(
                         v_flex()
                             .gap_3()
@@ -545,11 +528,10 @@ impl SchemaRegistryPage {
                     )
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                     .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.submit_register(cx));
-                        true
-                    })
-                    .on_cancel(|_, _, _| true)
-            });
+                    entity.update(cx, |this, cx| this.submit_register(cx));
+                    true
+                })
+                .on_cancel(|_, _, _| true)
         });
     }
 
@@ -729,19 +711,18 @@ impl SchemaRegistryPage {
     }
 
     /// 删除 Subject（确认）
-    fn confirm_delete_subject(&mut self, subject: String, cx: &mut Context<Self>) {
+    fn confirm_delete_subject(&mut self, subject: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let entity = cx.entity();
         let title = t(cx, "common.delete");
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let cluster = cluster.clone();
-                let subject = subject.clone();
-                dialog
-                    .confirm()
-                    .title(title.clone())
-                    .child(subject.clone())
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let cluster = cluster.clone();
+            let subject = subject.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
+                .child(subject.clone())
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
                     .on_ok(move |_, _window, cx| {
                         entity.update(cx, |_this, cx| {
@@ -768,7 +749,6 @@ impl SchemaRegistryPage {
                         });
                         true
                     })
-            });
         });
     }
 }
@@ -810,8 +790,8 @@ impl Render for SchemaRegistryPage {
                             .clone()
                             .unwrap_or_else(|| t(cx, "schemaRegistry.selectCluster")),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_cluster_selector(cx);
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_cluster_selector(window, cx);
                     })),
             );
 
@@ -845,8 +825,8 @@ impl Render for SchemaRegistryPage {
                     Button::new("config-empty")
                         .primary()
                         .label(t(cx, "schemaRegistry.configTitle"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.open_config_form(cx);
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_config_form(window, cx);
                         })),
                 )
                 .into_any_element()
@@ -894,8 +874,8 @@ impl Render for SchemaRegistryPage {
                                                 .xsmall()
                                                 .icon(IconName::ALargeSmall)
                                                 .tooltip(t(cx, "common.edit"))
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.open_config_form(cx);
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.open_config_form(window, cx);
                                                 })),
                                         )
                                         .child(
@@ -904,8 +884,8 @@ impl Render for SchemaRegistryPage {
                                                 .xsmall()
                                                 .icon(IconName::Delete)
                                                 .tooltip(t(cx, "common.delete"))
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.confirm_delete_config(cx);
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.confirm_delete_config(window, cx);
                                                 })),
                                         ),
                                 ),
@@ -982,8 +962,8 @@ impl Render for SchemaRegistryPage {
                                         .xsmall()
                                         .icon(IconName::Plus)
                                         .label(t(cx, "schemaRegistry.registerSchema"))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.open_register(cx);
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.open_register(window, cx);
                                         })),
                                 ),
                         )
@@ -1079,8 +1059,8 @@ impl SchemaRegistryPage {
                                     .ghost()
                                     .xsmall()
                                     .icon(IconName::Delete)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.confirm_delete_subject(subject_del.clone(), cx);
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.confirm_delete_subject(subject_del.clone(), window, cx);
                                     })),
                             ),
                     )

@@ -85,7 +85,6 @@ struct TopicForm {
 }
 
 pub struct ClustersPage {
-    window_handle: AnyWindowHandle,
     clusters: Vec<ClusterInfo>,
     groups: Vec<GroupInfo>,
     selected_group: Option<i64>,
@@ -115,7 +114,6 @@ impl ClustersPage {
         ));
 
         let this = Self {
-            window_handle: window.window_handle(),
             clusters: Vec::new(),
             groups: Vec::new(),
             selected_group: None,
@@ -278,23 +276,21 @@ impl ClustersPage {
     }
 
     /// 删除集群（确认对话框）
-    fn confirm_delete(&mut self, id: i64, name: String, cx: &mut Context<Self>) {
+    fn confirm_delete(&mut self, id: i64, name: String, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity();
         let title = t(cx, "common.delete");
         let message = format!("{}「{}」？", t(cx, "clusters.confirmDelete"), name);
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                dialog
-                    .confirm()
-                    .title(title.clone())
-                    .child(message.clone())
-                    .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
-                    .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.delete_cluster(id, cx));
-                        true
-                    })
-            });
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
+                .child(message.clone())
+                .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
+                .on_ok(move |_, _window, cx| {
+                    entity.update(cx, |this, cx| this.delete_cluster(id, cx));
+                    true
+                })
         });
     }
 
@@ -315,9 +311,9 @@ impl ClustersPage {
     }
 
     /// 打开创建/编辑集群对话框
-    fn open_form(&mut self, edit: Option<ClusterInfo>, cx: &mut Context<Self>) {
+    fn open_form(&mut self, edit: Option<ClusterInfo>, window: &mut Window, cx: &mut Context<Self>) {
         let is_edit = edit.is_some();
-        let Some(form) = self.build_form(edit, cx) else { return };
+        let Some(form) = self.build_form(edit, window, cx) else { return };
         let name_state = form.name.clone();
         let brokers_state = form.brokers.clone();
         let req_state = form.request_timeout.clone();
@@ -338,12 +334,11 @@ impl ClustersPage {
         let group_label = t(cx, "clusters.group");
         let test_label = t(cx, "clusters.testConnection");
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                let entity_test = entity.clone();
-                dialog
-                    .title(title.clone())
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let entity_test = entity.clone();
+            dialog
+                .title(title.clone())
                     .w(px(520.0))
                     .child(
                         v_flex()
@@ -375,11 +370,10 @@ impl ClustersPage {
                         true
                     })
                     .on_cancel(|_, _, _| true)
-            });
         });
     }
 
-    fn build_form(&mut self, edit: Option<ClusterInfo>, cx: &mut Context<Self>) -> Option<ClusterForm> {
+    fn build_form(&mut self, edit: Option<ClusterInfo>, window: &mut Window, cx: &mut Context<Self>) -> Option<ClusterForm> {
         let is_edit_name = edit.as_ref().map(|c| c.name.clone());
         let is_edit_brokers = edit.as_ref().map(|c| c.brokers.clone());
         let req_ms = edit.as_ref().map(|c| c.request_timeout_ms).unwrap_or(5000);
@@ -399,41 +393,35 @@ impl ClustersPage {
             .and_then(|gid| options.iter().position(|o| o.id == gid))
             .unwrap_or(0);
 
-        let created = self.window_handle.update(cx, |_, window, cx| {
-            let name_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.clusterName"));
-                if let Some(n) = is_edit_name {
-                    state.set_value(n, window, cx);
-                }
-                state
-            });
-            let brokers_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder("broker1:9092,broker2:9092");
-                if let Some(b) = is_edit_brokers {
-                    state.set_value(b, window, cx);
-                }
-                state
-            });
-            let req_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx);
-                state.set_value(req_ms.to_string(), window, cx);
-                state
-            });
-            let op_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx);
-                state.set_value(op_ms.to_string(), window, cx);
-                state
-            });
-            let group_state = cx.new(|cx| {
-                let mut state = SelectState::new(SearchableVec::new(options), None, window, cx);
-                state.set_selected_index(Some(IndexPath::new(selected_ix)), window, cx);
-                state
-            });
-            (name_state, brokers_state, req_state, op_state, group_state)
+        let name_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.clusterName"));
+            if let Some(n) = is_edit_name {
+                state.set_value(n, window, cx);
+            }
+            state
         });
-        let Ok((name_state, brokers_state, req_state, op_state, group_state)) = created else {
-            return None;
-        };
+        let brokers_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder("broker1:9092,broker2:9092");
+            if let Some(b) = is_edit_brokers {
+                state.set_value(b, window, cx);
+            }
+            state
+        });
+        let req_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx);
+            state.set_value(req_ms.to_string(), window, cx);
+            state
+        });
+        let op_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx);
+            state.set_value(op_ms.to_string(), window, cx);
+            state
+        });
+        let group_state = cx.new(|cx| {
+            let mut state = SelectState::new(SearchableVec::new(options), None, window, cx);
+            state.set_selected_index(Some(IndexPath::new(selected_ix)), window, cx);
+            state
+        });
 
         Some(ClusterForm {
             id: edit_id,
@@ -532,24 +520,20 @@ impl ClustersPage {
     }
 
     /// 打开创建 Topic 对话框
-    fn open_create_topic(&mut self, cluster: String, cx: &mut Context<Self>) {
-        let created = self.window_handle.update(cx, |_, window, cx| {
-            let name_state = cx.new(|cx| {
-                InputState::new(window, cx).placeholder(t(cx, "topics.topicNamePlaceholder"))
-            });
-            let partitions_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx);
-                state.set_value("1".to_string(), window, cx);
-                state
-            });
-            let replication_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx);
-                state.set_value("1".to_string(), window, cx);
-                state
-            });
-            (name_state, partitions_state, replication_state)
+    fn open_create_topic(&mut self, cluster: String, window: &mut Window, cx: &mut Context<Self>) {
+        let name_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.topicNamePlaceholder"))
         });
-        let Ok((name_state, partitions_state, replication_state)) = created else { return };
+        let partitions_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx);
+            state.set_value("1".to_string(), window, cx);
+            state
+        });
+        let replication_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx);
+            state.set_value("1".to_string(), window, cx);
+            state
+        });
 
         self.topic_form = Some(TopicForm {
             cluster: cluster.clone(),
@@ -564,11 +548,10 @@ impl ClustersPage {
         let partitions_label = t(cx, "topics.numPartitions");
         let replication_label = t(cx, "topics.replicationFactor");
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                dialog
-                    .title(format!("{} — {}", title, cluster))
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .title(format!("{} — {}", title, cluster))
                     .w(px(480.0))
                     .child(
                         v_flex()
@@ -579,11 +562,10 @@ impl ClustersPage {
                     )
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                     .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.submit_create_topic(cx));
-                        true
-                    })
-                    .on_cancel(|_, _, _| true)
-            });
+                    entity.update(cx, |this, cx| this.submit_create_topic(cx));
+                    true
+                })
+                .on_cancel(|_, _, _| true)
         });
     }
 
@@ -624,16 +606,15 @@ impl ClustersPage {
     }
 
     /// 打开管理分组对话框
-    fn open_manage_groups(&mut self, cx: &mut Context<Self>) {
+    fn open_manage_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity();
         let title = t(cx, "clusters.manageGroups");
         let groups = self.groups.clone();
         let clusters = self.clusters.clone();
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            let border = cx.theme().border;
-            let muted = cx.theme().muted_foreground;
-            window.open_dialog(cx, move |dialog, _window, _cx| {
+        let border = cx.theme().border;
+        let muted = cx.theme().muted_foreground;
+        window.open_dialog(cx, move |dialog, _window, _cx| {
                 let entity = entity.clone();
                 let entity_add = entity.clone();
                 let rows: Vec<AnyElement> = if groups.is_empty() {
@@ -699,6 +680,7 @@ impl ClustersPage {
                                                                 name: gname_edit.clone(),
                                                                 description: gdesc_edit.clone(),
                                                             }),
+                                                            window,
                                                             cx,
                                                         );
                                                     });
@@ -709,9 +691,9 @@ impl ClustersPage {
                                                 .ghost()
                                                 .xsmall()
                                                 .icon(IconName::Delete)
-                                                .on_click(move |_, _window, cx| {
+                                                .on_click(move |_, window, cx| {
                                                     entity_del.update(cx, |this, cx| {
-                                                        this.delete_group(gid, gname.clone(), cx)
+                                                        this.delete_group(gid, gname.clone(), window, cx)
                                                     });
                                                 }),
                                         ),
@@ -737,41 +719,36 @@ impl ClustersPage {
                                         .on_click(move |_, window, cx| {
                                             entity_add.update(cx, |this, cx| {
                                                 window.close_dialog(cx);
-                                                this.open_group_form(None, cx);
+                                                this.open_group_form(None, window, cx);
                                             });
                                         }),
                                 ),
                             ),
                     )
                     .alert()
-            });
         });
     }
 
     /// 打开分组创建/编辑对话框
-    fn open_group_form(&mut self, edit: Option<GroupInfo>, cx: &mut Context<Self>) {
+    fn open_group_form(&mut self, edit: Option<GroupInfo>, window: &mut Window, cx: &mut Context<Self>) {
         let edit_name = edit.as_ref().map(|g| g.name.clone());
         let edit_desc = edit.as_ref().and_then(|g| g.description.clone());
         let edit_id = edit.as_ref().map(|g| g.id);
 
-        let created = self.window_handle.update(cx, |_, window, cx| {
-            let name_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.groupNamePlaceholder"));
-                if let Some(n) = edit_name {
-                    state.set_value(n, window, cx);
-                }
-                state
-            });
-            let desc_state = cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.groupDescPlaceholder"));
-                if let Some(d) = edit_desc {
-                    state.set_value(d, window, cx);
-                }
-                state
-            });
-            (name_state, desc_state)
+        let name_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.groupNamePlaceholder"));
+            if let Some(n) = edit_name {
+                state.set_value(n, window, cx);
+            }
+            state
         });
-        let Ok((name_state, desc_state)) = created else { return };
+        let desc_state = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder(t(cx, "clusters.groupDescPlaceholder"));
+            if let Some(d) = edit_desc {
+                state.set_value(d, window, cx);
+            }
+            state
+        });
 
         self.group_form = Some(GroupForm {
             id: edit_id,
@@ -784,25 +761,23 @@ impl ClustersPage {
         let name_label = t(cx, "clusters.groupName");
         let desc_label = t(cx, "clusters.groupDescription");
 
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
-                let entity = entity.clone();
-                dialog
-                    .title(title.clone())
-                    .w(px(480.0))
-                    .child(
-                        v_flex()
-                            .gap_3()
-                            .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
-                            .child(field_row(&desc_label, Input::new(&desc_state).into_any_element())),
-                    )
-                    .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
-                    .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.submit_group_form(cx));
-                        true
-                    })
-                    .on_cancel(|_, _, _| true)
-            });
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(480.0))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
+                        .child(field_row(&desc_label, Input::new(&desc_state).into_any_element())),
+                )
+                .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
+                .on_ok(move |_, _window, cx| {
+                    entity.update(cx, |this, cx| this.submit_group_form(cx));
+                    true
+                })
+                .on_cancel(|_, _, _| true)
         });
     }
 
@@ -835,11 +810,10 @@ impl ClustersPage {
         .detach();
     }
 
-    fn delete_group(&mut self, id: i64, name: String, cx: &mut Context<Self>) {
+    fn delete_group(&mut self, id: i64, name: String, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity();
         let title = t(cx, "clusters.deleteGroupTitle");
-        let _ = self.window_handle.update(cx, |_, window, cx| {
-            window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, _cx| {
                 let entity = entity.clone();
                 dialog
                     .confirm()
@@ -869,7 +843,6 @@ impl ClustersPage {
                         });
                         true
                     })
-            });
         });
     }
 
@@ -958,8 +931,8 @@ impl ClustersPage {
                             .xsmall()
                             .icon(IconName::ALargeSmall)
                             .tooltip(t(cx, "common.edit"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_form(Some(cluster_edit.clone()), cx);
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_form(Some(cluster_edit.clone()), window, cx);
                             })),
                     )
                     .child(
@@ -968,8 +941,8 @@ impl ClustersPage {
                             .xsmall()
                             .icon(IconName::Delete)
                             .tooltip(t(cx, "common.delete"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.confirm_delete(id, name_del.clone(), cx);
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.confirm_delete(id, name_del.clone(), window, cx);
                             })),
                     ),
             )
@@ -1045,8 +1018,8 @@ impl ClustersPage {
                             .xsmall()
                             .icon(IconName::Plus)
                             .label(t(cx, "clusters.createTopic"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_create_topic(cluster_topic.clone(), cx);
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_create_topic(cluster_topic.clone(), window, cx);
                             })),
                     )
                     .child(
@@ -1119,8 +1092,8 @@ impl Render for ClustersPage {
                         Button::new("manage-groups")
                             .outline()
                             .label(t(cx, "clusters.manageGroups"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_manage_groups(cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_manage_groups(window, cx);
                             })),
                     )
                     .child(
@@ -1128,8 +1101,8 @@ impl Render for ClustersPage {
                             .primary()
                             .icon(IconName::Plus)
                             .label(t(cx, "clusters.addCluster"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_form(None, cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_form(None, window, cx);
                             })),
                     ),
             );
@@ -1224,8 +1197,8 @@ impl Render for ClustersPage {
                         Button::new("create-empty")
                             .primary()
                             .label(t(cx, "clusters.addCluster"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.open_form(None, cx);
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_form(None, window, cx);
                             })),
                     )
                     .into_any_element()
