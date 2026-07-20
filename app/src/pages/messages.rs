@@ -307,6 +307,7 @@ impl MessagesPage {
                 .filter_map(|p| p.get("id")?.as_i64().map(|v| v as i32))
                 .collect();
 
+            tracing::info!("[MessagesPage] load_partitions completed, {} partitions", ids.len());
             this.update(cx, |this, cx| {
                 this.partitions = ids.clone();
                 let all_label = t(cx, "messages.allPartitions");
@@ -351,6 +352,7 @@ impl MessagesPage {
                 json!({ "cluster_id": cluster, "topic_name": topic }),
             )
             .await;
+            tracing::info!("[MessagesPage] check_favorite completed");
             this.update(cx, |this, cx| {
                 this.is_favorite = result
                     .ok()
@@ -583,20 +585,41 @@ impl MessagesPage {
                 }
             };
 
+            // 缓冲事件：按数量/时间批量刷新，避免每事件整页重渲染
+            let mut last_flush = std::time::Instant::now();
+            let mut pending = 0usize;
             while let Some(evt) = rx.recv().await {
-                let alive = this
-                    .update(cx, |this, cx| {
-                        this.handle_stream_event(&evt, cx);
-                        cx.notify();
-                    })
-                    .is_ok();
-                if !alive {
-                    break;
+                let is_terminal = matches!(evt.event.as_str(), "complete" | "error");
+                pending += 1;
+                if is_terminal || pending >= 10 || last_flush.elapsed().as_millis() >= 100 {
+                    tracing::debug!("[MessagesPage] flush {} events (terminal={})", pending, is_terminal);
+                    let alive = this
+                        .update(cx, |this, cx| {
+                            this.handle_stream_event(&evt, cx);
+                            cx.notify();
+                        })
+                        .is_ok();
+                    pending = 0;
+                    last_flush = std::time::Instant::now();
+                    if !alive {
+                        break;
+                    }
+                } else {
+                    // 暂存事件到下一批（简单起见直接处理，但仅每 N 个/100ms 触发渲染）
+                    let alive = this
+                        .update(cx, |this, cx| {
+                            this.handle_stream_event(&evt, cx);
+                        })
+                        .is_ok();
+                    if !alive {
+                        break;
+                    }
                 }
-                if matches!(evt.event.as_str(), "complete" | "error") {
+                if is_terminal {
                     break;
                 }
             }
+            tracing::info!("[MessagesPage] stream loop finished");
             this.update(cx, |this, cx| {
                 this.streaming = false;
                 this.cancel_token = None;
@@ -605,11 +628,13 @@ impl MessagesPage {
                 cx.notify();
             })
             .ok();
+            tracing::info!("[MessagesPage] stream complete handled");
         })
         .detach();
     }
 
     fn handle_stream_event(&mut self, evt: &kafka_manager_api::api::StreamEvent, _cx: &mut Context<Self>) {
+        tracing::debug!("[MessagesPage] stream event: {}", evt.event);
         let parsed: serde_json::Value = match serde_json::from_str(&evt.data) {
             Ok(v) => v,
             Err(_) => return,
@@ -643,9 +668,16 @@ impl MessagesPage {
                     .get("progress")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
-                let mut messages = (*self.messages).clone();
-                messages.extend(new_messages);
-                self.messages = Rc::new(messages);
+                // 单写者时用 make_mut 避免整表克隆（无其他 Rc 引用时零拷贝）
+                if Rc::strong_count(&self.messages) == 1 {
+                    Rc::get_mut(&mut self.messages)
+                        .expect("strong_count checked")
+                        .extend(new_messages);
+                } else {
+                    let mut messages = (*self.messages).clone();
+                    messages.extend(new_messages);
+                    self.messages = Rc::new(messages);
+                }
             }
             "complete" => {}
             "error" => {
