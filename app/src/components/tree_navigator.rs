@@ -332,7 +332,7 @@ impl TreeNavigator {
             )
             .await
             .ok()
-            .and_then(|v| v.as_array().cloned())
+            .and_then(|v| v.get("topics").and_then(|t| t.as_array()).cloned())
             .unwrap_or_default();
 
             let names: Vec<String> = if saved.is_empty() {
@@ -352,7 +352,7 @@ impl TreeNavigator {
                 )
                 .await
                 .ok()
-                .and_then(|v| v.as_array().cloned())
+                .and_then(|v| v.get("topics").and_then(|t| t.as_array()).cloned())
                 .unwrap_or_default()
                 .iter()
                 .filter_map(|t| t.as_str().map(|s| s.to_string()))
@@ -387,7 +387,7 @@ impl TreeNavigator {
             )
             .await
             .ok()
-            .and_then(|v| v.as_array().cloned())
+            .and_then(|v| v.get("groups").and_then(|g| g.as_array()).cloned())
             .unwrap_or_default();
 
             let names: Vec<String> = if saved.is_empty() {
@@ -406,7 +406,7 @@ impl TreeNavigator {
                 )
                 .await
                 .ok()
-                .and_then(|v| v.as_array().cloned())
+                .and_then(|v| v.get("groups").and_then(|g| g.as_array()).cloned())
                 .unwrap_or_default()
                 .iter()
                 .filter_map(|g| g.as_str().map(|s| s.to_string()))
@@ -465,7 +465,7 @@ impl TreeNavigator {
             )
             .await
             .ok()
-            .and_then(|v| v.as_array().cloned())
+            .and_then(|v| v.get("topics").and_then(|t| t.as_array()).cloned())
             .unwrap_or_default()
             .iter()
             .filter_map(|t| t.as_str().map(|s| s.to_string()))
@@ -516,7 +516,7 @@ impl TreeNavigator {
             )
             .await
             .ok()
-            .and_then(|v| v.as_array().cloned())
+            .and_then(|v| v.get("groups").and_then(|g| g.as_array()).cloned())
             .unwrap_or_default()
             .iter()
             .filter_map(|g| g.as_str().map(|s| s.to_string()))
