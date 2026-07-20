@@ -44,6 +44,7 @@ pub struct SettingsPage {
     update_info: Option<UpdateInfo>,
     download: DownloadProgress,
     logs: Option<String>,
+    logs_handle: ScrollHandle,
     feedback_input: Entity<InputState>,
     feedback_available: bool,
     _subscriptions: Vec<Subscription>,
@@ -108,6 +109,7 @@ impl SettingsPage {
             update_info: None,
             download: DownloadProgress::default(),
             logs: None,
+            logs_handle: ScrollHandle::default(),
             feedback_input,
             feedback_available: false,
             _subscriptions: subscriptions,
@@ -435,6 +437,8 @@ impl SettingsPage {
                         let muted = cx.theme().muted_foreground;
                         window.open_dialog(cx, move |dialog, _window, _cx| {
                             let entity = entity.clone();
+                            let entity_bottom = entity.clone();
+                            let entity_refresh = entity.clone();
                             let logs_text = entity
                                 .read(_cx)
                                 .logs
@@ -458,7 +462,12 @@ impl SettingsPage {
                                                         .xsmall()
                                                         .icon(IconName::ArrowDown)
                                                         .tooltip(t(_cx, "settings.scrollToBottom"))
-                                                        .on_click(|_, _, _| {}),
+                                                        .on_click({
+                                                            let handle = entity_bottom.read(_cx).logs_handle.clone();
+                                                            move |_, _, _| {
+                                                                handle.scroll_to_bottom();
+                                                            }
+                                                        }),
                                                 )
                                                 .child(
                                                     Button::new("logs-refresh")
@@ -468,7 +477,7 @@ impl SettingsPage {
                                                         .tooltip(t(_cx, "settings.refreshLogs"))
                                                         .on_click(move |_, window, cx| {
                                                             window.close_dialog(cx);
-                                                            entity.update(cx, |this, cx| this.open_logs(cx));
+                                                            entity_refresh.update(cx, |this, cx| this.open_logs(cx));
                                                         }),
                                                 )
                                                 .child(
@@ -500,6 +509,7 @@ impl SettingsPage {
                                                 .id("logs-scroll")
                                                 .h(px(480.0))
                                                 .overflow_y_scroll()
+                                                .track_scroll(&entity_bottom.read(_cx).logs_handle)
                                                 .p_2()
                                                 .border_1()
                                                 .border_color(border)

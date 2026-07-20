@@ -81,6 +81,9 @@ impl Workspace {
         subscriptions.push(cx.subscribe(&topic_cg_page, |this, _, event: &NavEvent, cx| {
             this.handle_nav_event(event, cx);
         }));
+        subscriptions.push(cx.subscribe(&topics_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
 
         // 全局搜索（防抖 300ms）
         subscriptions.push(cx.subscribe(
@@ -358,6 +361,10 @@ impl Workspace {
                 .rounded_md()
                 .shadow_lg()
                 .child(v_flex().children(rows))
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.search_open = false;
+                    cx.notify();
+                }))
                 .into_any_element()
         } else {
             div().into_any_element()

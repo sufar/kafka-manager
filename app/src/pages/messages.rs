@@ -19,6 +19,8 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use crate::components::navigator::NavEvent;
+
+actions!(messages_page, [TableUp, TableDown, TableOpen]);
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
 use crate::components::notify;
@@ -131,6 +133,9 @@ pub struct MessagesPage {
     // 详情面板
     selected: Option<usize>,
     detail_format: DetailFormat,
+    detail_search_active: bool,
+    detail_search_input: Entity<InputState>,
+    detail_match_index: usize,
     panel_height: f32,
     panel_resizing: Option<(f32, f32)>, // (起始 y, 起始高)
     is_favorite: bool,
@@ -188,6 +193,13 @@ impl MessagesPage {
             InputState::new(window, cx).placeholder(t(cx, "sentMessageHistory.searchPlaceholder"))
         });
 
+        // 表格键盘导航
+        cx.bind_keys([
+            KeyBinding::new("up", TableUp, Some("MessagesPage")),
+            KeyBinding::new("down", TableDown, Some("MessagesPage")),
+            KeyBinding::new("enter", TableOpen, Some("MessagesPage")),
+        ]);
+
         let mut subscriptions = Vec::new();
         // 搜索框回车触发查询
         subscriptions.push(cx.subscribe(
@@ -202,6 +214,19 @@ impl MessagesPage {
             &history_search,
             |_this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
+
+        let detail_search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "common.search"))
+        });
+        subscriptions.push(cx.subscribe(
+            &detail_search_input,
+            |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.detail_match_index = 0;
                     cx.notify();
                 }
             },
@@ -232,6 +257,9 @@ impl MessagesPage {
             resizing: None,
             selected: None,
             detail_format: DetailFormat::Json,
+            detail_search_active: false,
+            detail_search_input,
+            detail_match_index: 0,
             panel_height: 380.0,
             panel_resizing: None,
             is_favorite: false,
@@ -630,6 +658,18 @@ impl MessagesPage {
         }
     }
 
+    /// 键盘上下移动选中行
+    fn move_selection(&mut self, delta: i64, cx: &mut Context<Self>) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let len = self.messages.len() as i64;
+        let current = self.selected.map(|i| i as i64).unwrap_or(if delta > 0 { -1 } else { len });
+        let next = (current + delta).rem_euclid(len);
+        self.selected = Some(next as usize);
+        cx.notify();
+    }
+
     fn stop_query(&mut self, cx: &mut Context<Self>) {
         if let Some(token) = self.cancel_token.take() {
             token.cancel();
@@ -716,6 +756,31 @@ impl MessagesPage {
         chrono::DateTime::from_timestamp_millis(ts)
             .map(|dt| dt.format("%m-%d %H:%M:%S%.3f").to_string())
             .unwrap_or_else(|| ts.to_string())
+    }
+
+    /// 详情面板搜索词
+    fn detail_search_query(&self, cx: &App) -> String {
+        if self.detail_search_active {
+            self.detail_search_input.read(cx).value().to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    /// 匹配位置列表（字节索引）
+    fn detail_matches(text: &str, query: &str) -> Vec<usize> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let text_lower = text.to_lowercase();
+        let query_lower = query.to_lowercase();
+        let mut positions = Vec::new();
+        let mut start = 0;
+        while let Some(pos) = text_lower[start..].find(&query_lower) {
+            positions.push(start + pos);
+            start += pos + query_lower.len().max(1);
+        }
+        positions
     }
 
     fn format_detail_value(&self, value: &str) -> String {
@@ -936,7 +1001,72 @@ impl MessagesPage {
                                         )),
                                     ),
                             )
-                            .child(field_row(&value_label, Input::new(&value_state).into_any_element())),
+                            .child(field_row(&value_label, Input::new(&value_state).into_any_element()))
+                            .child({
+                                // Headers 编辑（动态行；对话框 builder 每次渲染重建）
+                                let entity = entity.clone();
+                                let (header_rows, has_headers) = entity
+                                    .read(_cx)
+                                    .send_form
+                                    .as_ref()
+                                    .map(|form| {
+                                        let rows: Vec<AnyElement> = form
+                                            .headers
+                                            .iter()
+                                            .enumerate()
+                                            .map(|(ix, (k, v))| {
+                                                let entity = entity.clone();
+                                                h_flex()
+                                                    .gap_2()
+                                                    .items_center()
+                                                    .child(div().flex_1().child(Input::new(k).small()))
+                                                    .child(div().flex_1().child(Input::new(v).small()))
+                                                    .child(
+                                                        Button::new(("del-header", ix))
+                                                            .ghost()
+                                                            .xsmall()
+                                                            .icon(IconName::Close)
+                                                            .on_click(move |_, _, cx| {
+                                                                entity.update(cx, |this, cx| {
+                                                                    this.remove_header_row(ix, cx);
+                                                                });
+                                                            }),
+                                                    )
+                                                    .into_any_element()
+                                            })
+                                            .collect();
+                                        (rows, !form.headers.is_empty())
+                                    })
+                                    .unwrap_or_default();
+                                let entity = entity.clone();
+                                v_flex()
+                                    .gap_2()
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .child(format!(
+                                                        "Headers{}",
+                                                        if has_headers { "" } else { " (optional)" }
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new("add-header")
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .icon(IconName::Plus)
+                                                    .on_click(move |_, _, cx| {
+                                                        entity.update(cx, |this, cx| {
+                                                            this.add_header_row(cx);
+                                                        });
+                                                    }),
+                                            ),
+                                    )
+                                    .children(header_rows)
+                            }),
                     )
                     .footer(move |_ok, _cancel, _window, cx| {
                         let entity = entity.clone();
@@ -977,6 +1107,35 @@ impl MessagesPage {
                     .overlay_closable(false)
             });
         });
+    }
+
+    /// 添加一行 header
+    fn add_header_row(&mut self, cx: &mut Context<Self>) {
+        if let Some(w) = cx.windows().first() {
+            let created = w.update(cx, |_, window, cx| {
+                let key_state = cx.new(|cx| {
+                    InputState::new(window, cx).placeholder("header-key")
+                });
+                let value_state = cx.new(|cx| {
+                    InputState::new(window, cx).placeholder("header-value")
+                });
+                (key_state, value_state)
+            });
+            if let (Ok((k, v)), Some(form)) = (created, self.send_form.as_mut()) {
+                form.headers.push((k, v));
+                cx.notify();
+            }
+        }
+    }
+
+    /// 删除一行 header
+    fn remove_header_row(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if let Some(form) = self.send_form.as_mut() {
+            if ix < form.headers.len() {
+                form.headers.remove(ix);
+                cx.notify();
+            }
+        }
     }
 
     fn submit_send(&mut self, cx: &mut Context<Self>) {
@@ -1174,7 +1333,7 @@ fn format_button(
 }
 
 impl Render for MessagesPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (border_c, secondary_c, muted_c, primary_c, info_c, success_c, danger_c, table_head_c, table_active_c, list_hover_c, bg_c) = {
             let theme = cx.theme();
             (
@@ -1665,16 +1824,87 @@ impl Render for MessagesPage {
                             )
                             .child(div().flex_1())
                             .child(
+                                Button::new("detail-search")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Search)
+                                    .when(self.detail_search_active, |b| b.outline())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.detail_search_active = !this.detail_search_active;
+                                        this.detail_match_index = 0;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
                                 Button::new("close-detail")
                                     .ghost()
                                     .xsmall()
                                     .label(t(cx, "messages.close"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.selected = None;
+                                        this.detail_search_active = false;
                                         cx.notify();
                                     })),
                             ),
                     )
+                    .when(self.detail_search_active, |el| {
+                        let query = self.detail_search_query(cx);
+                        let matches = Self::detail_matches(&value_formatted, &query);
+                        let match_count = matches.len();
+                        el.child(
+                            h_flex()
+                                .items_center()
+                                .gap_1()
+                                .px_2()
+                                .py_1()
+                                .border_t_1()
+                                .border_color(border_c)
+                                .child(
+                                    Icon::new(IconName::Search)
+                                        .size_3()
+                                        .text_color(muted_c),
+                                )
+                                .child(div().flex_1().child(Input::new(&self.detail_search_input).small()))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(muted_c)
+                                        .child(if match_count == 0 {
+                                            "0/0".to_string()
+                                        } else {
+                                            format!("{}/{}", self.detail_match_index + 1, match_count)
+                                        }),
+                                )
+                                .child(
+                                    Button::new("match-prev")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::ChevronUp)
+                                        .disabled(match_count == 0)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            if match_count > 0 {
+                                                this.detail_match_index =
+                                                    (this.detail_match_index + match_count - 1) % match_count;
+                                                cx.notify();
+                                            }
+                                        })),
+                                )
+                                .child(
+                                    Button::new("match-next")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::ChevronDown)
+                                        .disabled(match_count == 0)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            if match_count > 0 {
+                                                this.detail_match_index =
+                                                    (this.detail_match_index + 1) % match_count;
+                                                cx.notify();
+                                            }
+                                        })),
+                                ),
+                        )
+                    })
                     .children(key_text.map(|k| {
                         let k_for_copy = k.clone();
                         h_flex()
@@ -1749,7 +1979,14 @@ impl Render for MessagesPage {
                             .border_color(border_c)
                             .rounded_md()
                             .overflow_y_scroll()
-                            .child(div().text_xs().child(value_formatted)),
+                            .child(detail_value_element(
+                                self.detail_format,
+                                &value_formatted,
+                                &self.detail_search_query(cx),
+                                self.detail_match_index,
+                                window,
+                                cx,
+                            )),
                     )
                     .into_any_element()
             }
@@ -1921,6 +2158,19 @@ impl Render for MessagesPage {
         div()
             .relative()
             .size_full()
+            .key_context("MessagesPage")
+            .on_action(cx.listener(|this, _: &TableUp, _, cx| {
+                this.move_selection(-1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &TableDown, _, cx| {
+                this.move_selection(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &TableOpen, _, cx| {
+                if this.selected.is_none() && !this.messages.is_empty() {
+                    this.selected = Some(0);
+                    cx.notify();
+                }
+            }))
             .child(
                 v_flex()
                     .size_full()
@@ -1935,4 +2185,59 @@ impl Render for MessagesPage {
             .child(history_overlay)
             .child(resize_overlay)
     }
+}
+
+/// 详情面板 Value 渲染：JSON 用 tree-sitter 高亮，其他格式带搜索高亮
+fn detail_value_element(
+    format: DetailFormat,
+    text: &str,
+    query: &str,
+    current_match: usize,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    if format == DetailFormat::Json && query.is_empty() {
+        // tree-sitter JSON 语法高亮
+        return gpui_component::text::TextView::markdown(
+            "detail-json-view",
+            format!("```json\n{}\n```", text),
+            window,
+            cx,
+        )
+        .into_any_element();
+    }
+
+    if query.is_empty() {
+        return div().text_xs().child(text.to_string()).into_any_element();
+    }
+
+    // 搜索高亮：StyledText 分段
+    let matches = MessagesPage::detail_matches(text, query);
+    if matches.is_empty() {
+        return div().text_xs().child(text.to_string()).into_any_element();
+    }
+
+    let theme = cx.theme();
+    let mark_style = HighlightStyle {
+        background_color: Some(theme.warning.opacity(0.4)),
+        ..Default::default()
+    };
+    let current_style = HighlightStyle {
+        background_color: Some(theme.warning),
+        ..Default::default()
+    };
+
+    let mut highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = Vec::new();
+    for (ix, pos) in matches.iter().enumerate() {
+        let style = if ix == current_match {
+            current_style
+        } else {
+            mark_style
+        };
+        highlights.push((*pos..(pos + query.len()), style));
+    }
+
+    StyledText::new(text.to_string())
+        .with_highlights(highlights)
+        .into_any_element()
 }

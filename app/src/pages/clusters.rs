@@ -652,8 +652,11 @@ impl ClustersPage {
                                 .filter(|c| c.group_id == Some(g.id))
                                 .count();
                             let entity_del = entity.clone();
+                            let entity_edit = entity.clone();
                             let gid = g.id;
                             let gname = g.name.clone();
+                            let gname_edit = g.name.clone();
+                            let gdesc_edit = g.description.clone();
                             h_flex()
                                 .items_center()
                                 .justify_between()
@@ -680,15 +683,38 @@ impl ClustersPage {
                                         ),
                                 )
                                 .child(
-                                    Button::new(("del-group", gid as usize))
-                                        .ghost()
-                                        .xsmall()
-                                        .icon(IconName::Delete)
-                                        .on_click(move |_, _window, cx| {
-                                            entity_del.update(cx, |this, cx| {
-                                                this.delete_group(gid, gname.clone(), cx)
-                                            });
-                                        }),
+                                    h_flex()
+                                        .gap_1()
+                                        .child(
+                                            Button::new(("edit-group", gid as usize))
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(IconName::ALargeSmall)
+                                                .on_click(move |_, window, cx| {
+                                                    entity_edit.update(cx, |this, cx| {
+                                                        window.close_dialog(cx);
+                                                        this.open_group_form(
+                                                            Some(crate::pages::clusters::GroupInfo {
+                                                                id: gid,
+                                                                name: gname_edit.clone(),
+                                                                description: gdesc_edit.clone(),
+                                                            }),
+                                                            cx,
+                                                        );
+                                                    });
+                                                }),
+                                        )
+                                        .child(
+                                            Button::new(("del-group", gid as usize))
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(IconName::Delete)
+                                                .on_click(move |_, _window, cx| {
+                                                    entity_del.update(cx, |this, cx| {
+                                                        this.delete_group(gid, gname.clone(), cx)
+                                                    });
+                                                }),
+                                        ),
                                 )
                                 .into_any_element()
                         })
@@ -981,11 +1007,28 @@ impl ClustersPage {
                             ),
                     )
                     .children(c.conn_error.as_ref().map(|err| {
-                        div()
-                            .text_xs()
-                            .text_color(theme.danger)
-                            .overflow_hidden()
-                            .child(err.clone())
+                        let err_msg = err.clone();
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_xs()
+                                    .text_color(theme.danger)
+                                    .overflow_hidden()
+                                    .child(err_msg),
+                            )
+                            .child(
+                                Button::new(("retry-conn", id as usize))
+                                    .ghost()
+                                    .xsmall()
+                                    .label(t(cx, "clusters.retry"))
+                                    .loading(testing)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.test_connection(id, cx);
+                                    })),
+                            )
                             .into_any_element()
                     })),
             )

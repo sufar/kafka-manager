@@ -942,6 +942,10 @@ impl Navigator {
             .border_color(theme.border)
             .rounded_lg()
             .shadow_lg()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.selector_open = false;
+                cx.notify();
+            }))
             .child(
                 h_flex()
                     .h(px(280.0))

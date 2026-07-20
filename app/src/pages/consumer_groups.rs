@@ -20,6 +20,41 @@ use crate::i18n::t;
 use crate::components::notify;
 use crate::state::{Backend, TokioRuntime};
 
+/// 列宽（px）
+#[derive(Clone, Copy)]
+struct ColWidths {
+    topic: f32,
+    partition: f32,
+    start: f32,
+    end: f32,
+    committed: f32,
+    lag: f32,
+}
+
+impl Default for ColWidths {
+    fn default() -> Self {
+        Self {
+            topic: 200.0,
+            partition: 80.0,
+            start: 96.0,
+            end: 96.0,
+            committed: 112.0,
+            lag: 64.0,
+        }
+    }
+}
+
+/// 列宽拖拽状态
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ResizeCol {
+    Topic,
+    Partition,
+    Start,
+    End,
+    Committed,
+    Lag,
+}
+
 #[derive(Clone, Debug)]
 struct OffsetInfo {
     topic: String,
@@ -50,6 +85,8 @@ pub struct ConsumerGroupsPage {
     refreshing: bool,
     resetting: bool,
     error: Option<String>,
+    col_widths: ColWidths,
+    resizing: Option<(ResizeCol, f32, f32)>,
     reset_form: Option<ResetForm>,
     _reset_subscriptions: Vec<Subscription>,
 }
@@ -68,6 +105,8 @@ impl ConsumerGroupsPage {
             refreshing: false,
             resetting: false,
             error: None,
+            col_widths: ColWidths::default(),
+            resizing: None,
             reset_form: None,
             _reset_subscriptions: Vec::new(),
         }
@@ -428,6 +467,35 @@ impl ConsumerGroupsPage {
         });
     }
 
+    fn start_column_resize(&mut self, col: ResizeCol, x: f32, cx: &mut Context<Self>) {
+        let w = self.col_widths;
+        let start_w = match col {
+            ResizeCol::Topic => w.topic,
+            ResizeCol::Partition => w.partition,
+            ResizeCol::Start => w.start,
+            ResizeCol::End => w.end,
+            ResizeCol::Committed => w.committed,
+            ResizeCol::Lag => w.lag,
+        };
+        self.resizing = Some((col, x, start_w));
+        cx.notify();
+    }
+
+    fn on_resize_move(&mut self, x: f32, cx: &mut Context<Self>) {
+        if let Some((col, start_x, start_w)) = self.resizing {
+            let new_w = (start_w + (x - start_x)).max(40.0);
+            match col {
+                ResizeCol::Topic => self.col_widths.topic = new_w,
+                ResizeCol::Partition => self.col_widths.partition = new_w,
+                ResizeCol::Start => self.col_widths.start = new_w,
+                ResizeCol::End => self.col_widths.end = new_w,
+                ResizeCol::Committed => self.col_widths.committed = new_w,
+                ResizeCol::Lag => self.col_widths.lag = new_w,
+            }
+            cx.notify();
+        }
+    }
+
     fn format_time(ts: Option<i64>) -> String {
         ts.and_then(|ts| chrono::DateTime::from_timestamp_millis(ts))
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
@@ -591,19 +659,40 @@ impl Render for ConsumerGroupsPage {
                 .child(t(cx, "consumerGroups.noData"))
                 .into_any_element()
         } else {
-            // 表头
+            // 表头（列宽可拖拽）
+            let w = self.col_widths;
+            let resizer = |col: ResizeCol| {
+                div()
+                    .id(SharedString::from(format!("cg-resize-{:?}", col)))
+                    .w_1()
+                    .h_full()
+                    .cursor_col_resize()
+                    .hover(|el| el.bg(theme.primary))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.start_column_resize(col, event.position.x.as_f32(), cx);
+                        }),
+                    )
+            };
             let header_row = h_flex()
                 .px_2()
                 .py_1()
                 .bg(theme.table_head)
                 .text_xs()
                 .font_semibold()
-                .child(div().w(px(200.0)).child("Topic"))
-                .child(div().w_20().child(t(cx, "consumerGroups.partitions")))
-                .child(div().w_24().text_right().child(t(cx, "consumerGroups.start")))
-                .child(div().w_24().text_right().child(t(cx, "consumerGroups.end")))
-                .child(div().w(px(112.0)).text_right().child(t(cx, "consumerGroups.offset")))
-                .child(div().w_16().text_right().child(t(cx, "consumerGroups.lag")))
+                .child(div().w(px(w.topic)).child("Topic"))
+                .child(resizer(ResizeCol::Topic))
+                .child(div().w(px(w.partition)).child(t(cx, "consumerGroups.partitions")))
+                .child(resizer(ResizeCol::Partition))
+                .child(div().w(px(w.start)).text_right().child(t(cx, "consumerGroups.start")))
+                .child(resizer(ResizeCol::Start))
+                .child(div().w(px(w.end)).text_right().child(t(cx, "consumerGroups.end")))
+                .child(resizer(ResizeCol::End))
+                .child(div().w(px(w.committed)).text_right().child(t(cx, "consumerGroups.offset")))
+                .child(resizer(ResizeCol::Committed))
+                .child(div().w(px(w.lag)).text_right().child(t(cx, "consumerGroups.lag")))
+                .child(resizer(ResizeCol::Lag))
                 .child(div().flex_1().text_right().child(t(cx, "consumerGroups.lastCommit")));
 
             let rows: Vec<AnyElement> = self
@@ -617,6 +706,7 @@ impl Render for ConsumerGroupsPage {
                     } else {
                         theme.danger
                     };
+                    let w = self.col_widths;
                     h_flex()
                         .px_2()
                         .py_1p5()
@@ -625,13 +715,13 @@ impl Render for ConsumerGroupsPage {
                         .text_xs()
                         .child(
                             div()
-                                .w(px(200.0))
+                                .w(px(w.topic))
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .child(o.topic.clone()),
                         )
                         .child(
-                            div().w_20().child(
+                            div().w(px(w.partition)).child(
                                 div()
                                     .px_1()
                                     .rounded_md()
@@ -639,12 +729,12 @@ impl Render for ConsumerGroupsPage {
                                     .child(o.partition.to_string()),
                             ),
                         )
-                        .child(div().w_24().text_right().child(o.start_offset.to_string()))
-                        .child(div().w_24().text_right().child(o.end_offset.to_string()))
-                        .child(div().w(px(112.0)).text_right().child(o.committed_offset.to_string()))
+                        .child(div().w(px(w.start)).text_right().child(o.start_offset.to_string()))
+                        .child(div().w(px(w.end)).text_right().child(o.end_offset.to_string()))
+                        .child(div().w(px(w.committed)).text_right().child(o.committed_offset.to_string()))
                         .child(
                             div()
-                                .w_16()
+                                .w(px(w.lag))
                                 .text_right()
                                 .text_color(lag_color)
                                 .child(o.lag.to_string()),
@@ -692,10 +782,37 @@ impl Render for ConsumerGroupsPage {
                 .into_any_element()
         };
 
-        v_flex()
+        let resize_overlay: AnyElement = if self.resizing.is_some() {
+            div()
+                .absolute()
+                .inset_0()
+                .id("cg-resize-overlay")
+                .cursor_col_resize()
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    this.on_resize_move(event.position.x.as_f32(), cx);
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.resizing = None;
+                        cx.notify();
+                    }),
+                )
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+
+        div()
+            .relative()
             .size_full()
-            .p_4()
-            .child(header)
-            .child(div().flex_1().overflow_hidden().child(content))
+            .child(
+                v_flex()
+                    .size_full()
+                    .p_4()
+                    .child(header)
+                    .child(div().flex_1().overflow_hidden().child(content)),
+            )
+            .child(resize_overlay)
     }
 }

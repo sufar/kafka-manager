@@ -27,6 +27,8 @@ struct CreateTopicForm {
     replication: Entity<InputState>,
 }
 
+impl EventEmitter<crate::components::navigator::NavEvent> for TopicsPage {}
+
 pub struct TopicsPage {
     cluster: Option<String>,
     search_input: Entity<InputState>,
@@ -437,7 +439,25 @@ fn topic_row(
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_xs()
-                .child(topic.clone()),
+                .cursor_pointer()
+                .child(topic.clone())
+                .id(("topic-name", ix))
+                .on_click({
+                    let topic_open = topic.clone();
+                    let entity = entity.clone();
+                    move |event: &ClickEvent, _, cx| {
+                        // 双击打开消息页（与旧版行双击联动一致）
+                        if event.click_count() == 2 {
+                            let cluster = entity.read(cx).cluster.clone().unwrap_or_default();
+                            entity.update(cx, |_this, cx| {
+                                cx.emit(crate::components::navigator::NavEvent::OpenMessages {
+                                    cluster,
+                                    topic: topic_open.clone(),
+                                });
+                            });
+                        }
+                    }
+                }),
         )
         .child(
             Button::new(("del", ix))
