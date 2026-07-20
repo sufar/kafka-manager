@@ -31,8 +31,10 @@ pub enum NavEvent {
     OpenMessages { cluster: String, topic: String },
     /// 打开 Topics 页并预选集群
     OpenTopics { cluster: String },
-    /// 打开消费组页并预选集群
-    OpenConsumerGroups { cluster: String },
+    /// 打开消费组页并预选集群（可带组名进入详情）
+    OpenConsumerGroups { cluster: String, group: Option<String> },
+    /// 打开 Topic 消费组视图
+    OpenTopicConsumerGroups { cluster: String, topic: String },
     /// 切换到指定页面
     OpenPage(Page),
 }
@@ -1107,6 +1109,7 @@ impl Navigator {
                         entity.update(cx, |_this, cx| {
                             cx.emit(NavEvent::OpenConsumerGroups {
                                 cluster: item_open.cluster.clone(),
+                                group: Some(item_open.name.clone()),
                             });
                         });
                     }),

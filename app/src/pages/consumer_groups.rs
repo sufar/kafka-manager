@@ -1,26 +1,24 @@
-//! 消费组页：列表、偏移量详情、重置偏移、删除
+//! 消费组详情页：与旧版 ConsumerGroupsView 一致（纯详情视图，无组列表）
+//!
+//! 头部：组名 + 集群 + 状态徽章 + Refresh + [Reset Offset] [Delete]
+//! 表格：Topic | Partition | Start | End | Committed | Lag(颜色) | Last Commit
+//! Reset Offset 对话框：Topic/Partition 联动下拉 + earliest/latest/offset/timestamp 四选项
 
-use gpui::*;
+use gpui::{prelude::FluentBuilder, *};
 use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_component::dialog::DialogButtonProps;
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{Input, InputState};
 use gpui_component::notification::NotificationType;
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::navigator::NavEvent;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
-use crate::pages::clusters::notify;
+use crate::components::notify;
 use crate::state::{Backend, TokioRuntime};
-
-#[derive(Clone, Debug)]
-struct GroupInfo {
-    name: String,
-    cluster: String,
-    topics: Vec<String>,
-}
 
 #[derive(Clone, Debug)]
 struct OffsetInfo {
@@ -30,173 +28,120 @@ struct OffsetInfo {
     end_offset: i64,
     committed_offset: i64,
     lag: i64,
+    last_commit_time: Option<i64>,
+}
+
+/// 重置偏移表单
+struct ResetForm {
+    topic: Entity<SelectState<SearchableVec<StringOption>>>,
+    partition: Entity<SelectState<SearchableVec<StringOption>>>,
+    reset_to: Entity<SelectState<SearchableVec<StringOption>>>,
+    offset_input: Entity<InputState>,
+    timestamp_input: Entity<InputState>,
 }
 
 pub struct ConsumerGroupsPage {
     window_handle: AnyWindowHandle,
-    cluster_options: Vec<String>,
-    cluster_state: Option<Entity<SelectState<SearchableVec<StringOption>>>>,
-    search_input: Entity<InputState>,
-    groups: Vec<GroupInfo>,
+    cluster: Option<String>,
+    group: Option<String>,
+    group_state: Option<String>,
+    offsets: Vec<OffsetInfo>,
     loading: bool,
+    refreshing: bool,
+    resetting: bool,
     error: Option<String>,
-    _subscriptions: Vec<Subscription>,
+    reset_form: Option<ResetForm>,
+    _reset_subscriptions: Vec<Subscription>,
 }
 
+impl EventEmitter<NavEvent> for ConsumerGroupsPage {}
+
 impl ConsumerGroupsPage {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t(cx, "common.search"))
-        });
-        let mut subscriptions = Vec::new();
-        subscriptions.push(cx.subscribe(
-            &search_input,
-            |this, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.load_groups(cx);
-                }
-            },
-        ));
-
-        let this = Self {
+    pub fn new(window: &mut Window, _cx: &mut Context<Self>) -> Self {
+        Self {
             window_handle: window.window_handle(),
-            cluster_options: Vec::new(),
-            cluster_state: None,
-            search_input,
-            groups: Vec::new(),
-            loading: true,
+            cluster: None,
+            group: None,
+            group_state: None,
+            offsets: Vec::new(),
+            loading: false,
+            refreshing: false,
+            resetting: false,
             error: None,
-            _subscriptions: subscriptions,
-        };
-        this.load_clusters(window, cx);
-        this
-    }
-
-    fn selected_cluster(&self, cx: &App) -> Option<String> {
-        self.cluster_state
-            .as_ref()?
-            .read(cx)
-            .selected_value()
-            .map(|s| s.to_string())
-    }
-
-    fn load_clusters(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
-
-        cx.spawn_in(window, async move |this, cx| {
-            let result = crate::service::call(&rt, state, "cluster.list", json!({})).await;
-            let arr = result
-                .ok()
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default();
-            let options: Vec<StringOption> = arr
-                .iter()
-                .filter_map(|c| {
-                    let name = c.get("name")?.as_str()?.to_string();
-                    Some(StringOption::new(name.clone(), name))
-                })
-                .collect();
-
-            this.update_in(cx, |this, window, cx| {
-                let has_options = !options.is_empty();
-                this.cluster_options = options.iter().map(|o| o.value.to_string()).collect();
-                let select = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(options),
-                        if has_options { Some(IndexPath::new(0)) } else { None },
-                        window,
-                        cx,
-                    )
-                });
-                let sub = cx.subscribe(
-                    &select,
-                    |this, _, event: &SelectEvent<SearchableVec<StringOption>>, cx| {
-                        if matches!(event, SelectEvent::Confirm(Some(_))) {
-                            this.load_groups(cx);
-                        }
-                    },
-                );
-                this._subscriptions.push(sub);
-                this.cluster_state = Some(select);
-                this.loading = false;
-                cx.notify();
-                this.load_groups(cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// 外部导航：预选集群（由工作区调用）
-    pub fn select_cluster(&mut self, cluster: String, cx: &mut Context<Self>) {
-        if let Some(ix) = self.cluster_options.iter().position(|c| c == &cluster) {
-            if let Some(state) = &self.cluster_state {
-                let handle = self.window_handle;
-                let state = state.clone();
-                handle
-                    .update(cx, |_, window, cx| {
-                        state.update(cx, |s, cx| {
-                            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
-                        });
-                    })
-                    .ok();
-            }
+            reset_form: None,
+            _reset_subscriptions: Vec::new(),
         }
-        self.load_groups(cx);
     }
 
-    fn load_groups(&self, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+    /// 外部导航：预选集群 + 消费组
+    pub fn select_group(&mut self, cluster: String, group: Option<String>, cx: &mut Context<Self>) {
+        self.cluster = Some(cluster);
+        self.group = group;
+        self.group_state = None;
+        self.offsets.clear();
+        if self.group.is_some() {
+            self.loading = true;
+            self.load(cx);
+        }
+        cx.notify();
+    }
+
+    fn load(&self, cx: &mut Context<Self>) {
+        let Some(cluster) = self.cluster.clone() else { return };
+        let Some(group) = self.group.clone() else { return };
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
-        let search = self.search_input.read(cx).value().to_string();
 
         cx.spawn(async move |this, cx| {
-            let result = crate::service::call(
+            let offsets = crate::service::call(
+                &rt,
+                state.clone(),
+                "consumer_group.offsets",
+                json!({ "cluster_id": cluster, "group_name": group }),
+            )
+            .await;
+            let info = crate::service::call(
                 &rt,
                 state,
-                "consumer_group.list",
-                json!({ "cluster_ids": [cluster], "search": search, "limit": 100000 }),
+                "consumer_group.get",
+                json!({ "cluster_id": cluster, "group_name": group }),
             )
             .await;
 
             this.update(cx, |this, cx| {
                 this.loading = false;
-                match result {
+                this.refreshing = false;
+                match offsets {
                     Ok(value) => {
                         this.error = None;
-                        this.groups = value
-                            .get("groups")
+                        this.offsets = value
+                            .get("offsets")
                             .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|g| {
-                                        Some(GroupInfo {
-                                            name: g.get("group_name")?.as_str()?.to_string(),
-                                            cluster: g
-                                                .get("cluster_id")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or_default()
-                                                .to_string(),
-                                            topics: g
-                                                .get("topics")
-                                                .and_then(|v| v.as_array())
-                                                .map(|ts| {
-                                                    ts.iter()
-                                                        .filter_map(|t| {
-                                                            t.as_str().map(|s| s.to_string())
-                                                        })
-                                                        .collect()
-                                                })
-                                                .unwrap_or_default(),
-                                        })
-                                    })
-                                    .collect()
+                            .cloned()
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|o| {
+                                Some(OffsetInfo {
+                                    topic: o.get("topic")?.as_str()?.to_string(),
+                                    partition: o.get("partition")?.as_i64()? as i32,
+                                    start_offset: o.get("start_offset")?.as_i64()?,
+                                    end_offset: o.get("end_offset")?.as_i64()?,
+                                    committed_offset: o.get("committed_offset")?.as_i64()?,
+                                    lag: o.get("lag")?.as_i64()?,
+                                    last_commit_time: o
+                                        .get("last_commit_time")
+                                        .and_then(|v| v.as_i64()),
+                                })
                             })
-                            .unwrap_or_default();
+                            .collect();
                     }
                     Err(e) => this.error = Some(e),
+                }
+                if let Ok(value) = info {
+                    this.group_state = value
+                        .get("state")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                 }
                 cx.notify();
             })
@@ -205,86 +150,220 @@ impl ConsumerGroupsPage {
         .detach();
     }
 
-    fn refresh_groups(&self, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let Some(cluster) = self.cluster.clone() else { return };
+        let Some(group) = self.group.clone() else { return };
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
+        self.refreshing = true;
+        cx.notify();
 
         cx.spawn(async move |this, cx| {
             let _ = crate::service::call(
                 &rt,
                 state,
                 "consumer_group.refresh",
-                json!({ "cluster_id": cluster }),
+                json!({ "cluster_id": cluster, "group_name": group }),
             )
             .await;
-            this.update(cx, |this, cx| this.load_groups(cx)).ok();
+            this.update(cx, |this, cx| this.load(cx)).ok();
         })
         .detach();
     }
 
-    /// 打开偏移量详情对话框
-    fn open_offsets(&mut self, group: GroupInfo, _window: &mut Window, cx: &mut Context<Self>) {
+    /// 打开重置偏移对话框
+    fn open_reset(&mut self, cx: &mut Context<Self>) {
+        if self.offsets.is_empty() {
+            return;
+        }
+
+        // Topic 选项（去重）
+        let mut topics: Vec<String> = self.offsets.iter().map(|o| o.topic.clone()).collect();
+        topics.sort();
+        topics.dedup();
+        let topic_options: Vec<StringOption> = topics
+            .iter()
+            .map(|t| StringOption::new(t.clone(), t.clone()))
+            .collect();
+
+        let handle = self.window_handle;
+        let created = handle.update(cx, |_, window, cx| {
+            let topic_state = cx.new(|cx| {
+                SelectState::new(SearchableVec::new(topic_options), Some(IndexPath::new(0)), window, cx)
+            });
+            let partition_state = cx.new(|cx| {
+                SelectState::new(SearchableVec::new(Vec::<StringOption>::new()), Some(IndexPath::new(0)), window, cx)
+            });
+            let reset_to_state = cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![
+                        StringOption::new("earliest", "earliest"),
+                        StringOption::new("latest", "latest"),
+                        StringOption::new("offset", "offset"),
+                        StringOption::new("timestamp", "timestamp"),
+                    ]),
+                    Some(IndexPath::new(0)),
+                    window,
+                    cx,
+                )
+            });
+            let offset_input = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("0")
+            });
+            let timestamp_input = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("YYYY-MM-DD HH:mm:ss")
+            });
+            (topic_state, partition_state, reset_to_state, offset_input, timestamp_input)
+        });
+        let Ok((topic_state, partition_state, reset_to_state, offset_input, timestamp_input)) = created else {
+            return;
+        };
+
+        // 初始化第一个 topic 的分区选项
+        self.rebuild_partition_options(&partition_state, topics.first().cloned(), cx);
+
+        // Topic 变化 → 重建分区选项
+        let partition_for_sub = partition_state.clone();
+        let sub = cx.subscribe(
+            &topic_state,
+            move |this, _, event: &SelectEvent<SearchableVec<StringOption>>, cx| {
+                if let SelectEvent::Confirm(Some(topic)) = event {
+                    this.rebuild_partition_options(
+                        &partition_for_sub,
+                        Some(topic.to_string()),
+                        cx,
+                    );
+                }
+            },
+        );
+        self._reset_subscriptions.push(sub);
+
+        self.reset_form = Some(ResetForm {
+            topic: topic_state.clone(),
+            partition: partition_state.clone(),
+            reset_to: reset_to_state.clone(),
+            offset_input: offset_input.clone(),
+            timestamp_input: timestamp_input.clone(),
+        });
+
+        let entity = cx.entity();
+        let title = t(cx, "consumerGroups.resetOffset");
+        let partition_label = t(cx, "consumerGroups.partitions");
+        let reset_to_label = t(cx, "consumerGroups.resetOffset");
+
+        let _ = handle.update(cx, |_, window, cx| {
+            window.open_dialog(cx, move |dialog, _window, _cx| {
+                let entity = entity.clone();
+                dialog
+                    .confirm()
+                    .title(title.clone())
+                    .w(px(480.0))
+                    .child(
+                        v_flex()
+                            .gap_3()
+                            .child(field_row("Topic", Select::new(&topic_state).into_any_element()))
+                            .child(field_row(&partition_label, Select::new(&partition_state).into_any_element()))
+                            .child(field_row(&reset_to_label, Select::new(&reset_to_state).into_any_element()))
+                            .child(field_row("Offset", Input::new(&offset_input).into_any_element()))
+                            .child(field_row("Timestamp", Input::new(&timestamp_input).into_any_element())),
+                    )
+                    .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
+                    .on_ok(move |_, _window, cx| {
+                        entity.update(cx, |this, cx| this.submit_reset(cx));
+                        true
+                    })
+                    .on_cancel(|_, _, _| true)
+            });
+        });
+    }
+
+    fn rebuild_partition_options(
+        &self,
+        partition_state: &Entity<SelectState<SearchableVec<StringOption>>>,
+        topic: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(topic) = topic else { return };
+        let partitions: Vec<StringOption> = self
+            .offsets
+            .iter()
+            .filter(|o| o.topic == topic)
+            .map(|o| {
+                let s = o.partition.to_string();
+                StringOption::new(s.clone(), s)
+            })
+            .collect();
+        let _ = self.window_handle.update(cx, |_, window, cx| {
+            partition_state.update(cx, |state, cx| {
+                *state = SelectState::new(SearchableVec::new(partitions), Some(IndexPath::new(0)), window, cx);
+            });
+        });
+    }
+
+    fn submit_reset(&mut self, cx: &mut Context<Self>) {
+        let Some(form) = self.reset_form.take() else { return };
+        let Some(cluster) = self.cluster.clone() else { return };
+        let Some(group) = self.group.clone() else { return };
+        if self.resetting {
+            return;
+        }
+
+        let topic = form
+            .topic
+            .read(cx)
+            .selected_value()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let partition: i32 = form
+            .partition
+            .read(cx)
+            .selected_value()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let reset_to = form
+            .reset_to
+            .read(cx)
+            .selected_value()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "earliest".to_string());
+        let offset: Option<i64> = form.offset_input.read(cx).value().trim().parse().ok();
+        let timestamp = parse_time(&form.timestamp_input.read(cx).value());
+
+        let mut params = json!({
+            "cluster_id": cluster,
+            "group_name": group,
+            "topic": topic,
+            "partition": partition,
+            "reset_to": reset_to,
+        });
+        if reset_to == "offset" {
+            params["offset"] = json!(offset.unwrap_or(0));
+        }
+        if reset_to == "timestamp" {
+            if let Some(ts) = timestamp {
+                params["timestamp"] = json!(ts);
+            }
+        }
+
+        self.resetting = true;
+        cx.notify();
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
-        let title = t(cx, "consumerGroups.offset");
 
-        cx.spawn(async move |_this, cx| {
-            let result = crate::service::call(
-                &rt,
-                state,
-                "consumer_group.offsets",
-                json!({ "cluster_id": group.cluster, "group_name": group.name }),
-            )
-            .await;
+        cx.spawn(async move |this, cx| {
+            let result = crate::service::call(&rt, state, "consumer_group.reset_offset", params).await;
             cx.update(|cx| match result {
-                Ok(value) => {
-                    let offsets: Vec<OffsetInfo> = value
-                        .get("offsets")
-                        .and_then(|v| v.as_array())
-                        .cloned()
-                        .unwrap_or_default()
-                        .iter()
-                        .filter_map(|o| {
-                            Some(OffsetInfo {
-                                topic: o.get("topic")?.as_str()?.to_string(),
-                                partition: o.get("partition")?.as_i64()? as i32,
-                                start_offset: o.get("start_offset")?.as_i64()?,
-                                end_offset: o.get("end_offset")?.as_i64()?,
-                                committed_offset: o.get("committed_offset")?.as_i64()?,
-                                lag: o.get("lag")?.as_i64()?,
-                                            })
-                        })
-                        .collect();
-                    let group_name = group.name.clone();
-                    let cluster = group.cluster.clone();
-                    for w in cx.windows() {
-                        let offsets = offsets.clone();
-                        let title = title.clone();
-                        let group_name = group_name.clone();
-                        let cluster = cluster.clone();
-                        let _ = w.update(cx, |_, window, cx| {
-                            let border = cx.theme().border;
-                            window.open_dialog(cx, move |dialog, _window, cx| {
-                                let rows: Vec<AnyElement> = offsets
-                                    .iter()
-                                    .map(|o| render_offset_row(o, &group_name, &cluster, border, cx))
-                                    .collect();
-                                dialog
-                                    .title(format!("{} — {}", title, group_name))
-                                    .w(px(860.0))
-                                    .child(
-                                        v_flex()
-                                            .gap_0()
-                                            .child(render_offset_header(cx))
-                                            .children(rows),
-                                    )
-                                    .alert()
-                            });
-                        });
-                    }
-                }
+                Ok(_) => notify(
+                    cx,
+                    NotificationType::Success,
+                    t(cx, "consumerGroups.offsetResetSuccess"),
+                ),
                 Err(e) => notify(cx, NotificationType::Error, e),
+            })
+            .ok();
+            this.update(cx, |this, cx| {
+                this.resetting = false;
+                this.load(cx);
             })
             .ok();
         })
@@ -292,246 +371,107 @@ impl ConsumerGroupsPage {
     }
 
     /// 删除消费组（确认对话框）
-    fn confirm_delete(&mut self, group: GroupInfo, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        let Some(cluster) = self.cluster.clone() else { return };
+        let Some(group) = self.group.clone() else { return };
         let entity = cx.entity();
         let title = t(cx, "common.delete");
-        window.open_dialog(cx, move |dialog, _window, _cx| {
-            let entity = entity.clone();
-            let group = group.clone();
-            dialog
-                .confirm()
-                .title(title.clone())
-                .child(group.name.clone())
-                .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
-                .on_ok(move |_, _window, cx| {
-                    entity.update(cx, |this, cx| this.delete_group(group.clone(), cx));
-                    true
-                })
+        let _ = self.window_handle.update(cx, |_, window, cx| {
+            window.open_dialog(cx, move |dialog, _window, _cx| {
+                let entity = entity.clone();
+                let cluster = cluster.clone();
+                let group = group.clone();
+                dialog
+                    .confirm()
+                    .title(title.clone())
+                    .child(group.clone())
+                    .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
+                    .on_ok(move |_, _window, cx| {
+                        entity.update(cx, |_this, cx| {
+                            let rt = TokioRuntime::handle(cx);
+                            let Some(state) = Backend::state(cx) else { return };
+                            let cluster = cluster.clone();
+                            let group = group.clone();
+                            let entity2 = cx.entity();
+                            cx.spawn(async move |_this2, cx| {
+                                let result = crate::service::call(
+                                    &rt,
+                                    state,
+                                    "consumer_group.delete",
+                                    json!({ "cluster_id": cluster, "group": group }),
+                                )
+                                .await;
+                                match result {
+                                    Ok(_) => {
+                                        cx.update(|cx| {
+                                            notify(cx, NotificationType::Success, t(cx, "common.success"));
+                                        })
+                                        .ok();
+                                        entity2
+                                            .update(cx, |_this, cx| {
+                                                cx.emit(NavEvent::OpenTopics {
+                                                    cluster: cluster.clone(),
+                                                });
+                                            })
+                                            .ok();
+                                    }
+                                    Err(e) => {
+                                        cx.update(|cx| notify(cx, NotificationType::Error, e)).ok();
+                                    }
+                                }
+                            })
+                            .detach();
+                        });
+                        true
+                    })
+            });
         });
     }
 
-    fn delete_group(&mut self, group: GroupInfo, cx: &mut Context<Self>) {
-        let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
+    fn format_time(ts: Option<i64>) -> String {
+        ts.and_then(|ts| chrono::DateTime::from_timestamp_millis(ts))
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "-".to_string())
+    }
 
-        cx.spawn(async move |this, cx| {
-            let result = crate::service::call(
-                &rt,
-                state,
-                "consumer_group.delete",
-                json!({ "cluster_id": group.cluster, "group": group.name }),
-            )
-            .await;
-            cx.update(|cx| match result {
-                Ok(_) => notify(cx, NotificationType::Success, t(cx, "common.success")),
-                Err(e) => notify(cx, NotificationType::Error, e),
-            })
-            .ok();
-            this.update(cx, |this, cx| this.load_groups(cx)).ok();
-        })
-        .detach();
+    fn state_color(state: &str, cx: &App) -> Hsla {
+        let theme = cx.theme();
+        match state.to_lowercase().as_str() {
+            "stable" | "empty" => theme.success,
+            "rebalance" | "rebalancing" => theme.warning,
+            _ => theme.danger,
+        }
     }
 }
 
-fn render_offset_header(cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    h_flex()
-        .gap_2()
-        .py_1()
-        .text_xs()
-        .font_semibold()
-        .text_color(theme.muted_foreground)
-        .border_b_1()
-        .border_color(theme.border)
-        .child(div().w_40().child("Topic"))
-        .child(div().w_16().child(t(cx, "consumerGroups.partitions")))
-        .child(div().w_20().child(t(cx, "consumerGroups.start")))
-        .child(div().w_20().child(t(cx, "consumerGroups.end")))
-        .child(div().w_20().child(t(cx, "consumerGroups.offset")))
-        .child(div().w_16().child(t(cx, "consumerGroups.lag")))
-        .child(div().flex_1().child(t(cx, "consumerGroups.resetOffset")))
-        .into_any_element()
+/// 表单字段行：标签 + 控件
+fn field_row(label: &str, control: AnyElement) -> Div {
+    v_flex()
+        .gap_1()
+        .child(div().text_sm().child(label.to_string()))
+        .child(control)
 }
 
-fn render_offset_row(
-    o: &OffsetInfo,
-    group_name: &str,
-    cluster: &str,
-    border: Hsla,
-    cx: &mut App,
-) -> AnyElement {
-    let cluster_e = cluster.to_string();
-    let cluster_l = cluster.to_string();
-    let group_e = group_name.to_string();
-    let group_l = group_name.to_string();
-    let topic_e = o.topic.clone();
-    let topic_l = o.topic.clone();
-    let partition = o.partition;
-
-    h_flex()
-        .gap_2()
-        .py_1()
-        .text_xs()
-        .border_b_1()
-        .border_color(border)
-        .child(
-            div()
-                .w_40()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .child(o.topic.clone()),
-        )
-        .child(div().w_16().child(o.partition.to_string()))
-        .child(div().w_20().child(o.start_offset.to_string()))
-        .child(div().w_20().child(o.end_offset.to_string()))
-        .child(div().w_20().child(o.committed_offset.to_string()))
-        .child(div().w_16().child(o.lag.to_string()))
-        .child(
-            h_flex()
-                .flex_1()
-                .gap_1()
-                .child(
-                    Button::new(SharedString::from(format!("earliest-{}-{}", o.topic, o.partition)))
-                        .ghost()
-                        .label(t(cx, "consumerGroups.resetOffsetToEarliest"))
-                        .on_click(move |_, _, cx| {
-                            let rt = cx.global::<TokioRuntime>().0.clone();
-                            let Some(state) = Backend::state(cx) else { return };
-                            let cluster = cluster_e.clone();
-                            let group = group_e.clone();
-                            let topic = topic_e.clone();
-                            cx.spawn(async move |cx| {
-                                let result = crate::service::call(
-                                    &rt,
-                                    state,
-                                    "consumer_group.reset_offset",
-                                    json!({
-                                        "cluster_id": cluster,
-                                        "group_name": group,
-                                        "topic": topic,
-                                        "partition": partition,
-                                        "reset_to": "earliest",
-                                    }),
-                                )
-                                .await;
-                                cx.update(|cx| match result {
-                                    Ok(_) => notify(
-                                        cx,
-                                        NotificationType::Success,
-                                        t(cx, "consumerGroups.offsetResetSuccess"),
-                                    ),
-                                    Err(e) => notify(cx, NotificationType::Error, e),
-                                })
-                                .ok();
-                            })
-                            .detach();
-                        }),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("latest-{}-{}", o.topic, o.partition)))
-                        .ghost()
-                        .label(t(cx, "consumerGroups.resetOffsetToLatest"))
-                        .on_click(move |_, _, cx| {
-                            let rt = cx.global::<TokioRuntime>().0.clone();
-                            let Some(state) = Backend::state(cx) else { return };
-                            let cluster = cluster_l.clone();
-                            let group = group_l.clone();
-                            let topic = topic_l.clone();
-                            cx.spawn(async move |cx| {
-                                let result = crate::service::call(
-                                    &rt,
-                                    state,
-                                    "consumer_group.reset_offset",
-                                    json!({
-                                        "cluster_id": cluster,
-                                        "group_name": group,
-                                        "topic": topic,
-                                        "partition": partition,
-                                        "reset_to": "latest",
-                                    }),
-                                )
-                                .await;
-                                cx.update(|cx| match result {
-                                    Ok(_) => notify(
-                                        cx,
-                                        NotificationType::Success,
-                                        t(cx, "consumerGroups.offsetResetSuccess"),
-                                    ),
-                                    Err(e) => notify(cx, NotificationType::Error, e),
-                                })
-                                .ok();
-                            })
-                            .detach();
-                        }),
-                ),
-        )
-        .into_any_element()
-}
-
-/// 消费组列表行
-fn group_row(
-    entity: Entity<ConsumerGroupsPage>,
-    ix: usize,
-    group: GroupInfo,
-    border: Hsla,
-) -> AnyElement {
-    let entity_offsets = entity.clone();
-    let group_offsets = group.clone();
-    let group_delete = group.clone();
-
-    h_flex()
-        .items_center()
-        .justify_between()
-        .px_3()
-        .py_2()
-        .border_b_1()
-        .border_color(border)
-        .child(
-            v_flex()
-                .gap_1()
-                .child(div().font_semibold().child(group.name.clone()))
-                .child(
-                    div()
-                        .text_xs()
-                        .child(format!("{} topics", group.topics.len())),
-                ),
-        )
-        .child(
-            h_flex()
-                .gap_2()
-                .child(
-                    Button::new(("offsets", ix))
-                        .outline()
-                        .label(t_label_offsets())
-                        .on_click(move |_, window, cx| {
-                            entity_offsets.update(cx, |this, cx| {
-                                this.open_offsets(group_offsets.clone(), window, cx)
-                            });
-                        }),
-                )
-                .child(
-                    Button::new(("delete", ix))
-                        .ghost()
-                        .icon(IconName::Delete)
-                        .on_click(move |_, window, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.confirm_delete(group_delete.clone(), window, cx)
-                            });
-                        }),
-                ),
-        )
-        .into_any_element()
-}
-
-fn t_label_offsets() -> &'static str {
-    "Offsets"
+fn parse_time(value: &str) -> Option<i64> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .and_then(|dt| {
+            dt.and_local_timezone(chrono::Local::now().timezone())
+                .single()
+                .map(|t| t.timestamp_millis())
+        })
 }
 
 impl Render for ConsumerGroupsPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let has_cluster = self.selected_cluster(cx).is_some();
+        let has_group = self.group.is_some();
 
+        // 头部
         let header = h_flex()
             .items_center()
             .justify_between()
@@ -539,37 +479,92 @@ impl Render for ConsumerGroupsPage {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(div().text_xl().font_semibold().child(t(cx, "consumerGroups.title")))
                     .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(t(cx, "consumerGroups.description")),
-                    ),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(Icon::new(IconName::CircleUser).text_color(theme.primary))
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_semibold()
+                                    .child(
+                                        self.group
+                                            .clone()
+                                            .unwrap_or_else(|| t(cx, "consumerGroups.title")),
+                                    ),
+                            )
+                            .children(self.group_state.as_ref().map(|state| {
+                                let color = Self::state_color(state, cx);
+                                div()
+                                    .text_xs()
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded_md()
+                                    .bg(color.opacity(0.15))
+                                    .text_color(color)
+                                    .child(state.clone())
+                                    .into_any_element()
+                            })),
+                    )
+                    .when(has_group, |el| {
+                        el.child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child(format!(
+                                    "{}: {}",
+                                    t(cx, "clusters.clusters"),
+                                    self.cluster.clone().unwrap_or_default()
+                                )),
+                        )
+                    }),
             )
             .child(
-                Button::new("refresh")
-                    .outline()
-                    .label(t(cx, "common.refresh"))
-                    .disabled(!has_cluster)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.loading = true;
-                        cx.notify();
-                        this.refresh_groups(cx);
-                    })),
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("refresh")
+                            .outline()
+                            .label(t(cx, "common.refresh"))
+                            .icon(IconName::Redo2)
+                            .loading(self.refreshing)
+                            .disabled(!has_group)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.refresh(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("reset")
+                            .primary()
+                            .label(t(cx, "consumerGroups.resetOffset"))
+                            .disabled(!has_group || self.offsets.is_empty())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.open_reset(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("delete")
+                            .danger()
+                            .label(t(cx, "common.delete"))
+                            .disabled(!has_group)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.confirm_delete(cx);
+                            })),
+                    ),
             );
 
-        let toolbar = h_flex()
-            .gap_2()
-            .mb_3()
-            .children(
-                self.cluster_state
-                    .as_ref()
-                    .map(|s| div().w_48().child(Select::new(s)).into_any_element()),
-            )
-            .child(div().w_64().child(Input::new(&self.search_input)));
-
-        let content: AnyElement = if self.cluster_state.is_none() || (self.loading && self.groups.is_empty()) {
+        let content: AnyElement = if !has_group {
+            v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .text_color(theme.muted_foreground)
+                .child(t(cx, "common.noData"))
+                .child(div().text_sm().child(t(cx, "topicConsumerGroups.selectFromNav")))
+                .into_any_element()
+        } else if self.loading {
             div()
                 .size_full()
                 .flex()
@@ -586,7 +581,7 @@ impl Render for ConsumerGroupsPage {
                 .text_color(theme.danger)
                 .child(err.clone())
                 .into_any_element()
-        } else if self.groups.is_empty() {
+        } else if self.offsets.is_empty() {
             div()
                 .size_full()
                 .flex()
@@ -596,24 +591,111 @@ impl Render for ConsumerGroupsPage {
                 .child(t(cx, "consumerGroups.noData"))
                 .into_any_element()
         } else {
-            let entity = cx.entity();
-            let groups = std::rc::Rc::new(self.groups.clone());
-            let border = theme.border;
-            let count = groups.len();
+            // 表头
+            let header_row = h_flex()
+                .px_2()
+                .py_1()
+                .bg(theme.table_head)
+                .text_xs()
+                .font_semibold()
+                .child(div().w(px(200.0)).child("Topic"))
+                .child(div().w_20().child(t(cx, "consumerGroups.partitions")))
+                .child(div().w_24().text_right().child(t(cx, "consumerGroups.start")))
+                .child(div().w_24().text_right().child(t(cx, "consumerGroups.end")))
+                .child(div().w(px(112.0)).text_right().child(t(cx, "consumerGroups.offset")))
+                .child(div().w_16().text_right().child(t(cx, "consumerGroups.lag")))
+                .child(div().flex_1().text_right().child(t(cx, "consumerGroups.lastCommit")));
 
-            uniform_list("group-list", count, move |range, _window, _cx| {
-                range
-                    .map(|ix| group_row(entity.clone(), ix, groups[ix].clone(), border))
-                    .collect()
-            })
-            .into_any_element()
+            let rows: Vec<AnyElement> = self
+                .offsets
+                .iter()
+                .map(|o| {
+                    let lag_color = if o.lag == 0 {
+                        theme.success
+                    } else if o.lag < 1000 {
+                        theme.warning
+                    } else {
+                        theme.danger
+                    };
+                    h_flex()
+                        .px_2()
+                        .py_1p5()
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .text_xs()
+                        .child(
+                            div()
+                                .w(px(200.0))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(o.topic.clone()),
+                        )
+                        .child(
+                            div().w_20().child(
+                                div()
+                                    .px_1()
+                                    .rounded_md()
+                                    .bg(theme.secondary)
+                                    .child(o.partition.to_string()),
+                            ),
+                        )
+                        .child(div().w_24().text_right().child(o.start_offset.to_string()))
+                        .child(div().w_24().text_right().child(o.end_offset.to_string()))
+                        .child(div().w(px(112.0)).text_right().child(o.committed_offset.to_string()))
+                        .child(
+                            div()
+                                .w_16()
+                                .text_right()
+                                .text_color(lag_color)
+                                .child(o.lag.to_string()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_right()
+                                .text_color(theme.muted_foreground)
+                                .child(Self::format_time(o.last_commit_time)),
+                        )
+                        .into_any_element()
+                })
+                .collect();
+
+            v_flex()
+                .size_full()
+                .border_1()
+                .border_color(theme.border)
+                .rounded_md()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .px_2()
+                        .py_1()
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .child(div().text_xs().font_semibold().child("Offsets"))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{} partitions", self.offsets.len())),
+                        ),
+                )
+                .child(header_row)
+                .child(
+                    div()
+                        .id("offsets-scroll")
+                        .flex_1()
+                        .overflow_y_scroll()
+                        .child(v_flex().children(rows)),
+                )
+                .into_any_element()
         };
 
         v_flex()
             .size_full()
             .p_4()
             .child(header)
-            .child(toolbar)
             .child(div().flex_1().overflow_hidden().child(content))
     }
 }

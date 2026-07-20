@@ -18,7 +18,7 @@ use serde_json::json;
 
 use crate::components::navigator::NavEvent;
 use crate::i18n::t;
-use crate::pages::clusters::notify;
+use crate::components::notify;
 use crate::state::{Backend, Page, TokioRuntime};
 
 #[derive(Clone, Debug)]
@@ -898,6 +898,7 @@ impl TreeNavigator {
                                     }
                                     cx.emit(NavEvent::OpenConsumerGroups {
                                         cluster: cluster_open.clone(),
+                                        group: None,
                                     });
                                 } else {
                                     if !this.expanded_topic_folders.contains(&cluster_open) {
@@ -1175,6 +1176,7 @@ impl TreeNavigator {
             } else {
                 for group in &visible_cgs {
                     let cluster_open = name.clone();
+                    let group_open = group.clone();
                     let key = format!("{}\u{1}{}", name, group);
                     children.push(
                         h_flex()
@@ -1199,6 +1201,7 @@ impl TreeNavigator {
                             .on_click(cx.listener(move |_this, _, _, cx| {
                                 cx.emit(NavEvent::OpenConsumerGroups {
                                     cluster: cluster_open.clone(),
+                                    group: Some(group_open.clone()),
                                 });
                             }))
                             .into_any_element(),

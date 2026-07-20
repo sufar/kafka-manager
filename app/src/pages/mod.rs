@@ -4,4 +4,5 @@ pub mod favorites;
 pub mod settings;
 pub mod schema_registry;
 pub mod messages;
+pub mod topic_consumer_groups;
 pub mod topics;

@@ -54,11 +54,13 @@ pub enum Page {
     Topics,
     Messages,
     ConsumerGroups,
+    TopicConsumerGroups,
     SchemaRegistry,
     Favorites,
     Settings,
 }
 
+#[allow(dead_code)]
 impl Page {
     pub fn all() -> &'static [Page] {
         &[
@@ -66,6 +68,7 @@ impl Page {
             Page::Topics,
             Page::Messages,
             Page::ConsumerGroups,
+            Page::TopicConsumerGroups,
             Page::SchemaRegistry,
             Page::Favorites,
             Page::Settings,
@@ -79,6 +82,7 @@ impl Page {
             Page::Topics => "nav.topics",
             Page::Messages => "nav.messages",
             Page::ConsumerGroups => "nav.consumerGroups",
+            Page::TopicConsumerGroups => "topicConsumerGroups.title",
             Page::SchemaRegistry => "tree.schemaRegistry",
             Page::Favorites => "nav.favorites",
             Page::Settings => "nav.settings",

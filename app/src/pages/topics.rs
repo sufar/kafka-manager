@@ -1,49 +1,24 @@
-//! Topic 管理页：集群选择、搜索、列表、创建、删除、详情、收藏
+//! Topics 页：与旧版 TopicsView 一致
+//!
+//! 头部：标题 + 集群名 + [刷新] [创建]（无集群下拉，集群由导航器预选）
+//! 卡片：搜索头（图标+输入+计数）+ 两列表格（名称+操作）虚拟滚动
+//! 行：收藏星 + 名称 + 删除；删除需输入 Topic 名称确认
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
-use gpui::*;
+use gpui::{prelude::FluentBuilder, *};
 use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_component::dialog::DialogButtonProps;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::notification::NotificationType;
-use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::notify;
 use crate::i18n::t;
-use crate::pages::clusters::notify;
 use crate::state::{Backend, TokioRuntime};
-
-/// 集群下拉选项（value 为集群名，Topic API 以集群名作为 cluster_id）
-#[derive(Clone)]
-struct ClusterOption {
-    name: SharedString,
-}
-
-impl gpui_component::select::SelectItem for ClusterOption {
-    type Value = SharedString;
-
-    fn title(&self) -> SharedString {
-        self.name.clone()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.name
-    }
-}
-
-type ClusterSelect = SelectState<SearchableVec<ClusterOption>>;
-
-/// Topic 详情
-#[derive(Clone, Debug)]
-struct PartitionInfo {
-    id: i32,
-    leader: i32,
-    replicas: Vec<i32>,
-    isr: Vec<i32>,
-}
 
 /// 创建 Topic 表单
 struct CreateTopicForm {
@@ -53,13 +28,13 @@ struct CreateTopicForm {
 }
 
 pub struct TopicsPage {
-    window_handle: AnyWindowHandle,
-    cluster_options: Vec<String>,
-    cluster_state: Option<Entity<ClusterSelect>>,
-    search_state: Entity<InputState>,
+    cluster: Option<String>,
+    search_input: Entity<InputState>,
+    confirm_input: Option<Entity<InputState>>,
     topics: Vec<String>,
     favorites: HashSet<String>,
     loading: bool,
+    refreshing: bool,
     error: Option<String>,
     create_form: Option<CreateTopicForm>,
     _subscriptions: Vec<Subscription>,
@@ -67,14 +42,12 @@ pub struct TopicsPage {
 
 impl TopicsPage {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_state = cx.new(|cx| {
+        let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "common.search"))
         });
-
         let mut subscriptions = Vec::new();
-        // 搜索输入 → 重新加载（后端搜索）
         subscriptions.push(cx.subscribe(
-            &search_state,
+            &search_input,
             |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.load_topics(cx);
@@ -82,109 +55,34 @@ impl TopicsPage {
             },
         ));
 
-        let this = Self {
-            window_handle: window.window_handle(),
-            cluster_options: Vec::new(),
-            cluster_state: None,
-            search_state,
+        Self {
+            cluster: None,
+            search_input,
+            confirm_input: None,
             topics: Vec::new(),
             favorites: HashSet::new(),
-            loading: true,
+            loading: false,
+            refreshing: false,
             error: None,
             create_form: None,
             _subscriptions: subscriptions,
-        };
-        this.load_clusters(window, cx);
-        this
-    }
-
-    fn selected_cluster(&self, cx: &App) -> Option<String> {
-        self.cluster_state
-            .as_ref()?
-            .read(cx)
-            .selected_value()
-            .map(|s| s.to_string())
-    }
-
-    /// 加载集群列表并创建集群选择器
-    fn load_clusters(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
-
-        cx.spawn_in(window, async move |this, cx| {
-            let result = crate::service::call(&rt, state, "cluster.list", json!({})).await;
-            let options: Vec<ClusterOption> = result
-                .ok()
-                .and_then(|value| {
-                    Some(
-                        value
-                            .as_array()?
-                            .iter()
-                            .filter_map(|c| {
-                                Some(ClusterOption {
-                                    name: c.get("name")?.as_str()?.to_string().into(),
-                                })
-                            })
-                            .collect(),
-                    )
-                })
-                .unwrap_or_default();
-
-            this.update_in(cx, |this, window, cx| {
-                let has_options = !options.is_empty();
-                this.cluster_options = options.iter().map(|o| o.name.to_string()).collect();
-                let select = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(options),
-                        if has_options { Some(IndexPath::new(0)) } else { None },
-                        window,
-                        cx,
-                    )
-                });
-                // 集群切换 → 重新加载 Topic
-                let sub = cx.subscribe(
-                    &select,
-                    |this, _, event: &SelectEvent<SearchableVec<ClusterOption>>, cx| {
-                        if matches!(event, SelectEvent::Confirm(Some(_))) {
-                            this.load_topics(cx);
-                        }
-                    },
-                );
-                this._subscriptions.push(sub);
-                this.cluster_state = Some(select);
-                this.loading = false;
-                cx.notify();
-                this.load_topics(cx);
-            })
-            .ok();
-        })
-        .detach();
+        }
     }
 
     /// 外部导航：预选集群（由工作区调用）
     pub fn select_cluster(&mut self, cluster: String, cx: &mut Context<Self>) {
-        if let Some(ix) = self.cluster_options.iter().position(|c| c == &cluster) {
-            if let Some(state) = &self.cluster_state {
-                let handle = self.window_handle;
-                let state = state.clone();
-                handle
-                    .update(cx, |_, window, cx| {
-                        state.update(cx, |s, cx| {
-                            s.set_selected_index(Some(IndexPath::new(ix)), window, cx);
-                        });
-                    })
-                    .ok();
-            }
-        }
+        self.cluster = Some(cluster);
+        self.loading = true;
+        cx.notify();
         self.load_topics(cx);
     }
 
     /// 加载 Topic 列表（含收藏状态）
     fn load_topics(&self, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+        let Some(cluster) = self.cluster.clone() else { return };
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
-        let search = self.search_state.read(cx).value().to_string();
+        let search = self.search_input.read(cx).value().to_string();
 
         cx.spawn(async move |this, cx| {
             let topics = crate::service::call(
@@ -213,7 +111,6 @@ impl TopicsPage {
                     }
                     Err(e) => this.error = Some(e),
                 }
-                // 收藏集合（cluster_id\u{1}topic_name）
                 if let Ok(value) = favorites {
                     this.favorites = value
                         .as_array()
@@ -242,26 +139,30 @@ impl TopicsPage {
         .detach();
     }
 
-    /// 刷新（从集群重新拉取元数据）
-    fn refresh_topics(&self, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+    fn refresh_topics(&mut self, cx: &mut Context<Self>) {
+        let Some(cluster) = self.cluster.clone() else { return };
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
+        self.refreshing = true;
+        cx.notify();
 
         cx.spawn(async move |this, cx| {
             let _ = crate::service::call(&rt, state, "topic.refresh", json!({ "cluster_id": cluster }))
                 .await;
-            this.update(cx, |this, cx| this.load_topics(cx)).ok();
+            this.update(cx, |this, cx| {
+                this.refreshing = false;
+                cx.notify();
+                this.load_topics(cx);
+            })
+            .ok();
         })
         .detach();
     }
 
-    /// 切换收藏
     fn toggle_favorite(&mut self, topic: String, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+        let Some(cluster) = self.cluster.clone() else { return };
         let key = format!("{}\u{1}{}", cluster, topic);
         let is_fav = self.favorites.contains(&key);
-        // 乐观更新
         if is_fav {
             self.favorites.remove(&key);
         } else {
@@ -282,7 +183,6 @@ impl TopicsPage {
                 )
                 .await
             } else {
-                // 确保有收藏分组：取第一个分组，没有则创建
                 let group_id = match crate::service::call(&rt, state.clone(), "favorite.group.list", json!({})).await {
                     Ok(value) => {
                         let first = value
@@ -320,44 +220,67 @@ impl TopicsPage {
             };
             if let Err(e) = result {
                 cx.update(|cx| notify(cx, NotificationType::Error, e)).ok();
-                // 回滚乐观更新
                 this.update(cx, |this, cx| this.load_topics(cx)).ok();
             }
         })
         .detach();
     }
 
-    /// 删除 Topic（确认对话框）
-    fn confirm_delete(&mut self, topic: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+    /// 打开删除确认对话框（输入 Topic 名称确认，与旧版 DeleteTopicDialog 一致）
+    fn open_delete_confirm(&mut self, topic: String, window: &mut Window, cx: &mut Context<Self>) {
+        let confirm_state = cx.new(|cx| InputState::new(window, cx));
+        self.confirm_input = Some(confirm_state.clone());
+
         let entity = cx.entity();
         let title = t(cx, "topics.confirmDeleteTitle");
-        let message = topic.clone();
-        window.open_dialog(cx, move |dialog, _window, _cx| {
+        let hint = t(cx, "topics.confirmDeleteHint");
+        let mismatch = t(cx, "topics.confirmDeleteMatchError");
+
+        window.open_dialog(cx, move |dialog, _window, cx| {
             let entity = entity.clone();
-            let cluster = cluster.clone();
-            let topic = message.clone();
+            let topic = topic.clone();
+            let mismatch = mismatch.clone();
+            let confirm_state = confirm_state.clone();
             dialog
                 .confirm()
                 .title(title.clone())
-                .child(topic.clone())
+                .w(px(480.0))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(div().text_sm().child(hint.clone()))
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .child(topic.clone()),
+                        )
+                        .child(Input::new(&confirm_state))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().danger)
+                                .child(mismatch.clone()),
+                        ),
+                )
                 .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
-                .on_ok(move |_, window, cx| {
-                    entity.update(cx, |this, cx| {
-                        this.delete_topic(cluster.clone(), topic.clone(), window, cx)
-                    });
-                    true
+                .on_ok(move |_, _window, cx| {
+                    let typed = confirm_state.read(cx).value().to_string();
+                    if typed.trim() == topic {
+                        entity.update(cx, |this, cx| {
+                            this.delete_topic(topic.clone(), cx);
+                        });
+                        true
+                    } else {
+                        false // 名称不匹配不关闭
+                    }
                 })
+                .on_cancel(|_, _, _| true)
         });
     }
 
-    fn delete_topic(
-        &mut self,
-        cluster: String,
-        topic: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn delete_topic(&mut self, topic: String, cx: &mut Context<Self>) {
+        let Some(cluster) = self.cluster.clone() else { return };
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
 
@@ -379,109 +302,18 @@ impl TopicsPage {
         .detach();
     }
 
-    /// 查看 Topic 详情（分区信息）
-    fn open_detail(&mut self, topic: String, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(cluster) = self.selected_cluster(cx) else { return };
-        let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
-        let title = t(cx, "topics.topicDetails");
-
-        cx.spawn(async move |_this, cx| {
-            let result = crate::service::call(
-                &rt,
-                state,
-                "topic.get",
-                json!({ "cluster_id": cluster, "name": topic }),
-            )
-            .await;
-            cx.update(|cx| match result {
-                Ok(value) => {
-                    let name = value
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let partitions: Vec<PartitionInfo> = value
-                        .get("partitions")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|p| {
-                                    Some(PartitionInfo {
-                                        id: p.get("id")?.as_i64()? as i32,
-                                        leader: p.get("leader")?.as_i64()? as i32,
-                                        replicas: p
-                                            .get("replicas")?
-                                            .as_array()?
-                                            .iter()
-                                            .filter_map(|r| r.as_i64().map(|v| v as i32))
-                                            .collect(),
-                                        isr: p
-                                            .get("isr")?
-                                            .as_array()?
-                                            .iter()
-                                            .filter_map(|r| r.as_i64().map(|v| v as i32))
-                                            .collect(),
-                                    })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    for w in cx.windows() {
-                        let title = title.clone();
-                        let name = name.clone();
-                        let partitions = partitions.clone();
-                        let _ = w.update(cx, |_, window, cx| {
-                            let border = cx.theme().border;
-                            let partitions = partitions.clone();
-                            window.open_dialog(cx, move |dialog, _window, _cx| {
-                                let rows: Vec<AnyElement> = partitions
-                                    .iter()
-                                    .map(|p| {
-                                        h_flex()
-                                            .gap_4()
-                                            .py_1()
-                                            .border_b_1()
-                                            .border_color(border)
-                                            .child(div().w_20().child(format!("Partition {}", p.id)))
-                                            .child(div().w_24().child(format!("Leader: {}", p.leader)))
-                                            .child(
-                                                div()
-                                                    .w_32()
-                                                    .child(format!("Replicas: {:?}", p.replicas)),
-                                            )
-                                            .child(div().child(format!("ISR: {:?}", p.isr)))
-                                            .into_any_element()
-                                    })
-                                    .collect();
-                                dialog
-                                    .title(format!("{} — {}", title, name))
-                                    .w(px(640.0))
-                                    .child(v_flex().children(rows))
-                                    .alert()
-                            });
-                        });
-                    }
-                }
-                Err(e) => notify(cx, NotificationType::Error, e),
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     /// 打开创建 Topic 对话框
     fn open_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "topics.topicNamePlaceholder"))
         });
         let partitions_state = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder("1");
+            let mut state = InputState::new(window, cx);
             state.set_value("1".to_string(), window, cx);
             state
         });
         let replication_state = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder("1");
+            let mut state = InputState::new(window, cx);
             state.set_value("1".to_string(), window, cx);
             state
         });
@@ -507,14 +339,8 @@ impl TopicsPage {
                     v_flex()
                         .gap_3()
                         .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
-                        .child(field_row(
-                            &partitions_label,
-                            Input::new(&partitions_state).into_any_element(),
-                        ))
-                        .child(field_row(
-                            &replication_label,
-                            Input::new(&replication_state).into_any_element(),
-                        )),
+                        .child(field_row(&partitions_label, Input::new(&partitions_state).into_any_element()))
+                        .child(field_row(&replication_label, Input::new(&replication_state).into_any_element())),
                 )
                 .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                 .on_ok(move |_, window, cx| {
@@ -527,7 +353,7 @@ impl TopicsPage {
 
     fn submit_create(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.create_form.take() else { return };
-        let Some(cluster) = self.selected_cluster(cx) else { return };
+        let Some(cluster) = self.cluster.clone() else { return };
         let name = form.name.read(cx).value().to_string();
         let num_partitions: i32 = form.partitions.read(cx).value().parse().unwrap_or(1);
         let replication_factor: i32 = form.replication.read(cx).value().parse().unwrap_or(1);
@@ -580,52 +406,47 @@ fn topic_row(
     topic: String,
     is_fav: bool,
     border_color: Hsla,
+    warning: Hsla,
 ) -> AnyElement {
+    let topic_fav = topic.clone();
+    let topic_del = topic.clone();
     let entity_fav = entity.clone();
-    let entity_detail = entity.clone();
-    let topic_for_fav = topic.clone();
-    let topic_for_detail = topic.clone();
-    let topic_for_delete = topic.clone();
 
     h_flex()
         .items_center()
-        .justify_between()
+        .gap_2()
         .px_3()
-        .py_2()
+        .py_1p5()
         .border_b_1()
         .border_color(border_color)
         .child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    Button::new(("fav", ix))
-                        .ghost()
-                        .icon(if is_fav { IconName::Star } else { IconName::StarOff })
-                        .on_click(move |_, _, cx| {
-                            entity_fav.update(cx, |this, cx| {
-                                this.toggle_favorite(topic_for_fav.clone(), cx)
-                            });
-                        }),
-                )
-                .child(
-                    Button::new(("name", ix))
-                        .ghost()
-                        .label(topic.clone())
-                        .on_click(move |_, window, cx| {
-                            entity_detail.update(cx, |this, cx| {
-                                this.open_detail(topic_for_detail.clone(), window, cx)
-                            });
-                        }),
-                ),
+            Button::new(("fav", ix))
+                .ghost()
+                .xsmall()
+                .icon(if is_fav { IconName::Star } else { IconName::StarOff })
+                .when(is_fav, |b| b.text_color(warning))
+                .on_click(move |_, _, cx| {
+                    entity_fav.update(cx, |this, cx| {
+                        this.toggle_favorite(topic_fav.clone(), cx)
+                    });
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_xs()
+                .child(topic.clone()),
         )
         .child(
             Button::new(("del", ix))
                 .ghost()
+                .xsmall()
                 .icon(IconName::Delete)
                 .on_click(move |_, window, cx| {
                     entity.update(cx, |this, cx| {
-                        this.confirm_delete(topic_for_delete.clone(), window, cx)
+                        this.open_delete_confirm(topic_del.clone(), window, cx)
                     });
                 }),
         )
@@ -635,8 +456,9 @@ fn topic_row(
 impl Render for TopicsPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let has_cluster = self.selected_cluster(cx).is_some();
+        let has_cluster = self.cluster.is_some();
 
+        // 头部
         let header = h_flex()
             .items_center()
             .justify_between()
@@ -649,7 +471,11 @@ impl Render for TopicsPage {
                         div()
                             .text_sm()
                             .text_color(theme.muted_foreground)
-                            .child(t(cx, "topics.description")),
+                            .child(if let Some(cluster) = &self.cluster {
+                                format!("{}: {}", t(cx, "clusters.clusters"), cluster)
+                            } else {
+                                t(cx, "topics.description")
+                            }),
                     ),
             )
             .child(
@@ -658,17 +484,18 @@ impl Render for TopicsPage {
                     .child(
                         Button::new("refresh")
                             .outline()
+                            .icon(IconName::Redo2)
                             .label(t(cx, "common.refresh"))
+                            .loading(self.refreshing)
                             .disabled(!has_cluster)
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.loading = true;
-                                cx.notify();
                                 this.refresh_topics(cx);
                             })),
                     )
                     .child(
                         Button::new("create")
                             .primary()
+                            .icon(IconName::Plus)
                             .label(t(cx, "common.create"))
                             .disabled(!has_cluster)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -677,32 +504,23 @@ impl Render for TopicsPage {
                     ),
             );
 
-        let toolbar = h_flex()
-            .gap_2()
-            .mb_3()
-            .children(
-                self.cluster_state
-                    .as_ref()
-                    .map(|state| div().w_48().child(Select::new(state)).into_any_element()),
-            )
-            .child(div().w_64().child(Input::new(&self.search_state)));
-
-        let content: AnyElement = if self.cluster_state.is_none() || (self.loading && self.topics.is_empty()) {
+        let content: AnyElement = if !has_cluster {
+            v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .text_color(theme.muted_foreground)
+                .child(t(cx, "common.noData"))
+                .child(div().text_sm().child(t(cx, "topics.description")))
+                .into_any_element()
+        } else if self.loading && self.topics.is_empty() {
             div()
                 .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
                 .child(Spinner::new())
-                .into_any_element()
-        } else if !has_cluster {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.muted_foreground)
-                .child(t(cx, "topics.validationSelectCluster"))
                 .into_any_element()
         } else if let Some(err) = &self.error {
             div()
@@ -713,40 +531,88 @@ impl Render for TopicsPage {
                 .text_color(theme.danger)
                 .child(err.clone())
                 .into_any_element()
-        } else if self.topics.is_empty() {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.muted_foreground)
-                .child(t(cx, "common.noData"))
-                .into_any_element()
         } else {
-            let entity = cx.entity();
-            let topics = std::rc::Rc::new(self.topics.clone());
-            let favorites = std::rc::Rc::new(self.favorites.clone());
-            let cluster = self.selected_cluster(cx).unwrap_or_default();
-            let border = theme.border;
-            let count = topics.len();
+            // 卡片：搜索头 + 表格
+            let card_header = h_flex()
+                .items_center()
+                .justify_between()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::Search)
+                                .size_4()
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(div().w_64().child(Input::new(&self.search_input).small())),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(format!("{} topics", self.topics.len())),
+                );
 
-            uniform_list("topic-list", count, move |range, _window, _cx| {
-                range
-                    .map(|ix| {
-                        let topic = topics[ix].clone();
-                        let is_fav = favorites.contains(&format!("{}\u{1}{}", cluster, topic));
-                        topic_row(entity.clone(), ix, topic, is_fav, border)
-                    })
-                    .collect()
-            })
-            .into_any_element()
+            let table_header = h_flex()
+                .px_3()
+                .py_1()
+                .bg(theme.table_head)
+                .text_xs()
+                .font_semibold()
+                .child(div().flex_1().child(t(cx, "topics.topicName")))
+                .child(div().w_16().text_right().child(t(cx, "messages.actions")));
+
+            let body: AnyElement = if self.topics.is_empty() {
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(t(cx, "common.noData"))
+                    .into_any_element()
+            } else {
+                let entity = cx.entity();
+                let cluster = self.cluster.clone().unwrap_or_default();
+                let favorites = Rc::new(self.favorites.clone());
+                let topics = Rc::new(self.topics.clone());
+                let border = theme.border;
+                let warning = theme.warning;
+                let count = topics.len();
+
+                uniform_list("topics-list", count, move |range, _window, _cx| {
+                    range
+                        .map(|ix| {
+                            let topic = topics[ix].clone();
+                            let is_fav = favorites.contains(&format!("{}\u{1}{}", cluster, topic));
+                            topic_row(entity.clone(), ix, topic, is_fav, border, warning)
+                        })
+                        .collect()
+                })
+                .into_any_element()
+            };
+
+            v_flex()
+                .size_full()
+                .border_1()
+                .border_color(theme.border)
+                .rounded_lg()
+                .child(card_header)
+                .child(table_header)
+                .child(div().flex_1().overflow_hidden().child(body))
+                .into_any_element()
         };
 
         v_flex()
             .size_full()
             .p_4()
             .child(header)
-            .child(toolbar)
             .child(div().flex_1().overflow_hidden().child(content))
     }
 }

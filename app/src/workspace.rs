@@ -12,7 +12,6 @@ use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::resizable::{h_resizable, resizable_panel};
-use gpui_component::sidebar::{SidebarMenu, SidebarMenuItem};
 use gpui_component::*;
 
 use crate::components::navigator::{NavEvent, Navigator};
@@ -24,6 +23,7 @@ use crate::pages::favorites::FavoritesPage;
 use crate::pages::messages::MessagesPage;
 use crate::pages::schema_registry::SchemaRegistryPage;
 use crate::pages::settings::SettingsPage;
+use crate::pages::topic_consumer_groups::TopicConsumerGroupsPage;
 use crate::pages::topics::TopicsPage;
 use crate::state::{Backend, Page, SidebarMode, TokioRuntime};
 
@@ -45,6 +45,7 @@ pub struct Workspace {
     schema_registry_page: Entity<SchemaRegistryPage>,
     favorites_page: Entity<FavoritesPage>,
     settings_page: Entity<SettingsPage>,
+    topic_cg_page: Entity<TopicConsumerGroupsPage>,
     // 顶部全局搜索
     search_input: Entity<InputState>,
     search_results: Vec<SearchResult>,
@@ -63,6 +64,7 @@ impl Workspace {
         let schema_registry_page = cx.new(|cx| SchemaRegistryPage::new(window, cx));
         let favorites_page = cx.new(|cx| FavoritesPage::new(window, cx));
         let settings_page = cx.new(|cx| SettingsPage::new(window, cx));
+        let topic_cg_page = cx.new(|cx| TopicConsumerGroupsPage::new(window, cx));
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "layout.searchPlaceholder"))
         });
@@ -74,6 +76,9 @@ impl Workspace {
             this.handle_nav_event(event, cx);
         }));
         subscriptions.push(cx.subscribe(&tree_navigator, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&topic_cg_page, |this, _, event: &NavEvent, cx| {
             this.handle_nav_event(event, cx);
         }));
 
@@ -141,6 +146,7 @@ impl Workspace {
             schema_registry_page,
             favorites_page,
             settings_page,
+            topic_cg_page,
             search_input,
             search_results: Vec::new(),
             search_open: false,
@@ -168,11 +174,17 @@ impl Workspace {
                 });
                 self.switch_page(Page::Topics, cx);
             }
-            NavEvent::OpenConsumerGroups { cluster } => {
+            NavEvent::OpenConsumerGroups { cluster, group } => {
                 self.consumer_groups_page.update(cx, |page, cx| {
-                    page.select_cluster(cluster.clone(), cx)
+                    page.select_group(cluster.clone(), group.clone(), cx)
                 });
                 self.switch_page(Page::ConsumerGroups, cx);
+            }
+            NavEvent::OpenTopicConsumerGroups { cluster, topic } => {
+                self.topic_cg_page.update(cx, |page, cx| {
+                    page.select_cluster_topic(cluster.clone(), topic.clone(), cx)
+                });
+                self.switch_page(Page::TopicConsumerGroups, cx);
             }
             NavEvent::OpenPage(page) => {
                 self.switch_page(*page, cx);
@@ -426,30 +438,6 @@ impl Workspace {
                     ),
             )
     }
-
-    /// 页面菜单（侧边栏底部）
-    fn render_page_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let items = Page::all().iter().map(|page| {
-            let page = *page;
-            let label = t(cx, page.i18n_key());
-            let icon = match page {
-                Page::Clusters => IconName::Building2,
-                Page::Topics => IconName::FolderOpen,
-                Page::Messages => IconName::Inbox,
-                Page::ConsumerGroups => IconName::CircleUser,
-                Page::SchemaRegistry => IconName::BookOpen,
-                Page::Favorites => IconName::Star,
-                Page::Settings => IconName::Settings,
-            };
-            SidebarMenuItem::new(label)
-                .icon(icon)
-                .active(self.page == page)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.switch_page(page, cx);
-                }))
-        });
-        SidebarMenu::new().children(items)
-    }
 }
 
 impl Render for Workspace {
@@ -458,6 +446,7 @@ impl Render for Workspace {
             let theme = cx.theme();
             (theme.background, theme.border)
         };
+        let _ = border;
         let content: AnyElement = match self.page {
             Page::Clusters => self.clusters_page.clone().into_any_element(),
             Page::Topics => self.topics_page.clone().into_any_element(),
@@ -466,24 +455,16 @@ impl Render for Workspace {
             Page::SchemaRegistry => self.schema_registry_page.clone().into_any_element(),
             Page::Favorites => self.favorites_page.clone().into_any_element(),
             Page::Settings => self.settings_page.clone().into_any_element(),
+            Page::TopicConsumerGroups => self.topic_cg_page.clone().into_any_element(),
         };
 
-        // 侧边栏：导航器（平铺/树形按设置）+ 页面菜单（底部）
+        // 侧边栏：导航器（平铺/树形按设置），与旧版一致（无底部页面菜单）
         let is_tree = SidebarMode::is_tree(cx);
-        let nav_element: AnyElement = if is_tree {
+        let sidebar = v_flex().size_full().child(if is_tree {
             self.tree_navigator.clone().into_any_element()
         } else {
             self.navigator.clone().into_any_element()
-        };
-        let sidebar = v_flex()
-            .size_full()
-            .child(div().flex_1().overflow_hidden().child(nav_element))
-            .child(
-                div()
-                    .border_t_1()
-                    .border_color(border)
-                    .child(self.render_page_menu(cx)),
-            );
+        });
 
         let dropdown = self.render_search_dropdown(cx);
 
