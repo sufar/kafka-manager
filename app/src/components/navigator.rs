@@ -479,6 +479,18 @@ impl Navigator {
 
             this.update(cx, |this, cx| {
                 this.loading = false;
+                match &result {
+                    Ok(value) => {
+                        tracing::info!(
+                            "[Navigator] topics response: total={:?}, topics_len={:?}",
+                            value.get("total"),
+                            value.get("topics").and_then(|t| t.as_array()).map(|a| a.len())
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("[Navigator] topics request failed: {}", e);
+                    }
+                }
                 if let Ok(value) = result {
                     let mut new_topics: Vec<TopicItem> = value
                         .get("topics")
@@ -1243,6 +1255,7 @@ impl Render for Navigator {
             let colors = RowColors::from_cx(cx);
             match self.view {
                 NavView::Topics => {
+                    tracing::debug!("[Navigator] render topics list: {} items", self.topics.len());
                     if self.topics.is_empty() {
                         div()
                             .size_full()
