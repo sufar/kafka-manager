@@ -1211,6 +1211,7 @@ impl Navigator {
 
 impl Render for Navigator {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        tracing::info!("[RENDER] Navigator");
         let (sidebar_bg, border_c, muted_c) = {
             let theme = cx.theme();
             (theme.sidebar, theme.border, theme.muted_foreground)
