@@ -158,12 +158,14 @@ impl Workspace {
     }
 
     fn switch_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        tracing::info!("[NAV] switch_page: {:?}", page);
         self.page = page;
         cx.notify();
     }
 
     /// 处理导航器（平铺/树形）发来的导航事件
     fn handle_nav_event(&mut self, event: &NavEvent, cx: &mut Context<Self>) {
+        tracing::info!("[NAV] handle_nav_event: {:?}", event);
         match event {
             NavEvent::OpenMessages { cluster, topic } => {
                 self.messages_page.update(cx, |page, cx| {

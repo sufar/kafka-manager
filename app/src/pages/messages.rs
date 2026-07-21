@@ -274,6 +274,7 @@ impl MessagesPage {
 
     /// 外部导航：预选集群 + Topic（由工作区调用）
     pub fn select_cluster_topic(&mut self, cluster: String, topic: String, cx: &mut Context<Self>) {
+        tracing::info!("[MSG] select_cluster_topic: {}/{}", cluster, topic);
         self.cluster = Some(cluster.clone());
         self.topic = Some(topic.clone());
         self.messages = Rc::new(Vec::new());
@@ -539,6 +540,7 @@ impl MessagesPage {
         self.error = None;
         self.elapsed_ms = None;
         cx.notify();
+        tracing::info!("[MSG] start_query: spawning stream task");
 
         let token = CancellationToken::new();
         self.cancel_token = Some(token.clone());
@@ -555,6 +557,7 @@ impl MessagesPage {
                 })
                 .await;
 
+            let rx_ok = rx_result.is_ok();
             let mut rx = match rx_result {
                 Ok(Ok(rx)) => rx,
                 Ok(Err(e)) => {
@@ -577,11 +580,13 @@ impl MessagesPage {
                 }
             };
 
+            tracing::info!("[MSG] stream task started, rx_ok={}", rx_ok);
             // 缓冲事件：按数量/时间批量刷新，避免每事件整页重渲染
             let mut last_flush = std::time::Instant::now();
             let mut pending = 0usize;
             while let Some(evt) = rx.recv().await {
                 let is_terminal = matches!(evt.event.as_str(), "complete" | "error");
+                tracing::info!("[MSG] stream event received: {}", evt.event);
                 pending += 1;
                 if is_terminal || pending >= 10 || last_flush.elapsed().as_millis() >= 100 {
                     tracing::debug!("[MessagesPage] flush {} events (terminal={})", pending, is_terminal);

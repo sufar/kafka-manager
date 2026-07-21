@@ -677,6 +677,7 @@ impl Navigator {
     }
 
     fn open_topic(&mut self, cluster: String, topic: String, cx: &mut Context<Self>) {
+        tracing::info!("[NAV] open_topic: {}/{}", cluster, topic);
         self.selected_topic = Some((cluster.clone(), topic.clone()));
         cx.notify();
         cx.emit(NavEvent::OpenMessages { cluster, topic });
