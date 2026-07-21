@@ -453,34 +453,26 @@ impl MessagesPage {
     }
 
     /// 时间范围预设（minutes 前到现在）
-    fn apply_time_preset(&mut self, minutes: i64, cx: &mut Context<Self>) {
+    fn apply_time_preset(&mut self, minutes: i64, window: &mut Window, cx: &mut Context<Self>) {
         let now = chrono::Local::now().timestamp_millis();
         let start = now - minutes * 60_000;
         let start_s = Self::format_time_input(start);
         let end_s = Self::format_time_input(now);
-        if let Some(w) = cx.windows().first() {
-            let _ = w.update(cx, |_, window, cx| {
-                self.start_input.update(cx, |s, cx| {
-                    s.set_value(start_s, window, cx);
-                });
-                self.end_input.update(cx, |s, cx| {
-                    s.set_value(end_s, window, cx);
-                });
-            });
-        }
+        self.start_input.update(cx, |s, cx| {
+            s.set_value(start_s, window, cx);
+        });
+        self.end_input.update(cx, |s, cx| {
+            s.set_value(end_s, window, cx);
+        });
     }
 
-    fn clear_time_range(&mut self, cx: &mut Context<Self>) {
-        if let Some(w) = cx.windows().first() {
-            let _ = w.update(cx, |_, window, cx| {
-                self.start_input.update(cx, |s, cx| {
-                    s.set_value(String::new(), window, cx);
-                });
-                self.end_input.update(cx, |s, cx| {
-                    s.set_value(String::new(), window, cx);
-                });
-            });
-        }
+    fn clear_time_range(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_input.update(cx, |s, cx| {
+            s.set_value(String::new(), window, cx);
+        });
+        self.end_input.update(cx, |s, cx| {
+            s.set_value(String::new(), window, cx);
+        });
     }
 
     /// 开始流式查询
@@ -1329,8 +1321,8 @@ fn preset_button(
         .ghost()
         .xsmall()
         .label(t(cx, label_key))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.apply_time_preset(minutes, cx);
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.apply_time_preset(minutes, window, cx);
         }))
 }
 
@@ -1482,8 +1474,8 @@ impl Render for MessagesPage {
                         .xsmall()
                         .icon(IconName::Close)
                         .label(t(cx, "messages.clear"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.clear_time_range(cx);
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.clear_time_range(window, cx);
                         })),
                 )
                 .into_any_element()

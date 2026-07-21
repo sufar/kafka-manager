@@ -349,6 +349,7 @@ impl Workspace {
             };
 
             div()
+                .id("search-dropdown")
                 .absolute()
                 .top(px(38.0))
                 .left(px(150.0))
@@ -448,7 +449,12 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // gpui-component 的对话框/通知/Sheet 层需要应用根视图手动组合渲染
+        let sheet_layer = Root::render_sheet_layer(window, cx);
+        let dialog_layer = Root::render_dialog_layer(window, cx);
+        let notification_layer = Root::render_notification_layer(window, cx);
+
         let (bg, border) = {
             let theme = cx.theme();
             (theme.background, theme.border)
@@ -515,5 +521,9 @@ impl Render for Workspace {
             )
             // 下拉最后绘制，覆盖在其他内容之上
             .child(dropdown)
+            // gpui-component 层：Sheet → Dialog → Notification（对话框与通知才能显示）
+            .children(sheet_layer)
+            .children(dialog_layer)
+            .children(notification_layer)
     }
 }

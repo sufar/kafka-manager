@@ -432,16 +432,20 @@ impl Navigator {
     }
 
     fn clear_search(&mut self, cx: &mut Context<Self>) {
-        let value = self.search_input.read(cx).value().to_string();
-        if !value.is_empty() {
-            if let Some(w) = cx.windows().first() {
-                let _ = w.update(cx, |_, window, cx| {
-                    self.search_input.update(cx, |state, cx| {
-                        state.set_value(String::new(), window, cx);
+        // 通过 spawn 在非事件上下文中清空（事件处理器内嵌套 window update 会静默失败）
+        let input = self.search_input.clone();
+        cx.spawn(async move |_this, cx| {
+            let _ = cx.update(|cx| {
+                if let Some(w) = cx.windows().first().cloned() {
+                    let _ = w.update(cx, |_, window, cx| {
+                        input.update(cx, |state, cx| {
+                            state.set_value(String::new(), window, cx);
+                        });
                     });
-                });
-            }
-        }
+                }
+            });
+        })
+        .detach();
     }
 
     fn search_text(&self, cx: &App) -> String {
@@ -945,6 +949,7 @@ impl Navigator {
             .collect();
 
         div()
+            .id("cluster-selector-popup")
             .absolute()
             .top(px(76.0))
             .left(px(6.0))
