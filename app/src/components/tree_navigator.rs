@@ -637,11 +637,12 @@ impl TreeNavigator {
         .detach();
     }
 
-    /// 文件夹内搜索框（惰性创建）
+    /// 文件夹内搜索框（惰性创建，window 从渲染路径传入）
     fn folder_search(
         &mut self,
         cluster: &str,
         is_cg: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Entity<InputState>> {
         if is_cg {
@@ -652,14 +653,9 @@ impl TreeNavigator {
             return Some(state.clone());
         }
 
-        let state = self
-            .window_handle
-            .update(cx, |_, window, cx| {
-                cx.new(|cx| {
-                    InputState::new(window, cx).placeholder(t(cx, "common.search"))
-                })
-            })
-            .ok()?;
+        let state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "common.search"))
+        });
 
         // 订阅变化 → 重绘（客户端过滤）
         let sub = cx.subscribe(&state, |_this, _, event: &InputEvent, cx| {
@@ -930,7 +926,7 @@ impl TreeNavigator {
     }
 
     /// 集群子树（两个文件夹 + 内容）
-    fn render_cluster(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_cluster(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let (success_c, danger_c, warning_c, primary_c, hover_c, active_c, secondary_c, muted_c, border_c) = {
             let theme = cx.theme();
             (
@@ -1050,7 +1046,7 @@ impl TreeNavigator {
         if topic_folder_expanded {
             // 文件夹内搜索框
             if !all_topics.is_empty() {
-                if let Some(search_state) = self.folder_search(&name, false, cx) {
+                if let Some(search_state) = self.folder_search(&name, false, window, cx) {
                     let match_text = if topic_query.is_empty() {
                         format!("{} topics", all_topics.len())
                     } else {
@@ -1140,7 +1136,7 @@ impl TreeNavigator {
         ));
         if cg_folder_expanded {
             if !all_cgs.is_empty() {
-                if let Some(search_state) = self.folder_search(&name, true, cx) {
+                if let Some(search_state) = self.folder_search(&name, true, window, cx) {
                     let match_text = if cg_query.is_empty() {
                         format!("{} consumer groups", all_cgs.len())
                     } else {
@@ -1279,7 +1275,7 @@ impl TreeNavigator {
 }
 
 impl Render for TreeNavigator {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (bg_sidebar, border_c, muted_c) = {
             let theme = cx.theme();
             (theme.sidebar, theme.border, theme.muted_foreground)
@@ -1328,7 +1324,7 @@ impl Render for TreeNavigator {
                     .collect();
                 let mut rows: Vec<AnyElement> = Vec::with_capacity(indices.len());
                 for ix in indices {
-                    rows.push(self.render_cluster(ix, cx));
+                    rows.push(self.render_cluster(ix, window, cx));
                 }
 
                 div()

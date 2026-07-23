@@ -104,7 +104,6 @@ struct SentItem {
 }
 
 pub struct MessagesPage {
-    window_handle: AnyWindowHandle,
     // 查询上下文（由导航器设置）
     cluster: Option<String>,
     topic: Option<String>,
@@ -233,7 +232,6 @@ impl MessagesPage {
         ));
 
         Self {
-            window_handle: window.window_handle(),
             cluster: None,
             topic: None,
             partition_state: None,
@@ -310,32 +308,36 @@ impl MessagesPage {
 
             tracing::info!("[MessagesPage] load_partitions completed, {} partitions", ids.len());
             this.update(cx, |this, cx| {
-                this.partitions = ids.clone();
-                let all_label = t(cx, "messages.allPartitions");
-                let mut options = vec![StringOption::new(all_label, "")];
-                options.extend(ids.iter().map(|id| {
-                    let s = id.to_string();
-                    StringOption::new(s.clone(), s)
-                }));
-                let handle = this.window_handle;
-                let select = handle
-                    .update(cx, |_, window, cx| {
-                        cx.new(|cx| {
-                            SelectState::new(
-                                SearchableVec::new(options),
-                                Some(IndexPath::new(0)),
-                                window,
-                                cx,
-                            )
-                        })
-                    })
-                    .ok();
-                this.partition_state = select;
+                this.partitions = ids;
+                // SelectState 在渲染路径中惰性创建（避免 spawn 中嵌套 window update）
+                this.partition_state = None;
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// 确保分区下拉存在（在渲染路径中创建，window 天然可用）
+    fn ensure_partition_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.partition_state.is_some() || self.partitions.is_empty() {
+            return;
+        }
+        let all_label = t(cx, "messages.allPartitions");
+        let mut options = vec![StringOption::new(all_label, "")];
+        options.extend(self.partitions.iter().map(|id| {
+            let s = id.to_string();
+            StringOption::new(s.clone(), s)
+        }));
+        let select = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(options),
+                Some(IndexPath::new(0)),
+                window,
+                cx,
+            )
+        });
+        self.partition_state = Some(select);
     }
 
     /// 检查收藏状态
@@ -1352,6 +1354,7 @@ fn format_button(
 
 impl Render for MessagesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_partition_select(window, cx);
         let (border_c, secondary_c, muted_c, primary_c, info_c, success_c, danger_c, table_head_c, table_active_c, list_hover_c, bg_c) = {
             let theme = cx.theme();
             (
