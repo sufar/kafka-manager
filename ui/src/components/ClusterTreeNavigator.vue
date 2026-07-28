@@ -127,16 +127,6 @@
               </svg>
               <span class="text-sm font-semibold truncate cursor-pointer" data-tour="tree-cluster-name" @dblclick.stop="goToClusterDetail(cluster.name)" :title="t.clusters?.viewTopics || 'View cluster details'">{{ cluster.name }}</span>
             </div>
-            <!-- Create Topic Button -->
-            <button
-              class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 flex-shrink-0 hover:opacity-80 transition-opacity"
-              @click.stop="openCreateTopicDialog(cluster.name)"
-              :title="t.clusters?.createTopic || 'Create Topic'"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -167,6 +157,16 @@
                 <span class="text-xs truncate">{{ topicCounts[cluster.name] || 0 }}</span>
                 <span class="text-xs truncate">Topics</span>
               </div>
+              <!-- Create Topic Button -->
+              <button
+                class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 flex-shrink-0 hover:opacity-80 transition-opacity"
+                @click.stop="openCreateTopicDialog(cluster.name)"
+                :title="t.clusters?.createTopic || 'Create Topic'"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </button>
               <!-- Topics Refresh Button -->
               <button
                 class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 ml-0.5 opacity-100 hover:opacity-80 transition-opacity"
