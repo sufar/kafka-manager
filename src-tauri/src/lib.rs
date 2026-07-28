@@ -1304,35 +1304,35 @@ fn share_current_version(app: tauri::AppHandle) -> Result<String, String> {
     let cache_dir = dirs::cache_dir()
         .map(|d| d.join("kafka-manager"))
         .unwrap_or_else(|| std::env::temp_dir().join("kafka-manager-cache"));
-    if let Some(name) = search_and_copy_installer(&cache_dir, &downloads_dir, version)? {
-        return Ok(name);
-    }
+    let mut result: Option<String> = search_and_copy_installer(&cache_dir, &downloads_dir, version)?;
 
     // 2. 搜索 Tauri updater 下载目录
-    if let Some(data_local) = dirs::data_local_dir() {
-        let tauri_download_dir = data_local.join("kafka-manager");
-        if tauri_download_dir.exists() {
-            if let Some(name) = search_and_copy_installer(&tauri_download_dir, &downloads_dir, version)? {
-                return Ok(name);
+    if result.is_none() {
+        if let Some(data_local) = dirs::data_local_dir() {
+            let tauri_download_dir = data_local.join("kafka-manager");
+            if tauri_download_dir.exists() {
+                result = search_and_copy_installer(&tauri_download_dir, &downloads_dir, version)?;
             }
         }
     }
 
     // 3. 检查 app state 中是否有下载路径
-    if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
-        if let Ok(guard) = state.lock() {
-            if let Some(ref path) = guard.download_path {
-                if path.exists() {
-                    let name = path.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    if !name.is_empty() {
-                        let dst = downloads_dir.join(&name);
-                        if let Err(e) = std::fs::copy(path, &dst) {
-                            log(&format!("Share: failed to copy from state: {}", e));
-                        } else {
-                            log(&format!("Share: copied {} from state to downloads", name));
-                            return Ok(name);
+    if result.is_none() {
+        if let Some(state) = app.try_state::<Arc<Mutex<DownloadState>>>() {
+            if let Ok(guard) = state.lock() {
+                if let Some(ref path) = guard.download_path {
+                    if path.exists() {
+                        let name = path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        if !name.is_empty() {
+                            let dst = downloads_dir.join(&name);
+                            if let Err(e) = std::fs::copy(path, &dst) {
+                                log(&format!("Share: failed to copy from state: {}", e));
+                            } else {
+                                log(&format!("Share: copied {} from state to downloads", name));
+                                result = Some(name);
+                            }
                         }
                     }
                 }
@@ -1340,8 +1340,74 @@ fn share_current_version(app: tauri::AppHandle) -> Result<String, String> {
         }
     }
 
+    if let Some(name) = result {
+        let dst = downloads_dir.join(&name);
+        // 将修改时间更新为当前时间，使文件排在下载目录最前面
+        touch_file(&dst);
+        // 自动打开文件管理器，定位并选中该文件
+        reveal_in_file_manager(&dst);
+        return Ok(name);
+    }
+
     // 没有找到缓存，返回 GitHub releases URL
     Ok(String::new())
+}
+
+/// 将文件的修改时间更新为当前时间
+fn touch_file(path: &std::path::Path) {
+    match std::fs::File::options().write(true).open(path) {
+        Ok(file) => {
+            if let Err(e) = file.set_modified(std::time::SystemTime::now()) {
+                log(&format!("Share: failed to update mtime for {:?}: {}", path, e));
+            }
+        }
+        Err(e) => {
+            log(&format!("Share: failed to open {:?} for touch: {}", path, e));
+        }
+    }
+}
+
+/// 在系统文件管理器中打开文件所在目录并选中该文件
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    {
+        // explorer 的退出码不可靠，忽略结果
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // 优先通过 freedesktop FileManager1 D-Bus 接口选中文件（GNOME/KDE 等主流文件管理器均支持）
+        let url = format!("file://{}", path.to_string_lossy());
+        let status = std::process::Command::new("dbus-send")
+            .args([
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.FileManager1",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowItems",
+                &format!("array:string:{}", url),
+                "string:",
+            ])
+            .status();
+        match status {
+            Ok(s) if s.success() => {}
+            _ => {
+                // 回退：仅打开所在目录
+                if let Some(parent) = path.parent() {
+                    let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+                }
+            }
+        }
+    }
 }
 
 fn search_and_copy_installer(
