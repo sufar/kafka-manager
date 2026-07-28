@@ -136,7 +136,7 @@ function startTour() {
     if (treeSidebarSteps) {
       const sidebarStepNames = new Set([
         'sidebar-view-switcher', 'sidebar-clusters-btn', 'sidebar-favorites-btn',
-        'sidebar-schema-btn', 'sidebar-history-btn', 'sidebar-cluster-selector',
+        'navbar-schema-btn', 'sidebar-history-btn', 'sidebar-cluster-selector',
         'sidebar-refresh', 'sidebar-search', 'sidebar-topic-list',
         'sidebar-consumer-group-list',
         'sidebar-health-dot', 'sidebar-topic-name', 'sidebar-cluster-badge',
