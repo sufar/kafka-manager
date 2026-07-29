@@ -1,0 +1,13 @@
+--- a/build.rs
++++ b/build.rs
+@@ -307,6 +307,11 @@ fn build_librdkafka() {
+         config.define("ENABLE_LZ4_EXT", "0");
+     }
+ 
++    // Enable Snappy compression support (built-in to librdkafka)
++    // Must be explicitly enabled for cmake builds
++    config.define("WITH_SNAPPY", "1");
++
+     if let Ok(system_name) = env::var("CMAKE_SYSTEM_NAME") {
+         config.define("CMAKE_SYSTEM_NAME", system_name);
+     }

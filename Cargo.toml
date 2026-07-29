@@ -74,3 +74,10 @@ dirs = "6.0.0"
 mockall = "0.13"
 rstest = "0.24"
 tokio-test = "0.4"
+
+# Patch rdkafka-sys：cmake 构建时显式启用 WITH_SNAPPY。
+# Windows 上 librdkafka 的 cmake 构建默认跳过 win32_config.h（WITHOUT_WIN32_CONFIG=ON），
+# WITH_SNAPPY 编译宏来自 cmake 变量，未设置时为 0，导致 snappy 消息解压报 "Not implemented"。
+# （Linux/macOS 由 config.h 硬编码 WITH_SNAPPY 1，不受影响；此 patch 为 Windows 必需）
+[patch.crates-io]
+rdkafka-sys = { path = "rdkafka-sys-local" }
