@@ -2273,8 +2273,6 @@ async fn fetch_messages_streaming_sse(
     sse_tx: mpsc::Sender<StreamEvent>,
     cancel_token: CancellationToken,
 ) -> Result<()> {
-    use rdkafka::consumer::{Consumer, BaseConsumer};
-    use rdkafka::ClientConfig;
     use std::time::Duration;
 
     let start_time_total = std::time::Instant::now();
@@ -2288,22 +2286,11 @@ async fn fetch_messages_streaming_sse(
     tracing::info!("[SSE Stream] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
                    topic, partition, max_messages, fetch_mode);
 
-    // 获取分区列表
-    let partitions: Vec<i32> = {
-        let cfg = ClientConfig::new()
-            .set("bootstrap.servers", &brokers)
-            .set("broker.address.family", "v4")
-            .create::<BaseConsumer>()?;
-        if partition.is_none() {
-            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
-                Ok(metadata) => metadata.topics().first()
-                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
-                    .unwrap_or_else(|| vec![0]),
-                Err(_) => vec![0],
-            }
-        } else {
-            vec![partition.unwrap_or(0)]
-        }
+    // 获取分区列表（带重试：慢集群下超时退化为 vec![0] 会静默丢失其他分区的数据）
+    let partitions: Vec<i32> = if let Some(p) = partition {
+        vec![p]
+    } else {
+        fetch_topic_partitions(&brokers, &topic)?
     };
 
     let partition_count = partitions.len();
@@ -2516,8 +2503,6 @@ async fn fetch_messages_with_temp_consumer(
     fetch_mode: Option<&str>,
     sort: Option<&str>,
 ) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    use rdkafka::consumer::{Consumer, BaseConsumer};
-    use rdkafka::ClientConfig;
     use std::time::Duration;
 
     let start_time_total = std::time::Instant::now();
@@ -2531,22 +2516,11 @@ async fn fetch_messages_with_temp_consumer(
     tracing::info!("[Unified] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
                    topic, partition, max_messages, fetch_mode);
 
-    // 获取分区列表
-    let partitions: Vec<i32> = {
-        let cfg = ClientConfig::new()
-            .set("bootstrap.servers", &brokers)
-            .set("broker.address.family", "v4")
-            .create::<BaseConsumer>()?;
-        if partition.is_none() {
-            match cfg.fetch_metadata(Some(&topic), Duration::from_secs(5)) {
-                Ok(metadata) => metadata.topics().first()
-                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
-                    .unwrap_or_else(|| vec![0]),
-                Err(_) => vec![0],
-            }
-        } else {
-            vec![partition.unwrap_or(0)]
-        }
+    // 获取分区列表（带重试：慢集群下超时退化为 vec![0] 会静默丢失其他分区的数据）
+    let partitions: Vec<i32> = if let Some(p) = partition {
+        vec![p]
+    } else {
+        fetch_topic_partitions(&brokers, &topic)?
     };
 
     let partition_count = partitions.len();
@@ -2880,14 +2854,27 @@ fn fetch_partition_messages_unified(
     const MAX_POLL_TIMEOUT_MS: u64 = 2000;
     const MAX_EMPTY_POLLS: usize = 25;
     const MAX_POLL_TIME_SECS: u64 = 120;
+    // 数据未取完时，连续这么长时间没有收到任何消息才允许放弃（防止慢集群下误判为无数据）
+    const STARVATION_SECS: u64 = 30;
 
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
+    // 最近一条消息的 offset 和接收时间，用于判断"已追到分区末尾"或"饥饿"
+    let mut last_msg_offset: Option<i64> = None;
+    let mut last_msg_at = std::time::Instant::now();
 
-    while raw_messages.len() < max_messages
-        && empty_count < MAX_EMPTY_POLLS
-        && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
-    {
+    loop {
+        // 空轮询退出需要满足以下其一，避免慢集群下数据还没取完就放弃：
+        // - caught_up: 已追到分区末尾（high_watermark - 1），后面确实没有更多数据
+        // - starved:   连续 STARVATION_SECS 没有收到任何消息（如 compacted topic 的 offset 空洞）
+        let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
+        let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
+        if raw_messages.len() >= max_messages
+            || (empty_count >= MAX_EMPTY_POLLS && (caught_up || starved))
+            || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
+        {
+            break;
+        }
         // 自适应poll超时：首次500ms，正常200ms，连续空轮询时指数退避
         let poll_timeout = if !got_first {
             Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
@@ -2909,6 +2896,8 @@ fn fetch_partition_messages_unified(
                 consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
+                last_msg_offset = Some(msg_offset);
+                last_msg_at = std::time::Instant::now();
 
                 // 检查起始 offset - 如果小于 start_offset，说明还没到有效范围，继续
                 if msg_offset < start_offset {
@@ -3190,10 +3179,15 @@ async fn fetch_partition_messages_streaming(
     const FIRST_POLL_TIMEOUT_MS: u64 = 500;
     const BASE_POLL_TIMEOUT_MS: u64 = 200;    // 基础 poll 超时（收到数据后使用）
     const MAX_POLL_TIMEOUT_MS: u64 = 2000;    // 最大 poll 超时（退避上限）
-    const MAX_POLL_TIME_SECS: u64 = 120;
+    const MAX_POLL_TIME_SECS: u64 = 300;
+    // 数据未取完时，连续这么长时间没有收到任何消息才允许放弃（防止慢集群下误判为无数据）
+    const STARVATION_SECS: u64 = 30;
 
     let poll_start = std::time::Instant::now();
     let mut got_first = false;
+    // 最近一条消息的 offset 和接收时间，用于判断"已追到分区末尾"或"饥饿"
+    let mut last_msg_offset: Option<i64> = None;
+    let mut last_msg_at = std::time::Instant::now();
 
     loop {
         // 检查取消信号
@@ -3202,8 +3196,13 @@ async fn fetch_partition_messages_streaming(
             break;
         }
 
+        // 空轮询退出需要满足以下其一，避免慢集群下数据还没取完就放弃：
+        // - caught_up: 已追到分区末尾（high_watermark - 1），后面确实没有更多数据
+        // - starved:   连续 STARVATION_SECS 没有收到任何消息（如 compacted topic 的 offset 空洞）
+        let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
+        let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
         if sent_count >= max_messages
-            || empty_count >= max_empty_polls
+            || (empty_count >= max_empty_polls && (caught_up || starved))
             || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
         {
             break;
@@ -3231,6 +3230,8 @@ async fn fetch_partition_messages_streaming(
                 consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
+                last_msg_offset = Some(msg_offset);
+                last_msg_at = std::time::Instant::now();
 
                 // 检查起始 offset - 如果小于 start_offset，说明还没到有效范围，继续
                 if msg_offset < start_offset {
@@ -3410,6 +3411,70 @@ struct TimeRangeInfo {
     high_watermark: i64,
 }
 
+/// 获取 topic 的分区列表（带重试）
+/// 慢集群下 5s 超时曾导致退化为只查 partition 0，静默丢失其他分区的数据
+fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>> {
+    use rdkafka::consumer::{BaseConsumer, Consumer};
+    use rdkafka::ClientConfig;
+    use std::time::Duration;
+
+    let cfg = ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("broker.address.family", "v4")
+        .create::<BaseConsumer>()?;
+
+    let mut last_err: Option<String> = None;
+    for attempt in 1..=3 {
+        match cfg.fetch_metadata(Some(topic), Duration::from_secs(10)) {
+            Ok(metadata) => {
+                let partitions: Vec<i32> = metadata.topics().first()
+                    .map(|t| t.partitions().iter().map(|p| p.id()).collect())
+                    .unwrap_or_default();
+                if !partitions.is_empty() {
+                    return Ok(partitions);
+                }
+                last_err = Some(format!("topic {} not found in metadata", topic));
+                tracing::warn!("[fetch_topic_partitions] attempt {}/3: topic {} not found in metadata", attempt, topic);
+            }
+            Err(e) => {
+                tracing::warn!("[fetch_topic_partitions] attempt {}/3 failed for topic {}: {}", attempt, topic, e);
+                last_err = Some(e.to_string());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    Err(AppError::Internal(format!(
+        "Failed to fetch metadata for topic {}: {}",
+        topic,
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    )))
+}
+
+/// 获取分区 watermark（带重试）
+/// 慢集群下单次 5s 超时会被误判为 (0,0) 空分区，导致整个分区被跳过
+fn fetch_watermarks_with_retry(
+    consumer: &rdkafka::consumer::BaseConsumer,
+    topic: &str,
+    partition: i32,
+) -> std::result::Result<(i64, i64), rdkafka::error::KafkaError> {
+    use rdkafka::consumer::Consumer;
+    use std::time::Duration;
+
+    let mut last_err = None;
+    for attempt in 1..=3 {
+        match consumer.fetch_watermarks(topic, partition, Duration::from_secs(10)) {
+            Ok(wm) => return Ok(wm),
+            Err(e) => {
+                tracing::warn!("[fetch_watermarks] attempt {}/3 failed for {}[{}]: {}", attempt, topic, partition, e);
+                last_err = Some(e);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err(last_err.expect("retry loop ran at least once"))
+}
+
 /// 计算分区的时间范围 offset 信息
 /// 返回 (start_offset, end_offset) 以及 watermark 信息
 fn calculate_time_range_offsets(
@@ -3423,9 +3488,9 @@ fn calculate_time_range_offsets(
     use rdkafka::TopicPartitionList;
     use std::time::Duration;
 
-    // 获取 watermark
-    let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))
-        .unwrap_or((0, 0));
+    // 获取 watermark（带重试：慢集群下单次超时被误判为 (0,0) 会导致整个分区被当作空分区跳过）
+    let (low, high) = fetch_watermarks_with_retry(consumer, topic, partition)
+        .map_err(|e| AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, partition, e)))?;
 
     // 处理分区为空的情况（low == high）
     if low >= high {
@@ -3459,7 +3524,7 @@ fn calculate_time_range_offsets(
         if start_time > 0 {
             let mut tpl = TopicPartitionList::new();
             tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(start_time)).ok();
-            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
+            match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
                 Ok(r) => {
                     let mut found_offset = low;
                     for elem in r.elements_for_topic(topic) {
@@ -3497,7 +3562,7 @@ fn calculate_time_range_offsets(
         if end_time > 0 {
             let mut tpl = TopicPartitionList::new();
             tpl.add_partition_offset(topic, partition, rdkafka::Offset::Offset(end_time)).ok();
-            match consumer.offsets_for_times(tpl, Duration::from_secs(3)) {
+            match consumer.offsets_for_times(tpl, Duration::from_secs(10)) {
                 Ok(r) => {
                     let mut found_offset = high_offset;
                     for elem in r.elements_for_topic(topic) {
@@ -3559,16 +3624,13 @@ fn calculate_partition_offset(
     end_time: Option<i64>,
     fetch_mode: Option<&str>,
 ) -> Result<TimeRangeInfo> {
-    use rdkafka::consumer::Consumer;
-    use std::time::Duration;
-
     // 如果用户指定了特定 offset，优先使用
     if let Some(off) = offset {
         if off >= 0 {
             tracing::info!("[calculate_partition_offset] Using user-specified offset: {}", off);
-            // 获取 watermark 来构建 TimeRangeInfo
-            let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))
-                .unwrap_or((0, 0));
+            // 获取 watermark 来构建 TimeRangeInfo（带重试，超时不再误判为空分区）
+            let (low, high) = fetch_watermarks_with_retry(consumer, topic, partition)
+                .map_err(|e| AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, partition, e)))?;
             return Ok(TimeRangeInfo {
                 start_offset: off,
                 end_offset: high.saturating_sub(1).max(0),
@@ -3626,48 +3688,40 @@ fn calculate_partition_offset(
     // 没有时间范围，使用传统的 fetch_mode 逻辑
     match fetch_mode {
         Some("newest") | None => {
-            match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-                Ok((low, high)) if high > 0 => {
-                    let latest = high.saturating_sub(1);
-                    let start = latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low);
-                    tracing::info!("[calculate_partition_offset] fetch_mode={:?}, watermarks=({}, {}), start_offset={}, latest={}, max_messages={}",
-                                   fetch_mode, low, high, start, latest, max_messages);
-                    Ok(TimeRangeInfo {
-                        start_offset: start,
-                        end_offset: latest,
-                        low_watermark: low,
-                        high_watermark: high,
-                    })
-                }
-                _ => {
-                    tracing::info!("[calculate_partition_offset] watermarks invalid or high=0, using offset 0");
-                    Ok(TimeRangeInfo {
-                        start_offset: 0,
-                        end_offset: 0,
-                        low_watermark: 0,
-                        high_watermark: 0,
-                    })
-                }
-            }
-        }
-        Some("oldest") => {
-            match consumer.fetch_watermarks(topic, partition, Duration::from_secs(5)) {
-                Ok((low, high)) => {
-                    tracing::info!("[calculate_partition_offset] fetch_mode=oldest, watermark low={}, using offset {}", low, low);
-                    Ok(TimeRangeInfo {
-                        start_offset: low,
-                        end_offset: high.saturating_sub(1).max(0),
-                        low_watermark: low,
-                        high_watermark: high,
-                    })
-                }
-                Err(_) => Ok(TimeRangeInfo {
+            // 带重试：慢集群下单次超时曾被当作 high=0 空分区，导致整个分区被跳过
+            let (low, high) = fetch_watermarks_with_retry(consumer, topic, partition)
+                .map_err(|e| AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, partition, e)))?;
+            if high > 0 {
+                let latest = high.saturating_sub(1);
+                let start = latest.saturating_sub((max_messages.saturating_sub(1)) as i64).max(low);
+                tracing::info!("[calculate_partition_offset] fetch_mode={:?}, watermarks=({}, {}), start_offset={}, latest={}, max_messages={}",
+                               fetch_mode, low, high, start, latest, max_messages);
+                Ok(TimeRangeInfo {
+                    start_offset: start,
+                    end_offset: latest,
+                    low_watermark: low,
+                    high_watermark: high,
+                })
+            } else {
+                tracing::info!("[calculate_partition_offset] watermarks invalid or high=0, using offset 0");
+                Ok(TimeRangeInfo {
                     start_offset: 0,
                     end_offset: 0,
                     low_watermark: 0,
                     high_watermark: 0,
-                }),
+                })
             }
+        }
+        Some("oldest") => {
+            let (low, high) = fetch_watermarks_with_retry(consumer, topic, partition)
+                .map_err(|e| AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, partition, e)))?;
+            tracing::info!("[calculate_partition_offset] fetch_mode=oldest, watermark low={}, using offset {}", low, low);
+            Ok(TimeRangeInfo {
+                start_offset: low,
+                end_offset: high.saturating_sub(1).max(0),
+                low_watermark: low,
+                high_watermark: high,
+            })
         }
         _ => Ok(TimeRangeInfo {
             start_offset: 0,

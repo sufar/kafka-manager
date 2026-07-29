@@ -81,9 +81,10 @@ pub async fn message_list_stream(
         registry_inner.0.lock().unwrap().remove(&request_id);
     });
 
-    // 超时保护（与原 SSE 实现的 120s 一致）；正常结束后取消令牌已无效，无副作用
+    // 超时保护（与单分区拉取的 MAX_POLL_TIME_SECS 一致，给慢主题留足时间）；
+    // 正常结束后取消令牌已无效，无副作用
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(120)).await;
+        tokio::time::sleep(Duration::from_secs(300)).await;
         cancel_token.cancel();
     });
 
