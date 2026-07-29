@@ -4,7 +4,6 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub server: ServerConfig,
     /// 单个 Kafka 配置（向后兼容，运行时使用）
     #[serde(skip)]
     pub kafka: KafkaConfig,
@@ -14,12 +13,6 @@ pub struct Config {
     /// 连接池配置
     #[serde(default)]
     pub pool: PoolConfig,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -88,8 +81,6 @@ impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, config::ConfigError> {
         let settings = config::Config::builder()
             // 默认配置
-            .set_default("server.host", "127.0.0.1")?
-            .set_default("server.port", 9732)?
             .set_default("kafka.request_timeout_ms", 5000)?
             // 加载配置文件
             .add_source(config::File::from(path.as_ref()).required(false))
@@ -120,10 +111,6 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            server: ServerConfig {
-                host: "127.0.0.1".to_string(),
-                port: 9732,
-            },
             kafka: KafkaConfig::default(),
             clusters: HashMap::new(),
             pool: PoolConfig::default(),
