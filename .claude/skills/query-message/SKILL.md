@@ -1,35 +1,57 @@
 ---
 skill_name: query-message
-description: Kafka消息查询功能开发指南 - 统一实现，支持并行/串行模式自动切换、空分区提前退出、延迟字符串转换等优化
-tags: [kafka, message, query, api, development, unified, parallel]
+description: Kafka消息查询功能开发指南 - Tauri Channel 流式查询 + 统一非流式实现，含慢集群防丢数据机制（重试、饥饿检测、空分区提前退出等）
+tags: [kafka, message, query, api, development, streaming, tauri]
 ---
 
 # Kafka消息查询开发指南
 
 ## 概述
 
-本项目实现了高性能的统一Kafka消息查询功能，自动根据分区数选择并行或串行模式，包含多项性能优化。
+消息查询有两条路径：
+
+1. **流式查询（主路径）**：消息界面「查询消息」按钮使用。后端按分区并发拉取，最小堆归并排序，通过 Tauri Channel 以 `start/batch/complete/error` 事件流式推送，前端可随时取消。
+2. **非流式统一查询**：`message.list` / `message.export` 使用。一次性返回全量结果。
+
+> 本项目为 Tauri 桌面应用（`no_axum` 分支），已**没有 HTTP 服务**。旧文档中的 `POST /api` + `X-API-Method` 已替换为 Tauri IPC 命令。
 
 ## 关键文件
 
 | 文件 | 说明 |
 |------|------|
-| `src/routes/unified.rs` | 统一API路由，处理 `message.list` 请求 |
-| `src/kafka/consumer.rs` | KafkaConsumer 封装，消息消费逻辑 |
-| `ui/src/api/client.ts` | 前端API客户端，`getMessages()` 方法 |
-| `ui/src/types/api.ts` | TypeScript类型定义，`MessageRecord` 等 |
-| `ui/src/views/MessagesView.vue` | 消息查询界面 |
+| `src/api.rs` | 全部后端逻辑：`dispatch_request` 分发、`start_message_list_stream`、流式/非流式拉取、offset 计算 |
+| `src-tauri/src/api_commands.rs` | Tauri IPC 命令：`api_request`、`message_list_stream`、`cancel_message_list` |
+| `src/kafka/consumer.rs` | `KafkaMessage` 结构定义 |
+| `ui/src/api/client.ts` | `getMessagesStream()`（流式）、`getMessages()`（非流式） |
+| `ui/src/components/MessageQueryTool.vue` | 消息查询界面（「查询消息」按钮） |
+| `ui/src/types/api.ts` | `MessageRecord` 等类型定义 |
 
-## API端点
+## 调用链（流式）
 
 ```
-POST /api
-Header: X-API-Method: message.list
+MessageQueryTool.vue (查询按钮)
+  → apiClient.getMessagesStream()            ui/src/api/client.ts:441
+  → invoke('message_list_stream', {requestId, params, channel})
+  → message_list_stream()                    src-tauri/src/api_commands.rs:46
+  → start_message_list_stream()              src/api.rs:415
+  → fetch_messages_streaming_sse()           src/api.rs:2261   (调度 + 堆归并)
+  → fetch_partition_messages_streaming()     src/api.rs:3041   (每分区一个 tokio 任务)
 ```
+
+## Tauri IPC 入口
+
+`src-tauri/src/api_commands.rs`
+
+- **`api_request(method, params)`**：等价于旧 `POST /api` + `X-API-Method`，转发到 `api::dispatch_request`。
+- **`message_list_stream(request_id, params, channel)`**：
+  - 为本次查询创建 `CancellationToken`，按 `request_id` 存入 `StreamRegistry`
+  - 转发任务把后端 mpsc 事件推到前端 Channel；`channel.send` 失败（窗口关闭等）自动取消查询
+  - **300s 超时保护**（与单分区 `MAX_POLL_TIME_SECS` 一致）
+- **`cancel_message_list(request_id)`**：前端点取消/abort 时触发 `token.cancel()`。
 
 ## 请求参数
 
-`src/routes/unified.rs`
+`src/api.rs` - `start_message_list_stream`（流式与非流式参数一致）
 
 ```rust
 let cluster_id = get_string_param(&body, "cluster_id")?;
@@ -37,328 +59,164 @@ let topic = get_string_param(&body, "topic")?;
 let partition = get_optional_i32_param(&body, "partition");
 let offset = get_optional_i64_param(&body, "offset");
 let max_messages = get_optional_i64_param(&body, "max_messages").map(|v| v as usize);
+let limit = get_optional_i64_param(&body, "limit").map(|v| v as usize);  // 与 max_messages 等价，优先
 let start_time = get_optional_i64_param(&body, "start_time");
 let end_time = get_optional_i64_param(&body, "end_time");
 let search = get_optional_string_param(&body, "search");
-let fetch_mode = get_optional_string_param(&body, "fetchMode");
-let sort = get_optional_string_param(&body, "sort");
+let search_in = get_optional_string_param(&body, "search_in");  // "key" | "value" | "all"
+let fetch_mode = get_optional_string_param(&body, "fetchMode"); // "oldest" | "newest"
+let sort = get_optional_string_param(&body, "sort");            // "asc" | "desc"
 ```
+
+## 流式事件协议
+
+后端通过 Channel 发送 `StreamEvent { event, data }`，`data` 为 JSON 字符串：
+
+| event | data 内容 | 说明 |
+|-------|-----------|------|
+| `start` | `{partitions, total_target}` | 查询开始，`total_target = max_messages × 分区数` |
+| `batch` | `{messages[], progress, total}` | 每攒够 **500 条**发一批；结束时补发不足一批的剩余 |
+| `complete` | `{}` | 正常结束（由 `start_message_list_stream` 发送） |
+| `error` | `{error}` | 失败 |
+
+前端兼容处理 `order` 事件，但后端当前不发送（遗留）。
 
 ## 核心实现
 
-### 1. 统一消息查询入口
+### 1. 流式调度 + 归并
 
-`src/routes/unified.rs` - `fetch_messages_with_temp_consumer`
+`src/api.rs` - `fetch_messages_streaming_sse`
 
 ```rust
-async fn fetch_messages_with_temp_consumer(
-    brokers: &str,
-    topic: &str,
-    partition: Option<i32>,
-    offset: Option<i64>,
-    max_messages: usize,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
-    search: Option<String>,
-    fetch_mode: Option<&str>,
-    sort: Option<&str>,
-) -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-    // 获取分区列表
-    let partitions: Vec<i32> = { /* 从metadata获取 */ };
-    let partition_count = partitions.len();
+// 1. 获取分区列表（带重试，见第 4 节）
+let partitions: Vec<i32> = if let Some(p) = partition {
+    vec![p]
+} else {
+    fetch_topic_partitions(&brokers, &topic)?
+};
 
-    // 分区数>1时使用并行模式
-    let use_parallel = partition_count > 1;
+// 2. 每个分区一个 mpsc channel + 一个 tokio 任务
+for &part_id in &partitions {
+    let (tx, rx) = mpsc::channel::<KafkaMessage>(max_messages);
+    tokio::spawn(fetch_partition_messages_streaming(
+        brokers, topic, part_id, max_messages, part_offset,
+        start_time, end_time, search, search_in, fetch_mode, tx, cancel_token,
+    ));
+}
 
-    // 预计算排序方向（在fetch_mode被move之前）
-    let is_desc = sort.as_deref() == Some("desc")
-        || (sort.is_none() && fetch_mode.as_deref() != Some("oldest"));
+// 3. 最小堆 K 路归并（HeapMessage 按 (timestamp, offset) 排序）
+let mut heap = BinaryHeap::<Reverse<HeapMessage>>::with_capacity(partition_count);
+// 先从每个分区 channel 取一条入堆，之后每弹一条就从对应分区补一条
 
-    let messages = if use_parallel {
-        // === 并行模式（分区数>1）===
-        // 最多10个并发
-        let semaphore = Arc::new(Semaphore::new(10));
-        let mut handles = vec![];
+// 4. 攒够 500 条发一个 batch 事件；tokio::select! { biased; } 优先检查取消
+```
 
-        for &part_id in &partitions {
-            let handle = tokio::spawn(async move {
-                let _permit = sem.acquire().await;
-                timeout(Duration::from_secs(30), tokio::task::spawn_blocking(move || {
-                    fetch_partition_messages_unified(
-                        brokers, topic, part_id, msgs_per_partition, part_offset,
-                        start_time, end_time, search, fetch_mode,
-                    )
-                })).await
-            });
-            handles.push(handle);
-        }
+归并循环退出条件：`completed_partitions >= partition_count && heap.is_empty()`，之后补发剩余 batch、取消所有分区任务、等待任务结束。
 
-        // 收集结果
-        let mut all_msgs = Vec::new();
-        for handle in handles { /* 聚合消息 */ }
-        all_msgs
-    } else {
-        // === 单分区串行模式 ===
-        tokio::task::spawn_blocking(move || {
-            fetch_partition_messages_unified(
-                brokers, topic, 0, max_messages, offset,
-                start_time, end_time, search, fetch_mode,
-            )
-        }).await?
-    };
+### 2. 单分区流式拉取
 
-    // 排序
-    all_msgs.sort_by(|a, b| { /* 时间戳/offset排序 */ });
-    Ok(all_msgs)
+`src/api.rs` - `fetch_partition_messages_streaming`
+
+```rust
+// 唯一 group.id 避免并发冲突
+let unique_group_id = format!("kafka-mgr-{}-{}", partition, timestamp_ms);
+cfg.set("enable.auto.commit", "false")
+   .set("auto.offset.reset", "earliest");
+// max_messages > 1000 时 fetch.min.bytes=64KB / fetch.max.bytes=50MB，否则小批量低延迟配置
+
+// offset 计算（带重试，见第 3、4 节）
+let time_range = calculate_partition_offset(...)?;
+
+// 空分区提前退出（0 开销）
+if high_watermark <= low_watermark { return; }
+if start_offset >= high_watermark { return; }
+if time_range_end > 0 && time_range_end < start_offset { return; }
+
+// assign 后必须显式 seek
+consumer.assign(&tpl)?;
+consumer.seek(&topic, partition, seek_offset, Duration::from_secs(5))?;
+
+// poll 循环退出条件：
+const STARVATION_SECS: u64 = 30;
+const MAX_POLL_TIME_SECS: u64 = 300;
+loop {
+    let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
+    let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
+    if sent_count >= max_messages
+        || (empty_count >= max_empty_polls && (caught_up || starved))
+        || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
+    { break; }
+    // ...
 }
 ```
 
-### 2. 单分区消息获取（统一实现）
+**空轮询退出必须满足 `caught_up || starved`**（2026-07-28 修复）：慢集群下 poll 经常返回 None/Err，旧逻辑空轮询计数到上限就退出，数据没取完就放弃了。现在：
 
-`src/routes/unified.rs` - `fetch_partition_messages_unified`
+- **caught_up**：已追到分区末尾（`last_msg_offset >= high_watermark - 1`），后面确实没数据 → 保持快速退出；
+- **starved**：连续 30s 没收到任何消息 → 覆盖 compacted topic offset 空洞等永远追不到末尾的边界情况。
 
-```rust
-fn fetch_partition_messages_unified(
-    brokers: String,
-    topic: String,
-    partition: i32,
-    max_messages: usize,
-    offset: Option<i64>,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
-    search: Option<String>,
-    fetch_mode: Option<String>,
-) -> Vec<crate::kafka::consumer::KafkaMessage> {
-    // 创建consumer
-    let mut cfg = ClientConfig::new();
-    cfg.set("bootstrap.servers", &brokers)
-        .set("group.id", "kafka-mgr-unified")
-        .set("enable.auto.commit", "false")
-        .set("session.timeout.ms", "3000")
-        .set("heartbeat.interval.ms", "500");
+空轮询上限动态计算：基础 20 次 + 每 1000 条 +5 次，封顶 50。poll 超时自适应：首次 500ms，有数据 200ms，连续空轮询指数退避到 2s。
 
-    // 批量fetch配置优化
-    if max_messages > 1000 {
-        cfg.set("fetch.min.bytes", "65536");        // 64KB
-        cfg.set("fetch.wait.max.ms", "100");
-        cfg.set("fetch.max.bytes", "52428800");     // 50MB
-    } else {
-        cfg.set("fetch.min.bytes", "1");
-        cfg.set("fetch.wait.max.ms", "10");
-    }
+**就地过滤**（不匹配的消息不进 channel）：offset 范围 → 时间范围（`t > end_time` 直接 break）→ 搜索词（key/value 小写包含，`search_in` 限定 key/value/all）。分区末尾检测：`msg_offset >= high_watermark - 1` 处理完最后一条立即退出。
 
-    let consumer: BaseConsumer = cfg.create()?;
+### 3. 非流式统一查询
 
-    // 计算时间范围offset
-    let time_range = calculate_partition_offset(...)?;
-    let start_offset = time_range.start_offset;
-    let time_range_end = time_range.end_offset;
+`src/api.rs` - `fetch_messages_with_temp_consumer`（`message.list`、`message.export` 使用）
 
-    // 优化1: 提前退出 - 如果分区没有数据
-    if start_offset >= time_range_end && time_range_end >= 0 {
-        tracing::info!("[Unified Partition] Partition {} has no data, skipping", partition);
-        return Vec::new();
-    }
-    if time_range.high_watermark <= time_range.low_watermark {
-        tracing::info!("[Unified Partition] Partition {} is empty, skipping", partition);
-        return Vec::new();
-    }
+- 分区数 > 1：与流式相同，每分区一个任务跑 `fetch_partition_messages_streaming`（传入独立 channel + 新建 CancellationToken），最小堆归并后按 sort 排序一次性返回；
+- 单分区/指定分区：`fetch_partition_messages_unified`（同步函数，`spawn_blocking` 执行），用 `RawMessage` 存原始字节、最后统一转 UTF-8（延迟字符串转换），其余逻辑（重试、饥饿检测、就地过滤）与流式一致，总时长上限 120s。
 
-    // 分配到指定分区
-    let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(&topic, partition, seek_offset)?;
-    consumer.assign(&tpl)?;
+### 4. Offset 计算与慢集群重试
 
-    // Consumer预热（关键优化）
-    let warmup_start = std::time::Instant::now();
-    while warmup_start.elapsed() < Duration::from_millis(1000) {
-        match consumer.poll(Duration::from_millis(100)) {
-            Some(Ok(_)) => {
-                consumer.seek(&topic, partition, seek_offset, Duration::from_secs(1))?;
-                break;
-            }
-            _ => continue,
-        }
-    }
+`calculate_partition_offset` → `calculate_time_range_offsets`，优先级：用户指定 `offset` > 时间范围（`offsets_for_times` 换算，10s 超时）> `fetchMode`（newest: `high - max_messages`；oldest: `low`）。
 
-    // 延迟字符串转换
-    struct RawMessage {
-        partition: i32,
-        offset: i64,
-        key_bytes: Option<Vec<u8>>,
-        value_bytes: Option<Vec<u8>>,
-        timestamp: Option<i64>,
-    }
+**慢集群防丢数据（2026-07-28 修复）**，三个曾导致静默丢数据的点：
 
-    let mut raw_messages: Vec<RawMessage> = Vec::with_capacity(max_messages);
-    let mut empty_count = 0;
-
-    // 优化2: 空轮询150ms一次，最多10次（1.5秒）
-    const POLL_TIMEOUT_MS: u64 = 150;
-    const MAX_EMPTY_POLLS: usize = 10;
-    const MAX_POLL_TIME_SECS: u64 = 30;
-
-    let poll_start = std::time::Instant::now();
-    let mut got_first = false;
-
-    while raw_messages.len() < max_messages
-        && empty_count < MAX_EMPTY_POLLS
-        && poll_start.elapsed() < Duration::from_secs(MAX_POLL_TIME_SECS)
-    {
-        match consumer.poll(Duration::from_millis(POLL_TIMEOUT_MS)) {
-            Some(Ok(msg)) => {
-                if !got_first {
-                    got_first = true;
-                    tracing::info!("First message received after {:?}", poll_start.elapsed());
-                }
-                empty_count = 0;
-
-                // 优化3: 检查是否超过结束offset，提前退出
-                if let Some(end) = end_offset {
-                    if msg.offset() >= end {
-                        break;
-                    }
-                }
-
-                // 延迟转换：只保存字节
-                let key_bytes = msg.key().map(|k| k.to_vec());
-                let value_bytes = msg.payload().map(|p| p.to_vec());
-
-                // 优化4: 如果需要搜索，立即过滤（避免保存不需要的消息）
-                if need_search {
-                    let key_str = key_bytes.as_ref().and_then(|k| std::str::from_utf8(k).ok());
-                    let value_str = value_bytes.as_ref().and_then(|v| std::str::from_utf8(v).ok());
-                    let matches = key_str.map_or(false, |k| k.to_lowercase().contains(term))
-                        || value_str.map_or(false, |v| v.to_lowercase().contains(term));
-                    if !matches {
-                        continue;  // 跳过不匹配的消息
-                    }
-                }
-
-                raw_messages.push(RawMessage {
-                    partition,
-                    offset: msg.offset(),
-                    key_bytes,
-                    value_bytes,
-                    timestamp: msg.timestamp().to_millis(),
-                });
-            }
-            Some(Err(_)) => {}
-            None => {
-                empty_count += 1;  // 空轮询计数
-            }
-        }
-    }
-
-    // 转换为最终消息格式（延迟字符串转换）
-    let messages: Vec<KafkaMessage> = raw_messages
-        .into_iter()
-        .map(|raw| KafkaMessage {
-            partition: raw.partition,
-            offset: raw.offset,
-            key: raw.key_bytes.and_then(|k| std::str::from_utf8(&k).ok().map(String::from)),
-            value: raw.value_bytes.and_then(|v| std::str::from_utf8(&v).ok().map(String::from)),
-            timestamp: raw.timestamp,
-        })
-        .collect();
-
-    messages
-}
-```
-
-### 3. 时间范围Offset计算
+| 问题 | 旧行为 | 现状 |
+|------|--------|------|
+| `fetch_metadata(5s)` 超时 | `Err(_) => vec![0]`，只查 partition 0，**其余分区数据全部丢失** | `fetch_topic_partitions()`：3 次重试 × 10s，最终失败返回错误让前端报错 |
+| `fetch_watermarks(5s)` 超时 | `unwrap_or((0,0))`，分区被误判为空**整个跳过** | `fetch_watermarks_with_retry()`：3 次重试 × 10s，失败传播错误；真·空分区（成功返回 0,0）行为不变 |
+| 空轮询计数到上限 | 不管是否追到 high watermark 直接退出 | 必须 `caught_up \|\| starved(30s)` 才退出；总时长 120s→300s |
 
 ```rust
-fn calculate_partition_offset(
-    consumer: &BaseConsumer,
-    topic: &str,
-    partition: i32,
-    max_messages: usize,
-    offset: Option<i64>,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
-    fetch_mode: Option<&str>,
-) -> Result<TimeRangeInfo> {
-    // 获取watermark
-    let (low, high) = consumer.fetch_watermarks(topic, partition, Duration::from_secs(5))?;
-
-    // 计算start_offset
-    let start_offset = if let Some(off) = offset {
-        off.max(low).min(high)
-    } else if let Some(st) = start_time {
-        // 使用offsets_for_times查找时间对应的offset
-        let ts = st * 1000;
-        match consumer.offsets_for_times(vec![(partition, ts)], Duration::from_secs(5)) {
-            Ok(results) => /* 提取offset */,
-            Err(_) => low,
-        }
-    } else if fetch_mode == Some("newest") {
-        (high - max_messages as i64).max(low)
-    } else {
-        low
-    };
-
-    // 计算end_offset
-    let end_offset = if let Some(et) = end_time {
-        // 查找end_time对应的offset
-        let ts = et * 1000;
-        match consumer.offsets_for_times(vec![(partition, ts)], Duration::from_secs(5)) {
-            Ok(results) => offset.saturating_sub(1).min(high),
-            Err(_) => high,
-        }
-    } else {
-        high
-    };
-
-    Ok(TimeRangeInfo {
-        start_offset,
-        end_offset,
-        low_watermark: low,
-        high_watermark: high,
-    })
-}
+fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>>;
+fn fetch_watermarks_with_retry(
+    consumer: &BaseConsumer, topic: &str, partition: i32,
+) -> std::result::Result<(i64, i64), rdkafka::error::KafkaError>;
 ```
 
 ## 关键优化点
 
 | 优化项 | 实现 | 效果 |
 |--------|------|------|
-| **并行模式触发** | 分区数>1时自动并行，Semaphore(10)限制并发 | 多分区场景3x加速 |
-| **显式Seek定位** | assign()后必须调用seek() | 确保从正确offset开始消费 |
-| **唯一group.id** | `kafka-mgr-{partition}-{timestamp}` | 避免并发冲突导致结果不稳定 |
-| **空轮询限制** | 首次500ms，后续150ms × 10次 | 首次更宽容，无数据快速返回 |
-| **提前退出** | start≥high或high≤low时立即返回 | 空分区0ms返回 |
-| **分区末尾检测** | offset ≥ high_watermark - 1 | 数据取完立即退出 |
-| **延迟字符串转换** | 先存字节，需要时再转UTF-8 | 减少不必要分配 |
-| **搜索提前过滤** | 提取`message_matches_search`函数复用 | 减少内存占用，代码更简洁 |
-| **内存预分配优化** | 搜索时预估更少，上限5万条 | 避免大内存分配 |
-| **避免重复watermark** | 复用已获取的high_watermark | 减少一次网络请求 |
-| **Socket超时配置** | socket.timeout.ms=10s, request.timeout.ms=30s | 避免无限等待 |
+| **流式推送** | Tauri Channel + 每 500 条一个 batch | 大数据量即时可见，内存可控 |
+| **可取消** | `CancellationToken` + `biased select` 优先检查 | 前端取消/关窗立即停拉取 |
+| **最小堆归并** | 每分区先取一条入堆，弹一条补一条 | 多分区按时间戳有序，O(log P) |
+| **显式 Seek 定位** | `assign()` 后必须 `seek()` | 确保从正确 offset 开始消费 |
+| **唯一 group.id** | `kafka-mgr-{partition}-{毫秒时间戳}` | 避免并发冲突 |
+| **空分区提前退出** | high≤low / start≥high / end<start | 空分区 0ms 返回 |
+| **分区末尾检测** | `offset >= high_watermark - 1` | 数据取完立即退出 |
+| **饥饿检测** | 30s 无消息才允许空轮询退出 | 慢集群不丢数据，compacted topic 不死等 |
+| **metadata/watermark 重试** | 3 次 × 10s | 慢集群控制面调用不再误判 |
+| **搜索就地过滤** | `message_matches_search`，不匹配不进 channel | 减少内存占用 |
+| **延迟字符串转换** | 非流式路径先存字节，最后统一转 UTF-8 | 减少不必要分配 |
+| **自适应 poll 退避** | 首次 500ms，基础 200ms，指数退避至 2s | 快主题低延迟，慢主题不空转 |
 
 ## 前端调用
 
 `ui/src/api/client.ts`
 
 ```typescript
-async getMessages(clusterId: string, topic: string, params?: {
-    partition?: number;
-    offset?: number;
-    max_messages?: number;
-    order_by?: 'timestamp' | 'offset';
-    sort?: 'asc' | 'desc';
-    search?: string;
-    start_time?: number;
-    end_time?: number;
-    fetchMode?: 'oldest' | 'newest';
-}): Promise<MessageRecord[]> {
-    const data = await this.request<{ messages: MessageRecord[] }>(
-        'message.list',
-        { cluster_id: clusterId, topic, ...params },
-        60000  // 60秒超时
-    );
-    return data.messages;
-}
+// 流式（消息界面查询按钮）：返回 StreamHandle，abort() 取消
+getMessagesStream(clusterId, topic, params, {
+  onStart, onBatch, onOrder, onComplete, onError
+}): StreamHandle
+
+// 非流式（60s 超时）
+async getMessages(clusterId, topic, params): Promise<MessageRecord[]>
 ```
+
+流式客户端细节：`invoke` 的 Promise 在后端事件流结束时 resolve；若流结束但未收到 `complete`/`error` 终态事件，按已收到消息数补发 `onComplete`；`abort()` 调 `cancel_message_list`。
 
 ## 类型定义
 
@@ -376,26 +234,29 @@ export interface MessageRecord {
 
 ## 相关API方法
 
-| Method | 功能 | 所在文件 |
-|--------|------|----------|
-| `message.list` | 查询消息 | `src/routes/unified.rs` |
-| `message.send` | 发送消息 | `src/routes/unified.rs` |
-| `message.export` | 导出消息 | `src/routes/unified.rs` |
+| Method / 命令 | 功能 | 所在文件 |
+|---------------|------|----------|
+| `message_list_stream` (Tauri) | 流式查询消息 | `src-tauri/src/api_commands.rs` → `src/api.rs` |
+| `cancel_message_list` (Tauri) | 取消流式查询 | `src-tauri/src/api_commands.rs` |
+| `message.list` | 非流式查询消息 | `src/api.rs` (`handle_message_list`) |
+| `message.send` | 发送消息 | `src/api.rs` (`handle_message_send`) |
+| `message.export` | 导出消息 | `src/api.rs` (`handle_message_export`) |
 
 ## 开发注意事项
 
-1. **统一实现**: 不再区分本地/远程模式，使用统一的 `fetch_partition_messages_unified`
-2. **显式Seek**: `assign()` 后必须调用 `seek()`，否则consumer不会定位到指定offset
-3. **并行阈值**: 分区数>1自动进入并行模式，使用Semaphore限制最多10并发
-4. **空分区优化**: 通过watermark预检查，无数据的分区立即返回
-5. **延迟转换**: RawMessage结构存储字节，最后统一转换为String
-6. **搜索过滤**: 在消息收集阶段就进行过滤，不存储不匹配的消息
-7. **唯一group.id**: 每个分区使用包含分区ID和时间戳的唯一group.id，避免并发冲突
-8. **分区末尾检测**: 当 `msg.offset >= high_watermark - 1` 时立即退出，避免空轮询
-9. **日志标识**: 使用 `[Unified]` 和 `[Unified Partition]` 标识日志
+1. **没有 HTTP 服务**：所有 API 走 Tauri IPC（`api_request` 分发 / `message_list_stream` Channel），不要再引用 axum、`POST /api` 或 `src/routes/`（已删除）。
+2. **显式 Seek**：`assign()` 后必须调用 `seek()`，否则 consumer 不会定位到指定 offset。
+3. **控制面调用必须带重试**：`fetch_metadata` / `fetch_watermarks` 用 `fetch_topic_partitions` / `fetch_watermarks_with_retry`，禁止单次 5s 超时后静默降级（会丢数据）。
+4. **空轮询退出必须判断 `caught_up || starved`**：不能只看空轮询计数，否则慢集群数据没取完就放弃。
+5. **超时一致性**：单分区 `MAX_POLL_TIME_SECS`（流式 300s / 非流式 120s）与 Tauri 侧 300s 保护、前端非流式 60s 超时要一起考虑。
+6. **唯一 group.id**：每个分区任务使用 `kafka-mgr-{partition}-{毫秒时间戳}`，避免并发冲突。
+7. **取消传播**：流式路径所有等待点（poll 循环、batch 发送、channel 接收）都要检查 `cancel_token`。
+8. **日志标识**：`[SSE Stream]`（调度归并）、`[Streaming]`（流式单分区）、`[Unified]` / `[Unified Partition]`（非流式）。
+9. **真正空的分区**（watermark 成功返回 0,0）走提前退出，行为与重试修复前一致，不会误报错误。
 
 ## 版本历史
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| 3.0 | 2026-07-28 | 重写为 no_axum 现状：Tauri Channel 流式查询 + 最小堆归并 + 可取消；慢集群防丢数据（metadata/watermark 重试、空轮询退出需 caught_up\|\|starved、总时长 300s） |
 | 2.0 | 2026-03-18 | 合并本地/远程模式为统一实现，分区数>1进入并行，空轮询限制1.5秒，延迟字符串转换，空分区提前退出，显式seek定位修复 |
