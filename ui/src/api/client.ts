@@ -443,6 +443,7 @@ class ApiClient {
     topic: string,
     params?: {
       partition?: number;
+      partitions?: number[];
       offset?: number;
       max_messages?: number;
       order_by?: 'timestamp' | 'offset';

@@ -66,6 +66,8 @@ let search = get_optional_string_param(&body, "search");
 let search_in = get_optional_string_param(&body, "search_in");  // "key" | "value" | "all"
 let fetch_mode = get_optional_string_param(&body, "fetchMode"); // "oldest" | "newest"
 let sort = get_optional_string_param(&body, "sort");            // "asc" | "desc"
+// 前端加载 topic 详情时已查询过分区列表，可透传（可选），后端跳过 fetch_metadata
+let partitions_hint: Option<Vec<i32>> = body.get("partitions") /* ... */;
 ```
 
 ## 流式事件协议
@@ -88,11 +90,14 @@ let sort = get_optional_string_param(&body, "sort");            // "asc" | "desc
 `src/api.rs` - `fetch_messages_streaming_sse`
 
 ```rust
-// 1. 获取分区列表（带重试，见第 4 节）
+// 1. 获取分区列表（优先级：指定 partition > 前端透传 partitions > fetch_topic_partitions 重试查询）
 let partitions: Vec<i32> = if let Some(p) = partition {
     vec![p]
 } else {
-    fetch_topic_partitions(&brokers, &topic)?
+    match partitions_hint {
+        Some(ref hint) if !hint.is_empty() => hint.clone(),  // 省掉一次 fetch_metadata
+        _ => fetch_topic_partitions(&brokers, &topic)?,
+    }
 };
 
 // 2. 每个分区一个 mpsc channel + 一个 tokio 任务

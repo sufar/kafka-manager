@@ -974,6 +974,9 @@ async function queryMessages() {
 
     if (selectedPartition.value !== 'all') {
       params.partition = selectedPartition.value;
+    } else if (partitions.value.length > 0) {
+      // 透传已加载的分区列表，省掉后端一次 fetch_metadata
+      params.partitions = partitions.value;
     }
 
     if (searchKeyword.value.trim()) {

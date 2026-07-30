@@ -429,6 +429,10 @@ pub async fn start_message_list_stream(
     let search_in = get_optional_string_param(&body, "search_in");
     let fetch_mode = get_optional_string_param(&body, "fetchMode");
     let sort = get_optional_string_param(&body, "sort");
+    // 前端已查询过 topic 详情时可透传分区列表，省掉一次 fetch_metadata
+    let partitions_hint: Option<Vec<i32>> = body.get("partitions")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_i64().map(|n| n as i32)).filter(|p| *p >= 0).collect());
 
     // 首先确保集群客户端已创建
     let config = ensure_cluster_client(&state, &cluster_id).await?;
@@ -452,6 +456,7 @@ pub async fn start_message_list_stream(
             search_in,
             fetch_mode.as_deref(),
             sort.as_deref(),
+            partitions_hint,
             tx.clone(),
             cancel_token_clone,
         ).await;
@@ -2270,6 +2275,7 @@ async fn fetch_messages_streaming_sse(
     search_in: Option<String>,
     fetch_mode: Option<&str>,
     sort: Option<&str>,
+    partitions_hint: Option<Vec<i32>>,
     sse_tx: mpsc::Sender<StreamEvent>,
     cancel_token: CancellationToken,
 ) -> Result<()> {
@@ -2286,11 +2292,18 @@ async fn fetch_messages_streaming_sse(
     tracing::info!("[SSE Stream] Topic: {}, partition: {:?}, max_messages: {}, fetch_mode: {:?}",
                    topic, partition, max_messages, fetch_mode);
 
-    // 获取分区列表（带重试：慢集群下超时退化为 vec![0] 会静默丢失其他分区的数据）
+    // 获取分区列表：优先使用前端透传的分区（前端加载 topic 详情时已查询过），
+    // 未提供时才 fetch_metadata（带重试：慢集群下超时退化为 vec![0] 会静默丢失其他分区的数据）
     let partitions: Vec<i32> = if let Some(p) = partition {
         vec![p]
     } else {
-        fetch_topic_partitions(&brokers, &topic)?
+        match partitions_hint {
+            Some(ref hint) if !hint.is_empty() => {
+                tracing::info!("[SSE Stream] Using {} partitions passed from frontend, skipping fetch_metadata", hint.len());
+                hint.clone()
+            }
+            _ => fetch_topic_partitions(&brokers, &topic)?,
+        }
     };
 
     let partition_count = partitions.len();
