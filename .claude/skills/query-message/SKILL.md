@@ -45,7 +45,8 @@ MessageQueryTool.vue (查询按钮)
 - **`api_request(method, params)`**：等价于旧 `POST /api` + `X-API-Method`，转发到 `api::dispatch_request`。
 - **`message_list_stream(request_id, params, channel)`**：
   - 为本次查询创建 `CancellationToken`，按 `request_id` 存入 `StreamRegistry`
-  - 转发任务把后端 mpsc 事件推到前端 Channel；`channel.send` 失败（窗口关闭等）自动取消查询
+  - **命令体内直接执行转发循环**（mpsc → Channel），事件流结束后命令才返回——前端 `invoke` 的 Promise 在流结束时 resolve。若 spawn 转发任务后立即返回，invoke 会提前 resolve，前端兜底逻辑补发 0 条 complete，导致界面先闪现"没数据"再渲染真实数据（2026-07-30 修复）
+  - `channel.send` 失败（窗口关闭等）自动取消查询
   - **300s 超时保护**（与单分区 `MAX_POLL_TIME_SECS` 一致）
 - **`cancel_message_list(request_id)`**：前端点取消/abort 时触发 `token.cancel()`。
 

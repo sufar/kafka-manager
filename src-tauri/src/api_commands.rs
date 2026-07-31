@@ -69,24 +69,25 @@ pub async fn message_list_stream(
     let registry_inner = registry.inner().clone();
     let cancel_for_forward = cancel_token.clone();
 
-    // 转发任务：mpsc -> Tauri Channel
-    tokio::spawn(async move {
-        while let Some(evt) = rx.recv().await {
-            if channel.send(evt).is_err() {
-                // 前端已断开（窗口关闭等），停止查询
-                cancel_for_forward.cancel();
-                break;
-            }
-        }
-        registry_inner.0.lock().unwrap().remove(&request_id);
-    });
-
     // 超时保护（与单分区拉取的 MAX_POLL_TIME_SECS 一致，给慢主题留足时间）；
     // 正常结束后取消令牌已无效，无副作用
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(300)).await;
         cancel_token.cancel();
     });
+
+    // 转发：mpsc -> Tauri Channel。
+    // 等待转发循环结束后再返回，前端 invoke 的 Promise 才会在事件流结束时 resolve
+    // （否则 invoke 几毫秒内提前 resolve，前端兜底逻辑会补发一个 0 条的 complete，
+    //   导致界面先闪现"没数据"再渲染真实数据）
+    while let Some(evt) = rx.recv().await {
+        if channel.send(evt).is_err() {
+            // 前端已断开（窗口关闭等），停止查询
+            cancel_for_forward.cancel();
+            break;
+        }
+    }
+    registry_inner.0.lock().unwrap().remove(&request_id);
 
     Ok(())
 }
