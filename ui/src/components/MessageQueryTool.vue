@@ -731,15 +731,29 @@ let isAborted = false;  // 取消标志
 let finalizedSort: 'desc' | undefined = undefined;
 // 非响应式消息缓存，减少响应式更新频率
 let pendingMessages: Message[] = [];
+// 本次查询是否已收到新数据（第一批新数据到达时才清空旧列表）
+let hasNewData = false;
 // 加载超时保护定时器
 let loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 // 重置状态
 function resetMessageState() {
-  messages.value = [];
   pendingMessages = [];
+  hasNewData = false;
   streamingProgress.value = { received: 0, total: 0, isStreaming: false };
   finalizedSort = undefined;
+}
+
+// 第一批新数据到达时才清空旧列表（在此之前保留旧数据展示，避免查询期间界面空白）
+function mergePendingMessages() {
+  if (pendingMessages.length === 0) return;
+  if (!hasNewData) {
+    messages.value = [];
+    hasNewData = true;
+  }
+  // 合并到 messages，而不是覆盖
+  messages.value = [...messages.value, ...pendingMessages];
+  pendingMessages = [];
 }
 
 // 批量更新 UI，动态调整更新频率
@@ -757,9 +771,7 @@ function scheduleUpdate() {
     updateTimer = null;
     const count = pendingMessages.length;
     if (count > 0) {
-      // 合并到 messages，而不是覆盖
-      messages.value = [...messages.value, ...pendingMessages];
-      pendingMessages = [];
+      mergePendingMessages();
       // console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
       // 强制刷新虚拟滚动
       nextTick(() => {
@@ -1052,10 +1064,10 @@ async function queryMessages() {
             clearTimeout(updateTimer);
             updateTimer = null;
           }
-          if (pendingMessages.length > 0) {
-            // 合并剩余消息，不是覆盖
-            messages.value = [...messages.value, ...pendingMessages];
-            pendingMessages = [];
+          mergePendingMessages();
+          // 查询结束但没有任何新数据 → 清空旧列表，展示"无数据"
+          if (!hasNewData) {
+            messages.value = [];
           }
           // 如果是降序，反转数组
           if (finalizedSort === 'desc') {
