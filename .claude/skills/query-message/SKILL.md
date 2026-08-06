@@ -143,11 +143,14 @@ consumer.assign(&tpl)?;
 consumer.seek(&topic, partition, seek_offset, Duration::from_secs(5))?;
 
 // poll 循环退出条件：
-const STARVATION_SECS: u64 = 30;
+const POLL_TIMEOUT_MS: u64 = 500;            // 固定超时，不做指数退避（有消息时 poll 立即返回）
 const MAX_POLL_TIME_SECS: u64 = 300;
+const FIRST_MESSAGE_TIMEOUT_SECS: u64 = 90;  // 首条消息前等待上限，必须 > socket.timeout.ms(60s)
+const STARVATION_SECS: u64 = 30;             // 首条消息后的停滞上限
 loop {
     let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
-    let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
+    let stall_limit = if got_first { STARVATION_SECS } else { FIRST_MESSAGE_TIMEOUT_SECS };
+    let starved = last_msg_at.elapsed() >= Duration::from_secs(stall_limit);
     if sent_count >= max_messages
         || (empty_count >= max_empty_polls && (caught_up || starved))
         || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
@@ -161,7 +164,9 @@ loop {
 - **caught_up**：已追到分区末尾（`last_msg_offset >= high_watermark - 1`），后面确实没数据 → 保持快速退出；
 - **starved**：连续 30s 没收到任何消息 → 覆盖 compacted topic offset 空洞等永远追不到末尾的边界情况。
 
-空轮询上限动态计算：基础 20 次 + 每 1000 条 +5 次，封顶 50。poll 超时自适应：首次 500ms，有数据 200ms，连续空轮询指数退避到 2s。
+**空轮询上限动态计算**：基础 20 次 + 每 1000 条 +5 次，封顶 50。poll 超时固定 500ms（不做指数退避；有消息时 poll 立即返回，不会产生额外延迟）。
+
+**socket.timeout.ms = 60s（关键）**：FetchRequest 的超时就是 socket.timeout.ms。曾配置为 10s，慢 broker 响应 Fetch 超过 10s（实测日志 REQTMOUT after ~10.6s）时请求被掐断、重试再超时，永远收不到消息。60s 是 librdkafka 默认值。首条消息前的等待窗口（90s）必须大于该值，否则慢的第一个 Fetch 还没完成就被饥饿退出。
 
 **就地过滤**（不匹配的消息不进 channel）：offset 范围 → 时间范围（`t > end_time` 直接 break）→ 搜索词（key/value 小写包含，`search_in` 限定 key/value/all）。分区末尾检测：`msg_offset >= high_watermark - 1` 处理完最后一条立即退出。
 
@@ -183,6 +188,7 @@ loop {
 | `fetch_metadata(5s)` 超时 | `Err(_) => vec![0]`，只查 partition 0，**其余分区数据全部丢失** | `fetch_topic_partitions()`：3 次重试 × 10s，最终失败返回错误让前端报错 |
 | `fetch_watermarks(5s)` 超时 | `unwrap_or((0,0))`，分区被误判为空**整个跳过** | `fetch_watermarks_with_retry()`：3 次重试 × 10s，失败传播错误；真·空分区（成功返回 0,0）行为不变 |
 | 空轮询计数到上限 | 不管是否追到 high watermark 直接退出 | 必须 `caught_up \|\| starved(30s)` 才退出；总时长 120s→300s |
+| `socket.timeout.ms=10s`（2026-08-05 修复） | 慢 broker 的 FetchRequest 超过 10s 被掐断（REQTMOUT），重试再超时，**分区永远收不到消息** | 放宽到 60s（librdkafka 默认）；首条消息前等待窗口 90s > socket 超时；poll 固定 500ms 不再指数退避 |
 
 ```rust
 fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>>;
@@ -206,7 +212,8 @@ fn fetch_watermarks_with_retry(
 | **metadata/watermark 重试** | 3 次 × 10s | 慢集群控制面调用不再误判 |
 | **搜索就地过滤** | `message_matches_search`，不匹配不进 channel | 减少内存占用 |
 | **延迟字符串转换** | 非流式路径先存字节，最后统一转 UTF-8 | 减少不必要分配 |
-| **自适应 poll 退避** | 首次 500ms，基础 200ms，指数退避至 2s | 快主题低延迟，慢主题不空转 |
+| **固定 poll 超时** | 500ms 固定，有消息时 poll 立即返回 | 简单可预测，不产生额外延迟 |
+| **socket 超时放宽** | `socket.timeout.ms=60s`（librdkafka 默认） | 慢 broker 的大 Fetch 响应（>10s）能完成 |
 
 ## 前端调用
 

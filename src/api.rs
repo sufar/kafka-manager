@@ -2750,7 +2750,7 @@ fn fetch_partition_messages_unified(
 
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "262144");  // 256KB
-    cfg.set("socket.timeout.ms", "10000");             // socket操作超时10秒
+    cfg.set("socket.timeout.ms", "60000");             // socket操作超时60s：慢 broker 的 Fetch 响应可能超过10s（REQTMOUT），10s会掐断进行中的请求导致收不到消息
     cfg.set("request.timeout.ms", "30000");            // API请求超时30秒
     cfg.set("enable.partition.eof", "false");
     cfg.set("connections.max.idle.ms", "540000");
@@ -2859,15 +2859,14 @@ fn fetch_partition_messages_unified(
 
     let mut raw_messages: Vec<RawMessage> = Vec::with_capacity(max_messages);
     let mut empty_count = 0;
-    let mut consecutive_empty = 0usize; // 连续空轮询计数（用于退避）
 
-    // 自适应poll超时 + 指数退避，应对慢 broker
-    const FIRST_POLL_TIMEOUT_MS: u64 = 500;  // 首次poll等待更长时间，因为可能需要建立连接
-    const BASE_POLL_TIMEOUT_MS: u64 = 200;
-    const MAX_POLL_TIMEOUT_MS: u64 = 2000;
+    // 固定 poll 超时，不做指数退避（有消息时 poll 立即返回，短超时不会增加延迟）
+    const POLL_TIMEOUT_MS: u64 = 500;
     const MAX_EMPTY_POLLS: usize = 25;
     const MAX_POLL_TIME_SECS: u64 = 120;
-    // 数据未取完时，连续这么长时间没有收到任何消息才允许放弃（防止慢集群下误判为无数据）
+    // 收到首条消息前的等待上限：必须超过 socket.timeout.ms(60s)，慢 broker 的第一个 Fetch 响应才有机会完成
+    const FIRST_MESSAGE_TIMEOUT_SECS: u64 = 90;
+    // 收到首条消息后，连续 30s 没有新消息才允许放弃（如 compacted topic 的 offset 空洞）
     const STARVATION_SECS: u64 = 30;
 
     let poll_start = std::time::Instant::now();
@@ -2879,25 +2878,17 @@ fn fetch_partition_messages_unified(
     loop {
         // 空轮询退出需要满足以下其一，避免慢集群下数据还没取完就放弃：
         // - caught_up: 已追到分区末尾（high_watermark - 1），后面确实没有更多数据
-        // - starved:   连续 STARVATION_SECS 没有收到任何消息（如 compacted topic 的 offset 空洞）
+        // - starved:   长时间没有收到任何消息（首条消息前 90s / 之后 30s）
         let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
-        let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
+        let stall_limit = if got_first { STARVATION_SECS } else { FIRST_MESSAGE_TIMEOUT_SECS };
+        let starved = last_msg_at.elapsed() >= Duration::from_secs(stall_limit);
         if raw_messages.len() >= max_messages
             || (empty_count >= MAX_EMPTY_POLLS && (caught_up || starved))
             || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
         {
             break;
         }
-        // 自适应poll超时：首次500ms，正常200ms，连续空轮询时指数退避
-        let poll_timeout = if !got_first {
-            Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
-        } else if consecutive_empty == 0 {
-            Duration::from_millis(BASE_POLL_TIMEOUT_MS)
-        } else {
-            let backoff = (BASE_POLL_TIMEOUT_MS.saturating_mul(1u64 << consecutive_empty.min(4)))
-                .min(MAX_POLL_TIMEOUT_MS);
-            Duration::from_millis(backoff)
-        };
+        let poll_timeout = Duration::from_millis(POLL_TIMEOUT_MS);
 
         match consumer.poll(poll_timeout) {
             Some(Ok(msg)) => {
@@ -2906,7 +2897,6 @@ fn fetch_partition_messages_unified(
                     tracing::info!("[Unified Partition] First message received after {:?}", poll_start.elapsed());
                 }
                 empty_count = 0;
-                consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
                 last_msg_offset = Some(msg_offset);
@@ -3010,11 +3000,9 @@ fn fetch_partition_messages_unified(
             Some(Err(e)) => {
                 tracing::warn!("Poll error for partition {}: {}", partition, e);
                 empty_count += 1;
-                consecutive_empty += 1;
             }
             None => {
                 empty_count += 1;
-                consecutive_empty += 1;
             }
         }
     }
@@ -3091,7 +3079,9 @@ async fn fetch_partition_messages_streaming(
 
     cfg.set("socket.nagle.disable", "true");
     cfg.set("socket.receive.buffer.bytes", "262144");
-    cfg.set("socket.timeout.ms", "10000");
+    // FetchRequest 超时 = socket.timeout.ms。慢 broker 响应可能超过 10s（日志 REQTMOUT after ~10.6s），
+    // 10s 会把进行中的 Fetch 掐断导致永远收不到消息；放宽到 60s（librdkafka 默认值）
+    cfg.set("socket.timeout.ms", "60000");
     // 注意：request.timeout.ms 仅用于 Producer，Consumer 不需要
     cfg.set("enable.partition.eof", "false");
     cfg.set("connections.max.idle.ms", "540000");
@@ -3179,7 +3169,6 @@ async fn fetch_partition_messages_streaming(
 
     let mut sent_count = 0usize;
     let mut empty_count = 0usize;
-    let mut consecutive_empty = 0usize; // 连续空轮询计数（用于退避）
 
     // === 动态调整空轮询次数 ===
     // 基础次数 20 次，每 1000 条消息增加 5 次，最多 50 次
@@ -3189,11 +3178,13 @@ async fn fetch_partition_messages_streaming(
     tracing::info!("[Streaming] Partition {} dynamic max_empty_polls: {} (max_messages: {})",
         partition, max_empty_polls, max_messages);
 
-    const FIRST_POLL_TIMEOUT_MS: u64 = 500;
-    const BASE_POLL_TIMEOUT_MS: u64 = 200;    // 基础 poll 超时（收到数据后使用）
-    const MAX_POLL_TIMEOUT_MS: u64 = 2000;    // 最大 poll 超时（退避上限）
+    // 固定 poll 超时，不做指数退避（有消息时 poll 立即返回，短超时不会增加延迟）
+    const POLL_TIMEOUT_MS: u64 = 500;
     const MAX_POLL_TIME_SECS: u64 = 300;
-    // 数据未取完时，连续这么长时间没有收到任何消息才允许放弃（防止慢集群下误判为无数据）
+    // 收到首条消息前的等待上限：必须超过 socket.timeout.ms(60s)，
+    // 慢 broker 的第一个 Fetch 响应（日志实测 >10s）才有机会完成
+    const FIRST_MESSAGE_TIMEOUT_SECS: u64 = 90;
+    // 收到首条消息后，连续 30s 没有新消息才允许放弃（如 compacted topic 的 offset 空洞）
     const STARVATION_SECS: u64 = 30;
 
     let poll_start = std::time::Instant::now();
@@ -3211,9 +3202,10 @@ async fn fetch_partition_messages_streaming(
 
         // 空轮询退出需要满足以下其一，避免慢集群下数据还没取完就放弃：
         // - caught_up: 已追到分区末尾（high_watermark - 1），后面确实没有更多数据
-        // - starved:   连续 STARVATION_SECS 没有收到任何消息（如 compacted topic 的 offset 空洞）
+        // - starved:   长时间没有收到任何消息（首条消息前 90s / 之后 30s）
         let caught_up = last_msg_offset.map_or(false, |o| o >= high_watermark - 1);
-        let starved = last_msg_at.elapsed() >= Duration::from_secs(STARVATION_SECS);
+        let stall_limit = if got_first { STARVATION_SECS } else { FIRST_MESSAGE_TIMEOUT_SECS };
+        let starved = last_msg_at.elapsed() >= Duration::from_secs(stall_limit);
         if sent_count >= max_messages
             || (empty_count >= max_empty_polls && (caught_up || starved))
             || poll_start.elapsed() >= Duration::from_secs(MAX_POLL_TIME_SECS)
@@ -3221,17 +3213,7 @@ async fn fetch_partition_messages_streaming(
             break;
         }
 
-        // 自适应 poll 超时：连续空轮询时指数退避，收到数据后恢复
-        let poll_timeout = if !got_first {
-            Duration::from_millis(FIRST_POLL_TIMEOUT_MS)
-        } else if consecutive_empty == 0 {
-            Duration::from_millis(BASE_POLL_TIMEOUT_MS)
-        } else {
-            // 指数退避：200ms → 400ms → 800ms → 1600ms → 2000ms(capped)
-            let backoff = (BASE_POLL_TIMEOUT_MS.saturating_mul(1u64 << consecutive_empty.min(4)))
-                .min(MAX_POLL_TIMEOUT_MS);
-            Duration::from_millis(backoff)
-        };
+        let poll_timeout = Duration::from_millis(POLL_TIMEOUT_MS);
 
         match consumer.poll(poll_timeout) {
             Some(Ok(msg)) => {
@@ -3240,7 +3222,6 @@ async fn fetch_partition_messages_streaming(
                     tracing::info!("[Streaming] First message received for partition {} after {:?}", partition, poll_start.elapsed());
                 }
                 empty_count = 0;
-                consecutive_empty = 0;
 
                 let msg_offset = msg.offset();
                 last_msg_offset = Some(msg_offset);
@@ -3364,11 +3345,9 @@ async fn fetch_partition_messages_streaming(
             Some(Err(e)) => {
                 tracing::warn!("[Streaming] Poll error for partition {}: {}", partition, e);
                 empty_count += 1;
-                consecutive_empty += 1;
             }
             None => {
                 empty_count += 1;
-                consecutive_empty += 1;
             }
         }
     }
