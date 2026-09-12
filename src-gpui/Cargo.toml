@@ -1,0 +1,37 @@
+[package]
+name = "kafka-manager-gpui"
+version = "1.1.65"
+edition = "2021"
+description = "Kafka Manager desktop UI built with GPUI"
+publish = false
+
+[workspace]
+
+[dependencies]
+kafka-manager-api = { path = ".." }
+
+gpui = { git = "https://github.com/zed-industries/zed", rev = "a8fafdd7ee36fb3fb98ebbfe5d3be983301d9e74" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "a8fafdd7ee36fb3fb98ebbfe5d3be983301d9e74", features = ["font-kit", "wayland", "x11"] }
+
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+reqwest = { version = "0.11", features = ["json", "blocking", "rustls-tls"] }
+unicode-segmentation = "1"
+async-channel = "2"
+arc-swap = "1.7"
+dirs = "6.0"
+chrono = { version = "0.4", features = ["serde"] }
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 与根 workspace 相同的 rdkafka-sys patch（独立 workspace 需各自声明）
+[patch.crates-io]
+rdkafka-sys = { path = "../rdkafka-sys-local" }
+
+[lints.clippy]
+all = "warn"
