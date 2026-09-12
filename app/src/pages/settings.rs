@@ -242,8 +242,14 @@ impl SettingsPage {
         self.checking_update = true;
         cx.notify();
 
+        // reqwest 依赖 tokio reactor，必须在 tokio runtime 上执行（gpui executor 上没有 reactor）
+        let rt = TokioRuntime::handle(cx);
         cx.spawn(async move |this, cx| {
-            let result = crate::updater::do_check_updates().await;
+            let result = rt
+                .spawn(crate::updater::do_check_updates())
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
             this.update(cx, |this, cx| {
                 this.checking_update = false;
                 match result {
@@ -379,6 +385,8 @@ impl SettingsPage {
         };
         cx.notify();
 
+        // reqwest 依赖 tokio reactor，下载必须在 tokio runtime 上执行
+        let rt = TokioRuntime::handle(cx);
         cx.spawn(async move |this, cx| {
             let filename = format!("kafka-manager-{}-portable.zip", version);
             let progress = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64)));
@@ -406,10 +414,16 @@ impl SettingsPage {
             })
             .detach();
 
-            let result = crate::updater::download_update(&url, &filename, move |downloaded, total| {
-                *progress_cb.lock().unwrap() = (downloaded, total);
-            })
-            .await;
+            let result = rt
+                .spawn(async move {
+                    crate::updater::download_update(&url, &filename, move |downloaded, total| {
+                        *progress_cb.lock().unwrap() = (downloaded, total);
+                    })
+                    .await
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
             done.store(true, std::sync::atomic::Ordering::Relaxed);
 
             this

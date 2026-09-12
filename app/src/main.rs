@@ -18,12 +18,23 @@ use crate::workspace::Workspace;
 fn init_logging() -> tracing_appender::non_blocking::WorkerGuard {
     kafka_manager_api::utils::ensure_log_dir();
     let log_path = kafka_manager_api::utils::app_log_path();
-    let file = std::fs::OpenOptions::new()
+    // 日志文件打不开时降级到 stderr，避免直接 panic 导致 App 无法启动
+    let writer: Box<dyn std::io::Write + Send> = match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_path)
-        .expect("open log file");
-    let (non_blocking, guard) = tracing_appender::non_blocking(file);
+    {
+        Ok(file) => Box::new(file),
+        Err(e) => {
+            eprintln!(
+                "无法打开日志文件 {}: {}，日志降级输出到 stderr",
+                log_path.display(),
+                e
+            );
+            Box::new(std::io::stderr())
+        }
+    };
+    let (non_blocking, guard) = tracing_appender::non_blocking(writer);
     tracing_subscriber::fmt()
         .with_writer(non_blocking)
         .with_ansi(false)
@@ -114,7 +125,7 @@ fn main() {
         gpui_component::init(cx);
         i18n::I18n::init(cx);
         cx.set_global(Backend(app_state));
-        cx.set_global(TokioRuntime(tokio_handle));
+        cx.set_global(TokioRuntime(tokio_handle.clone()));
         gpui_component::Theme::sync_system_appearance(None, cx);
 
         if tray_enabled {
@@ -151,7 +162,13 @@ fn main() {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(3))
                 .await;
-            if let Ok(result) = updater::do_check_updates().await {
+            // reqwest 依赖 tokio reactor，必须在 tokio runtime 上执行（gpui executor 上没有 reactor）
+            let result = tokio_handle
+                .spawn(updater::do_check_updates())
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
+            if let Ok(result) = result {
                 if result.available {
                     cx.update(|cx| {
                         let is_zh = i18n::I18n::global(cx).is_zh();
