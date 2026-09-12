@@ -193,6 +193,7 @@ export interface MessageRecord {
 ## 开发注意事项
 
 1. **没有 HTTP 服务**：所有 API 走 Tauri IPC（`api_request` 分发 / `message_list_stream` Channel），不要再引用 axum、`POST /api` 或 `src/routes/`（已删除）。
+2. **查询路径禁止 `subscribe()` 和 offset 提交**：必须保持手动 `assign()` + `enable.auto.commit=false`。手动 assign 不进组（无 JoinGroup/心跳/rebalance），不提交 offset 则不写 `__consumer_offsets`——broker 上不会注册消费者组实体（`kafka-consumer-groups.sh --list` 查不到 `kafka-mgr-*`），查询结束断开连接即无任何残留。一旦改成 subscribe 或 commit，broker 就会产生组状态：成员注册、rebalance 开销、`__consumer_offsets` 记录按保留期堆积。
 2. **一切阻塞调用进 `spawn_blocking`**：`consumer.poll` / `fetch_watermarks` / `offsets_for_times` / `fetch_metadata`（含 `std::thread::sleep` 的重试逻辑）都是阻塞的，直接跑在 tokio worker 上会饿死并发请求。
 3. **背压处禁止 `send().await` / `blocking_send`**：channel 满时取消信号无法唤醒会死锁，用 `try_send` 循环 + 取消检查（见 `StreamBatcher::flush`）。
 4. **consumer 配置只用 `build_query_consumer_config`**，不要复制粘贴（历史 bug：重复设置互相覆盖）。

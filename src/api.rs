@@ -2286,6 +2286,10 @@ const STARVATION_SECS: u64 = 30;
 
 /// 查询类 consumer 的统一配置（流式/非流式/单条获取共用，避免多处复制导致配置漂移。
 /// 原实现 max.partition.fetch.bytes 被设置两次，大批量分支的 50MB 总是被覆盖回 10MB）
+///
+/// 注意：查询路径必须保持手动 assign + 不提交 offset，禁止 subscribe / commit——
+/// 手动 assign 不进组（无心跳/rebalance），不 commit 则不写 __consumer_offsets，
+/// broker 上不会注册消费者组实体，查询结束断开即无残留。
 fn build_query_consumer_config(brokers: &str, group_id: &str, large_fetch: bool) -> rdkafka::ClientConfig {
     let mut cfg = rdkafka::ClientConfig::new();
     cfg.set("bootstrap.servers", brokers)
