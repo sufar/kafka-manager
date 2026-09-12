@@ -257,6 +257,8 @@ export interface Translation {
     queryFailed: string;
     fetchFailed: string;
     loading: string;
+    valueTruncated: string;
+    loadFullValue: string;
     clearSort: string;
     hide: string;
     show: string;
@@ -1023,6 +1025,8 @@ export const translations: Record<Language, Translation> = {
       queryFailed: '查询失败',
       fetchFailed: '获取失败',
       loading: '加载中...',
+      valueTruncated: '内容过大已截断，仅显示前 128KB',
+      loadFullValue: '加载完整内容',
       clearSort: '清除排序',
       hide: '收起',
       show: '展开',
@@ -1787,6 +1791,8 @@ export const translations: Record<Language, Translation> = {
       queryFailed: 'Query failed',
       fetchFailed: 'Fetch failed',
       loading: 'Loading...',
+      valueTruncated: 'Value too large, truncated to first 128KB',
+      loadFullValue: 'Load full value',
       clearSort: 'Clear sort',
       hide: 'Hide',
       show: 'Show',

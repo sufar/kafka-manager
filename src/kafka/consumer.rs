@@ -134,7 +134,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    };
+            ..Default::default()
+        };
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
                     }
@@ -233,7 +234,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    };
+            ..Default::default()
+        };
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
                     }
@@ -412,7 +414,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    });
+            ..Default::default()
+        });
 
                     if messages.len() >= max_messages {
                         break;
@@ -543,7 +546,8 @@ impl KafkaConsumer {
                                             key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                                             value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                                             timestamp: msg.timestamp().to_millis(),
-                                        };
+            ..Default::default()
+        };
 
                                         if tx.send(Ok(kafka_msg)).is_err() {
                                             break;
@@ -595,7 +599,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    });
+            ..Default::default()
+        });
                 }
                 Ok(Err(e)) => {
                     if messages.is_empty() {
@@ -665,7 +670,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    });
+            ..Default::default()
+        });
                 }
                 Ok(Err(_)) | Err(_) => {
                     consecutive_timeouts += 1;
@@ -765,7 +771,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    };
+            ..Default::default()
+        };
 
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
@@ -865,7 +872,8 @@ impl KafkaConsumer {
                         key: msg.key().and_then(|k| std::str::from_utf8(k).ok().map(String::from)),
                         value: msg.payload().and_then(|p| std::str::from_utf8(p).ok().map(String::from)),
                         timestamp: msg.timestamp().to_millis(),
-                    };
+            ..Default::default()
+        };
 
                     if matcher(&kafka_msg) {
                         messages.push(kafka_msg);
@@ -889,25 +897,36 @@ impl KafkaConsumer {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct KafkaMessage {
     pub partition: i32,
     pub offset: i64,
     pub key: Option<String>,
     pub value: Option<String>,
     pub timestamp: Option<i64>,
+    /// value 因超过列表内联上限被截断（仅流式查询列表路径会置位）
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub value_truncated: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl KafkaMessage {
     /// 快速转换为 JSON Value，避免重复序列化
     pub fn to_json_value(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut v = serde_json::json!({
             "partition": self.partition,
             "offset": self.offset,
             "key": self.key,
             "value": self.value,
             "timestamp": self.timestamp,
-        })
+        });
+        if self.value_truncated {
+            v["value_truncated"] = serde_json::Value::Bool(true);
+        }
+        v
     }
 
     /// 零拷贝转换为 JSON 字节（使用 serde_json 直接序列化）

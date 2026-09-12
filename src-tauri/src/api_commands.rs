@@ -41,7 +41,7 @@ pub async fn api_request(
         .map_err(|e| e.to_message())
 }
 
-/// 流式消息查询：事件（start/batch/order/complete/error）通过 Channel 推送给前端
+/// 流式消息查询：事件（start/batch/complete/error）通过 Channel 推送给前端
 #[tauri::command]
 pub async fn message_list_stream(
     state: tauri::State<'_, BackendState>,
@@ -69,10 +69,10 @@ pub async fn message_list_stream(
     let registry_inner = registry.inner().clone();
     let cancel_for_forward = cancel_token.clone();
 
-    // 超时保护（与单分区拉取的 MAX_POLL_TIME_SECS 一致，给慢主题留足时间）；
+    // 超时保护：仅作卡死兜底（分区任务自身有 85s 总上限，前端 90s 超时）。
     // 正常结束后取消令牌已无效，无副作用
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(300)).await;
+        tokio::time::sleep(Duration::from_secs(120)).await;
         cancel_token.cancel();
     });
 

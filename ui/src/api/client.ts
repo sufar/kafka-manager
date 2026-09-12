@@ -18,10 +18,10 @@ import type {
   ClusterGroup,
 } from '@/types/api';
 
-/// 流式消息事件（与后端 StreamEvent 对应，data 为 JSON 字符串）
+/// 流式消息事件（与后端 StreamEvent 对应，data 为结构化对象，直接使用无需 JSON.parse）
 interface StreamEvent {
   event: string;
-  data: string;
+  data: any;
 }
 
 /// 流式查询句柄（替代原 AbortController，abort 通过 IPC 取消后端查询）
@@ -430,6 +430,16 @@ class ApiClient {
     this.cancelRequest();
   }
 
+  /** 按 partition+offset 精确获取单条完整消息（用于查看列表中被截断的大消息） */
+  async getMessage(clusterId: string, topic: string, partition: number, offset: number): Promise<import('@/types/api').MessageRecord> {
+    return this.request('message.get', {
+      cluster_id: clusterId,
+      topic,
+      partition,
+      offset
+    });
+  }
+
   /**
    * 流式获取消息（通过 Tauri Channel 接收后端推送的事件）
    * @param clusterId 集群ID
@@ -455,9 +465,8 @@ class ApiClient {
       fetchMode?: 'oldest' | 'newest';
     },
     callbacks?: {
-      onStart?: (data: { partitions: number; total_target: number }) => void;
+      onStart?: (data: { partitions: number; total_target: number; has_filter?: boolean }) => void;
       onBatch?: (messages: import('@/types/api').MessageRecord[], progress: number, total: number) => void;
-      onOrder?: (sort: string) => void;
       onComplete?: (data?: { actual_total?: number }) => void;
       onError?: (error: string) => void;
     }
@@ -477,14 +486,7 @@ class ApiClient {
     channel.onmessage = (evt) => {
       if (aborted) return;
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(evt.data);
-      } catch (e) {
-        console.error('[Stream Client] Failed to parse event data:', evt, e);
-        return;
-      }
-
+      const parsed = evt.data;
       switch (evt.event) {
         case 'start':
           console.log(`[Stream Client] Start: partitions=${parsed.partitions}, total_target=${parsed.total_target}`);
@@ -494,12 +496,9 @@ class ApiClient {
           totalMessagesReceived += parsed.messages?.length || 0;
           callbacks?.onBatch?.(parsed.messages, parsed.progress, parsed.total);
           break;
-        case 'order':
-          callbacks?.onOrder?.(parsed.sort);
-          break;
         case 'complete':
           terminalReceived = true;
-          console.log(`[Stream Client] Complete: actual_total=${parsed.actual_total}, target_total=${parsed.target_total}`);
+          console.log(`[Stream Client] Complete: actual_total=${parsed.actual_total}`);
           callbacks?.onComplete?.(parsed);
           break;
         case 'error':

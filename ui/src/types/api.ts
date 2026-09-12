@@ -144,6 +144,8 @@ export interface MessageRecord {
   key?: string;
   value?: string;
   timestamp?: number;
+  /** value 因超过列表内联上限被截断（可用 message.get 拉取完整内容） */
+  value_truncated?: boolean;
 }
 
 export interface SendMessageRequest {

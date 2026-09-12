@@ -144,7 +144,7 @@
         <span v-if="streamingProgress.isStreaming" class="flex items-center gap-1.5 text-info">
           <span class="loading loading-spinner loading-xs"></span>
           <span>{{ t.messages.receiving }} {{ streamingProgress.received.toLocaleString() }}</span>
-          <span v-if="streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
+          <span v-if="!streamingProgress.filtered && streamingProgress.total > 0">/ {{ streamingProgress.total.toLocaleString() }}</span>
         </span>
         <span v-else-if="lastQueryTime > 0" class="text-base-content/70">
           {{ t.messages.elapsedTime }}: <span class="font-mono font-bold">{{ lastQueryTime }}ms</span>
@@ -189,7 +189,7 @@
         <span v-if="error" class="text-error">{{ error }}</span>
       </div>
       <!-- 流式进度条 -->
-      <div v-if="streamingProgress.isStreaming && streamingProgress.total > 0" class="flex-1 mx-4 hidden md:block">
+      <div v-if="streamingProgress.isStreaming && !streamingProgress.filtered && streamingProgress.total > 0" class="flex-1 mx-4 hidden md:block">
         <div class="w-full bg-base-300 rounded-full h-1.5 overflow-hidden">
           <div
             class="bg-info h-full rounded-full transition-all duration-300"
@@ -470,6 +470,17 @@
                 </svg>
               </button>
             </div>
+            <div v-if="selectedMessage.vt" class="flex items-center gap-2 mb-1 px-1.5 py-1 rounded bg-warning/10 border border-warning/30 text-warning text-[10px]">
+              <span class="flex-1">{{ t.messages.valueTruncated }}</span>
+              <button
+                class="btn btn-warning btn-xs px-1.5 min-h-[20px] h-[20px]"
+                :disabled="fullValueLoading"
+                @click="loadFullValue"
+              >
+                <span v-if="fullValueLoading" class="loading loading-spinner loading-xs"></span>
+                {{ fullValueLoading ? t.messages.loading : t.messages.loadFullValue }}
+              </button>
+            </div>
             <pre
               v-if="valueViewFormat === 'json'"
               ref="valuePreRef"
@@ -550,6 +561,7 @@ interface Message {
   v: string | null;   // value
   ts: number | null;  // timestamp
   uid: string;        // 唯一 ID，用于虚拟滚动
+  vt?: boolean;       // value 被截断（可用 message.get 拉取完整内容）
 }
 
 // Props - 从父组件接收 cluster 和 topic
@@ -567,6 +579,34 @@ const partitions = ref<number[]>([]);
 const messages = shallowRef<Message[]>([]);
 const selectedMessage = ref<any>(null);
 const valueViewFormat = ref<'json' | 'raw' | 'hex'>('json');
+// 完整内容加载状态（value 被截断的大消息按需拉取）
+const fullValueLoading = ref<boolean>(false);
+
+// 拉取被截断消息的完整内容（后端按 partition+offset 精确 seek，成本极低）
+async function loadFullValue() {
+  const msg = selectedMessage.value;
+  if (!msg || !msg.vt || fullValueLoading.value) return;
+  fullValueLoading.value = true;
+  try {
+    const full = await apiClient.getMessage(selectedCluster.value, selectedTopic.value, msg.p, msg.o);
+    // 用户可能已切换到其他消息，仅当仍选中同一条时更新
+    if (selectedMessage.value === msg) {
+      msg.v = full.value ?? '';
+      msg.vt = false;
+    }
+    // 同步更新列表中的同一条记录
+    const item = messages.value.find((m) => m.uid === msg.uid);
+    if (item) {
+      item.v = full.value ?? '';
+      item.vt = false;
+    }
+  } catch (e: any) {
+    console.error('[MessageQueryTool] Failed to load full value:', e);
+    error.value = e?.message || String(e);
+  } finally {
+    fullValueLoading.value = false;
+  }
+}
 const panelHeight = ref(380); // 默认高度增加到 380px
 // 用于强制刷新 JSON 高亮的响应式变量
 const jsonHighlightRefresh = ref(0);
@@ -723,14 +763,15 @@ const loading = ref(false);
 const error = ref('');
 const lastQueryTime = ref(0);
 
-// SSE 流式状态
-const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean }>({ received: 0, total: 0, isStreaming: false });
+// SSE 流式状态（filtered=true 表示带搜索/时间过滤，总数无法预估，进度按不确定模式展示）
+const streamingProgress = ref<{ received: number; total: number; isStreaming: boolean; filtered?: boolean }>({ received: 0, total: 0, isStreaming: false });
 let currentAbortController: StreamHandle | null = null;
 let currentRequestId = 0;
 let isAborted = false;  // 取消标志
-let finalizedSort: 'desc' | undefined = undefined;
 // 非响应式消息缓存，减少响应式更新频率
 let pendingMessages: Message[] = [];
+// 摊平合并阈值下限（与后端推送批次一致）
+const STREAM_BATCH_HINT = 500;
 // 本次查询是否已收到新数据（第一批新数据到达时才清空旧列表）
 let hasNewData = false;
 // 加载超时保护定时器
@@ -741,12 +782,15 @@ function resetMessageState() {
   pendingMessages = [];
   hasNewData = false;
   streamingProgress.value = { received: 0, total: 0, isStreaming: false };
-  finalizedSort = undefined;
 }
 
 // 第一批新数据到达时才清空旧列表（在此之前保留旧数据展示，避免查询期间界面空白）
-function mergePendingMessages() {
+// force=false 时做摊平控制：pending 未达阈值不合并，避免 [...messages, ...pending] 全量拷贝退化为 O(n²)
+function mergePendingMessages(force = true) {
   if (pendingMessages.length === 0) return;
+  if (!force && pendingMessages.length < Math.max(STREAM_BATCH_HINT, messages.value.length * 0.25)) {
+    return;
+  }
   if (!hasNewData) {
     messages.value = [];
     hasNewData = true;
@@ -771,8 +815,10 @@ function scheduleUpdate() {
     updateTimer = null;
     const count = pendingMessages.length;
     if (count > 0) {
-      mergePendingMessages();
-      // console.log(`[UI Update] +${count} messages, total: ${messages.value.length}`);
+      const before = messages.value.length;
+      mergePendingMessages(false);
+      // 未达摊平阈值未合并时，不需要刷新虚拟滚动
+      if (messages.value.length === before && hasNewData) return;
       // 强制刷新虚拟滚动
       nextTick(() => {
         scrollerRef.value?.refresh();
@@ -1027,7 +1073,7 @@ async function queryMessages() {
             console.log('[MessageQueryTool] onStart skipped, already streaming');
             return;
           }
-          streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true };
+          streamingProgress.value = { received: 0, total: data.total_target, isStreaming: true, filtered: !!data.has_filter };
           console.log('[MessageQueryTool] onStart set isStreaming = true');
         },
         onBatch: (newMessages, progress, total) => {
@@ -1045,33 +1091,26 @@ async function queryMessages() {
               v: msg.value || '',
               ts: msg.timestamp || null,
               uid: `${msg.partition}-${msg.offset}`,
+              vt: msg.value_truncated || undefined,
             });
           }
           // 批量调度 UI 更新
           scheduleUpdate();
-        },
-        onOrder: (sort) => {
-          if (requestId !== currentRequestId || isAborted) return;
-          finalizedSort = sort === 'desc' ? 'desc' : undefined;
         },
         onComplete: (data) => {
           if (requestId !== currentRequestId || isAborted) {
             console.log('[MessageQueryTool] onComplete skipped, requestId:', requestId, 'currentRequestId:', currentRequestId, 'isAborted:', isAborted);
             return;
           }
-          // 处理剩余未渲染的消息
+          // 处理剩余未渲染的消息（强制合并）
           if (updateTimer) {
             clearTimeout(updateTimer);
             updateTimer = null;
           }
-          mergePendingMessages();
+          mergePendingMessages(true);
           // 查询结束但没有任何新数据 → 清空旧列表，展示"无数据"
           if (!hasNewData) {
             messages.value = [];
-          }
-          // 如果是降序，反转数组
-          if (finalizedSort === 'desc') {
-            messages.value = [...messages.value].reverse();
           }
           // 再次检查取消状态，防止在执行过程中被取消
           if (isAborted) {
@@ -1146,8 +1185,6 @@ function stopQuery() {
     clearTimeout(updateTimer);
     updateTimer = null;
   }
-  // 重置排序状态
-  finalizedSort = undefined;
   // 重置流式进度
   streamingProgress.value = { received: 0, total: 0, isStreaming: false };
   // 设置取消标志（放在最后，阻止后续回调）
