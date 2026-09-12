@@ -57,3 +57,7 @@ not_git/
 .vite/
 .claude/worktrees/
 *.db
+
+kafka-manager-gpui
+kafka_manager.db-shm
+kafka_manager.db-wal
