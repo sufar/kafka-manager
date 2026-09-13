@@ -11,6 +11,7 @@
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::*;
 
@@ -119,12 +120,7 @@ impl Workspace {
                             match (key, val) {
                                 ("ui.language", "en") => I18n::global_mut(cx).set_lang("en"),
                                 ("ui.language", "zh") => I18n::global_mut(cx).set_lang("zh"),
-                                ("ui.theme", "dark") => {
-                                    gpui_component::Theme::change(ThemeMode::Dark, None, cx)
-                                }
-                                ("ui.theme", "light") => {
-                                    gpui_component::Theme::change(ThemeMode::Light, None, cx)
-                                }
+                                ("ui.theme", val) => crate::theme::apply_by_name(val, None, cx),
                                 ("ui.sidebar_mode", "tree") => SidebarMode::set(cx, true),
                                 ("ui.sidebar_mode", _) => SidebarMode::set(cx, false),
                                 _ => {}
@@ -277,30 +273,6 @@ impl Workspace {
         cx.notify();
     }
 
-    fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dark = !cx.theme().is_dark();
-        gpui_component::Theme::change(
-            if dark { ThemeMode::Dark } else { ThemeMode::Light },
-            Some(window),
-            cx,
-        );
-        let rt = TokioRuntime::handle(cx);
-        if let Some(state) = Backend::state(cx) {
-            let value = if dark { "dark" } else { "light" };
-            cx.spawn(async move |_this, _cx| {
-                let _ = crate::service::call(
-                    &rt,
-                    state,
-                    "settings.update",
-                    serde_json::json!({ "key": "ui.theme", "value": value }),
-                )
-                .await;
-            })
-            .detach();
-        }
-        cx.notify();
-    }
-
     /// 搜索结果下拉（绝对定位，作为根节点最后子元素绘制在最上层）
     fn render_search_dropdown(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
@@ -426,16 +398,32 @@ impl Workspace {
                                 this.toggle_language(cx);
                             })),
                     )
-                    // 主题切换
-                    .child(
+                    // 主题切换（下拉选择）
+                    .child({
+                        let current = crate::theme::current_name(cx);
                         Button::new("toggle-theme")
                             .ghost()
-                            .icon(if dark { IconName::Sun } else { IconName::Moon })
+                            .icon(if dark { IconName::Moon } else { IconName::Sun })
                             .tooltip("Theme")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_theme(window, cx);
-                            })),
-                    )
+                            .dropdown_menu_with_anchor(Corner::TopRight, move |menu, _, _| {
+                                let mut menu = menu;
+                                for &(name, _) in crate::theme::THEMES {
+                                    menu = menu.item(
+                                        PopupMenuItem::new(name)
+                                            .checked(current == name)
+                                            .on_click(move |_, window, cx| {
+                                                crate::theme::apply_by_name(
+                                                    name,
+                                                    Some(window),
+                                                    cx,
+                                                );
+                                                crate::theme::persist(cx, name);
+                                            }),
+                                    );
+                                }
+                                menu
+                            })
+                    })
                     // 设置
                     .child(
                         Button::new("goto-settings")

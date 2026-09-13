@@ -852,9 +852,10 @@ impl MessagesPage {
         let filename = format!("{}_messages_{}.json", topic, chrono::Local::now().timestamp());
         let success_msg = t(cx, "messages.exportSuccess");
         let failed_msg = t(cx, "messages.exportFailed");
+        let rt = TokioRuntime::handle(cx);
 
         cx.spawn(async move |_this, cx| {
-            let path = tokio::task::spawn_blocking(move || {
+            let path = rt.spawn_blocking(move || {
                 rfd::FileDialog::new()
                     .set_file_name(&filename)
                     .add_filter("JSON", &["json"])

@@ -169,19 +169,9 @@ impl SettingsPage {
             Some(window),
             cx,
         );
-        let rt = TokioRuntime::handle(cx);
-        if let Some(state) = Backend::state(cx) {
-            cx.spawn(async move |_this, _cx| {
-                let _ = crate::service::call(
-                    &rt,
-                    state,
-                    "settings.update",
-                    json!({ "key": "ui.theme", "value": if dark { "dark" } else { "light" } }),
-                )
-                .await;
-            })
-            .detach();
-        }
+        // 持久化当前主题名，保留所选的暗色主题变体
+        let name = crate::theme::current_name(cx);
+        crate::theme::persist(cx, &name);
         cx.notify();
     }
 
@@ -580,7 +570,7 @@ impl SettingsPage {
                 cx.update(|cx| notify(cx, NotificationType::Error, result.err().unwrap())).ok();
                 return;
             };
-            let path = tokio::task::spawn_blocking(|| {
+            let path = rt.spawn_blocking(|| {
                 rfd::FileDialog::new()
                     .set_file_name(&format!(
                         "kafka-manager-export-{}.json",
@@ -611,7 +601,7 @@ impl SettingsPage {
         let Some(state) = Backend::state(cx) else { return };
 
         cx.spawn(async move |_this, cx| {
-            let path = tokio::task::spawn_blocking(|| {
+            let path = rt.spawn_blocking(|| {
                 rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file()
             })
             .await

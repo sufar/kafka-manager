@@ -4,6 +4,7 @@ mod i18n;
 mod pages;
 mod service;
 mod state;
+mod theme;
 mod tray;
 mod updater;
 mod workspace;
@@ -127,6 +128,7 @@ fn main() {
         cx.set_global(Backend(app_state));
         cx.set_global(TokioRuntime(tokio_handle.clone()));
         gpui_component::Theme::sync_system_appearance(None, cx);
+        theme::install(cx);
 
         if tray_enabled {
             tray::set_tray_enabled(true);
