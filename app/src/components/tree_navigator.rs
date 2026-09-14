@@ -12,14 +12,17 @@ use gpui::{prelude::FluentBuilder, *};
 use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_component::dialog::DialogButtonProps;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_component::notification::NotificationType;
 use gpui_component::*;
 use serde_json::json;
 
-use crate::components::navigator::NavEvent;
+use crate::components::context_actions;
+use crate::components::navigator::{ClusterAction, NavEvent};
 use crate::i18n::t;
 use crate::components::notify;
 use crate::state::{Backend, Page, TokioRuntime};
+use crate::utils::relative_time;
 
 #[derive(Clone, Debug)]
 struct ClusterNode {
@@ -30,8 +33,10 @@ struct ClusterNode {
 
 #[derive(Clone, Debug)]
 struct HistoryItem {
+    id: i64,
     cluster: String,
     topic: String,
+    viewed_at: String,
 }
 
 pub struct TreeNavigator {
@@ -58,6 +63,7 @@ pub struct TreeNavigator {
     search_input: Entity<InputState>,
     show_history: bool,
     history: Vec<HistoryItem>,
+    history_search: Entity<InputState>,
     loading: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -69,9 +75,20 @@ impl TreeNavigator {
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "common.search"))
         });
+        let history_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "history.searchPlaceholder"))
+        });
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe(
             &search_input,
+            |_this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe(
+            &history_search,
             |_this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
@@ -98,6 +115,7 @@ impl TreeNavigator {
             search_input,
             show_history: false,
             history: Vec::new(),
+            history_search,
             loading: true,
             _subscriptions: subscriptions,
         };
@@ -616,7 +634,8 @@ impl TreeNavigator {
                 this.history = result
                     .ok()
                     .and_then(|v| {
-                        v.get("history")
+                        v.get("histories")
+                            .or_else(|| v.get("history"))
                             .or_else(|| v.get("items"))
                             .and_then(|h| h.as_array())
                             .cloned()
@@ -625,8 +644,14 @@ impl TreeNavigator {
                     .iter()
                     .filter_map(|h| {
                         Some(HistoryItem {
+                            id: h.get("id")?.as_i64()?,
                             cluster: h.get("cluster_id")?.as_str()?.to_string(),
                             topic: h.get("topic_name")?.as_str()?.to_string(),
+                            viewed_at: h
+                                .get("viewed_at")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
                         })
                     })
                     .collect();
@@ -635,6 +660,94 @@ impl TreeNavigator {
             .ok();
         })
         .detach();
+    }
+
+    /// 删除单条浏览历史
+    fn delete_history_item(&mut self, id: i64, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let _ = crate::service::call(&rt, state, "topic_history.delete", json!({ "id": id })).await;
+            this.update(cx, |this, cx| {
+                this.history.retain(|h| h.id != id);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 清空浏览历史（确认对话框）
+    fn clear_history(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let entity = cx.entity();
+        let title = t(cx, "history.clearAll");
+        let text = t(cx, "history.confirmClear");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(400.0))
+                .button_props(
+                    DialogButtonProps::default().ok_variant(ButtonVariant::Danger),
+                )
+                .child(div().text_sm().child(text.clone()))
+                .confirm()
+                .on_ok(move |_, _window, cx| {
+                    entity.update(cx, |_this, cx| {
+                        let rt = TokioRuntime::handle(cx);
+                        let Some(state) = Backend::state(cx) else { return };
+                        cx.spawn(async move |this, cx| {
+                            let _ = crate::service::call(&rt, state, "topic_history.clear", json!({})).await;
+                            this.update(cx, |this, cx| {
+                                this.history.clear();
+                                cx.notify();
+                            })
+                            .ok();
+                        })
+                        .detach();
+                    });
+                    true
+                })
+        });
+    }
+
+    /// 刷新集群健康状态（不展开集群，与旧版 Refresh Status 一致）
+    fn refresh_cluster_status(&mut self, cluster: String, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let result = crate::service::call(
+                &rt,
+                state,
+                "connection.health_check",
+                json!({ "cluster_id": cluster }),
+            )
+            .await;
+            this.update(cx, |this, cx| {
+                let healthy = result
+                    .ok()
+                    .and_then(|v| v.get("healthy").and_then(|h| h.as_bool()))
+                    .unwrap_or(false);
+                if let Some(node) = this.clusters.iter_mut().find(|c| c.name == cluster) {
+                    node.healthy = Some(healthy);
+                }
+                cx.notify();
+                let text = t(cx, "clusters.clusterStatusRefreshed");
+                notify(cx, NotificationType::Success, text);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 展开集群的 Consumer Groups 文件夹（右键菜单"查看消费组"）
+    fn view_consumer_groups(&mut self, cluster: String, cx: &mut Context<Self>) {
+        self.expanded_clusters.insert(cluster.clone());
+        let inserted = self.expanded_cg_folders.insert(cluster.clone());
+        if inserted && !self.consumer_groups.contains_key(&cluster) {
+            self.load_consumer_groups(cluster, cx);
+        }
+        cx.notify();
     }
 
     /// 文件夹内搜索框（惰性创建，window 从渲染路径传入）
@@ -744,6 +857,15 @@ impl TreeNavigator {
                                             cx.notify();
                                         })),
                                 )
+                                .child(
+                                    Button::new("clear-history")
+                                        .ghost()
+                                        .icon(IconName::Delete)
+                                        .tooltip(t(cx, "history.clearAll"))
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.clear_history(window, cx);
+                                        })),
+                                )
                             })
                             .when(!self.show_history, |el| {
                                 el.child(
@@ -831,7 +953,7 @@ impl TreeNavigator {
             })
     }
 
-    /// 文件夹行：[chevron] [count] 名称 + 刷新按钮
+    /// 文件夹行：[chevron] [count] 名称 + 刷新按钮（右键：刷新/新建/查看全部）
     fn render_folder_row(
         &self,
         cluster: &str,
@@ -845,6 +967,8 @@ impl TreeNavigator {
         let cluster_toggle = cluster.to_string();
         let cluster_open = cluster.to_string();
         let cluster_refresh = cluster.to_string();
+        let cluster_menu = cluster.to_string();
+        let entity_menu = cx.entity();
         let label = if is_cg { "Consumer Groups" } else { "Topics" };
         let id_prefix = if is_cg { "cgfolder" } else { "tfolder" };
 
@@ -922,6 +1046,73 @@ impl TreeNavigator {
                         }
                     })),
             )
+            .context_menu(move |menu, _window, cx| {
+                let entity = entity_menu.clone();
+                let cluster = cluster_menu.clone();
+                let entity_refresh = entity.clone();
+                let cluster_refresh = cluster.clone();
+                let entity_view = entity.clone();
+                let cluster_view = cluster.clone();
+                let entity_create = entity.clone();
+                let cluster_create = cluster.clone();
+
+                let refresh_label = if is_cg {
+                    t(cx, "tree.refreshConsumerGroups")
+                } else {
+                    t(cx, "clusters.refreshTopics")
+                };
+                let mut menu = menu.item(
+                    PopupMenuItem::new(refresh_label)
+                        .icon(IconName::Redo2)
+                        .on_click(move |_, _, cx| {
+                            entity_refresh.update(cx, |this, cx| {
+                                if is_cg {
+                                    this.refresh_consumer_groups(cluster_refresh.clone(), cx);
+                                } else {
+                                    this.refresh_topics(cluster_refresh.clone(), cx);
+                                }
+                            });
+                        }),
+                );
+                if !is_cg {
+                    menu = menu.item(
+                        PopupMenuItem::new(t(cx, "clusters.createTopic"))
+                            .icon(IconName::Plus)
+                            .on_click(move |_, _, cx| {
+                                let cluster = cluster_create.clone();
+                                entity_create.update(cx, |_this, cx| {
+                                    cx.emit(NavEvent::OpenClustersAction {
+                                        cluster,
+                                        action: ClusterAction::CreateTopic,
+                                    });
+                                });
+                            }),
+                    );
+                }
+                let view_label = if is_cg {
+                    t(cx, "contextMenu.viewConsumerGroups")
+                } else {
+                    t(cx, "clusters.viewTopics")
+                };
+                menu.item(
+                    PopupMenuItem::new(view_label)
+                        .icon(IconName::Eye)
+                        .on_click(move |_, _, cx| {
+                            entity_view.update(cx, |_this, cx| {
+                                if is_cg {
+                                    cx.emit(NavEvent::OpenConsumerGroups {
+                                        cluster: cluster_view.clone(),
+                                        group: None,
+                                    });
+                                } else {
+                                    cx.emit(NavEvent::OpenTopics {
+                                        cluster: cluster_view.clone(),
+                                    });
+                                }
+                            });
+                        }),
+                )
+            })
             .into_any_element()
     }
 
@@ -998,6 +1189,8 @@ impl TreeNavigator {
 
         // 集群行
         let name_toggle = name.clone();
+        let entity_menu = cx.entity();
+        let name_menu = name.clone();
         let cluster_row = h_flex()
             .items_center()
             .gap_1p5()
@@ -1026,6 +1219,148 @@ impl TreeNavigator {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_cluster(name_toggle.clone(), cx);
             }))
+            .context_menu(move |menu, _window, cx| {
+                let entity = entity_menu.clone();
+                let name = name_menu.clone();
+
+                let name_test = name.clone();
+                let entity_status = entity.clone();
+                let name_status = name.clone();
+                let name_disc = name.clone();
+                let entity_disc = entity.clone();
+                let name_disc2 = name.clone();
+                let name_recon = name.clone();
+                let entity_recon = entity.clone();
+                let name_recon2 = name.clone();
+                let entity_brokers = entity.clone();
+                let entity_topics = entity.clone();
+                let name_topics = name.clone();
+                let entity_cgs = entity.clone();
+                let name_cgs = name.clone();
+                let entity_refresh = entity.clone();
+                let name_refresh = name.clone();
+                let entity_create = entity.clone();
+                let name_create = name.clone();
+                let entity_edit = entity.clone();
+                let name_edit = name.clone();
+                let entity_remove = entity.clone();
+                let name_remove = name.clone();
+
+                menu.item(
+                    PopupMenuItem::new(t(cx, "clusters.testConnection"))
+                        .on_click(move |_, _, cx| {
+                            context_actions::test_cluster(cx, name_test.clone());
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "contextMenu.refreshStatus"))
+                        .icon(IconName::Redo2)
+                        .on_click(move |_, _, cx| {
+                            entity_status.update(cx, |this, cx| {
+                                this.refresh_cluster_status(name_status.clone(), cx);
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.disconnect"))
+                        .on_click(move |_, _, cx| {
+                            let entity = entity_disc.clone();
+                            let name = name_disc2.clone();
+                            context_actions::disconnect_cluster(cx, name_disc.clone(), move |cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.refresh_cluster_status(name.clone(), cx);
+                                });
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.reconnect"))
+                        .on_click(move |_, _, cx| {
+                            let entity = entity_recon.clone();
+                            let name = name_recon2.clone();
+                            context_actions::reconnect_cluster(cx, name_recon.clone(), move |cx| {
+                                entity.update(cx, |this, cx| {
+                                    this.refresh_cluster_status(name.clone(), cx);
+                                });
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.viewBrokers"))
+                        .icon(IconName::Eye)
+                        .on_click(move |_, _, cx| {
+                            entity_brokers.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenPage(Page::Clusters));
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.viewTopics"))
+                        .on_click(move |_, _, cx| {
+                            let cluster = name_topics.clone();
+                            entity_topics.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenTopics { cluster });
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "contextMenu.viewConsumerGroups"))
+                        .on_click(move |_, _, cx| {
+                            entity_cgs.update(cx, |this, cx| {
+                                this.view_consumer_groups(name_cgs.clone(), cx);
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.refreshTopics"))
+                        .on_click(move |_, _, cx| {
+                            entity_refresh.update(cx, |this, cx| {
+                                this.refresh_topics(name_refresh.clone(), cx);
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.createTopic"))
+                        .icon(IconName::Plus)
+                        .on_click(move |_, _, cx| {
+                            let cluster = name_create.clone();
+                            entity_create.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenClustersAction {
+                                    cluster,
+                                    action: ClusterAction::CreateTopic,
+                                });
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.editCluster"))
+                        .on_click(move |_, _, cx| {
+                            let cluster = name_edit.clone();
+                            entity_edit.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenClustersAction {
+                                    cluster,
+                                    action: ClusterAction::EditCluster,
+                                });
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(cx, "clusters.removeCluster"))
+                        .icon(IconName::Delete)
+                        .on_click(move |_, _, cx| {
+                            let cluster = name_remove.clone();
+                            entity_remove.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenClustersAction {
+                                    cluster,
+                                    action: ClusterAction::DeleteCluster,
+                                });
+                            });
+                        }),
+                )
+            })
             .into_any_element();
 
         if !expanded {
@@ -1091,6 +1426,9 @@ impl TreeNavigator {
                         .unwrap_or(false);
                     let cluster_open = name.clone();
                     let topic_open = topic.clone();
+                    let entity_menu = cx.entity();
+                    let cluster_menu = name.clone();
+                    let topic_menu = topic.clone();
 
                     children.push(
                         h_flex()
@@ -1119,6 +1457,73 @@ impl TreeNavigator {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_topic(cluster_open.clone(), topic_open.clone(), cx);
                             }))
+                            .context_menu(move |menu, _window, cx| {
+                                let entity = entity_menu.clone();
+                                let cluster = cluster_menu.clone();
+                                let topic = topic_menu.clone();
+                                let entity_send = entity.clone();
+                                let cluster_send = cluster.clone();
+                                let topic_send = topic.clone();
+                                let cluster_cfg = cluster.clone();
+                                let topic_cfg = topic.clone();
+                                let entity_del = entity.clone();
+                                let cluster_del = cluster.clone();
+                                let topic_del = topic.clone();
+                                menu.item(
+                                    PopupMenuItem::new(t(cx, "topicContextMenu.viewMessages"))
+                                        .icon(IconName::Eye)
+                                        .on_click(move |_, _, cx| {
+                                            entity.update(cx, |this, cx| {
+                                                this.open_topic(cluster.clone(), topic.clone(), cx);
+                                            });
+                                        }),
+                                )
+                                .item(
+                                    PopupMenuItem::new(t(cx, "topicContextMenu.sendMessage"))
+                                        .on_click(move |_, _, cx| {
+                                            entity_send.update(cx, |_this, cx| {
+                                                cx.emit(NavEvent::OpenMessagesSend {
+                                                    cluster: cluster_send.clone(),
+                                                    topic: topic_send.clone(),
+                                                });
+                                            });
+                                        }),
+                                )
+                                .item(
+                                    PopupMenuItem::new(t(cx, "topics.viewDetails"))
+                                        .icon(IconName::Settings)
+                                        .on_click(move |_, window, cx| {
+                                            context_actions::open_topic_config(
+                                                window,
+                                                cx,
+                                                cluster_cfg.clone(),
+                                                topic_cfg.clone(),
+                                            );
+                                        }),
+                                )
+                                .separator()
+                                .item(
+                                    PopupMenuItem::new(t(cx, "topicContextMenu.deleteTopic"))
+                                        .icon(IconName::Delete)
+                                        .on_click(move |_, window, cx| {
+                                            let entity = entity_del.clone();
+                                            let cluster = cluster_del.clone();
+                                            context_actions::delete_topic(
+                                                window,
+                                                cx,
+                                                cluster.clone(),
+                                                topic_del.clone(),
+                                                move |cx| {
+                                                    entity.update(cx, |this, cx| {
+                                                        this.selected_topic = None;
+                                                        this.topics.remove(&cluster);
+                                                        this.load_topics(cluster.clone(), cx);
+                                                    });
+                                                },
+                                            );
+                                        }),
+                                )
+                            })
                             .into_any_element(),
                     );
                 }
@@ -1174,6 +1579,9 @@ impl TreeNavigator {
                     let cluster_open = name.clone();
                     let group_open = group.clone();
                     let key = format!("{}\u{1}{}", name, group);
+                    let entity_menu = cx.entity();
+                    let cluster_menu = name.clone();
+                    let group_menu = group.clone();
                     children.push(
                         h_flex()
                             .items_center()
@@ -1200,6 +1608,47 @@ impl TreeNavigator {
                                     group: Some(group_open.clone()),
                                 });
                             }))
+                            .context_menu(move |menu, _window, cx| {
+                                let entity = entity_menu.clone();
+                                let cluster = cluster_menu.clone();
+                                let group = group_menu.clone();
+                                let entity_del = entity.clone();
+                                let cluster_del = cluster.clone();
+                                let group_del = group.clone();
+                                menu.item(
+                                    PopupMenuItem::new(t(cx, "common.viewDetails"))
+                                        .icon(IconName::Eye)
+                                        .on_click(move |_, _, cx| {
+                                            entity.update(cx, |_this, cx| {
+                                                cx.emit(NavEvent::OpenConsumerGroups {
+                                                    cluster: cluster.clone(),
+                                                    group: Some(group.clone()),
+                                                });
+                                            });
+                                        }),
+                                )
+                                .separator()
+                                .item(
+                                    PopupMenuItem::new(t(cx, "consumerGroups.deleteGroup"))
+                                        .icon(IconName::Delete)
+                                        .on_click(move |_, window, cx| {
+                                            let entity = entity_del.clone();
+                                            let cluster = cluster_del.clone();
+                                            context_actions::delete_consumer_group(
+                                                window,
+                                                cx,
+                                                cluster.clone(),
+                                                group_del.clone(),
+                                                move |cx| {
+                                                    entity.update(cx, |this, cx| {
+                                                        this.consumer_groups.remove(&cluster);
+                                                        this.load_consumer_groups(cluster.clone(), cx);
+                                                    });
+                                                },
+                                            );
+                                        }),
+                                )
+                            })
                             .into_any_element(),
                     );
                 }
@@ -1209,67 +1658,102 @@ impl TreeNavigator {
         v_flex().child(cluster_row).children(children).into_any_element()
     }
 
-    /// 浏览历史面板
+    /// 浏览历史面板（搜索 + 相对时间 + 单条删除）
     fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        if self.history.is_empty() {
-            return div()
-                .size_full()
+        let query = self.history_search.read(cx).value().to_lowercase();
+        let filtered: Vec<&HistoryItem> = self
+            .history
+            .iter()
+            .filter(|h| query.is_empty() || h.topic.to_lowercase().contains(&query))
+            .collect();
+
+        let list: AnyElement = if filtered.is_empty() {
+            div()
+                .flex_1()
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(t(cx, "history.empty"))
-                .into_any_element();
-        }
+                .child(if self.history.is_empty() {
+                    t(cx, "history.empty")
+                } else {
+                    t(cx, "history.noSearchResults")
+                })
+                .into_any_element()
+        } else {
+            let rows: Vec<AnyElement> = filtered
+                .iter()
+                .enumerate()
+                .map(|(ix, item)| {
+                    let cluster = item.cluster.clone();
+                    let topic = item.topic.clone();
+                    let id = item.id;
+                    let rel_time = relative_time(cx, &item.viewed_at, "history");
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .py_1p5()
+                        .rounded_md()
+                        .hover(|el| el.bg(theme.list_hover))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .overflow_hidden()
+                                .cursor_pointer()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .whitespace_nowrap()
+                                        .child(item.topic.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("{} · {}", item.cluster.clone(), rel_time)),
+                                )
+                                .id(("history", ix))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_topic(cluster.clone(), topic.clone(), cx);
+                                })),
+                        )
+                        .child(
+                            Button::new(("history-del", ix))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Delete)
+                                .tooltip(t(cx, "history.delete"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.delete_history_item(id, cx);
+                                })),
+                        )
+                        .into_any_element()
+                })
+                .collect();
 
-        let rows: Vec<AnyElement> = self
-            .history
-            .iter()
-            .enumerate()
-            .map(|(ix, item)| {
-                let cluster = item.cluster.clone();
-                let topic = item.topic.clone();
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .px_2()
-                    .py_1p5()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|el| el.bg(theme.list_hover))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .whitespace_nowrap()
-                                    .child(item.topic.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(item.cluster.clone()),
-                            ),
-                    )
-                    .id(("history", ix))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_topic(cluster.clone(), topic.clone(), cx);
-                    }))
-                    .into_any_element()
-            })
-            .collect();
+            div()
+                .id("history-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .p_1()
+                .child(v_flex().children(rows))
+                .into_any_element()
+        };
 
-        div()
-            .id("history-scroll")
+        v_flex()
             .size_full()
-            .overflow_y_scroll()
-            .p_1()
-            .child(v_flex().children(rows))
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(Input::new(&self.history_search).small()),
+            )
+            .child(list)
             .into_any_element()
     }
 }

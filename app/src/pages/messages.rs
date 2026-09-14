@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::components::navigator::NavEvent;
 
-actions!(messages_page, [TableUp, TableDown, TableOpen]);
+actions!(messages_page, [TableUp, TableDown, TableOpen, DetailSearch, DetailCopyValue]);
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
 use crate::components::notify;
@@ -96,11 +96,13 @@ struct SendForm {
 /// 发送历史条目
 #[derive(Clone, Debug)]
 struct SentItem {
+    id: i64,
     cluster: String,
     topic: String,
     partition: i32,
     key: Option<String>,
     value: String,
+    sent_at: String,
 }
 
 pub struct MessagesPage {
@@ -141,9 +143,13 @@ pub struct MessagesPage {
     // 发送 / 历史
     send_form: Option<SendForm>,
     send_and_continue: bool,
+    /// 导航进入后自动弹出发送窗口（右键菜单"发送消息"）
+    pending_open_send: bool,
     show_history: bool,
     history: Vec<SentItem>,
     history_search: Entity<InputState>,
+    /// max_messages 设置是否已从后端加载（防重复）
+    max_loaded: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -192,11 +198,13 @@ impl MessagesPage {
             InputState::new(window, cx).placeholder(t(cx, "sentMessageHistory.searchPlaceholder"))
         });
 
-        // 表格键盘导航
+        // 表格键盘导航 + 详情面板快捷键
         cx.bind_keys([
             KeyBinding::new("up", TableUp, Some("MessagesPage")),
             KeyBinding::new("down", TableDown, Some("MessagesPage")),
             KeyBinding::new("enter", TableOpen, Some("MessagesPage")),
+            KeyBinding::new("ctrl-f", DetailSearch, Some("MessagesPage")),
+            KeyBinding::new("ctrl-a", DetailCopyValue, Some("MessagesPage")),
         ]);
 
         let mut subscriptions = Vec::new();
@@ -263,9 +271,11 @@ impl MessagesPage {
             is_favorite: false,
             send_form: None,
             send_and_continue: false,
+            pending_open_send: false,
             show_history: false,
             history: Vec::new(),
             history_search,
+            max_loaded: false,
             _subscriptions: subscriptions,
         }
     }
@@ -282,6 +292,22 @@ impl MessagesPage {
         self.load_partitions(cluster, cx);
         self.check_favorite(cx);
         self.start_query(cx);
+    }
+
+    /// 外部导航：预选集群 + Topic 并自动弹出发送窗口（右键菜单"发送消息"）
+    pub fn select_cluster_topic_send(&mut self, cluster: String, topic: String, cx: &mut Context<Self>) {
+        self.select_cluster_topic(cluster, topic, cx);
+        self.pending_open_send = true;
+    }
+
+    /// 当前集群（返回导航快照用）
+    pub fn current_cluster(&self) -> Option<String> {
+        self.cluster.clone()
+    }
+
+    /// 当前 Topic（返回导航快照用）
+    pub fn current_topic(&self) -> Option<String> {
+        self.topic.clone()
     }
 
     /// 加载分区列表并创建分区下拉
@@ -340,6 +366,52 @@ impl MessagesPage {
         self.partition_state = Some(select);
     }
 
+    /// 加载持久化的 max_messages（渲染路径惰性执行一次，window 天然可用）
+    fn ensure_max_loaded(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.max_loaded {
+            return;
+        }
+        self.max_loaded = true;
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        let max_input = self.max_input.clone();
+
+        cx.spawn_in(window, async move |_this, cx| {
+            let result = crate::service::call(
+                &rt,
+                state,
+                "settings.get",
+                json!({ "keys": ["messages.max_messages"] }),
+            )
+            .await;
+            let value = result.ok().and_then(|v| {
+                v.get("settings")
+                    .and_then(|s| s.as_array())
+                    .and_then(|arr| {
+                        arr.iter().find_map(|item| {
+                            if item.get("key").and_then(|k| k.as_str())
+                                == Some("messages.max_messages")
+                            {
+                                item.get("value").and_then(|v| v.as_str()).map(String::from)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+            });
+            let Some(value) = value else { return };
+            if value.trim().is_empty() {
+                return;
+            }
+            max_input
+                .update_in(cx, |state, window, cx| {
+                    state.set_value(value, window, cx);
+                })
+                .ok();
+        })
+        .detach();
+    }
+
     /// 检查收藏状态
     fn check_favorite(&self, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
@@ -368,64 +440,44 @@ impl MessagesPage {
         .detach();
     }
 
-    fn toggle_favorite(&mut self, cx: &mut Context<Self>) {
+    /// 星标切换：已收藏 → 直接取消；未收藏 → 弹出分组选择弹窗（与 topics 页一致）
+    fn toggle_favorite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let Some(topic) = self.topic.clone() else { return };
-        let is_fav = self.is_favorite;
-        self.is_favorite = !is_fav;
+
+        if !self.is_favorite {
+            // 未收藏：弹分组选择弹窗，成功后刷新星标状态
+            let entity = cx.entity();
+            crate::components::favorite_dialog::FavoriteDialog::open(
+                window,
+                cx,
+                cluster,
+                topic,
+                move |cx| {
+                    entity.update(cx, |this, cx| this.check_favorite(cx));
+                },
+            );
+            return;
+        }
+
+        // 已收藏：直接取消（乐观更新，失败回滚）
+        self.is_favorite = false;
         cx.notify();
 
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
 
         cx.spawn(async move |this, cx| {
-            let result = if is_fav {
-                crate::service::call(
-                    &rt,
-                    state.clone(),
-                    "favorite.delete_by_topic",
-                    json!({ "cluster_id": cluster, "topic_name": topic }),
-                )
-                .await
-            } else {
-                let group_id = match crate::service::call(&rt, state.clone(), "favorite.group.list", json!({})).await {
-                    Ok(value) => {
-                        let first = value
-                            .as_array()
-                            .and_then(|arr| arr.first())
-                            .and_then(|g| g.get("id"))
-                            .and_then(|id| id.as_i64());
-                        match first {
-                            Some(id) => Some(id),
-                            None => crate::service::call(
-                                &rt,
-                                state.clone(),
-                                "favorite.group.create",
-                                json!({ "name": "默认分组" }),
-                            )
-                            .await
-                            .ok()
-                            .and_then(|v| v.get("id").and_then(|id| id.as_i64())),
-                        }
-                    }
-                    Err(_) => None,
-                };
-                match group_id {
-                    Some(gid) => {
-                        crate::service::call(
-                            &rt,
-                            state.clone(),
-                            "favorite.create",
-                            json!({ "group_id": gid, "cluster_id": cluster, "topic_name": topic }),
-                        )
-                        .await
-                    }
-                    None => Err("No favorite group available".to_string()),
-                }
-            };
+            let result = crate::service::call(
+                &rt,
+                state,
+                "favorite.delete_by_topic",
+                json!({ "cluster_id": cluster, "topic_name": topic }),
+            )
+            .await;
             if result.is_err() {
                 this.update(cx, |this, cx| {
-                    this.is_favorite = is_fav;
+                    this.is_favorite = true;
                     cx.notify();
                 })
                 .ok();
@@ -503,13 +555,8 @@ impl MessagesPage {
             .as_ref()
             .and_then(|s| s.read(cx).selected_value().map(|v| v.to_string()))
             .and_then(|v| v.trim().parse().ok());
-        let max_messages: i64 = self
-            .max_input
-            .read(cx)
-            .value()
-            .trim()
-            .parse()
-            .unwrap_or(100);
+        let max_raw = self.max_input.read(cx).value().trim().to_string();
+        let max_messages: i64 = max_raw.parse().unwrap_or(100);
         let search = self.search_input.read(cx).value().to_string();
         let start_time = Self::parse_time_input(&self.start_input.read(cx).value());
         let end_time = Self::parse_time_input(&self.end_input.read(cx).value());
@@ -550,6 +597,22 @@ impl MessagesPage {
 
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
+
+        // 持久化 max_messages（仅当输入非空且为合法数字；fire-and-forget）
+        if !max_raw.is_empty() && max_raw.parse::<i64>().is_ok() {
+            let rt_persist = rt.clone();
+            let state_persist = state.clone();
+            cx.spawn(async move |_this, _cx| {
+                let _ = crate::service::call(
+                    &rt_persist,
+                    state_persist,
+                    "settings.update",
+                    json!({ "key": "messages.max_messages", "value": max_raw }),
+                )
+                .await;
+            })
+            .detach();
+        }
 
         cx.spawn(async move |this, cx| {
             let token_for_stream = token.clone();
@@ -1022,7 +1085,41 @@ impl MessagesPage {
                                         )),
                                     ),
                             )
-                            .child(field_row(&value_label, Input::new(&value_state).into_any_element()))
+                            .child({
+                                // Value 标签行 + 格式化 JSON 按钮
+                                let value_state_fmt = value_state.clone();
+                                v_flex()
+                                    .gap_1()
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .child(div().text_sm().child(value_label.clone()))
+                                            .child(
+                                                Button::new("format-json")
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .label(t(_cx, "messages.formatJson"))
+                                                    .on_click(move |_, window, cx| {
+                                                        value_state_fmt.update(cx, |state, cx| {
+                                                            let raw = state.value().to_string();
+                                                            match serde_json::from_str::<serde_json::Value>(&raw) {
+                                                                Ok(v) => {
+                                                                    if let Ok(pretty) = serde_json::to_string_pretty(&v) {
+                                                                        state.set_value(pretty, window, cx);
+                                                                    }
+                                                                }
+                                                                Err(_) => {
+                                                                    let msg = t(cx, "toast.invalidFormat");
+                                                                    notify(cx, NotificationType::Warning, msg);
+                                                                }
+                                                            }
+                                                        });
+                                                    }),
+                                            ),
+                                    )
+                                    .child(Input::new(&value_state).into_any_element())
+                            })
                             .child({
                                 // Headers 编辑（动态行；对话框 builder 每次渲染重建）
                                 let entity = entity.clone();
@@ -1255,14 +1352,35 @@ impl MessagesPage {
                     .iter()
                     .filter_map(|m| {
                         Some(SentItem {
+                            id: m.get("id")?.as_i64()?,
                             cluster: m.get("cluster_id")?.as_str()?.to_string(),
                             topic: m.get("topic_name")?.as_str()?.to_string(),
                             partition: m.get("partition")?.as_i64()? as i32,
                             key: m.get("message_key").and_then(|v| v.as_str()).map(|s| s.to_string()),
                             value: m.get("message_value")?.as_str()?.to_string(),
+                            sent_at: m
+                                .get("sent_at")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
                         })
                     })
                     .collect();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 删除单条发送历史
+    fn delete_sent_item(&mut self, id: i64, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let _ = crate::service::call(&rt, state, "sent_message.delete", json!({ "id": id })).await;
+            this.update(cx, |this, cx| {
+                this.history.retain(|h| h.id != id);
                 cx.notify();
             })
             .ok();
@@ -1356,6 +1474,12 @@ fn format_button(
 impl Render for MessagesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_partition_select(window, cx);
+        self.ensure_max_loaded(window, cx);
+        // 导航"发送消息"：页面就绪后自动弹出发送窗口（仅一次）
+        if self.pending_open_send && self.topic.is_some() {
+            self.pending_open_send = false;
+            self.open_send(None, window, cx);
+        }
         let (border_c, secondary_c, muted_c, primary_c, info_c, success_c, danger_c, table_head_c, table_active_c, list_hover_c, bg_c) = {
             let theme = cx.theme();
             (
@@ -1519,8 +1643,8 @@ impl Render for MessagesPage {
                     .xsmall()
                     .icon(if self.is_favorite { IconName::Star } else { IconName::StarOff })
                     .disabled(!has_topic)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_favorite(cx);
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_favorite(window, cx);
                     })),
             )
             .child(
@@ -2050,13 +2174,31 @@ impl Render for MessagesPage {
                         .cursor_pointer()
                         .hover(|el| el.bg(list_hover_c))
                         .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted_c)
-                                .child(format!(
-                                    "{} / {} / P{}",
-                                    item.cluster, item.topic, item.partition
-                                )),
+                            h_flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(muted_c)
+                                        .child(format!(
+                                            "{} / {} / P{} · {}",
+                                            item.cluster,
+                                            item.topic,
+                                            item.partition,
+                                            crate::utils::relative_time(cx, &item.sent_at, "sentMessageHistory")
+                                        )),
+                                )
+                                .child(
+                                    Button::new(("history-del", ix))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Delete)
+                                        .tooltip(t(cx, "sentMessageHistory.delete"))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.delete_sent_item(item.id, cx);
+                                        })),
+                                ),
                         )
                         .children(item.key.as_ref().map(|k| {
                             div().text_xs().child(format!("key: {}", k)).into_any_element()
@@ -2195,6 +2337,25 @@ impl Render for MessagesPage {
                     cx.notify();
                 }
             }))
+            // Ctrl+F：打开详情面板搜索并聚焦输入框
+            .on_action(cx.listener(|this, _: &DetailSearch, window, cx| {
+                if this.selected.is_some() {
+                    this.detail_search_active = true;
+                    this.detail_match_index = 0;
+                    let handle = this.detail_search_input.focus_handle(cx);
+                    handle.focus(window);
+                    cx.notify();
+                }
+            }))
+            // Ctrl+A：复制当前选中消息的 Value（按当前格式），等价旧版全选后复制
+            .on_action(cx.listener(|this, _: &DetailCopyValue, _, cx| {
+                if let Some(ix) = this.selected {
+                    if let Some(m) = this.messages.get(ix) {
+                        let text = this.format_detail_value(&m.value.clone().unwrap_or_default());
+                        Self::copy_text(text, cx);
+                    }
+                }
+            }))
             .child(
                 v_flex()
                     .size_full()
@@ -2220,27 +2381,6 @@ fn detail_value_element(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    if format == DetailFormat::Json && query.is_empty() {
-        // tree-sitter JSON 语法高亮
-        return gpui_component::text::TextView::markdown(
-            "detail-json-view",
-            format!("```json\n{}\n```", text),
-            window,
-            cx,
-        )
-        .into_any_element();
-    }
-
-    if query.is_empty() {
-        return div().text_xs().child(text.to_string()).into_any_element();
-    }
-
-    // 搜索高亮：StyledText 分段
-    let matches = MessagesPage::detail_matches(text, query);
-    if matches.is_empty() {
-        return div().text_xs().child(text.to_string()).into_any_element();
-    }
-
     let theme = cx.theme();
     let mark_style = HighlightStyle {
         background_color: Some(theme.warning.opacity(0.4)),
@@ -2250,15 +2390,53 @@ fn detail_value_element(
         background_color: Some(theme.warning),
         ..Default::default()
     };
+    let search_highlights = |text: &str, query: &str| -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        let mut highlights = Vec::new();
+        if !query.is_empty() {
+            for (ix, pos) in MessagesPage::detail_matches(text, query).iter().enumerate() {
+                let style = if ix == current_match {
+                    current_style
+                } else {
+                    mark_style
+                };
+                highlights.push((*pos..(pos + query.len()), style));
+            }
+        }
+        highlights
+    };
 
-    let mut highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = Vec::new();
-    for (ix, pos) in matches.iter().enumerate() {
-        let style = if ix == current_match {
-            current_style
-        } else {
-            mark_style
-        };
-        highlights.push((*pos..(pos + query.len()), style));
+    if format == DetailFormat::Json {
+        // 优先：JSON 高亮模板（设置页可选；搜索匹配高亮追加在后覆盖模板色）
+        if let Some(tpl) = crate::state::JsonTemplate::current(cx) {
+            let theme_styles = if cx.theme().is_dark() { &tpl.dark } else { &tpl.light };
+            let mut highlights = crate::utils::json_template_highlights(text, theme_styles);
+            highlights.extend(search_highlights(text, query));
+            return div()
+                .text_xs()
+                .font_family("monospace")
+                .child(StyledText::new(text.to_string()).with_highlights(highlights))
+                .into_any_element();
+        }
+        // 无模板：tree-sitter JSON 语法高亮（不支持搜索高亮叠加，搜索时走下方 StyledText）
+        if query.is_empty() {
+            return gpui_component::text::TextView::markdown(
+                "detail-json-view",
+                format!("```json\n{}\n```", text),
+                window,
+                cx,
+            )
+            .into_any_element();
+        }
+    }
+
+    if query.is_empty() {
+        return div().text_xs().child(text.to_string()).into_any_element();
+    }
+
+    // 搜索高亮：StyledText 分段
+    let highlights = search_highlights(text, query);
+    if highlights.is_empty() {
+        return div().text_xs().child(text.to_string()).into_any_element();
     }
 
     StyledText::new(text.to_string())

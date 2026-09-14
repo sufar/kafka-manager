@@ -4,6 +4,8 @@ use gpui::App;
 use gpui_component::notification::{Notification, NotificationType};
 use gpui_component::WindowExt;
 
+pub mod context_actions;
+pub mod favorite_dialog;
 pub mod navigator;
 pub mod option_select;
 pub mod tree_navigator;

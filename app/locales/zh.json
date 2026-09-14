@@ -323,7 +323,8 @@
     "timestampValue": "时间戳",
     "noOffsets": "暂无偏移量数据",
     "selectFromNav": "请从左侧导航栏选择一个消费者组查看详情",
-    "groupNamePrefix": "消费者组："
+    "groupNamePrefix": "消费者组：",
+    "confirmDelete": "确定要删除消费组 \"{name}\" 吗？"
   },
   "topicConsumerGroups": {
     "title": "Topic 消费者组",
@@ -339,7 +340,8 @@
     "refreshed": "Consumer Groups 已刷新",
     "dataNoticeTitle": "数据来源说明",
     "dataNotice": "此页面显示的 Consumer Groups 来自数据库历史记录，offset 数据实时从 Kafka 获取。",
-    "topicNamePrefix": "Topic："
+    "topicNamePrefix": "Topic：",
+    "selectFromNav": "从左侧导航器选择一个消费组查看详情"
   },
   "settings": {
     "title": "设置",
@@ -1168,5 +1170,9 @@
       "title": "收藏编辑弹窗",
       "desc": "将收藏移到其他分组或添加描述。"
     }
+  },
+  "contextMenu": {
+    "refreshStatus": "刷新状态",
+    "viewConsumerGroups": "查看消费组"
   }
 }

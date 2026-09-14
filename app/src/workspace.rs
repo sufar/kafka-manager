@@ -8,7 +8,7 @@
 //! │ (可拖拽)  │                          │
 //! └───────────┴──────────────────────────┘
 
-use gpui::*;
+use gpui::{prelude::FluentBuilder, *};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
@@ -28,11 +28,22 @@ use crate::pages::topic_consumer_groups::TopicConsumerGroupsPage;
 use crate::pages::topics::TopicsPage;
 use crate::state::{Backend, Page, SidebarMode, TokioRuntime};
 
+actions!(workspace, [SearchNextResult, SearchPrevResult, FocusGlobalSearch, DismissSearch]);
+
 /// 全局搜索结果
 #[derive(Clone, Debug)]
 struct SearchResult {
     cluster: String,
     topic: String,
+}
+
+/// 返回导航栈的历史快照
+#[derive(Clone, Debug, PartialEq)]
+struct NavSnapshot {
+    page: Page,
+    cluster: Option<String>,
+    topic: Option<String>,
+    group: Option<String>,
 }
 
 pub struct Workspace {
@@ -51,6 +62,10 @@ pub struct Workspace {
     search_input: Entity<InputState>,
     search_results: Vec<SearchResult>,
     search_open: bool,
+    search_selected: usize,
+    // 返回导航栈
+    nav_history: Vec<NavSnapshot>,
+    window_handle: AnyWindowHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -86,32 +101,69 @@ impl Workspace {
             this.handle_nav_event(event, cx);
         }));
 
-        // 全局搜索（防抖 300ms）
+        // 全局搜索（防抖 300ms；回车打开选中结果）
         subscriptions.push(cx.subscribe(
             &search_input,
             |this, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.schedule_search(cx);
+                match event {
+                    InputEvent::Change => this.schedule_search(cx),
+                    InputEvent::PressEnter { .. } => {
+                        if this.search_open && !this.search_results.is_empty() {
+                            let ix = this.search_selected.min(this.search_results.len() - 1);
+                            let result = this.search_results[ix].clone();
+                            this.select_search_result(result, cx);
+                        }
+                    }
+                    _ => {}
                 }
             },
         ));
 
+        // 搜索下拉键盘导航 + Ctrl+K 聚焦搜索
+        cx.bind_keys([
+            KeyBinding::new("down", SearchNextResult, Some("GlobalSearch")),
+            KeyBinding::new("up", SearchPrevResult, Some("GlobalSearch")),
+            KeyBinding::new("escape", DismissSearch, Some("GlobalSearch")),
+            KeyBinding::new("ctrl-k", FocusGlobalSearch, Some("Workspace")),
+        ]);
+
         // 启动后从设置中加载语言与主题
         let rt = TokioRuntime::handle(cx);
         let state = Backend::state(cx);
-        cx.spawn(async move |_this, cx| {
+        // 启动加载 JSON 高亮模板（消息详情 JSON 着色用）
+        crate::utils::load_json_template(cx);
+        cx.spawn(async move |this, cx| {
             let result = match state {
                 Some(state) => crate::service::call(
                     &rt,
                     state,
                     "settings.get",
-                    serde_json::json!({ "keys": ["ui.language", "ui.theme", "ui.sidebar_mode"] }),
+                    serde_json::json!({ "keys": ["ui.language", "ui.theme", "ui.sidebar_mode", "ui.last_page"] }),
                 )
                 .await
                 .ok(),
                 None => None,
             };
             if let Some(value) = result {
+                // 恢复上次浏览的页面（需在 App 上下文中访问各页面实体）
+                let last_page = value
+                    .get("settings")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| {
+                        arr.iter().find_map(|item| {
+                            if item.get("key").and_then(|k| k.as_str()) == Some("ui.last_page") {
+                                item.get("value").and_then(|v| v.as_str()).map(String::from)
+                            } else {
+                                None
+                            }
+                        })
+                    });
+                if let Some(last_page) = last_page {
+                    this.update(cx, |this, cx| {
+                        this.restore_last_page(&last_page, cx);
+                    })
+                    .ok();
+                }
                 cx.update(|cx| {
                     if let Some(settings) = value.get("settings").and_then(|v| v.as_array()) {
                         for item in settings {
@@ -149,6 +201,9 @@ impl Workspace {
             search_input,
             search_results: Vec::new(),
             search_open: false,
+            search_selected: 0,
+            nav_history: Vec::new(),
+            window_handle: window.window_handle(),
             _subscriptions: subscriptions,
         }
     }
@@ -162,10 +217,17 @@ impl Workspace {
     /// 处理导航器（平铺/树形）发来的导航事件
     fn handle_nav_event(&mut self, event: &NavEvent, cx: &mut Context<Self>) {
         tracing::info!("[NAV] handle_nav_event: {:?}", event);
+        let before = self.snapshot_current(cx);
         match event {
             NavEvent::OpenMessages { cluster, topic } => {
                 self.messages_page.update(cx, |page, cx| {
                     page.select_cluster_topic(cluster.clone(), topic.clone(), cx)
+                });
+                self.switch_page(Page::Messages, cx);
+            }
+            NavEvent::OpenMessagesSend { cluster, topic } => {
+                self.messages_page.update(cx, |page, cx| {
+                    page.select_cluster_topic_send(cluster.clone(), topic.clone(), cx)
                 });
                 self.switch_page(Page::Messages, cx);
             }
@@ -187,9 +249,253 @@ impl Workspace {
                 });
                 self.switch_page(Page::TopicConsumerGroups, cx);
             }
+            NavEvent::OpenClustersAction { cluster, action } => {
+                let cluster = cluster.clone();
+                let action = *action;
+                let clusters_page = self.clusters_page.clone();
+                let wh = self.window_handle;
+                self.switch_page(Page::Clusters, cx);
+                // 弹窗需要 window，经 window_handle 调用
+                let _ = wh.update(cx, |_, window, cx| {
+                    clusters_page.update(cx, |page, cx| {
+                        page.open_action(cluster.clone(), action, window, cx);
+                    });
+                });
+            }
             NavEvent::OpenPage(page) => {
                 self.switch_page(*page, cx);
             }
+        }
+        self.after_navigate(before, cx);
+    }
+
+    /// 当前页面状态快照
+    fn snapshot_current(&self, cx: &App) -> NavSnapshot {
+        let (cluster, topic, group) = match self.page {
+            Page::Messages => {
+                let p = self.messages_page.read(cx);
+                (p.current_cluster(), p.current_topic(), None)
+            }
+            Page::Topics => (self.topics_page.read(cx).current_cluster(), None, None),
+            Page::ConsumerGroups => {
+                let p = self.consumer_groups_page.read(cx);
+                (p.current_cluster(), None, p.current_group())
+            }
+            Page::TopicConsumerGroups => {
+                let p = self.topic_cg_page.read(cx);
+                let ct = p.current_topic(); // Option<(String, String)> = (cluster, topic)
+                (ct.as_ref().map(|(c, _)| c.clone()), ct.map(|(_, t)| t), None)
+            }
+            _ => (None, None, None),
+        };
+        NavSnapshot {
+            page: self.page,
+            cluster,
+            topic,
+            group,
+        }
+    }
+
+    /// 导航后处理：状态变化时压入返回栈 + 持久化
+    fn after_navigate(&mut self, before: NavSnapshot, cx: &mut Context<Self>) {
+        let now = self.snapshot_current(cx);
+        if now != before {
+            self.nav_history.push(before);
+            if self.nav_history.len() > 50 {
+                self.nav_history.remove(0);
+            }
+            self.persist_last_page(cx);
+        }
+    }
+
+    /// 返回上一页
+    fn go_back(&mut self, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.nav_history.pop() else {
+            return;
+        };
+        self.apply_snapshot(&snapshot, cx);
+        self.persist_last_page(cx);
+    }
+
+    /// 应用历史快照（不压栈）
+    fn apply_snapshot(&mut self, snapshot: &NavSnapshot, cx: &mut Context<Self>) {
+        match snapshot.page {
+            Page::Messages => {
+                if let (Some(c), Some(t)) = (snapshot.cluster.clone(), snapshot.topic.clone()) {
+                    self.messages_page
+                        .update(cx, |p, cx| p.select_cluster_topic(c, t, cx));
+                }
+            }
+            Page::Topics => {
+                if let Some(c) = snapshot.cluster.clone() {
+                    self.topics_page.update(cx, |p, cx| p.select_cluster(c, cx));
+                }
+            }
+            Page::ConsumerGroups => {
+                if let Some(c) = snapshot.cluster.clone() {
+                    self.consumer_groups_page.update(cx, |p, cx| {
+                        p.select_group(c, snapshot.group.clone(), cx)
+                    });
+                }
+            }
+            Page::TopicConsumerGroups => {
+                if let (Some(c), Some(t)) = (snapshot.cluster.clone(), snapshot.topic.clone()) {
+                    self.topic_cg_page
+                        .update(cx, |p, cx| p.select_cluster_topic(c, t, cx));
+                }
+            }
+            _ => {}
+        }
+        self.switch_page(snapshot.page, cx);
+    }
+
+    /// 页面 → 持久化键
+    fn page_key(page: Page) -> &'static str {
+        match page {
+            Page::Clusters => "clusters",
+            Page::Topics => "topics",
+            Page::Messages => "messages",
+            Page::ConsumerGroups => "consumerGroups",
+            Page::TopicConsumerGroups => "topicConsumerGroups",
+            Page::SchemaRegistry => "schemaRegistry",
+            Page::Favorites => "favorites",
+            Page::Settings => "settings",
+        }
+    }
+
+    /// 持久化当前页面（启动时恢复）
+    fn persist_last_page(&self, cx: &mut Context<Self>) {
+        let snapshot = self.snapshot_current(cx);
+        let value = serde_json::json!({
+            "page": Self::page_key(snapshot.page),
+            "cluster": snapshot.cluster,
+            "topic": snapshot.topic,
+            "group": snapshot.group,
+        })
+        .to_string();
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        cx.spawn(async move |_this, _cx| {
+            let _ = crate::service::call(
+                &rt,
+                state,
+                "settings.update",
+                serde_json::json!({ "key": "ui.last_page", "value": value }),
+            )
+            .await;
+        })
+        .detach();
+    }
+
+    /// 启动时恢复上次浏览的页面
+    fn restore_last_page(&mut self, value: &str, cx: &mut Context<Self>) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(value) else {
+            return;
+        };
+        let page = match v.get("page").and_then(|p| p.as_str()) {
+            Some("topics") => Page::Topics,
+            Some("messages") => Page::Messages,
+            Some("consumerGroups") => Page::ConsumerGroups,
+            Some("topicConsumerGroups") => Page::TopicConsumerGroups,
+            Some("schemaRegistry") => Page::SchemaRegistry,
+            Some("favorites") => Page::Favorites,
+            Some("settings") => Page::Settings,
+            // clusters 是默认页，无需恢复
+            _ => return,
+        };
+        let cluster = v
+            .get("cluster")
+            .and_then(|c| c.as_str())
+            .map(String::from);
+        let topic = v.get("topic").and_then(|c| c.as_str()).map(String::from);
+        let group = v.get("group").and_then(|c| c.as_str()).map(String::from);
+        match page {
+            Page::Messages => {
+                if let (Some(c), Some(t)) = (cluster, topic) {
+                    self.messages_page
+                        .update(cx, |p, cx| p.select_cluster_topic(c, t, cx));
+                }
+            }
+            Page::Topics => {
+                if let Some(c) = cluster {
+                    self.topics_page.update(cx, |p, cx| p.select_cluster(c, cx));
+                }
+            }
+            Page::ConsumerGroups => {
+                if let Some(c) = cluster {
+                    self.consumer_groups_page
+                        .update(cx, |p, cx| p.select_group(c, group, cx));
+                }
+            }
+            Page::TopicConsumerGroups => {
+                if let (Some(c), Some(t)) = (cluster, topic) {
+                    self.topic_cg_page
+                        .update(cx, |p, cx| p.select_cluster_topic(c, t, cx));
+                }
+            }
+            _ => {}
+        }
+        self.switch_page(page, cx);
+    }
+
+    /// 顶栏按钮导航（压入返回栈）
+    fn navigate_to(&mut self, page: Page, cx: &mut Context<Self>) {
+        if self.page != page {
+            let before = self.snapshot_current(cx);
+            self.switch_page(page, cx);
+            self.after_navigate(before, cx);
+        }
+    }
+
+    /// 搜索下拉：关闭
+    fn search_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.search_open {
+            self.search_open = false;
+            cx.notify();
+        }
+    }
+
+    /// 匹配子串高亮渲染：topic 名中命中查询的部分用主题色加粗
+    fn highlight_match(text: &str, query: &str, accent: Hsla) -> AnyElement {
+        let lower = text.to_lowercase();
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return div().text_sm().overflow_hidden().child(text.to_string()).into_any_element();
+        }
+        if let Some(start) = lower.find(&q) {
+            let end = start + q.len();
+            let pre = text[..start].to_string();
+            let hit = text[start..end].to_string();
+            let post = text[end..].to_string();
+            h_flex()
+                .overflow_hidden()
+                .text_sm()
+                .child(pre)
+                .child(div().text_color(accent).font_semibold().child(hit))
+                .child(post)
+                .into_any_element()
+        } else {
+            div().text_sm().overflow_hidden().child(text.to_string()).into_any_element()
+        }
+    }
+
+    /// 搜索下拉：下一项
+    fn search_next(&mut self, cx: &mut Context<Self>) {
+        if !self.search_results.is_empty() {
+            self.search_selected = (self.search_selected + 1) % self.search_results.len();
+            cx.notify();
+        }
+    }
+
+    /// 搜索下拉：上一项
+    fn search_prev(&mut self, cx: &mut Context<Self>) {
+        if !self.search_results.is_empty() {
+            self.search_selected = if self.search_selected == 0 {
+                self.search_results.len() - 1
+            } else {
+                self.search_selected - 1
+            };
+            cx.notify();
         }
     }
 
@@ -197,6 +503,7 @@ impl Workspace {
     fn schedule_search(&mut self, cx: &mut Context<Self>) {
         let query = self.search_input.read(cx).value().to_string();
         self.search_open = !query.trim().is_empty();
+        self.search_selected = 0;
         cx.notify();
 
         if query.trim().is_empty() {
@@ -243,6 +550,7 @@ impl Workspace {
     }
 
     fn select_search_result(&mut self, result: SearchResult, cx: &mut Context<Self>) {
+        let before = self.snapshot_current(cx);
         self.search_open = false;
         self.search_results = Vec::new();
         let (cluster, topic) = (result.cluster.clone(), result.topic.clone());
@@ -250,6 +558,7 @@ impl Workspace {
             page.select_cluster_topic(cluster, topic, cx)
         });
         self.switch_page(Page::Messages, cx);
+        self.after_navigate(before, cx);
     }
 
     fn toggle_language(&mut self, cx: &mut Context<Self>) {
@@ -290,21 +599,18 @@ impl Workspace {
                     .enumerate()
                     .map(|(ix, r)| {
                         let result = r.clone();
+                        let query = self.search_input.read(cx).value().to_string();
                         h_flex()
-                            .id(("search-result", ix))
                             .items_center()
                             .justify_between()
                             .p_2()
                             .cursor_pointer()
                             .border_b_1()
                             .border_color(theme.border)
+                            .when(ix == self.search_selected, |el| el.bg(theme.list_active))
                             .hover(|el| el.bg(theme.list_hover))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .overflow_hidden()
-                                    .child(result.topic.clone()),
-                            )
+                            .id(("search-result", ix))
+                            .child(Self::highlight_match(&result.topic, &query, theme.primary))
                             .child(
                                 div()
                                     .text_xs()
@@ -364,6 +670,17 @@ impl Workspace {
                 h_flex()
                     .gap_2()
                     .items_center()
+                    // 返回上一页（返回栈为空时禁用）
+                    .child(
+                        Button::new("nav-back")
+                            .ghost()
+                            .icon(IconName::ArrowLeft)
+                            .tooltip(t(cx, "common.back"))
+                            .disabled(self.nav_history.is_empty())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.go_back(cx);
+                            })),
+                    )
                     .child(
                         div()
                             .size_6()
@@ -381,6 +698,7 @@ impl Workspace {
                         div()
                             .w_72()
                             .ml_2()
+                            .key_context("GlobalSearch")
                             .child(Input::new(&self.search_input).small()),
                     ),
             )
@@ -431,7 +749,7 @@ impl Workspace {
                             .icon(IconName::Settings)
                             .tooltip(t(cx, "nav.settings"))
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.switch_page(Page::Settings, cx);
+                                this.navigate_to(Page::Settings, cx);
                             })),
                     ),
             )
@@ -474,6 +792,20 @@ impl Render for Workspace {
         div()
             .relative()
             .size_full()
+            .key_context("Workspace")
+            .on_action(cx.listener(|this, _: &SearchNextResult, _, cx| {
+                this.search_next(cx);
+            }))
+            .on_action(cx.listener(|this, _: &SearchPrevResult, _, cx| {
+                this.search_prev(cx);
+            }))
+            .on_action(cx.listener(|this, _: &DismissSearch, _, cx| {
+                this.search_dismiss(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusGlobalSearch, window, cx| {
+                let handle = this.search_input.focus_handle(cx);
+                handle.focus(window);
+            }))
             .child(
                 v_flex()
                     .size_full()

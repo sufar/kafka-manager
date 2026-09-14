@@ -12,11 +12,13 @@ use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_component::dialog::DialogButtonProps;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::notification::NotificationType;
+use gpui_component::select::{SearchableVec, Select, SelectState};
 use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
 use crate::components::notify;
+use crate::components::option_select::StringOption;
 use crate::i18n::t;
 use crate::state::{Backend, TokioRuntime};
 
@@ -25,6 +27,14 @@ struct CreateTopicForm {
     name: Entity<InputState>,
     partitions: Entity<InputState>,
     replication: Entity<InputState>,
+    advanced_open: bool,
+    cleanup_policy: Entity<SelectState<SearchableVec<StringOption>>>,
+    retention_ms: Entity<InputState>,
+    retention_bytes: Entity<InputState>,
+    segment_bytes: Entity<InputState>,
+    retention_ms_error: Option<String>,
+    retention_bytes_error: Option<String>,
+    segment_bytes_error: Option<String>,
 }
 
 impl EventEmitter<crate::components::navigator::NavEvent> for TopicsPage {}
@@ -77,6 +87,11 @@ impl TopicsPage {
         self.loading = true;
         cx.notify();
         self.load_topics(cx);
+    }
+
+    /// 当前集群（返回导航快照用）
+    pub fn current_cluster(&self) -> Option<String> {
+        self.cluster.clone()
     }
 
     /// 加载 Topic 列表（含收藏状态）
@@ -161,65 +176,44 @@ impl TopicsPage {
         .detach();
     }
 
-    fn toggle_favorite(&mut self, topic: String, cx: &mut Context<Self>) {
+    /// 星标切换：已收藏 → 直接取消；未收藏 → 弹出分组选择弹窗（与旧版 FavoriteButton 一致）
+    fn toggle_favorite(&mut self, topic: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let key = format!("{}\u{1}{}", cluster, topic);
         let is_fav = self.favorites.contains(&key);
-        if is_fav {
-            self.favorites.remove(&key);
-        } else {
-            self.favorites.insert(key);
+
+        if !is_fav {
+            // 未收藏：弹分组选择弹窗，成功后更新本地收藏集
+            let entity = cx.entity();
+            crate::components::favorite_dialog::FavoriteDialog::open(
+                window,
+                cx,
+                cluster,
+                topic,
+                move |cx| {
+                    entity.update(cx, |this, cx| {
+                        this.load_topics(cx);
+                    });
+                },
+            );
+            return;
         }
+
+        // 已收藏：直接取消
+        self.favorites.remove(&key);
         cx.notify();
 
         let rt = TokioRuntime::handle(cx);
         let Some(state) = Backend::state(cx) else { return };
 
         cx.spawn(async move |this, cx| {
-            let result = if is_fav {
-                crate::service::call(
-                    &rt,
-                    state.clone(),
-                    "favorite.delete_by_topic",
-                    json!({ "cluster_id": cluster, "topic_name": topic }),
-                )
-                .await
-            } else {
-                let group_id = match crate::service::call(&rt, state.clone(), "favorite.group.list", json!({})).await {
-                    Ok(value) => {
-                        let first = value
-                            .as_array()
-                            .and_then(|arr| arr.first())
-                            .and_then(|g| g.get("id"))
-                            .and_then(|id| id.as_i64());
-                        match first {
-                            Some(id) => Some(id),
-                            None => crate::service::call(
-                                &rt,
-                                state.clone(),
-                                "favorite.group.create",
-                                json!({ "name": "默认分组" }),
-                            )
-                            .await
-                            .ok()
-                            .and_then(|v| v.get("id").and_then(|id| id.as_i64())),
-                        }
-                    }
-                    Err(_) => None,
-                };
-                match group_id {
-                    Some(gid) => {
-                        crate::service::call(
-                            &rt,
-                            state.clone(),
-                            "favorite.create",
-                            json!({ "group_id": gid, "cluster_id": cluster, "topic_name": topic }),
-                        )
-                        .await
-                    }
-                    None => Err("No favorite group available".to_string()),
-                }
-            };
+            let result = crate::service::call(
+                &rt,
+                state.clone(),
+                "favorite.delete_by_topic",
+                json!({ "cluster_id": cluster, "topic_name": topic }),
+            )
+            .await;
             if let Err(e) = result {
                 cx.update(|cx| notify(cx, NotificationType::Error, e)).ok();
                 this.update(cx, |this, cx| this.load_topics(cx)).ok();
@@ -319,11 +313,42 @@ impl TopicsPage {
             state.set_value("1".to_string(), window, cx);
             state
         });
+        // 高级选项
+        let cleanup_state = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(vec![
+                    StringOption::new("-", ""),
+                    StringOption::new("delete", "delete"),
+                    StringOption::new("compact", "compact"),
+                    StringOption::new("delete,compact", "delete,compact"),
+                ]),
+                Some(IndexPath::new(0)),
+                window,
+                cx,
+            )
+        });
+        let retention_ms_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.retentionMsPlaceholder"))
+        });
+        let retention_bytes_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.retentionBytesPlaceholder"))
+        });
+        let segment_bytes_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.segmentBytesPlaceholder"))
+        });
 
         self.create_form = Some(CreateTopicForm {
             name: name_state.clone(),
             partitions: partitions_state.clone(),
             replication: replication_state.clone(),
+            advanced_open: false,
+            cleanup_policy: cleanup_state.clone(),
+            retention_ms: retention_ms_state.clone(),
+            retention_bytes: retention_bytes_state.clone(),
+            segment_bytes: segment_bytes_state.clone(),
+            retention_ms_error: None,
+            retention_bytes_error: None,
+            segment_bytes_error: None,
         });
 
         let entity = cx.entity();
@@ -331,9 +356,31 @@ impl TopicsPage {
         let name_label = t(cx, "topics.topicName");
         let partitions_label = t(cx, "topics.numPartitions");
         let replication_label = t(cx, "topics.replicationFactor");
+        let advanced_label = t(cx, "topics.advancedOptions");
+        let cleanup_label = t(cx, "topics.cleanupPolicy");
+        let retention_ms_label = t(cx, "topics.retentionMs");
+        let retention_bytes_label = t(cx, "topics.retentionBytes");
+        let segment_bytes_label = t(cx, "topics.segmentBytes");
 
-        window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, cx| {
             let entity = entity.clone();
+            let entity_toggle = entity.clone();
+            let (advanced_open, retention_ms_error, retention_bytes_error, segment_bytes_error) = {
+                let page = entity.read(cx);
+                page.create_form
+                    .as_ref()
+                    .map(|f| {
+                        (
+                            f.advanced_open,
+                            f.retention_ms_error.clone(),
+                            f.retention_bytes_error.clone(),
+                            f.segment_bytes_error.clone(),
+                        )
+                    })
+                    .unwrap_or_default()
+            };
+            let danger = cx.theme().danger;
+            let muted = cx.theme().muted_foreground;
             dialog
                 .title(title.clone())
                 .w(px(480.0))
@@ -342,32 +389,150 @@ impl TopicsPage {
                         .gap_3()
                         .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
                         .child(field_row(&partitions_label, Input::new(&partitions_state).into_any_element()))
-                        .child(field_row(&replication_label, Input::new(&replication_state).into_any_element())),
+                        .child(field_row(&replication_label, Input::new(&replication_state).into_any_element()))
+                        .child(
+                            v_flex()
+                                .gap_3()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .id("advanced-toggle")
+                                        .cursor_pointer()
+                                        .child(
+                                            Icon::new(if advanced_open {
+                                                IconName::ChevronDown
+                                            } else {
+                                                IconName::ChevronRight
+                                            })
+                                            .size_4()
+                                            .text_color(muted),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(muted)
+                                                .child(advanced_label.clone()),
+                                        )
+                                        .on_click(move |_, _, cx| {
+                                            entity_toggle.update(cx, |this, cx| {
+                                                if let Some(form) = this.create_form.as_mut() {
+                                                    form.advanced_open = !form.advanced_open;
+                                                }
+                                                cx.notify();
+                                            });
+                                        }),
+                                )
+                                .when(advanced_open, |this| {
+                                    this.child(
+                                        field_row(&cleanup_label, Select::new(&cleanup_state).into_any_element()),
+                                    )
+                                    .child(field_row_with_error(
+                                        &retention_ms_label,
+                                        Input::new(&retention_ms_state).into_any_element(),
+                                        retention_ms_error,
+                                        danger,
+                                    ))
+                                    .child(field_row_with_error(
+                                        &retention_bytes_label,
+                                        Input::new(&retention_bytes_state).into_any_element(),
+                                        retention_bytes_error,
+                                        danger,
+                                    ))
+                                    .child(field_row_with_error(
+                                        &segment_bytes_label,
+                                        Input::new(&segment_bytes_state).into_any_element(),
+                                        segment_bytes_error,
+                                        danger,
+                                    ))
+                                }),
+                        ),
                 )
                 .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                 .on_ok(move |_, window, cx| {
-                    entity.update(cx, |this, cx| this.submit_create(window, cx));
-                    true
+                    entity.update(cx, |this, cx| this.submit_create(window, cx))
                 })
                 .on_cancel(|_, _, _| true)
         });
     }
 
-    fn submit_create(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = self.create_form.take() else { return };
-        let Some(cluster) = self.cluster.clone() else { return };
+    /// 提交创建；返回是否关闭对话框（校验失败时保留表单并显示错误）
+    fn submit_create(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(cluster) = self.cluster.clone() else { return true };
+        let Some(form) = self.create_form.as_ref() else { return true };
+
         let name = form.name.read(cx).value().to_string();
         let num_partitions: i32 = form.partitions.read(cx).value().parse().unwrap_or(1);
         let replication_factor: i32 = form.replication.read(cx).value().parse().unwrap_or(1);
+        let cleanup_policy = form
+            .cleanup_policy
+            .read(cx)
+            .selected_value()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let retention_ms = form.retention_ms.read(cx).value().trim().to_string();
+        let retention_bytes = form.retention_bytes.read(cx).value().trim().to_string();
+        let segment_bytes = form.segment_bytes.read(cx).value().trim().to_string();
 
         if name.trim().is_empty() {
             let msg = t(cx, "topics.validationTopicNameRequired");
             notify(cx, NotificationType::Error, msg);
-            return;
+            return false;
         }
 
+        // 高级选项校验（仅非空时校验）
+        let retention_ms_error = if !retention_ms.is_empty()
+            && !matches!(retention_ms.parse::<i64>(), Ok(v) if v > 0)
+        {
+            Some(t(cx, "topics.validationRetentionMs"))
+        } else {
+            None
+        };
+        let retention_bytes_error =
+            if !retention_bytes.is_empty() && retention_bytes.parse::<i64>().is_err() {
+                Some(t(cx, "topics.validationRetentionBytes"))
+            } else {
+                None
+            };
+        let segment_bytes_error = if !segment_bytes.is_empty()
+            && !matches!(segment_bytes.parse::<i64>(), Ok(v) if v > 0)
+        {
+            Some(t(cx, "topics.validationSegmentBytes"))
+        } else {
+            None
+        };
+
+        let invalid = retention_ms_error.is_some()
+            || retention_bytes_error.is_some()
+            || segment_bytes_error.is_some();
+        if let Some(form) = self.create_form.as_mut() {
+            form.retention_ms_error = retention_ms_error;
+            form.retention_bytes_error = retention_bytes_error;
+            form.segment_bytes_error = segment_bytes_error;
+        }
+        if invalid {
+            cx.notify();
+            return false;
+        }
+
+        // 组装可选 config
+        let mut config = serde_json::Map::new();
+        if !cleanup_policy.is_empty() {
+            config.insert("cleanup.policy".to_string(), json!(cleanup_policy));
+        }
+        if !retention_ms.is_empty() {
+            config.insert("retention.ms".to_string(), json!(retention_ms));
+        }
+        if !retention_bytes.is_empty() {
+            config.insert("retention.bytes".to_string(), json!(retention_bytes));
+        }
+        if !segment_bytes.is_empty() {
+            config.insert("segment.bytes".to_string(), json!(segment_bytes));
+        }
+
+        self.create_form = None;
         let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
+        let Some(state) = Backend::state(cx) else { return true };
 
         cx.spawn(async move |this, cx| {
             let result = crate::service::call(
@@ -379,6 +544,7 @@ impl TopicsPage {
                     "name": name.trim(),
                     "num_partitions": num_partitions,
                     "replication_factor": replication_factor,
+                    "config": config,
                 }),
             )
             .await;
@@ -390,6 +556,7 @@ impl TopicsPage {
             this.update(cx, |this, cx| this.load_topics(cx)).ok();
         })
         .detach();
+        true
     }
 }
 
@@ -399,6 +566,13 @@ fn field_row(label: &str, control: AnyElement) -> Div {
         .gap_1()
         .child(div().text_sm().child(label.to_string()))
         .child(control)
+}
+
+/// 表单字段行（带可选错误提示）：标签 + 控件 + 红色错误文字
+pub(crate) fn field_row_with_error(label: &str, control: AnyElement, error: Option<String>, danger: Hsla) -> Div {
+    field_row(label, control).children(
+        error.map(|e| div().text_xs().text_color(danger).child(e).into_any_element()),
+    )
 }
 
 /// 单个 Topic 行
@@ -427,9 +601,9 @@ fn topic_row(
                 .xsmall()
                 .icon(if is_fav { IconName::Star } else { IconName::StarOff })
                 .when(is_fav, |b| b.text_color(warning))
-                .on_click(move |_, _, cx| {
+                .on_click(move |_, window, cx| {
                     entity_fav.update(cx, |this, cx| {
-                        this.toggle_favorite(topic_fav.clone(), cx)
+                        this.toggle_favorite(topic_fav.clone(), window, cx)
                     });
                 }),
         )

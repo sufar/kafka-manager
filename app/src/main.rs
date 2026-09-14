@@ -7,6 +7,7 @@ mod state;
 mod theme;
 mod tray;
 mod updater;
+mod utils;
 mod workspace;
 
 use gpui::*;

@@ -6,13 +6,16 @@
 //! 日志模态：滚动到底/刷新/复制/清空；更新模态：版本对比 + 发布说明 + 进度
 
 use gpui::{prelude::FluentBuilder, *};
-use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
+use gpui_component::dialog::DialogButtonProps;
 use gpui_component::input::{Input, InputState};
 use gpui_component::notification::NotificationType;
+use gpui_component::radio::Radio;
 use gpui_component::select::{SearchableVec, Select, SelectState};
 use gpui_component::switch::Switch;
 use gpui_component::*;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use crate::components::notify;
 use crate::i18n::{t, I18n};
@@ -32,6 +35,51 @@ struct DownloadProgress {
     active: bool,
     downloaded: u64,
     total: u64,
+    /// 平滑后的下载速度（字节/秒）
+    speed: f64,
+}
+
+/// JSON 高亮模板（来自 json_highlight.list）
+#[derive(Clone, Debug, Default)]
+struct JsonTemplateItem {
+    id: i64,
+    name: String,
+    description: String,
+    is_builtin: bool,
+    style_json: String,
+}
+
+/// 解析 json_highlight.list 返回的模板列表
+fn parse_json_templates(v: &serde_json::Value) -> Vec<JsonTemplateItem> {
+    v.get("templates")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|t| JsonTemplateItem {
+                    id: t.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
+                    name: t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    description: t.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    is_builtin: t.get("is_builtin").and_then(|v| v.as_bool()).unwrap_or(false),
+                    style_json: t.get("style_json").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 人类可读的字节大小（B / KB / MB / GB）
+fn human_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    let b = bytes as f64;
+    if b >= KB * KB * KB {
+        format!("{:.1} GB", b / (KB * KB * KB))
+    } else if b >= KB * KB {
+        format!("{:.1} MB", b / (KB * KB))
+    } else if b >= KB {
+        format!("{:.1} KB", b / KB)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 pub struct SettingsPage {
@@ -48,6 +96,10 @@ pub struct SettingsPage {
     logs_handle: ScrollHandle,
     feedback_input: Entity<InputState>,
     feedback_available: bool,
+    json_templates: Vec<JsonTemplateItem>,
+    json_current: String,
+    create_template_form: Option<(Entity<InputState>, Entity<InputState>)>,
+    download_cancel: Option<CancellationToken>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -114,6 +166,10 @@ impl SettingsPage {
             logs_handle: ScrollHandle::default(),
             feedback_input,
             feedback_available: false,
+            json_templates: Vec::new(),
+            json_current: String::new(),
+            create_template_form: None,
+            download_cancel: None,
             _subscriptions: subscriptions,
         };
         this.init(cx);
@@ -133,7 +189,10 @@ impl SettingsPage {
                 json!({ "keys": ["ui.system_tray"] }),
             )
             .await;
-            let feedback = crate::service::call(&rt, state, "telemetry.check_connection", json!({})).await;
+            let feedback = crate::service::call(&rt, state.clone(), "telemetry.check_connection", json!({})).await;
+            let tpl_list = crate::service::call(&rt, state.clone(), "json_highlight.list", json!({})).await;
+            let tpl_current =
+                crate::service::call(&rt, state, "json_highlight.get_current", json!({})).await;
 
             this.update(cx, |this, cx| {
                 if let Ok(v) = version {
@@ -154,6 +213,14 @@ impl SettingsPage {
                         .get("connected")
                         .and_then(|c| c.as_bool())
                         .unwrap_or(false);
+                }
+                if let Ok(v) = tpl_list {
+                    this.json_templates = parse_json_templates(&v);
+                }
+                if let Ok(v) = tpl_current {
+                    if let Some(n) = v.get("name").and_then(|n| n.as_str()) {
+                        this.json_current = n.to_string();
+                    }
                 }
                 cx.notify();
             })
@@ -372,7 +439,10 @@ impl SettingsPage {
             active: true,
             downloaded: 0,
             total: 0,
+            speed: 0.0,
         };
+        let cancel = CancellationToken::new();
+        self.download_cancel = Some(cancel.clone());
         cx.notify();
 
         // reqwest 依赖 tokio reactor，下载必须在 tokio runtime 上执行
@@ -385,20 +455,36 @@ impl SettingsPage {
             let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let done_poll = done.clone();
 
-            // 轮询进度更新 UI
+            // 轮询进度并计算下载速度（500ms 采样 + 指数平滑）
             let this_poll = this.clone();
             cx.spawn(async move |cx| {
+                let mut last_bytes = 0u64;
+                let mut last_at = std::time::Instant::now();
+                let mut smoothed = 0f64;
                 while !done_poll.load(std::sync::atomic::Ordering::Relaxed) {
                     let (d, t) = *progress_poll.lock().unwrap();
+                    let now = std::time::Instant::now();
+                    let dt = now.duration_since(last_at).as_secs_f64();
+                    if dt > 0.0 {
+                        let instant = d.saturating_sub(last_bytes) as f64 / dt;
+                        smoothed = if smoothed <= 0.0 {
+                            instant
+                        } else {
+                            smoothed * 0.6 + instant * 0.4
+                        };
+                    }
+                    last_bytes = d;
+                    last_at = now;
                     this_poll
                         .update(cx, |this, cx| {
                             this.download.downloaded = d;
                             this.download.total = t;
+                            this.download.speed = smoothed;
                             cx.notify();
                         })
                         .ok();
                     cx.background_executor()
-                        .timer(std::time::Duration::from_millis(200))
+                        .timer(std::time::Duration::from_millis(500))
                         .await;
                 }
             })
@@ -406,7 +492,7 @@ impl SettingsPage {
 
             let result = rt
                 .spawn(async move {
-                    crate::updater::download_update(&url, &filename, move |downloaded, total| {
+                    crate::updater::download_update(&url, &filename, cancel, move |downloaded, total| {
                         *progress_cb.lock().unwrap() = (downloaded, total);
                     })
                     .await
@@ -419,6 +505,7 @@ impl SettingsPage {
             this
                 .update(cx, |this, cx| {
                     this.download.active = false;
+                    this.download_cancel = None;
                     cx.notify();
                 })
                 .ok();
@@ -429,6 +516,9 @@ impl SettingsPage {
                         if let Err(e) = crate::updater::install_portable_update(&path) {
                             notify(cx, NotificationType::Error, format!("{}: {}", t(cx, "update.installFailed"), e));
                         }
+                    }
+                    Err(e) if e == crate::updater::DOWNLOAD_CANCELLED => {
+                        // 用户取消：静默恢复到可重试状态（临时文件已在下载器内清理）
                     }
                     Err(e) => {
                         notify(cx, NotificationType::Error, format!("{}: {}", t(cx, "update.downloadFailed"), e));
@@ -624,6 +714,356 @@ impl SettingsPage {
             .ok();
         })
         .detach();
+    }
+
+    /// 刷新 JSON 高亮模板列表与当前选中项
+    fn refresh_json_templates(&mut self, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+
+        cx.spawn(async move |this, cx| {
+            let list = crate::service::call(&rt, state.clone(), "json_highlight.list", json!({})).await;
+            let current = crate::service::call(&rt, state, "json_highlight.get_current", json!({})).await;
+            this.update(cx, |this, cx| {
+                if let Ok(v) = list {
+                    this.json_templates = parse_json_templates(&v);
+                }
+                if let Ok(v) = current {
+                    if let Some(n) = v.get("name").and_then(|n| n.as_str()) {
+                        this.json_current = n.to_string();
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 选中 JSON 高亮模板
+    fn select_json_template(&mut self, name: String, cx: &mut Context<Self>) {
+        if name.is_empty() || name == self.json_current {
+            return;
+        }
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+
+        cx.spawn(async move |this, cx| {
+            let result = crate::service::call(
+                &rt,
+                state,
+                "json_highlight.set_current",
+                json!({ "name": name }),
+            )
+            .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        this.json_current = name;
+                        // 刷新全局 JsonTemplate，消息详情/发送弹框立即生效
+                        crate::utils::load_json_template(cx);
+                        let msg = t(cx, "common.success");
+                        notify(cx, NotificationType::Success, msg);
+                    }
+                    Err(e) => {
+                        let msg = format!("{}: {}", t(cx, "common.failed"), e);
+                        notify(cx, NotificationType::Error, msg);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 删除自定义模板（确认对话框）
+    fn confirm_delete_template(
+        &mut self,
+        tpl: JsonTemplateItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entity = cx.entity();
+        let title = t(cx, "settings.deleteTemplate");
+        let message = t(cx, "settings.confirmDeleteTemplate");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            let tpl = tpl.clone();
+            dialog
+                .confirm()
+                .title(title.clone())
+                .child(format!("{}「{}」", message.clone(), tpl.name))
+                .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
+                .on_ok(move |_, _window, cx| {
+                    let tpl = tpl.clone();
+                    entity.update(cx, |this, cx| this.delete_json_template(tpl, cx));
+                    true
+                })
+        });
+    }
+
+    /// 删除模板；若删的是当前模板，删除后自动切回 default 并刷新全局
+    fn delete_json_template(&mut self, tpl: JsonTemplateItem, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        let was_current = tpl.name == self.json_current;
+
+        cx.spawn(async move |this, cx| {
+            let result = crate::service::call(
+                &rt,
+                state.clone(),
+                "json_highlight.delete",
+                json!({ "id": tpl.id }),
+            )
+            .await;
+            let mut switched_to_default = false;
+            if result.is_ok() && was_current {
+                switched_to_default = crate::service::call(
+                    &rt,
+                    state,
+                    "json_highlight.set_current",
+                    json!({ "name": "default" }),
+                )
+                .await
+                .is_ok();
+            }
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        if switched_to_default {
+                            this.json_current = "default".to_string();
+                            crate::utils::load_json_template(cx);
+                        }
+                        let msg = t(cx, "common.success");
+                        notify(cx, NotificationType::Success, msg);
+                    }
+                    Err(e) => {
+                        let msg = format!("{}: {}", t(cx, "common.failed"), e);
+                        notify(cx, NotificationType::Error, msg);
+                    }
+                }
+                this.refresh_json_templates(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 新建模板对话框（名称 + 描述，样式基于当前选中模板复制）
+    fn open_create_template(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "settings.templateName"))
+        });
+        let desc_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "settings.templateDescription"))
+        });
+        self.create_template_form = Some((name_state.clone(), desc_state.clone()));
+
+        let entity = cx.entity();
+        let title = t(cx, "settings.addCustomTemplate");
+        let name_label = t(cx, "settings.templateName");
+        let desc_label = t(cx, "settings.templateDescription");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(480.0))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(div().text_sm().child(name_label.clone()))
+                                .child(Input::new(&name_state)),
+                        )
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(div().text_sm().child(desc_label.clone()))
+                                .child(Input::new(&desc_state)),
+                        ),
+                )
+                .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
+                .on_ok(move |_, window, cx| {
+                    entity.update(cx, |this, cx| this.submit_create_template(window, cx));
+                    true
+                })
+                .on_cancel(|_, _, _| true)
+        });
+    }
+
+    /// 提交新建模板（style_json 复制自当前选中模板）
+    fn submit_create_template(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some((name_state, desc_state)) = self.create_template_form.take() else {
+            return;
+        };
+        let name = name_state.read(cx).value().trim().to_string();
+        let description = desc_state.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let style_json = self
+            .json_templates
+            .iter()
+            .find(|t| t.name == self.json_current)
+            .or_else(|| self.json_templates.first())
+            .map(|t| t.style_json.clone())
+            .unwrap_or_default();
+        if style_json.is_empty() {
+            return;
+        }
+
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+
+        cx.spawn(async move |this, cx| {
+            let result = crate::service::call(
+                &rt,
+                state,
+                "json_highlight.create",
+                json!({ "name": name, "description": description, "style_json": style_json }),
+            )
+            .await;
+            cx.update(|cx| match result {
+                Ok(_) => notify(cx, NotificationType::Success, t(cx, "common.success")),
+                Err(e) => {
+                    notify(cx, NotificationType::Error, format!("{}: {}", t(cx, "common.failed"), e))
+                }
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh_json_templates(cx)).ok();
+        })
+        .detach();
+    }
+
+    /// JSON 高亮模板卡：模板列表（选中切换）+ 当前模板预览 + 新建/删除自定义模板
+    fn render_json_template_card(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let dark = theme.is_dark();
+        let border = theme.border;
+        let muted = theme.muted_foreground;
+        let secondary = theme.secondary;
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for tpl in &self.json_templates {
+            let name = tpl.name.clone();
+            let checked = tpl.name == self.json_current;
+            let is_builtin = tpl.is_builtin;
+            let desc = tpl.description.clone();
+            let tpl_del = tpl.clone();
+
+            let mut row = h_flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(border)
+                .cursor_pointer()
+                .child(
+                    Radio::new(SharedString::from(format!("json-tpl-{}", tpl.name)))
+                        .checked(checked),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(div().text_sm().child(name.clone()))
+                        .when(!desc.is_empty(), |el| {
+                            el.child(div().text_xs().text_color(muted).child(desc))
+                        }),
+                )
+                .when(is_builtin, |el| {
+                    el.child(
+                        div()
+                            .text_xs()
+                            .px_1()
+                            .rounded_md()
+                            .bg(secondary)
+                            .text_color(muted)
+                            .child(t(cx, "settings.builtInTemplates")),
+                    )
+                })
+                .id(SharedString::from(format!("json-tpl-row-{}", tpl.name)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_json_template(name.clone(), cx);
+                }));
+            if !is_builtin {
+                row = row.child(
+                    Button::new(SharedString::from(format!("json-tpl-del-{}", tpl_del.name)))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Delete)
+                        .tooltip(t(cx, "settings.deleteTemplate"))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.confirm_delete_template(tpl_del.clone(), window, cx);
+                        })),
+                );
+            }
+            rows.push(row.into_any_element());
+
+            // 当前选中模板：渲染一段示例 JSON 预览
+            if checked {
+                if let Some(preview) = Self::render_template_preview(&tpl.style_json, dark, muted) {
+                    rows.push(
+                        div()
+                            .px_3()
+                            .pb_2()
+                            .border_b_1()
+                            .border_color(border)
+                            .child(preview)
+                            .into_any_element(),
+                    );
+                }
+            }
+        }
+
+        rows.push(
+            h_flex()
+                .justify_end()
+                .px_3()
+                .py_2()
+                .child(
+                    Button::new("add-json-template")
+                        .outline()
+                        .xsmall()
+                        .icon(IconName::Plus)
+                        .label(t(cx, "settings.addCustomTemplate"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_create_template(window, cx);
+                        })),
+                )
+                .into_any_element(),
+        );
+
+        Self::card(
+            t(cx, "settings.jsonHighlight"),
+            t(cx, "settings.jsonHighlightDesc"),
+            rows,
+            cx,
+        )
+        .into_any_element()
+    }
+
+    /// 用模板样式渲染示例 JSON 预览
+    fn render_template_preview(style_json: &str, dark: bool, bg: Hsla) -> Option<AnyElement> {
+        let style: crate::utils::TemplateStyle = serde_json::from_str(style_json).ok()?;
+        let theme = if dark { &style.dark } else { &style.light };
+        let sample = "{\n  \"name\": \"kafka\",\n  \"count\": 42,\n  \"active\": true,\n  \"note\": null\n}";
+        let highlights = crate::utils::json_template_highlights(sample, theme);
+        Some(
+            div()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(bg.opacity(0.08))
+                .text_xs()
+                .font_family("monospace")
+                .child(StyledText::new(sample.to_string()).with_highlights(highlights))
+                .into_any_element(),
+        )
     }
 
     /// 提交反馈
@@ -895,7 +1335,7 @@ impl Render for SettingsPage {
             .into_any_element(),
         ];
 
-        // 下载进度条
+        // 下载进度条（人类可读大小 + 速度 + 取消）
         if self.download.active {
             let pct = if self.download.total > 0 {
                 self.download.downloaded as f32 / self.download.total as f32 * 100.0
@@ -910,15 +1350,31 @@ impl Render for SettingsPage {
                     .border_b_1()
                     .border_color(theme.border)
                     .child(
-                        div()
-                            .text_xs()
-                            .child(format!(
-                                "{} {}/{} ({:.0}%)",
-                                t(cx, "update.downloading"),
-                                self.download.downloaded,
-                                self.download.total,
-                                pct
-                            )),
+                        h_flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div().text_xs().child(format!(
+                                    "{} {}/{} · {}/s ({:.0}%)",
+                                    t(cx, "update.downloading"),
+                                    human_size(self.download.downloaded),
+                                    human_size(self.download.total),
+                                    human_size(self.download.speed as u64),
+                                    pct
+                                )),
+                            )
+                            .child(
+                                Button::new("cancel-download")
+                                    .ghost()
+                                    .xsmall()
+                                    .label(t(cx, "common.cancel"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(token) = this.download_cancel.take() {
+                                            token.cancel();
+                                            cx.notify();
+                                        }
+                                    })),
+                            ),
                     )
                     .child(gpui_component::progress::Progress::new().value(pct))
                     .into_any_element(),
@@ -1000,6 +1456,7 @@ impl Render for SettingsPage {
                             .max_w(px(720.0))
                             .child(system_card)
                             .child(version_card)
+                            .child(self.render_json_template_card(cx))
                             .child(feedback_card),
                     ),
             )

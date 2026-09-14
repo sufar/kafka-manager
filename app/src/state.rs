@@ -47,6 +47,27 @@ impl SidebarMode {
     }
 }
 
+/// 当前 JSON 高亮模板（None = 未加载/不可用，回退到 tree-sitter 高亮）
+pub struct JsonTemplate(pub Option<crate::utils::TemplateStyle>);
+
+impl Global for JsonTemplate {}
+
+impl JsonTemplate {
+    /// 取当前模板
+    pub fn current(cx: &App) -> Option<crate::utils::TemplateStyle> {
+        cx.try_global::<JsonTemplate>().and_then(|g| g.0.clone())
+    }
+
+    /// 更新模板（设置页切换模板时调用）
+    pub fn set(cx: &mut App, style: Option<crate::utils::TemplateStyle>) {
+        if cx.has_global::<JsonTemplate>() {
+            cx.global_mut::<JsonTemplate>().0 = style;
+        } else {
+            cx.set_global(JsonTemplate(style));
+        }
+    }
+}
+
 /// 应用页面
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {

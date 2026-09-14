@@ -17,7 +17,9 @@ use gpui_component::*;
 use serde_json::json;
 
 use crate::components::notify;
+use crate::components::option_select::StringOption;
 use crate::i18n::t;
+use crate::pages::topics::field_row_with_error;
 use crate::state::{Backend, TokioRuntime};
 
 #[derive(Clone, Debug)]
@@ -50,6 +52,8 @@ struct ClusterForm {
     group: Entity<SelectState<SearchableVec<GroupOption>>>,
     testing: bool,
     test_result: Option<(bool, String)>,
+    name_error: Option<String>,
+    brokers_error: Option<String>,
 }
 
 /// 分组下拉选项
@@ -82,6 +86,14 @@ struct TopicForm {
     name: Entity<InputState>,
     partitions: Entity<InputState>,
     replication: Entity<InputState>,
+    advanced_open: bool,
+    cleanup_policy: Entity<SelectState<SearchableVec<StringOption>>>,
+    retention_ms: Entity<InputState>,
+    retention_bytes: Entity<InputState>,
+    segment_bytes: Entity<InputState>,
+    retention_ms_error: Option<String>,
+    retention_bytes_error: Option<String>,
+    segment_bytes_error: Option<String>,
 }
 
 pub struct ClustersPage {
@@ -275,6 +287,42 @@ impl ClustersPage {
         .detach();
     }
 
+    /// 右键菜单路由：对指定集群执行动作（创建 Topic / 编辑 / 删除）
+    pub fn open_action(
+        &mut self,
+        cluster: String,
+        action: crate::components::navigator::ClusterAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::components::navigator::ClusterAction;
+        match action {
+            ClusterAction::CreateTopic => self.open_create_topic(cluster, window, cx),
+            ClusterAction::EditCluster => {
+                let info = self.clusters.iter().find(|c| c.name == cluster).cloned();
+                if let Some(info) = info {
+                    self.open_form(Some(info), window, cx);
+                } else {
+                    let msg = t(cx, "toast.clusterNotFound");
+                    notify(cx, NotificationType::Warning, msg);
+                }
+            }
+            ClusterAction::DeleteCluster => {
+                let found = self
+                    .clusters
+                    .iter()
+                    .find(|c| c.name == cluster)
+                    .map(|c| (c.id, c.name.clone()));
+                if let Some((id, name)) = found {
+                    self.confirm_delete(id, name, window, cx);
+                } else {
+                    let msg = t(cx, "toast.clusterNotFound");
+                    notify(cx, NotificationType::Warning, msg);
+                }
+            }
+        }
+    }
+
     /// 删除集群（确认对话框）
     fn confirm_delete(&mut self, id: i64, name: String, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity();
@@ -334,17 +382,25 @@ impl ClustersPage {
         let group_label = t(cx, "clusters.group");
         let test_label = t(cx, "clusters.testConnection");
 
-        window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, cx| {
             let entity = entity.clone();
             let entity_test = entity.clone();
+            let (name_error, brokers_error) = {
+                let page = entity.read(cx);
+                page.form
+                    .as_ref()
+                    .map(|f| (f.name_error.clone(), f.brokers_error.clone()))
+                    .unwrap_or_default()
+            };
+            let danger = cx.theme().danger;
             dialog
                 .title(title.clone())
                     .w(px(520.0))
                     .child(
                         v_flex()
                             .gap_3()
-                            .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
-                            .child(field_row(&brokers_label, Input::new(&brokers_state).into_any_element()))
+                            .child(field_row_with_error(&name_label, Input::new(&name_state).into_any_element(), name_error, danger))
+                            .child(field_row_with_error(&brokers_label, Input::new(&brokers_state).into_any_element(), brokers_error, danger))
                             .child(
                                 h_flex()
                                     .gap_3()
@@ -366,8 +422,7 @@ impl ClustersPage {
                     )
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                     .on_ok(move |_, _window, cx| {
-                        entity.update(cx, |this, cx| this.submit_form(cx));
-                        true
+                        entity.update(cx, |this, cx| this.submit_form(cx))
                     })
                     .on_cancel(|_, _, _| true)
         });
@@ -432,6 +487,8 @@ impl ClustersPage {
             group: group_state,
             testing: false,
             test_result: None,
+            name_error: None,
+            brokers_error: None,
         })
     }
 
@@ -474,22 +531,48 @@ impl ClustersPage {
         .detach();
     }
 
-    fn submit_form(&mut self, cx: &mut Context<Self>) {
-        let Some(form) = self.form.take() else { return };
-        let name = form.name.read(cx).value().to_string();
+    /// 提交集群表单；返回是否关闭对话框（校验失败时保留表单并在字段下方显示错误）
+    fn submit_form(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(form) = self.form.as_ref() else { return true };
+        let name = form.name.read(cx).value().trim().to_string();
         let brokers = form.brokers.read(cx).value().to_string().replace(';', ",");
         let request_timeout_ms: i64 = form.request_timeout.read(cx).value().trim().parse().unwrap_or(5000);
         let operation_timeout_ms: i64 = form.operation_timeout.read(cx).value().trim().parse().unwrap_or(5000);
         let group_id = form.group.read(cx).selected_value().copied().filter(|id| *id != 0);
 
-        if name.trim().is_empty() || brokers.trim().is_empty() {
-            let msg = t(cx, "clusters.validationNameRequired");
-            notify(cx, NotificationType::Error, msg);
-            return;
+        // 名称：必填 / ≤15 字符 / 仅字母、数字、中文、连字符、下划线
+        let name_error = if name.is_empty() {
+            Some(t(cx, "clusters.validationNameRequired"))
+        } else if name.chars().count() > 15 {
+            Some(t(cx, "clusters.validationNameTooLong"))
+        } else if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            Some(t(cx, "clusters.validationNameInvalid"))
+        } else {
+            None
+        };
+
+        // Brokers：必填 / 不允许空格和引号（分号已统一替换为逗号）
+        let brokers_error = if brokers.trim().is_empty() {
+            Some(t(cx, "clusters.validationBrokersRequired"))
+        } else if brokers.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+            Some(t(cx, "clusters.validationBrokersInvalid"))
+        } else {
+            None
+        };
+
+        let invalid = name_error.is_some() || brokers_error.is_some();
+        if let Some(form) = self.form.as_mut() {
+            form.name_error = name_error;
+            form.brokers_error = brokers_error;
+        }
+        if invalid {
+            cx.notify();
+            return false;
         }
 
+        let form = self.form.take().expect("form checked above");
         let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
+        let Some(state) = Backend::state(cx) else { return true };
         let is_create = form.id.is_none();
         let method = if is_create { "cluster.create" } else { "cluster.update" };
         let mut params = json!({
@@ -517,9 +600,10 @@ impl ClustersPage {
             this.update(cx, |this, cx| this.reload(cx)).ok();
         })
         .detach();
+        true
     }
 
-    /// 打开创建 Topic 对话框
+    /// 打开创建 Topic 对话框（含高级选项折叠区）
     fn open_create_topic(&mut self, cluster: String, window: &mut Window, cx: &mut Context<Self>) {
         let name_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "topics.topicNamePlaceholder"))
@@ -534,12 +618,43 @@ impl ClustersPage {
             state.set_value("1".to_string(), window, cx);
             state
         });
+        // 高级选项
+        let cleanup_state = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(vec![
+                    StringOption::new("-", ""),
+                    StringOption::new("delete", "delete"),
+                    StringOption::new("compact", "compact"),
+                    StringOption::new("delete,compact", "delete,compact"),
+                ]),
+                Some(IndexPath::new(0)),
+                window,
+                cx,
+            )
+        });
+        let retention_ms_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.retentionMsPlaceholder"))
+        });
+        let retention_bytes_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.retentionBytesPlaceholder"))
+        });
+        let segment_bytes_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "topics.segmentBytesPlaceholder"))
+        });
 
         self.topic_form = Some(TopicForm {
             cluster: cluster.clone(),
             name: name_state.clone(),
             partitions: partitions_state.clone(),
             replication: replication_state.clone(),
+            advanced_open: false,
+            cleanup_policy: cleanup_state.clone(),
+            retention_ms: retention_ms_state.clone(),
+            retention_bytes: retention_bytes_state.clone(),
+            segment_bytes: segment_bytes_state.clone(),
+            retention_ms_error: None,
+            retention_bytes_error: None,
+            segment_bytes_error: None,
         });
 
         let entity = cx.entity();
@@ -547,9 +662,31 @@ impl ClustersPage {
         let name_label = t(cx, "topics.topicName");
         let partitions_label = t(cx, "topics.numPartitions");
         let replication_label = t(cx, "topics.replicationFactor");
+        let advanced_label = t(cx, "topics.advancedOptions");
+        let cleanup_label = t(cx, "topics.cleanupPolicy");
+        let retention_ms_label = t(cx, "topics.retentionMs");
+        let retention_bytes_label = t(cx, "topics.retentionBytes");
+        let segment_bytes_label = t(cx, "topics.segmentBytes");
 
-        window.open_dialog(cx, move |dialog, _window, _cx| {
+        window.open_dialog(cx, move |dialog, _window, cx| {
             let entity = entity.clone();
+            let entity_toggle = entity.clone();
+            let (advanced_open, retention_ms_error, retention_bytes_error, segment_bytes_error) = {
+                let page = entity.read(cx);
+                page.topic_form
+                    .as_ref()
+                    .map(|f| {
+                        (
+                            f.advanced_open,
+                            f.retention_ms_error.clone(),
+                            f.retention_bytes_error.clone(),
+                            f.segment_bytes_error.clone(),
+                        )
+                    })
+                    .unwrap_or_default()
+            };
+            let danger = cx.theme().danger;
+            let muted = cx.theme().muted_foreground;
             dialog
                 .title(format!("{} — {}", title, cluster))
                     .w(px(480.0))
@@ -558,30 +695,148 @@ impl ClustersPage {
                             .gap_3()
                             .child(field_row(&name_label, Input::new(&name_state).into_any_element()))
                             .child(field_row(&partitions_label, Input::new(&partitions_state).into_any_element()))
-                            .child(field_row(&replication_label, Input::new(&replication_state).into_any_element())),
+                            .child(field_row(&replication_label, Input::new(&replication_state).into_any_element()))
+                            .child(
+                                v_flex()
+                                    .gap_3()
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .id("advanced-toggle")
+                                            .cursor_pointer()
+                                            .child(
+                                                Icon::new(if advanced_open {
+                                                    IconName::ChevronDown
+                                                } else {
+                                                    IconName::ChevronRight
+                                                })
+                                                .size_4()
+                                                .text_color(muted),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(muted)
+                                                    .child(advanced_label.clone()),
+                                            )
+                                            .on_click(move |_, _, cx| {
+                                                entity_toggle.update(cx, |this, cx| {
+                                                    if let Some(form) = this.topic_form.as_mut() {
+                                                        form.advanced_open = !form.advanced_open;
+                                                    }
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    )
+                                    .when(advanced_open, |this| {
+                                        this.child(
+                                            field_row(&cleanup_label, Select::new(&cleanup_state).into_any_element()),
+                                        )
+                                        .child(field_row_with_error(
+                                            &retention_ms_label,
+                                            Input::new(&retention_ms_state).into_any_element(),
+                                            retention_ms_error,
+                                            danger,
+                                        ))
+                                        .child(field_row_with_error(
+                                            &retention_bytes_label,
+                                            Input::new(&retention_bytes_state).into_any_element(),
+                                            retention_bytes_error,
+                                            danger,
+                                        ))
+                                        .child(field_row_with_error(
+                                            &segment_bytes_label,
+                                            Input::new(&segment_bytes_state).into_any_element(),
+                                            segment_bytes_error,
+                                            danger,
+                                        ))
+                                    }),
+                            ),
                     )
                     .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Primary))
                     .on_ok(move |_, _window, cx| {
-                    entity.update(cx, |this, cx| this.submit_create_topic(cx));
-                    true
-                })
-                .on_cancel(|_, _, _| true)
+                        entity.update(cx, |this, cx| this.submit_create_topic(cx))
+                    })
+                    .on_cancel(|_, _, _| true)
         });
     }
 
-    fn submit_create_topic(&mut self, cx: &mut Context<Self>) {
-        let Some(form) = self.topic_form.take() else { return };
+    /// 提交创建 Topic；返回是否关闭对话框（校验失败时保留表单并显示错误）
+    fn submit_create_topic(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(form) = self.topic_form.as_ref() else { return true };
         let name = form.name.read(cx).value().to_string();
         let num_partitions: i32 = form.partitions.read(cx).value().trim().parse().unwrap_or(1);
         let replication_factor: i32 = form.replication.read(cx).value().trim().parse().unwrap_or(1);
+        let cleanup_policy = form
+            .cleanup_policy
+            .read(cx)
+            .selected_value()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let retention_ms = form.retention_ms.read(cx).value().trim().to_string();
+        let retention_bytes = form.retention_bytes.read(cx).value().trim().to_string();
+        let segment_bytes = form.segment_bytes.read(cx).value().trim().to_string();
+
         if name.trim().is_empty() {
             let msg = t(cx, "topics.validationTopicNameRequired");
             notify(cx, NotificationType::Error, msg);
-            return;
+            return false;
         }
 
+        // 高级选项校验（仅非空时校验）
+        let retention_ms_error = if !retention_ms.is_empty()
+            && !matches!(retention_ms.parse::<i64>(), Ok(v) if v > 0)
+        {
+            Some(t(cx, "topics.validationRetentionMs"))
+        } else {
+            None
+        };
+        let retention_bytes_error =
+            if !retention_bytes.is_empty() && retention_bytes.parse::<i64>().is_err() {
+                Some(t(cx, "topics.validationRetentionBytes"))
+            } else {
+                None
+            };
+        let segment_bytes_error = if !segment_bytes.is_empty()
+            && !matches!(segment_bytes.parse::<i64>(), Ok(v) if v > 0)
+        {
+            Some(t(cx, "topics.validationSegmentBytes"))
+        } else {
+            None
+        };
+
+        let invalid = retention_ms_error.is_some()
+            || retention_bytes_error.is_some()
+            || segment_bytes_error.is_some();
+        if let Some(form) = self.topic_form.as_mut() {
+            form.retention_ms_error = retention_ms_error;
+            form.retention_bytes_error = retention_bytes_error;
+            form.segment_bytes_error = segment_bytes_error;
+        }
+        if invalid {
+            cx.notify();
+            return false;
+        }
+
+        // 组装可选 config
+        let mut config = serde_json::Map::new();
+        if !cleanup_policy.is_empty() {
+            config.insert("cleanup.policy".to_string(), json!(cleanup_policy));
+        }
+        if !retention_ms.is_empty() {
+            config.insert("retention.ms".to_string(), json!(retention_ms));
+        }
+        if !retention_bytes.is_empty() {
+            config.insert("retention.bytes".to_string(), json!(retention_bytes));
+        }
+        if !segment_bytes.is_empty() {
+            config.insert("segment.bytes".to_string(), json!(segment_bytes));
+        }
+
+        let form = self.topic_form.take().expect("form checked above");
         let rt = TokioRuntime::handle(cx);
-        let Some(state) = Backend::state(cx) else { return };
+        let Some(state) = Backend::state(cx) else { return true };
 
         cx.spawn(async move |_this, cx| {
             let result = crate::service::call(
@@ -593,6 +848,7 @@ impl ClustersPage {
                     "name": name.trim(),
                     "num_partitions": num_partitions,
                     "replication_factor": replication_factor,
+                    "config": config,
                 }),
             )
             .await;
@@ -603,6 +859,7 @@ impl ClustersPage {
             .ok();
         })
         .detach();
+        true
     }
 
     /// 打开管理分组对话框

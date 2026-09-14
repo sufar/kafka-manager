@@ -13,30 +13,46 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{prelude::FluentBuilder, *};
-use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
+use gpui_component::dialog::DialogButtonProps;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::context_actions;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
 use crate::state::{Backend, Page, TokioRuntime};
+use crate::utils::relative_time;
 
 /// 导航器发给工作区的事件
 #[derive(Clone, Debug)]
 pub enum NavEvent {
     /// 打开消息页并预选集群 + Topic
     OpenMessages { cluster: String, topic: String },
+    /// 打开消息页并自动弹出发送消息窗口
+    OpenMessagesSend { cluster: String, topic: String },
     /// 打开 Topics 页并预选集群
     OpenTopics { cluster: String },
     /// 打开消费组页并预选集群（可带组名进入详情）
     OpenConsumerGroups { cluster: String, group: Option<String> },
     /// 打开 Topic 消费组视图
     OpenTopicConsumerGroups { cluster: String, topic: String },
+    /// 打开集群页并对指定集群执行动作（右键菜单路由）
+    OpenClustersAction { cluster: String, action: ClusterAction },
     /// 切换到指定页面
     OpenPage(Page),
+}
+
+/// 集群页动作（右键菜单触发）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ClusterAction {
+    CreateTopic,
+    EditCluster,
+    DeleteCluster,
 }
 
 const PAGE_LIMIT: usize = 1000;
@@ -67,8 +83,10 @@ struct ClusterInfo {
 
 #[derive(Clone, Debug)]
 struct HistoryItem {
+    id: i64,
     cluster: String,
     topic: String,
+    viewed_at: String,
 }
 
 /// 行渲染所需的主题色
@@ -120,6 +138,7 @@ pub struct Navigator {
     search_input: Entity<InputState>,
     show_history: bool,
     history: Vec<HistoryItem>,
+    history_search: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,6 +159,9 @@ impl Navigator {
         });
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t(cx, "common.search"))
+        });
+        let history_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(cx, "history.searchPlaceholder"))
         });
 
         let mut subscriptions = Vec::new();
@@ -173,6 +195,14 @@ impl Navigator {
                 }
             },
         ));
+        subscriptions.push(cx.subscribe(
+            &history_search,
+            |_this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
 
         let this = Self {
             view: NavView::Topics,
@@ -196,6 +226,7 @@ impl Navigator {
             search_input,
             show_history: false,
             history: Vec::new(),
+            history_search,
             _subscriptions: subscriptions,
         };
         this.init(cx);
@@ -708,7 +739,8 @@ impl Navigator {
                 this.history = result
                     .ok()
                     .and_then(|v| {
-                        v.get("history")
+                        v.get("histories")
+                            .or_else(|| v.get("history"))
                             .or_else(|| v.get("items"))
                             .and_then(|h| h.as_array())
                             .cloned()
@@ -717,8 +749,14 @@ impl Navigator {
                     .iter()
                     .filter_map(|h| {
                         Some(HistoryItem {
+                            id: h.get("id")?.as_i64()?,
                             cluster: h.get("cluster_id")?.as_str()?.to_string(),
                             topic: h.get("topic_name")?.as_str()?.to_string(),
+                            viewed_at: h
+                                .get("viewed_at")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
                         })
                     })
                     .collect();
@@ -727,6 +765,55 @@ impl Navigator {
             .ok();
         })
         .detach();
+    }
+
+    /// 删除单条浏览历史
+    fn delete_history_item(&mut self, id: i64, cx: &mut Context<Self>) {
+        let rt = TokioRuntime::handle(cx);
+        let Some(state) = Backend::state(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let _ = crate::service::call(&rt, state, "topic_history.delete", json!({ "id": id })).await;
+            this.update(cx, |this, cx| {
+                this.history.retain(|h| h.id != id);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 清空浏览历史（确认对话框）
+    fn clear_history(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let entity = cx.entity();
+        let title = t(cx, "history.clearAll");
+        let text = t(cx, "history.confirmClear");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let entity = entity.clone();
+            dialog
+                .title(title.clone())
+                .w(px(400.0))
+                .button_props(
+                    DialogButtonProps::default().ok_variant(ButtonVariant::Danger),
+                )
+                .child(div().text_sm().child(text.clone()))
+                .confirm()
+                .on_ok(move |_, _window, cx| {
+                    entity.update(cx, |_this, cx| {
+                        let rt = TokioRuntime::handle(cx);
+                        let Some(state) = Backend::state(cx) else { return };
+                        cx.spawn(async move |this, cx| {
+                            let _ = crate::service::call(&rt, state, "topic_history.clear", json!({})).await;
+                            this.update(cx, |this, cx| {
+                                this.history.clear();
+                                cx.notify();
+                            })
+                            .ok();
+                        })
+                        .detach();
+                    });
+                    true
+                })
+        });
     }
 
     fn nav_button(
@@ -746,7 +833,7 @@ impl Navigator {
             }))
     }
 
-    /// 头部：视图切换 + 图标按钮
+    /// 头部：视图切换 + 图标按钮；历史面板时显示 返回/标题/清空
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .items_center()
@@ -754,45 +841,75 @@ impl Navigator {
             .p_1p5()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(
-                div()
-                    .w(px(150.0))
-                    .child(Select::new(&self.view_state).small()),
-            )
-            .child(
-                h_flex()
-                    .gap_0p5()
-                    .child(self.nav_button(
-                        "nav-clusters",
-                        IconName::Building2,
-                        t(cx, "nav.clusters"),
-                        Page::Clusters,
-                        cx,
-                    ))
-                    .child(self.nav_button(
-                        "nav-favorites",
-                        IconName::Star,
-                        t(cx, "nav.favorites"),
-                        Page::Favorites,
-                        cx,
-                    ))
-                    .child(self.nav_button(
-                        "nav-schema",
-                        IconName::BookOpen,
-                        t(cx, "tree.schemaRegistry"),
-                        Page::SchemaRegistry,
-                        cx,
-                    ))
-                    .child(
-                        Button::new("nav-history")
-                            .ghost()
-                            .icon(IconName::Calendar)
-                            .tooltip(t(cx, "history.title"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_history(cx);
-                            })),
-                    ),
-            )
+            .when(self.show_history, |el| {
+                el.child(
+                    Button::new("back-nav")
+                        .ghost()
+                        .icon(IconName::ArrowLeft)
+                        .tooltip(t(cx, "tree.backToClusters"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_history = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(t(cx, "history.title")),
+                )
+                .child(
+                    Button::new("clear-history")
+                        .ghost()
+                        .icon(IconName::Delete)
+                        .tooltip(t(cx, "history.clearAll"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.clear_history(window, cx);
+                        })),
+                )
+            })
+            .when(!self.show_history, |el| {
+                el.child(
+                    div()
+                        .w(px(150.0))
+                        .child(Select::new(&self.view_state).small()),
+                )
+                .child(
+                    h_flex()
+                        .gap_0p5()
+                        .child(self.nav_button(
+                            "nav-clusters",
+                            IconName::Building2,
+                            t(cx, "nav.clusters"),
+                            Page::Clusters,
+                            cx,
+                        ))
+                        .child(self.nav_button(
+                            "nav-favorites",
+                            IconName::Star,
+                            t(cx, "nav.favorites"),
+                            Page::Favorites,
+                            cx,
+                        ))
+                        .child(self.nav_button(
+                            "nav-schema",
+                            IconName::BookOpen,
+                            t(cx, "tree.schemaRegistry"),
+                            Page::SchemaRegistry,
+                            cx,
+                        ))
+                        .child(
+                            Button::new("nav-history")
+                                .ghost()
+                                .icon(IconName::Calendar)
+                                .tooltip(t(cx, "history.title"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.toggle_history(cx);
+                                })),
+                        ),
+                )
+            })
     }
 
     /// 状态栏：Cluster: [选择器] 计数 [刷新]
@@ -1051,6 +1168,8 @@ impl Navigator {
         let item_open = item.clone();
         let item_badge = item.clone();
         let entity_badge = entity.clone();
+        let item_menu = item.clone();
+        let entity_menu = entity.clone();
 
         h_flex()
             .items_center()
@@ -1099,6 +1218,68 @@ impl Navigator {
                         });
                     }),
             )
+            .context_menu(move |menu, window, cx| {
+                let entity = entity_menu.clone();
+                let item = item_menu.clone();
+                let entity_send = entity.clone();
+                let item_send = item.clone();
+                let item_cfg = item.clone();
+                let entity_del = entity.clone();
+                let item_del = item.clone();
+                let _ = window;
+                menu.item(
+                    PopupMenuItem::new(t(cx, "topicContextMenu.viewMessages"))
+                        .icon(IconName::Eye)
+                        .on_click(move |_, _, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.open_topic(item.cluster.clone(), item.name.clone(), cx);
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "topicContextMenu.sendMessage"))
+                        .on_click(move |_, _, cx| {
+                            entity_send.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenMessagesSend {
+                                    cluster: item_send.cluster.clone(),
+                                    topic: item_send.name.clone(),
+                                });
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t(cx, "topics.viewDetails"))
+                        .icon(IconName::Settings)
+                        .on_click(move |_, window, cx| {
+                            context_actions::open_topic_config(
+                                window,
+                                cx,
+                                item_cfg.cluster.clone(),
+                                item_cfg.name.clone(),
+                            );
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(cx, "topicContextMenu.deleteTopic"))
+                        .icon(IconName::Delete)
+                        .on_click(move |_, window, cx| {
+                            let entity = entity_del.clone();
+                            context_actions::delete_topic(
+                                window,
+                                cx,
+                                item_del.cluster.clone(),
+                                item_del.name.clone(),
+                                move |cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.selected_topic = None;
+                                        this.load_topics(false, cx);
+                                    });
+                                },
+                            );
+                        }),
+                )
+            })
             .into_any_element()
     }
 
@@ -1109,6 +1290,8 @@ impl Navigator {
         colors: &RowColors,
     ) -> AnyElement {
         let item_open = item.clone();
+        let entity_menu = entity.clone();
+        let item_menu = item.clone();
 
         h_flex()
             .items_center()
@@ -1147,70 +1330,143 @@ impl Navigator {
                     .overflow_hidden()
                     .child(item.cluster.clone()),
             )
+            .context_menu(move |menu, window, cx| {
+                let entity = entity_menu.clone();
+                let item = item_menu.clone();
+                let entity_del = entity.clone();
+                let item_del = item.clone();
+                let _ = window;
+                menu.item(
+                    PopupMenuItem::new(t(cx, "common.viewDetails"))
+                        .icon(IconName::Eye)
+                        .on_click(move |_, _, cx| {
+                            entity.update(cx, |_this, cx| {
+                                cx.emit(NavEvent::OpenConsumerGroups {
+                                    cluster: item.cluster.clone(),
+                                    group: Some(item.name.clone()),
+                                });
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(cx, "consumerGroups.deleteGroup"))
+                        .icon(IconName::Delete)
+                        .on_click(move |_, window, cx| {
+                            let entity = entity_del.clone();
+                            context_actions::delete_consumer_group(
+                                window,
+                                cx,
+                                item_del.cluster.clone(),
+                                item_del.name.clone(),
+                                move |cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.load_consumer_groups(false, cx);
+                                    });
+                                },
+                            );
+                        }),
+                )
+            })
             .into_any_element()
     }
 
-    /// 浏览历史面板
+    /// 浏览历史面板（搜索 + 相对时间 + 单条删除）
     fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        if self.history.is_empty() {
-            return div()
-                .size_full()
+        let query = self.history_search.read(cx).value().to_lowercase();
+        let filtered: Vec<&HistoryItem> = self
+            .history
+            .iter()
+            .filter(|h| query.is_empty() || h.topic.to_lowercase().contains(&query))
+            .collect();
+
+        let list: AnyElement = if filtered.is_empty() {
+            div()
+                .flex_1()
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(t(cx, "history.empty"))
-                .into_any_element();
-        }
+                .child(if self.history.is_empty() {
+                    t(cx, "history.empty")
+                } else {
+                    t(cx, "history.noSearchResults")
+                })
+                .into_any_element()
+        } else {
+            let rows: Vec<AnyElement> = filtered
+                .iter()
+                .enumerate()
+                .map(|(ix, item)| {
+                    let cluster = item.cluster.clone();
+                    let topic = item.topic.clone();
+                    let id = item.id;
+                    let rel_time = relative_time(cx, &item.viewed_at, "history");
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .py_1p5()
+                        .rounded_md()
+                        .hover(|el| el.bg(theme.list_hover))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .overflow_hidden()
+                                .cursor_pointer()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .whitespace_nowrap()
+                                        .child(item.topic.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(format!("{} · {}", item.cluster.clone(), rel_time)),
+                                )
+                                .id(("history", ix))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_topic(cluster.clone(), topic.clone(), cx);
+                                })),
+                        )
+                        .child(
+                            Button::new(("history-del", ix))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Delete)
+                                .tooltip(t(cx, "history.delete"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.delete_history_item(id, cx);
+                                })),
+                        )
+                        .into_any_element()
+                })
+                .collect();
 
-        let rows: Vec<AnyElement> = self
-            .history
-            .iter()
-            .enumerate()
-            .map(|(ix, item)| {
-                let cluster = item.cluster.clone();
-                let topic = item.topic.clone();
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .px_2()
-                    .py_1p5()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|el| el.bg(theme.list_hover))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .whitespace_nowrap()
-                                    .child(item.topic.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(item.cluster.clone()),
-                            ),
-                    )
-                    .id(("history", ix))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_topic(cluster.clone(), topic.clone(), cx);
-                    }))
-                    .into_any_element()
-            })
-            .collect();
+            div()
+                .id("history-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .p_1()
+                .child(v_flex().children(rows))
+                .into_any_element()
+        };
 
-        div()
-            .id("history-scroll")
+        v_flex()
             .size_full()
-            .overflow_y_scroll()
-            .p_1()
-            .child(v_flex().children(rows))
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(Input::new(&self.history_search).small()),
+            )
+            .child(list)
             .into_any_element()
     }
 }

@@ -323,7 +323,8 @@
     "timestampValue": "Timestamp",
     "noOffsets": "No offset data available",
     "selectFromNav": "Please select a consumer group from the left navigation to view details",
-    "groupNamePrefix": "Consumer Group: "
+    "groupNamePrefix": "Consumer Group: ",
+    "confirmDelete": "Are you sure you want to delete consumer group \"{name}\"?"
   },
   "topicConsumerGroups": {
     "title": "Topic Consumer Groups",
@@ -339,7 +340,8 @@
     "refreshed": "Consumer Groups refreshed",
     "dataNoticeTitle": "Data Source Notice",
     "dataNotice": "Consumer Groups shown on this page are from database history, offset data is fetched from Kafka in real-time.",
-    "topicNamePrefix": "Topic: "
+    "topicNamePrefix": "Topic: ",
+    "selectFromNav": "Select a consumer group from the navigator to view details"
   },
   "settings": {
     "title": "Settings",
@@ -1168,5 +1170,9 @@
       "title": "Favorite Edit Dialog",
       "desc": "Move the favorite to another group or add a description."
     }
+  },
+  "contextMenu": {
+    "refreshStatus": "Refresh Status",
+    "viewConsumerGroups": "View Consumer Groups"
   }
 }

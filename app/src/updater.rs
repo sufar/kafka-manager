@@ -5,9 +5,13 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 const API_URL: &str = "https://api.github.com/repos/sufar/kafka-manager/releases/latest";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// 下载被取消时的错误标识（调用方据此区分取消与真实失败）
+pub const DOWNLOAD_CANCELLED: &str = "download-cancelled";
 
 fn log(msg: &str) {
     tracing::info!("[updater] {}", msg);
@@ -190,10 +194,11 @@ fn find_portable_download_url(json: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// 下载更新包（带进度回调）
+/// 下载更新包（带进度回调，支持 CancellationToken 取消；取消时清理临时文件并返回 DOWNLOAD_CANCELLED）
 pub async fn download_update(
     url: &str,
     filename: &str,
+    cancel: CancellationToken,
     mut on_progress: impl FnMut(u64, u64),
 ) -> Result<PathBuf, String> {
     use futures::StreamExt;
@@ -225,6 +230,12 @@ pub async fn download_update(
 
     use std::io::Write;
     while let Some(chunk) = stream.next().await {
+        if cancel.is_cancelled() {
+            drop(file);
+            let _ = std::fs::remove_file(&target);
+            log("Download cancelled by user");
+            return Err(DOWNLOAD_CANCELLED.to_string());
+        }
         let chunk = chunk.map_err(|e| format!("下载中断：{}", e))?;
         file.write_all(&chunk).map_err(|e| format!("写入失败：{}", e))?;
         downloaded += chunk.len() as u64;

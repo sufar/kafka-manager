@@ -123,6 +123,16 @@ impl ConsumerGroupsPage {
         cx.notify();
     }
 
+    /// 当前集群（返回导航快照用）
+    pub fn current_cluster(&self) -> Option<String> {
+        self.cluster.clone()
+    }
+
+    /// 当前消费组（返回导航快照用）
+    pub fn current_group(&self) -> Option<String> {
+        self.group.clone()
+    }
+
     fn load(&self, cx: &mut Context<Self>) {
         let Some(cluster) = self.cluster.clone() else { return };
         let Some(group) = self.group.clone() else { return };
