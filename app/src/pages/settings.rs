@@ -17,6 +17,7 @@ use gpui_component::*;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use crate::components::back_button::back_button;
 use crate::components::notify;
 use crate::i18n::{t, I18n};
 use crate::state::{Backend, SidebarMode, TokioRuntime};
@@ -81,6 +82,8 @@ fn human_size(bytes: u64) -> String {
         format!("{} B", bytes)
     }
 }
+
+impl gpui::EventEmitter<crate::components::navigator::NavEvent> for SettingsPage {}
 
 pub struct SettingsPage {
     version: String,
@@ -1437,7 +1440,13 @@ impl Render for SettingsPage {
                 v_flex()
                     .gap_1()
                     .mb_4()
-                    .child(div().text_xl().font_semibold().child(t(cx, "settings.title")))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(back_button(cx))
+                            .child(div().text_xl().font_semibold().child(t(cx, "settings.title"))),
+                    )
                     .child(
                         div()
                             .text_sm()

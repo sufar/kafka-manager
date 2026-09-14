@@ -16,6 +16,7 @@ use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::back_button::back_button;
 use crate::components::notify;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
@@ -1334,7 +1335,13 @@ impl Render for ClustersPage {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(div().text_xl().font_semibold().child(t(cx, "clusters.title")))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(back_button(cx))
+                            .child(div().text_xl().font_semibold().child(t(cx, "clusters.title"))),
+                    )
                     .child(
                         div()
                             .text_sm()

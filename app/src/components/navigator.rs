@@ -45,6 +45,8 @@ pub enum NavEvent {
     OpenClustersAction { cluster: String, action: ClusterAction },
     /// 切换到指定页面
     OpenPage(Page),
+    /// 返回上一页（页面头部返回按钮触发，由 Workspace 弹出返回栈）
+    GoBack,
 }
 
 /// 集群页动作（右键菜单触发）

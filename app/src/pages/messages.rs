@@ -18,6 +18,7 @@ use gpui_component::*;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use crate::components::back_button::back_button;
 use crate::components::navigator::NavEvent;
 
 actions!(messages_page, [TableUp, TableDown, TableOpen, DetailSearch, DetailCopyValue]);
@@ -137,6 +138,10 @@ pub struct MessagesPage {
     detail_search_active: bool,
     detail_search_input: Entity<InputState>,
     detail_match_index: usize,
+    /// 详情值渲染宽度（由滚动区 canvas 实测回写），用于给长文本定宽换行，
+    /// 防止单行超长文本的 max-content 宽度（数万 px）沿布局树上传，
+    /// 触发 resizable 面板的 min-content 评估把 flex-wrap 工具栏量成纵向堆叠高度
+    detail_value_width: f32,
     panel_height: f32,
     panel_resizing: Option<(f32, f32)>, // (起始 y, 起始高)
     is_favorite: bool,
@@ -264,6 +269,8 @@ impl MessagesPage {
             selected: None,
             detail_format: DetailFormat::Json,
             detail_search_active: false,
+            // 默认给个中宽值，避免首帧未实测时超长行触发布局传染
+            detail_value_width: 800.0,
             detail_search_input,
             detail_match_index: 0,
             panel_height: 380.0,
@@ -503,7 +510,11 @@ impl MessagesPage {
 
     fn format_time_input(ts: i64) -> String {
         chrono::DateTime::from_timestamp_millis(ts)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .map(|dt| {
+                dt.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            })
             .unwrap_or_default()
     }
 
@@ -844,6 +855,15 @@ impl MessagesPage {
     fn copy_text(text: String, cx: &mut App) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         notify(cx, NotificationType::Success, t(cx, "messages.copied"));
+    }
+
+    /// 列表单行显示：换行折叠为空格（与旧版 CSS nowrap 行为一致，避免多行文本撑乱固定行高）
+    fn single_line(text: &str) -> String {
+        if text.contains(['\n', '\r']) {
+            text.replace("\r\n", " ").replace(['\n', '\r'], " ")
+        } else {
+            text.to_string()
+        }
     }
 
     fn format_timestamp(ts: i64) -> String {
@@ -1505,8 +1525,12 @@ impl Render for MessagesPage {
             .gap_1p5()
             .p_1p5()
             .flex_wrap()
+            // 关键：flex-wrap 容器的 min-height:auto = 子项纵向堆叠高度（min-content），
+            // 当详情面板大内容触发父级内在尺寸评估时会被取作下限撑高工具栏；显式归 0
+            .min_h(px(0.))
             .border_b_1()
             .border_color(border_c)
+            .child(back_button(cx))
             .children(
                 self.partition_state
                     .as_ref()
@@ -1579,6 +1603,7 @@ impl Render for MessagesPage {
                 .gap_2()
                 .p_1p5()
                 .flex_wrap()
+                .min_h(px(0.))
                 .bg(secondary_c)
                 .border_b_1()
                 .border_color(border_c)
@@ -1842,6 +1867,9 @@ impl Render for MessagesPage {
                         let is_selected = selected == Some(ix);
                         let entity = entity.clone();
                         let value_for_copy = m.value.clone().unwrap_or_default();
+                        // 列表行固定 h_6：Key/Value 折叠为单行（换行会穿透行高导致显示错乱）
+                        let key_text = MessagesPage::single_line(m.key.as_deref().unwrap_or("-"));
+                        let value_text = MessagesPage::single_line(m.value.as_deref().unwrap_or_default());
                         h_flex()
                             .px_2()
                             .py_0p5()
@@ -1875,17 +1903,15 @@ impl Render for MessagesPage {
                                 div()
                                     .w(px(w.key))
                                     .text_xs()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .child(m.key.clone().unwrap_or_else(|| "-".to_string())),
+                                    .truncate()
+                                    .child(key_text),
                             )
                             .child(
                                 div()
                                     .flex_1()
                                     .text_xs()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .child(m.value.clone().unwrap_or_default()),
+                                    .truncate()
+                                    .child(value_text),
                             )
                             .child(
                                 div().w(px(w.actions)).child(
@@ -1926,6 +1952,8 @@ impl Render for MessagesPage {
 
                 v_flex()
                     .h(px(self.panel_height))
+                    .min_h(px(0.))
+                    .overflow_hidden()
                     .border_t_1()
                     .border_color(border_c)
                     .child(
@@ -2127,11 +2155,29 @@ impl Render for MessagesPage {
                             .border_color(border_c)
                             .rounded_md()
                             .overflow_y_scroll()
+                            .child(
+                                // 实测内容区宽度并回写，供详情值定宽换行
+                                gpui::canvas(
+                                    {
+                                        let entity = cx.entity();
+                                        move |bounds, _, cx| {
+                                            entity.update(cx, |this, _| {
+                                                this.detail_value_width =
+                                                    bounds.size.width.as_f32()
+                                            });
+                                        }
+                                    },
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .inset_0(),
+                            )
                             .child(detail_value_element(
                                 self.detail_format,
                                 &value_formatted,
                                 &self.detail_search_query(cx),
                                 self.detail_match_index,
+                                self.detail_value_width,
                                 window,
                                 cx,
                             )),
@@ -2364,7 +2410,13 @@ impl Render for MessagesPage {
                     .child(status_bar)
                     .child(progress_bar)
                     .child(table_header)
-                    .child(div().flex_1().overflow_hidden().child(table_body))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h(px(0.))
+                            .overflow_hidden()
+                            .child(table_body),
+                    )
                     .child(detail),
             )
             .child(history_overlay)
@@ -2373,14 +2425,25 @@ impl Render for MessagesPage {
 }
 
 /// 详情面板 Value 渲染：JSON 用 tree-sitter 高亮，其他格式带搜索高亮
+/// `width` 为滚动区实测宽度（0 = 未知），用于给长文本定宽，避免单行超长文本的
+/// max-content 宽度上传布局树，诱发 resizable 面板 min-content 评估（工具栏被撑高）
 fn detail_value_element(
     format: DetailFormat,
     text: &str,
     query: &str,
     current_match: usize,
+    width: f32,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    // 定宽（预留滚动区内边距/边框）；未知宽度时不约束（首帧）
+    let constrained = |el: gpui::Div| -> gpui::Div {
+        if width > 1.0 {
+            el.w(px((width - 20.0).max(50.0)))
+        } else {
+            el
+        }
+    };
     let theme = cx.theme();
     let mark_style = HighlightStyle {
         background_color: Some(theme.warning.opacity(0.4)),
@@ -2411,7 +2474,7 @@ fn detail_value_element(
             let theme_styles = if cx.theme().is_dark() { &tpl.dark } else { &tpl.light };
             let mut highlights = crate::utils::json_template_highlights(text, theme_styles);
             highlights.extend(search_highlights(text, query));
-            return div()
+            return constrained(div())
                 .text_xs()
                 .font_family("monospace")
                 .child(StyledText::new(text.to_string()).with_highlights(highlights))
@@ -2419,27 +2482,34 @@ fn detail_value_element(
         }
         // 无模板：tree-sitter JSON 语法高亮（不支持搜索高亮叠加，搜索时走下方 StyledText）
         if query.is_empty() {
-            return gpui_component::text::TextView::markdown(
-                "detail-json-view",
-                format!("```json\n{}\n```", text),
-                window,
-                cx,
-            )
-            .into_any_element();
+            return constrained(div())
+                .child(gpui_component::text::TextView::markdown(
+                    "detail-json-view",
+                    format!("```json\n{}\n```", text),
+                    window,
+                    cx,
+                ))
+                .into_any_element();
         }
     }
 
     if query.is_empty() {
-        return div().text_xs().child(text.to_string()).into_any_element();
+        return constrained(div())
+            .text_xs()
+            .child(text.to_string())
+            .into_any_element();
     }
 
     // 搜索高亮：StyledText 分段
     let highlights = search_highlights(text, query);
     if highlights.is_empty() {
-        return div().text_xs().child(text.to_string()).into_any_element();
+        return constrained(div())
+            .text_xs()
+            .child(text.to_string())
+            .into_any_element();
     }
 
-    StyledText::new(text.to_string())
-        .with_highlights(highlights)
+    constrained(div())
+        .child(StyledText::new(text.to_string()).with_highlights(highlights))
         .into_any_element()
 }

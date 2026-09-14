@@ -17,6 +17,7 @@ use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::back_button::back_button;
 use crate::components::notify;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
@@ -63,6 +64,8 @@ struct RegisterForm {
     schema_type: Entity<SelectState<SearchableVec<StringOption>>>,
     content: Entity<InputState>,
 }
+
+impl gpui::EventEmitter<crate::components::navigator::NavEvent> for SchemaRegistryPage {}
 
 pub struct SchemaRegistryPage {
     clusters: Vec<String>,
@@ -1093,7 +1096,18 @@ impl Render for SchemaRegistryPage {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(div().text_xl().font_semibold().child(t(cx, "schemaRegistry.title")))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(back_button(cx))
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_semibold()
+                                    .child(t(cx, "schemaRegistry.title")),
+                            ),
+                    )
                     .child(
                         div()
                             .text_sm()

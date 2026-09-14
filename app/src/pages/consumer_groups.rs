@@ -14,6 +14,7 @@ use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::back_button::back_button;
 use crate::components::navigator::NavEvent;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
@@ -561,6 +562,7 @@ impl Render for ConsumerGroupsPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .child(back_button(cx))
                             .child(Icon::new(IconName::CircleUser).text_color(theme.primary))
                             .child(
                                 div()

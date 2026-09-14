@@ -16,6 +16,10 @@ use kafka_manager_api::{
 
 /// 数据库文件路径（系统数据目录）
 pub fn db_path() -> String {
+    // 允许用环境变量指定独立 DB 文件（并行测试实例、免单实例抢库调试用）
+    if let Ok(p) = std::env::var("KAFKA_MANAGER_DB") {
+        return p;
+    }
     let db_filename = "kafka_manager.db";
 
     let data_dir = if cfg!(target_os = "windows") {

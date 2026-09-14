@@ -17,6 +17,7 @@ use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::back_button::back_button;
 use crate::components::notify;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
@@ -43,6 +44,8 @@ pub struct TopicsPage {
     cluster: Option<String>,
     search_input: Entity<InputState>,
     confirm_input: Option<Entity<InputState>>,
+    /// 删除确认：上次点 OK 时名称不匹配（用于控制错误提示显隐）
+    delete_mismatch: bool,
     topics: Vec<String>,
     favorites: HashSet<String>,
     loading: bool,
@@ -71,6 +74,7 @@ impl TopicsPage {
             cluster: None,
             search_input,
             confirm_input: None,
+            delete_mismatch: false,
             topics: Vec::new(),
             favorites: HashSet::new(),
             loading: false,
@@ -226,6 +230,7 @@ impl TopicsPage {
     fn open_delete_confirm(&mut self, topic: String, window: &mut Window, cx: &mut Context<Self>) {
         let confirm_state = cx.new(|cx| InputState::new(window, cx));
         self.confirm_input = Some(confirm_state.clone());
+        self.delete_mismatch = false;
 
         let entity = cx.entity();
         let title = t(cx, "topics.confirmDeleteTitle");
@@ -234,9 +239,14 @@ impl TopicsPage {
 
         window.open_dialog(cx, move |dialog, _window, cx| {
             let entity = entity.clone();
+            let entity_ok = entity.clone();
             let topic = topic.clone();
+            let topic_copy = topic.clone();
             let mismatch = mismatch.clone();
             let confirm_state = confirm_state.clone();
+            // 仅在点过 OK 且不匹配时显示错误；输入被改对后立即隐藏
+            let show_mismatch = entity.read(cx).delete_mismatch
+                && confirm_state.read(cx).value().trim() != topic;
             dialog
                 .confirm()
                 .title(title.clone())
@@ -246,28 +256,57 @@ impl TopicsPage {
                         .gap_3()
                         .child(div().text_sm().child(hint.clone()))
                         .child(
-                            div()
-                                .text_sm()
-                                .font_semibold()
-                                .child(topic.clone()),
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .font_semibold()
+                                        .overflow_hidden()
+                                        .child(topic.clone()),
+                                )
+                                .child(
+                                    Button::new("copy-topic-name")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Copy)
+                                        .tooltip(t(cx, "common.copy"))
+                                        .on_click(move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                topic_copy.clone(),
+                                            ));
+                                            notify(
+                                                cx,
+                                                NotificationType::Success,
+                                                t(cx, "topics.copied"),
+                                            );
+                                        }),
+                                ),
                         )
                         .child(Input::new(&confirm_state))
-                        .child(
+                        .children(show_mismatch.then(|| {
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().danger)
-                                .child(mismatch.clone()),
-                        ),
+                                .child(mismatch.clone())
+                        })),
                 )
                 .button_props(DialogButtonProps::default().ok_variant(ButtonVariant::Danger))
                 .on_ok(move |_, _window, cx| {
                     let typed = confirm_state.read(cx).value().to_string();
                     if typed.trim() == topic {
                         entity.update(cx, |this, cx| {
+                            this.delete_mismatch = false;
                             this.delete_topic(topic.clone(), cx);
                         });
                         true
                     } else {
+                        entity_ok.update(cx, |this, cx| {
+                            this.delete_mismatch = true;
+                            cx.notify();
+                        });
                         false // 名称不匹配不关闭
                     }
                 })
@@ -660,7 +699,13 @@ impl Render for TopicsPage {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(div().text_xl().font_semibold().child(t(cx, "topics.title")))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(back_button(cx))
+                            .child(div().text_xl().font_semibold().child(t(cx, "topics.title"))),
+                    )
                     .child(
                         div()
                             .text_sm()

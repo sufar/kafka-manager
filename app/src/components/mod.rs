@@ -4,6 +4,7 @@ use gpui::App;
 use gpui_component::notification::{Notification, NotificationType};
 use gpui_component::WindowExt;
 
+pub mod back_button;
 pub mod context_actions;
 pub mod favorite_dialog;
 pub mod navigator;

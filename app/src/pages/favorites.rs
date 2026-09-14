@@ -17,6 +17,7 @@ use gpui_component::spinner::Spinner;
 use gpui_component::*;
 use serde_json::json;
 
+use crate::components::back_button::back_button;
 use crate::components::notify;
 use crate::components::option_select::StringOption;
 use crate::i18n::t;
@@ -54,6 +55,8 @@ struct ItemForm {
     description: Entity<InputState>,
     sort_order: Entity<InputState>,
 }
+
+impl gpui::EventEmitter<crate::components::navigator::NavEvent> for FavoritesPage {}
 
 pub struct FavoritesPage {
     groups: Vec<FavGroup>,
@@ -679,7 +682,13 @@ impl Render for FavoritesPage {
             .child(
                 v_flex()
                     .gap_1()
-                    .child(div().text_xl().font_semibold().child(t(cx, "favorites.title")))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(back_button(cx))
+                            .child(div().text_xl().font_semibold().child(t(cx, "favorites.title"))),
+                    )
                     .child(
                         div()
                             .text_sm()

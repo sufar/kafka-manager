@@ -100,6 +100,24 @@ impl Workspace {
         subscriptions.push(cx.subscribe(&topics_page, |this, _, event: &NavEvent, cx| {
             this.handle_nav_event(event, cx);
         }));
+        subscriptions.push(cx.subscribe(&clusters_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&messages_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&consumer_groups_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&schema_registry_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&favorites_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
+        subscriptions.push(cx.subscribe(&settings_page, |this, _, event: &NavEvent, cx| {
+            this.handle_nav_event(event, cx);
+        }));
 
         // 全局搜索（防抖 300ms；回车打开选中结果）
         subscriptions.push(cx.subscribe(
@@ -217,6 +235,11 @@ impl Workspace {
     /// 处理导航器（平铺/树形）发来的导航事件
     fn handle_nav_event(&mut self, event: &NavEvent, cx: &mut Context<Self>) {
         tracing::info!("[NAV] handle_nav_event: {:?}", event);
+        // 返回上一页：走独立逻辑，不压栈
+        if matches!(event, NavEvent::GoBack) {
+            self.go_back(cx);
+            return;
+        }
         let before = self.snapshot_current(cx);
         match event {
             NavEvent::OpenMessages { cluster, topic } => {
@@ -265,6 +288,7 @@ impl Workspace {
             NavEvent::OpenPage(page) => {
                 self.switch_page(*page, cx);
             }
+            NavEvent::GoBack => unreachable!("GoBack 已在前面提前处理"),
         }
         self.after_navigate(before, cx);
     }
@@ -304,8 +328,16 @@ impl Workspace {
             if self.nav_history.len() > 50 {
                 self.nav_history.remove(0);
             }
+            self.sync_can_go_back(cx);
             self.persist_last_page(cx);
         }
+    }
+
+    /// 同步全局「能否返回」状态（供各页头返回按钮读取）
+    fn sync_can_go_back(&self, cx: &mut App) {
+        cx.set_global(crate::components::back_button::CanGoBack(
+            !self.nav_history.is_empty(),
+        ));
     }
 
     /// 返回上一页
@@ -314,6 +346,7 @@ impl Workspace {
             return;
         };
         self.apply_snapshot(&snapshot, cx);
+        self.sync_can_go_back(cx);
         self.persist_last_page(cx);
     }
 
@@ -670,17 +703,6 @@ impl Workspace {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    // 返回上一页（返回栈为空时禁用）
-                    .child(
-                        Button::new("nav-back")
-                            .ghost()
-                            .icon(IconName::ArrowLeft)
-                            .tooltip(t(cx, "common.back"))
-                            .disabled(self.nav_history.is_empty())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.go_back(cx);
-                            })),
-                    )
                     .child(
                         div()
                             .size_6()
