@@ -417,12 +417,14 @@ class ApiClient {
     end_time?: number;
     fetchMode?: 'oldest' | 'newest';
   }): Promise<import('@/types/api').MessageRecord[]> {
-    // 消息查询可能需要较长时间，设置 60 秒超时
+    // 后端查询总时长上限 85s（MAX_QUERY_TIME_SECS），是唯一的时间边界；
+    // 前端 request() 的 _timeoutMs 参数未生效，invoke 会一直等到后端返回。
+    // 主消息查询界面请使用 getMessagesStream（可取消、有进度）。
     const data = await this.request<{ messages: import('@/types/api').MessageRecord[] }>('message.list', {
       cluster_id: clusterId,
       topic,
       ...params
-    }, 60000);
+    });
     return data.messages;
   }
 

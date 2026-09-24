@@ -36,6 +36,7 @@ use crate::AppState;
 use crate::RefreshState;
 use serde_json::Value;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
@@ -438,6 +439,18 @@ pub async fn start_message_list_stream(
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let max_msgs = limit.or(max_messages).unwrap_or(100);
 
+    // Schema Registry 配置：流式列表与非流式一致解码 Avro/Protobuf
+    let schema_info = {
+        let pool = state.get_pool();
+        let cfg = SchemaRegistryStore::get_config(&pool, &cluster_id).await.ok().flatten();
+        if cfg.is_some() {
+            SchemaStore::get_latest_schema(&pool, &cluster_id, &topic).await.ok().flatten()
+                .map(|s| (s.schema_type, s.schema_json))
+        } else {
+            None
+        }
+    };
+
     let (tx, rx) = mpsc::channel::<StreamEvent>(100);
     let brokers = config.brokers.clone();
     let cancel_token_clone = cancel_token.clone();
@@ -457,6 +470,7 @@ pub async fn start_message_list_stream(
             fetch_mode.as_deref(),
             sort.as_deref(),
             partitions_hint,
+            schema_info,
             tx.clone(),
             cancel_token_clone,
         ).await;
@@ -2224,23 +2238,10 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
             // 优化：避免不必要的 clone，直接使用 value
             let mut value = msg.value.unwrap_or_default();
 
-            // 尝试使用 Schema 解码消息
+            // 尝试使用 Schema 解码消息（与流式路径共用同一 helper）
             if let Some((ref _config, ref schema)) = schema_info {
-                // 检查是否是 base64 编码的二进制数据（Avro/Protobuf）
-                if let Ok(decoded_bytes) = base64::engine::general_purpose::STANDARD.decode(&value) {
-                    match schema.schema_type.as_str() {
-                        "AVRO" => {
-                            if let Ok(json_value) = AvroCodec::decode(&schema.schema_json, &decoded_bytes) {
-                                value = serde_json::to_string(&json_value).unwrap_or(value);
-                            }
-                        }
-                        "PROTOBUF" => {
-                            if let Ok(json_value) = ProtobufCodec::decode_simple(&schema.schema_json, &decoded_bytes) {
-                                value = serde_json::to_string(&json_value).unwrap_or(value);
-                            }
-                        }
-                        _ => {}
-                    }
+                if let Some(decoded) = try_decode_schema_value(&schema.schema_type, &schema.schema_json, &value) {
+                    value = decoded;
                 }
             }
 
@@ -2277,6 +2278,8 @@ async fn handle_message_list(state: AppState, body: Value) -> Result<Value> {
 const MAX_INLINE_VALUE_BYTES: usize = 128 * 1024;
 /// 流式推送每批消息条数
 const STREAM_BATCH_SIZE: usize = 500;
+/// 流式推送每批字节数上限：大 value 查询时按条数攒批内存不可控（500×128KB≈64MB/批）
+const STREAM_BATCH_BYTES: usize = 8 * 1024 * 1024;
 /// 查询总时长上限：留 5s 余量，确保在前端 90s 超时前完成收尾
 const MAX_QUERY_TIME_SECS: u64 = 85;
 /// 收到首条消息前的等待上限（必须超过 socket.timeout.ms=60s，慢 broker 的首个 Fetch 才有机会完成）
@@ -2301,14 +2304,16 @@ fn build_query_consumer_config(brokers: &str, group_id: &str, large_fetch: bool)
         // 强制使用 IPv4，避免 IPv6 连接问题
         .set("broker.address.family", "v4")
         .set("socket.nagle.disable", "true")
-        .set("socket.receive.buffer.bytes", "262144")
+        // 不显式设置 socket.receive.buffer.bytes：Linux 下显式 SO_RCVBUF 会关闭内核
+        // autotune，固定 256KB 窗口把高延迟链路吞吐钉死在 256KB/RTT；交给 OS autotune
         // FetchRequest 超时 = socket.timeout.ms。慢 broker 响应可能超过 10s，放宽到 60s（librdkafka 默认值）
         .set("socket.timeout.ms", "60000")
         .set("connections.max.idle.ms", "540000")
         .set("reconnect.backoff.ms", "50")
         .set("reconnect.backoff.max.ms", "500")
         .set("socket.connection.setup.timeout.ms", "3000")
-        .set("metadata.max.age.ms", "5000")
+        // 不设置 metadata.max.age.ms（默认 5min）：临时 consumer 全新启动必然现取 metadata，
+        // 过激的 5s 刷新只会在长查询中途往 fetch 流水线里插入额外 RTT
         // 允许大消息（必须 >= max.partition.fetch.bytes）
         .set("fetch.message.max.bytes", "52428800");
     if large_fetch {
@@ -2390,6 +2395,18 @@ fn convert_payload(bytes: Option<&[u8]>, limit: Option<usize>) -> (Option<String
     (Some(s.to_string()), false)
 }
 
+/// 按 Schema Registry 的 schema 解码消息 value（base64 文本 → Avro/Protobuf → JSON 字符串）
+/// 流式/非流式列表路径与 message.get 共用；非 base64、解码失败、非 AVRO/PROTOBUF 均返回 None（保留原值）
+fn try_decode_schema_value(schema_type: &str, schema_json: &str, value: &str) -> Option<String> {
+    let decoded_bytes = base64::engine::general_purpose::STANDARD.decode(value).ok()?;
+    let json_value = match schema_type {
+        "AVRO" => AvroCodec::decode(schema_json, &decoded_bytes).ok()?,
+        "PROTOBUF" => ProtobufCodec::decode_simple(schema_json, &decoded_bytes).ok()?,
+        _ => return None,
+    };
+    serde_json::to_string(&json_value).ok()
+}
+
 /// 批量计算所有分区的读取范围（start/end offset 均 inclusive）
 /// offsets_for_times 一次 RPC 覆盖全部分区（原实现每分区各 2 次 RPC）
 fn calculate_offsets_batch(
@@ -2413,13 +2430,9 @@ fn calculate_offsets_batch(
         high_watermark: high,
     };
 
-    // 1. watermarks（带重试；串行但共享同一个 consumer/连接）
-    let mut watermarks: HashMap<i32, (i64, i64)> = HashMap::with_capacity(partitions.len());
-    for &p in partitions {
-        let (low, high) = fetch_watermarks_with_retry(consumer, topic, p)
-            .map_err(|e| AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, p, e)))?;
-        watermarks.insert(p, (low, high));
-    }
+    // 1. watermarks：两次批量 ListOffsets RPC 覆盖全部分区（原实现每分区串行一次 RPC，
+    //    慢链路 N×RTT）；批量失败的分区回退串行 fetch_watermarks（共享同一 consumer/连接）
+    let watermarks = fetch_watermarks_batch(consumer, topic, partitions)?;
 
     // 2. 批量 offsets_for_times：start_time / end_time 各一次 RPC
     let query_offsets_for_time = |ts: i64| -> HashMap<i32, i64> {
@@ -2436,15 +2449,28 @@ fn calculate_offsets_batch(
         if !has_valid {
             return map;
         }
-        match consumer.offsets_for_times(tpl, Duration::from_secs(15)) {
-            Ok(r) => {
-                for elem in r.elements_for_topic(topic) {
-                    map.insert(elem.partition(), elem.offset().to_raw().unwrap_or(-1));
+        // 30s 超时 + 1 次重试：慢 broker 上一次 15s 超时会静默退化为全窗口扫描
+        for attempt in 1..=2 {
+            match consumer.offsets_for_times(tpl.clone(), Duration::from_secs(30)) {
+                Ok(r) => {
+                    for elem in r.elements_for_topic(topic) {
+                        // 分区级错误（如 LeaderNotAvailable）不得入图：其 offset 为哨兵负值，
+                        // 原逻辑会落到 Some(_) 分支被当成"时间戳晚于所有消息"→ 空范围，
+                        // 静默丢失该分区数据。跳过让它走 None 回退（watermark 全窗口，保守多查不丢数据）
+                        if elem.error().is_err() {
+                            continue;
+                        }
+                        map.insert(elem.partition(), elem.offset().to_raw().unwrap_or(-1));
+                    }
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("[Query] offsets_for_times(ts={}) attempt {}/2 failed: {}", ts, attempt, e);
                 }
             }
-            Err(e) => {
-                tracing::warn!("[Query] offsets_for_times(ts={}) failed: {}, falling back to watermarks", ts, e);
-            }
+        }
+        if map.is_empty() {
+            tracing::warn!("[Query] offsets_for_times(ts={}) failed after retries, falling back to watermarks", ts);
         }
         map
     };
@@ -2603,6 +2629,8 @@ enum Emit {
 struct QueryParams {
     brokers: String,
     topic: String,
+    /// 目标分区；空 = 由查询 consumer 自己的 metadata 解析（复用同一连接，
+    /// 省掉原实现为拿分区列表单独建 consumer 的一次 TCP 连接 + metadata RTT）
     partitions: Vec<i32>,
     /// 用户指定 offset（仅单分区查询有效）
     offset: Option<i64>,
@@ -2616,12 +2644,14 @@ struct QueryParams {
     is_desc: bool,
     /// value 内联上限（流式列表路径 Some；导出等非流式路径 None 保留完整内容）
     truncate_value: Option<usize>,
+    /// 分区解析完成回调（流式路径用来推迟发送 start 事件，带上准确的分区数）
+    on_partitions_resolved: Option<Box<dyn FnOnce(usize) + Send>>,
 }
 
 /// 消息查询引擎：单 consumer 读取所有分区 + K 路归并有序输出
 /// 阻塞实现，调用方必须用 spawn_blocking 包裹。返回成功发送的消息条数
 fn run_message_query(
-    params: QueryParams,
+    mut params: QueryParams,
     cancel: CancellationToken,
     mut emit: impl FnMut(crate::kafka::consumer::KafkaMessage) -> Emit,
 ) -> Result<usize> {
@@ -2643,11 +2673,20 @@ fn run_message_query(
     let cfg = build_query_consumer_config(&params.brokers, &group_id, params.max_messages > 1000);
     let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()?;
 
+    // 分区列表：调用方未提供时用这个 consumer 自己的 metadata 解析
+    if params.partitions.is_empty() {
+        params.partitions = resolve_partitions(&consumer, &params.topic)?;
+    }
+    if let Some(cb) = params.on_partitions_resolved.take() {
+        cb(params.partitions.len());
+    }
+    let partitions = params.partitions.as_slice();
+
     // 批量计算每个分区的读取范围
     let ranges = calculate_offsets_batch(
         &consumer,
         &params.topic,
-        &params.partitions,
+        partitions,
         params.max_messages,
         params.offset,
         params.start_time,
@@ -2876,15 +2915,27 @@ struct StreamBatcher {
     tx: mpsc::Sender<StreamEvent>,
     cancel: CancellationToken,
     batch: Vec<Value>,
+    /// 当前批的字节数估计（key+value）：大 value 查询时按条数攒批内存不可控
+    batch_bytes: usize,
     sent: usize,
-    total: usize,
+    /// 目标总数（分区解析完成后才有准确值），随批事件带给前端做进度
+    total: Arc<AtomicUsize>,
+    /// Schema Registry 解码（schema_type, schema_json），与非流式列表路径行为一致
+    schema: Option<(String, String)>,
 }
 
 impl StreamBatcher {
-    fn emit(&mut self, msg: crate::kafka::consumer::KafkaMessage) -> Emit {
+    fn emit(&mut self, mut msg: crate::kafka::consumer::KafkaMessage) -> Emit {
+        if let (Some((ref ty, ref js)), Some(v)) = (&self.schema, &msg.value) {
+            if let Some(decoded) = try_decode_schema_value(ty, js, v) {
+                msg.value = Some(decoded);
+            }
+        }
+        self.batch_bytes += msg.key.as_deref().map_or(0, str::len)
+            + msg.value.as_deref().map_or(0, str::len);
         self.batch.push(msg.to_json_value());
         self.sent += 1;
-        if self.batch.len() >= STREAM_BATCH_SIZE {
+        if self.batch.len() >= STREAM_BATCH_SIZE || self.batch_bytes >= STREAM_BATCH_BYTES {
             return self.flush();
         }
         Emit::Continue
@@ -2895,10 +2946,11 @@ impl StreamBatcher {
             return Emit::Continue;
         }
         let messages = std::mem::replace(&mut self.batch, Vec::with_capacity(STREAM_BATCH_SIZE));
+        self.batch_bytes = 0;
         let data = serde_json::json!({
             "messages": messages,
             "progress": self.sent,
-            "total": self.total,
+            "total": self.total.load(Ordering::Relaxed),
         });
         let mut evt = StreamEvent::new("batch", data);
         // 背压：channel 满时等待并响应取消
@@ -2920,6 +2972,9 @@ impl StreamBatcher {
 
 /// 流式消息获取：单 consumer 全分区读取 + K 路归并 + 实时推送
 /// 返回实际发送的消息条数（由调用方写入 complete 事件的 actual_total）
+///
+/// start 事件在引擎解析完分区后发送（带准确的分区数/total_target）：分区解析已合并进
+/// 查询 consumer（省一条 TCP 连接 + metadata RTT），此处不再预知分区数
 async fn fetch_messages_streaming_sse(
     brokers: &str,
     topic: &str,
@@ -2933,6 +2988,7 @@ async fn fetch_messages_streaming_sse(
     fetch_mode: Option<&str>,
     sort: Option<&str>,
     partitions_hint: Option<Vec<i32>>,
+    schema_info: Option<(String, String)>,
     sse_tx: mpsc::Sender<StreamEvent>,
     cancel_token: CancellationToken,
 ) -> Result<usize> {
@@ -2940,38 +2996,34 @@ async fn fetch_messages_streaming_sse(
     let is_desc = sort == Some("desc") || (sort.is_none() && fetch_mode != Some("oldest"));
     let has_filter = search.is_some() || start_time.is_some() || end_time.is_some();
 
-    // 分区列表：优先前端透传（省一次 fetch_metadata），否则获取（阻塞调用放进 blocking 池）
-    let partitions: Vec<i32> = if let Some(p) = partition {
-        vec![p]
-    } else {
-        match partitions_hint {
+    // 分区列表：优先前端透传；否则留空由查询 consumer 自己的 metadata 解析
+    let partitions: Vec<i32> = match partition {
+        Some(p) => vec![p],
+        None => match partitions_hint {
             Some(ref hint) if !hint.is_empty() => hint.clone(),
-            _ => {
-                let brokers_owned = brokers.to_string();
-                let topic_owned = topic.to_string();
-                tokio::task::spawn_blocking(move || fetch_topic_partitions(&brokers_owned, &topic_owned))
-                    .await
-                    .map_err(|e| AppError::Internal(format!("Join error: {}", e)))??
-            }
-        }
+            _ => Vec::new(),
+        },
     };
 
-    let partition_count = partitions.len();
-    let total_target = max_messages * partition_count;
+    // 目标总数：hint 已知则立即准确；否则等引擎解析后由回调填入（批事件随带）
+    let total_shared = Arc::new(AtomicUsize::new(max_messages * partitions.len()));
     tracing::info!(
-        "[Stream] topic={}, {} partitions, {} msgs/partition, desc={}, has_filter={}",
-        topic, partition_count, max_messages, is_desc, has_filter
+        "[Stream] topic={}, {} partitions (hint), {} msgs/partition, desc={}, has_filter={}",
+        topic, partitions.len(), max_messages, is_desc, has_filter
     );
 
-    // 开始事件（has_filter 提示前端进度按不确定模式展示：过滤后实际数量无法预估）
-    sse_tx
-        .send(StreamEvent::new("start", serde_json::json!({
+    // start 事件推迟到引擎解析完分区后发送（has_filter 提示前端进度按不确定模式展示）
+    let start_tx = sse_tx.clone();
+    let total_for_cb = total_shared.clone();
+    let on_partitions_resolved = Box::new(move |partition_count: usize| {
+        let total_target = max_messages * partition_count;
+        total_for_cb.store(total_target, Ordering::Relaxed);
+        let _ = start_tx.try_send(StreamEvent::new("start", serde_json::json!({
             "partitions": partition_count,
             "total_target": total_target,
             "has_filter": has_filter,
-        })))
-        .await
-        .map_err(|_| AppError::Internal("Stream channel closed".to_string()))?;
+        })));
+    });
 
     let params = QueryParams {
         brokers: brokers.to_string(),
@@ -2987,6 +3039,7 @@ async fn fetch_messages_streaming_sse(
         fetch_mode: fetch_mode.map(|s| s.to_string()),
         is_desc,
         truncate_value: Some(MAX_INLINE_VALUE_BYTES),
+        on_partitions_resolved: Some(on_partitions_resolved),
     };
 
     let cancel = cancel_token.clone();
@@ -2995,8 +3048,10 @@ async fn fetch_messages_streaming_sse(
             tx: sse_tx,
             cancel: cancel.clone(),
             batch: Vec::with_capacity(STREAM_BATCH_SIZE),
+            batch_bytes: 0,
             sent: 0,
-            total: total_target,
+            total: total_shared,
+            schema: schema_info,
         };
         let result = run_message_query(params, cancel, |msg| batcher.emit(msg));
         let _ = batcher.flush();
@@ -3026,18 +3081,10 @@ async fn fetch_messages_with_temp_consumer(
     let query_start = std::time::Instant::now();
     let is_desc = sort == Some("desc") || (sort.is_none() && fetch_mode != Some("oldest"));
 
-    let partitions: Vec<i32> = if let Some(p) = partition {
-        vec![p]
-    } else {
-        let brokers_owned = brokers.to_string();
-        let topic_owned = topic.to_string();
-        tokio::task::spawn_blocking(move || fetch_topic_partitions(&brokers_owned, &topic_owned))
-            .await
-            .map_err(|e| AppError::Internal(format!("Join error: {}", e)))??
-    };
+    // 单分区查询直接指定；全分区留空由查询 consumer 自己的 metadata 解析
+    // （原实现为此单独建一个 consumer：多一次 TCP 连接 + metadata RTT）
+    let partitions: Vec<i32> = partition.map_or_else(Vec::new, |p| vec![p]);
 
-    let capacity = (max_messages * partitions.len()).min(50000);
-    let partition_count = partitions.len();
     let params = QueryParams {
         brokers: brokers.to_string(),
         topic: topic.to_string(),
@@ -3051,11 +3098,13 @@ async fn fetch_messages_with_temp_consumer(
         fetch_mode: fetch_mode.map(|s| s.to_string()),
         is_desc,
         truncate_value: None, // 导出/非流式保留完整内容
+        on_partitions_resolved: None,
     };
 
     let messages = tokio::task::spawn_blocking(
         move || -> Result<Vec<crate::kafka::consumer::KafkaMessage>> {
-            let mut out: Vec<crate::kafka::consumer::KafkaMessage> = Vec::with_capacity(capacity);
+            let mut out: Vec<crate::kafka::consumer::KafkaMessage> =
+                Vec::with_capacity(max_messages.min(1024));
             run_message_query(params, CancellationToken::new(), |msg| {
                 out.push(msg);
                 Emit::Continue
@@ -3067,8 +3116,8 @@ async fn fetch_messages_with_temp_consumer(
     .map_err(|e| AppError::Internal(format!("Query task join error: {}", e)))??;
 
     tracing::info!(
-        "[Query] non-streaming: fetched {} messages from {} partitions in {:?}",
-        messages.len(), partition_count, query_start.elapsed()
+        "[Query] non-streaming: fetched {} messages in {:?}",
+        messages.len(), query_start.elapsed()
     );
     Ok(messages)
 }
@@ -3084,6 +3133,18 @@ async fn handle_message_get(state: AppState, body: Value) -> Result<Value> {
     let config = ensure_cluster_client(&state, &cluster_id).await?;
     let brokers = config.brokers.clone();
     let topic_clone = topic.clone();
+
+    // Schema Registry 配置：与列表路径一致解码 Avro/Protobuf（否则大消息查看显示 base64 原文）
+    let schema_info = {
+        let pool = state.get_pool();
+        let cfg = SchemaRegistryStore::get_config(&pool, &cluster_id).await.ok().flatten();
+        if cfg.is_some() {
+            SchemaStore::get_latest_schema(&pool, &cluster_id, &topic).await.ok().flatten()
+                .map(|s| (s.schema_type, s.schema_json))
+        } else {
+            None
+        }
+    };
 
     tokio::task::spawn_blocking(move || -> Result<Value> {
         use rdkafka::consumer::{BaseConsumer, Consumer, DefaultConsumerContext};
@@ -3101,7 +3162,9 @@ async fn handle_message_get(state: AppState, body: Value) -> Result<Value> {
         tpl.add_partition_offset(&topic_clone, partition, rdkafka::Offset::Offset(offset))?;
         consumer.assign(&tpl)?;
 
-        let deadline = Instant::now() + Duration::from_secs(15);
+        // 必须超过 socket.timeout.ms=60s 内一次 Fetch 的最坏响应时间的一半以上，
+        // 慢 broker 首次 Fetch（含连接+metadata+拉取）可能远超原 15s，会误报 not found
+        let deadline = Instant::now() + Duration::from_secs(45);
         loop {
             if Instant::now() >= deadline {
                 return Err(AppError::NotFound(format!(
@@ -3112,7 +3175,12 @@ async fn handle_message_get(state: AppState, body: Value) -> Result<Value> {
                 Some(Ok(msg)) => {
                     if msg.offset() == offset {
                         let (key, _) = convert_payload(msg.key(), None);
-                        let (value, _) = convert_payload(msg.payload(), None);
+                        let (mut value, _) = convert_payload(msg.payload(), None);
+                        if let (Some((ref ty, ref js)), Some(v)) = (&schema_info, &value) {
+                            if let Some(decoded) = try_decode_schema_value(ty, js, v) {
+                                value = Some(decoded);
+                            }
+                        }
                         return Ok(serde_json::json!({
                             "partition": msg.partition(),
                             "offset": msg.offset(),
@@ -3154,21 +3222,16 @@ struct TimeRangeInfo {
     high_watermark: i64,
 }
 
-/// 获取 topic 的分区列表（带重试）
+/// 用查询 consumer 自身的 metadata 解析分区列表（带重试）
+/// 原实现为此单独建一个 consumer：多一次 TCP 连接 + metadata RTT，且配置不统一。
 /// 慢集群下 5s 超时曾导致退化为只查 partition 0，静默丢失其他分区的数据
-fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>> {
-    use rdkafka::consumer::{BaseConsumer, Consumer};
-    use rdkafka::ClientConfig;
+fn resolve_partitions(consumer: &rdkafka::consumer::BaseConsumer, topic: &str) -> Result<Vec<i32>> {
+    use rdkafka::consumer::Consumer;
     use std::time::Duration;
-
-    let cfg = ClientConfig::new()
-        .set("bootstrap.servers", brokers)
-        .set("broker.address.family", "v4")
-        .create::<BaseConsumer>()?;
 
     let mut last_err: Option<String> = None;
     for attempt in 1..=3 {
-        match cfg.fetch_metadata(Some(topic), Duration::from_secs(10)) {
+        match consumer.fetch_metadata(Some(topic), Duration::from_secs(10)) {
             Ok(metadata) => {
                 let partitions: Vec<i32> = metadata.topics().first()
                     .map(|t| t.partitions().iter().map(|p| p.id()).collect())
@@ -3177,10 +3240,10 @@ fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>> {
                     return Ok(partitions);
                 }
                 last_err = Some(format!("topic {} not found in metadata", topic));
-                tracing::warn!("[fetch_topic_partitions] attempt {}/3: topic {} not found in metadata", attempt, topic);
+                tracing::warn!("[resolve_partitions] attempt {}/3: topic {} not found in metadata", attempt, topic);
             }
             Err(e) => {
-                tracing::warn!("[fetch_topic_partitions] attempt {}/3 failed for topic {}: {}", attempt, topic, e);
+                tracing::warn!("[resolve_partitions] attempt {}/3 failed for topic {}: {}", attempt, topic, e);
                 last_err = Some(e.to_string());
             }
         }
@@ -3192,6 +3255,77 @@ fn fetch_topic_partitions(brokers: &str, topic: &str) -> Result<Vec<i32>> {
         topic,
         last_err.unwrap_or_else(|| "unknown error".to_string())
     )))
+}
+
+/// 批量获取所有分区的 (low, high) watermark：两次 RPC 覆盖全部分区
+///
+/// 原理：librdkafka 的 offsets_for_times 把 offset 字段原样写入 ListOffsets 请求的
+/// Time 字段（按 leader 分组并行发送），协议上 -1(End)=log end offset=high watermark，
+/// -2(Beginning)=log start offset=low watermark。响应 offset 均 >= 0，不与哨兵值冲突。
+/// 原实现每分区一次串行 fetch_watermarks RPC（10s 超时×3 重试），
+/// 慢链路（200ms RTT）30 分区 ≈ 6s 纯 setup；批量后 ≈ 2×RTT。
+/// 批量未拿到的分区回退串行 fetch_watermarks_with_retry（通常为零或个别分区）
+fn fetch_watermarks_batch(
+    consumer: &rdkafka::consumer::BaseConsumer,
+    topic: &str,
+    partitions: &[i32],
+) -> Result<HashMap<i32, (i64, i64)>> {
+    use rdkafka::consumer::Consumer;
+    use rdkafka::TopicPartitionList;
+    use std::time::Duration;
+
+    // 批量查询一类 watermark；返回成功拿到 (无分区级错误 且 offset >= 0) 的分区
+    let query_batch = |offset: rdkafka::Offset, label: &str| -> HashMap<i32, i64> {
+        let mut tpl = TopicPartitionList::new();
+        for &p in partitions {
+            if let Err(e) = tpl.add_partition_offset(topic, p, offset) {
+                tracing::warn!("[watermarks] add {}[{}] to batch failed: {}", topic, p, e);
+            }
+        }
+        let mut map = HashMap::with_capacity(partitions.len());
+        // 30s 超时 + 重试：慢 broker 需容忍；只读幂等，整批重试即可
+        for attempt in 1..=2 {
+            match consumer.offsets_for_times(tpl.clone(), Duration::from_secs(30)) {
+                Ok(r) => {
+                    for elem in r.elements_for_topic(topic) {
+                        if let (Ok(()), Some(raw)) = (elem.error(), elem.offset().to_raw()) {
+                            if raw >= 0 {
+                                map.insert(elem.partition(), raw);
+                            }
+                        }
+                    }
+                    if map.len() == partitions.len() {
+                        break;
+                    }
+                    tracing::warn!(
+                        "[watermarks] batch {} attempt {}/2: got {}/{} partitions",
+                        label, attempt, map.len(), partitions.len()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("[watermarks] batch {} attempt {}/2 failed: {}", label, attempt, e);
+                }
+            }
+        }
+        map
+    };
+
+    let mut highs = query_batch(rdkafka::Offset::End, "high");
+    let mut lows = query_batch(rdkafka::Offset::Beginning, "low");
+
+    // 批量缺失的分区回退串行查询（与原实现同严格度：单个分区彻底失败则整个查询报错，
+    // 宁可报错也不静默跳过分区返回不完整数据）
+    let mut result = HashMap::with_capacity(partitions.len());
+    for &p in partitions {
+        let (low, high) = match (lows.remove(&p), highs.remove(&p)) {
+            (Some(low), Some(high)) => (low, high),
+            _ => fetch_watermarks_with_retry(consumer, topic, p).map_err(|e| {
+                AppError::Internal(format!("fetch_watermarks failed for {}[{}]: {}", topic, p, e))
+            })?,
+        };
+        result.insert(p, (low, high));
+    }
+    Ok(result)
 }
 
 /// 获取分区 watermark（带重试）
