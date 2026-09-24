@@ -43,7 +43,7 @@ esac
 
 DEST="$HOME/.cache/kafka-manager/librdkafka-prebuilt/$TAG/$TARGET"
 if [ -f "$DEST/$LIB" ]; then
-  echo "已存在: $DEST/$LIB（删除后重跑可强制刷新）"
+  echo "已存在: ${DEST}/${LIB}（删除后重跑可强制刷新）"
   echo "export LIBRDKAFKA_PREBUILT_DIR=$DEST"
   exit 0
 fi
@@ -65,7 +65,7 @@ if ! download "$ASSET" 2>/dev/null; then
     download "$ASSET"
     download "$ASSET.sha256"
   else
-    echo "Release 中没有 $ASSET（CI 可能尚未运行完成）" >&2
+    echo "Release 中没有 ${ASSET}（CI 可能尚未运行完成）" >&2
     exit 1
   fi
 else
@@ -80,5 +80,5 @@ fi
 tar xzf "$ASSET"
 rm -f "$ASSET" "$ASSET.sha256"
 
-echo "预编译 librdkafka 就绪: $DEST（含 licenses/ 协议文本）"
-echo "export LIBRDKAFKA_PREBUILT_DIR=$DEST"
+echo "预编译 librdkafka 就绪: ${DEST}（含 licenses/ 协议文本）"
+echo "export LIBRDKAFKA_PREBUILT_DIR=${DEST}"
