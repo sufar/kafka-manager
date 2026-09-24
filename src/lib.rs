@@ -13,6 +13,8 @@ pub mod kafka;
 pub mod models;
 pub mod pool;
 pub mod telemetry;
+#[cfg(test)]
+pub mod tests;
 pub mod utils;
 
 use std::sync::Arc;
