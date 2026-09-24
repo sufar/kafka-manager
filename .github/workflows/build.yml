@@ -55,6 +55,14 @@ jobs:
         run: |
           ls -la ui/dist
 
+      # 预编译 librdkafka（sufar/rdkafka-sys Releases）：跳过 C 库 cmake 编译。
+      # universal 构建需要两个 target，build.rs 按 <dir>/<target-triple>/ 子目录匹配
+      - name: Fetch prebuilt librdkafka (both universal targets)
+        run: |
+          ./scripts/fetch_prebuilt_librdkafka.sh prebuilt aarch64-apple-darwin
+          ./scripts/fetch_prebuilt_librdkafka.sh prebuilt x86_64-apple-darwin
+          echo "LIBRDKAFKA_PREBUILT_DIR=$HOME/.cache/kafka-manager/librdkafka-prebuilt/prebuilt" >> "$GITHUB_ENV"
+
       - name: Build Tauri app (universal)
         working-directory: src-tauri
         env:
@@ -229,6 +237,12 @@ jobs:
         run: |
           cd ui
           npm run build
+
+      # 预编译 librdkafka（跳过 C 库编译，见 scripts/fetch_prebuilt_librdkafka.sh）
+      - name: Fetch prebuilt librdkafka
+        run: |
+          ./scripts/fetch_prebuilt_librdkafka.sh prebuilt
+          echo "LIBRDKAFKA_PREBUILT_DIR=$HOME/.cache/kafka-manager/librdkafka-prebuilt/prebuilt/x86_64-unknown-linux-gnu" >> "$GITHUB_ENV"
 
       - name: Build Tauri app
         working-directory: src-tauri
@@ -407,6 +421,13 @@ jobs:
         run: |
           cd ui
           npm run build
+
+      # 预编译 librdkafka（跳过 C 库编译，见 scripts/fetch_prebuilt_librdkafka.sh）
+      - name: Fetch prebuilt librdkafka
+        shell: bash
+        run: |
+          ./scripts/fetch_prebuilt_librdkafka.sh prebuilt
+          echo "LIBRDKAFKA_PREBUILT_DIR=$HOME/.cache/kafka-manager/librdkafka-prebuilt/prebuilt/x86_64-pc-windows-msvc" >> "$GITHUB_ENV"
 
       - name: Build Tauri app
         working-directory: src-tauri
