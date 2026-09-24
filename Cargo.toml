@@ -75,9 +75,12 @@ mockall = "0.13"
 rstest = "0.24"
 tokio-test = "0.4"
 
-# Patch rdkafka-sys：cmake 构建时显式启用 WITH_SNAPPY。
-# Windows 上 librdkafka 的 cmake 构建默认跳过 win32_config.h（WITHOUT_WIN32_CONFIG=ON），
-# WITH_SNAPPY 编译宏来自 cmake 变量，未设置时为 0，导致 snappy 消息解压报 "Not implemented"。
-# （Linux/macOS 由 config.h 硬编码 WITH_SNAPPY 1，不受影响；此 patch 为 Windows 必需）
+# Patch rdkafka-sys -> 独立 fork 仓库 https://github.com/sufar/rdkafka-sys
+# 内容 = rdkafka-sys 4.10.0 + vendored librdkafka 2.15.1 + WITH_SNAPPY cmake patch（上游未修，
+# Windows 下 snappy 解压会报 "Not implemented"；详见该仓库 README/WITH_SNAPPY-cmake-build.patch）。
+# pin branch + Cargo.lock 锁定 rev：fork 活跃迭代时 cargo update -p rdkafka-sys 显式前进。
+# 加速：export LIBRDKAFKA_PREBUILT_DIR 可跳过 librdkafka 的 cmake 编译（预编译产物在 fork 仓库
+# Releases，滚动 release 名为 prebuilt），获取脚本：scripts/fetch_prebuilt_librdkafka.sh。
+# GitHub Actions build.yml 三个 job 已接入该机制。
 [patch.crates-io]
-rdkafka-sys = { path = "rdkafka-sys-local" }
+rdkafka-sys = { git = "https://github.com/sufar/rdkafka-sys", branch = "main" }

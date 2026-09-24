@@ -3435,7 +3435,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -4425,7 +4425,8 @@ dependencies = [
 
 [[package]]
 name = "rdkafka-sys"
-version = "4.10.0+2.12.1"
+version = "4.10.0+2.15.1"
+source = "git+https://github.com/sufar/rdkafka-sys?branch=main#ec9c9cd745b9c3f416596f1186c7130ff0edc4a2"
 dependencies = [
  "cmake",
  "libc",
