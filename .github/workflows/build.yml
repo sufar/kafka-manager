@@ -402,7 +402,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     outputs:
-      msi_signature: ${{ steps.sign.outputs.msi_signature }}
+      # 签名内容由 Check portable zip 步提取（不是 id:sign 的 Find 步）
+      msi_signature: ${{ steps.sig_output.outputs.msi_signature }}
 
     steps:
       - uses: actions/checkout@v4
@@ -641,6 +642,7 @@ jobs:
           }
 
       - name: Check portable zip
+        id: sig_output
         shell: bash
         run: |
           echo "APP_ZIP=${{ env.APP_ZIP }}"
