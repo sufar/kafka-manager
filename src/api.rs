@@ -2317,11 +2317,14 @@ fn build_query_consumer_config(brokers: &str, group_id: &str, large_fetch: bool)
         // 允许大消息（必须 >= max.partition.fetch.bytes）
         .set("fetch.message.max.bytes", "52428800");
     if large_fetch {
+        // 查询路径：min.bytes=64KB 让 broker 攒满完整响应再回包，避免慢 broker
+        // 部分回包造成多个串行 fetch 周期（每周期都要付满 broker 响应延迟）
         cfg.set("fetch.min.bytes", "65536")
             .set("fetch.wait.max.ms", "100")
             .set("fetch.max.bytes", "52428800")
             .set("max.partition.fetch.bytes", "52428800");
     } else {
+        // 仅 message.get 单条精确拉取：要的是首包延迟最小，数据量可忽略
         cfg.set("fetch.min.bytes", "1")
             .set("fetch.wait.max.ms", "50")
             .set("fetch.max.bytes", "10485760")
@@ -2670,7 +2673,11 @@ fn run_message_query(
         .unwrap_or_default()
         .as_millis();
     let group_id = format!("kafka-mgr-query-{}-{}", std::process::id(), unique_suffix);
-    let cfg = build_query_consumer_config(&params.brokers, &group_id, params.max_messages > 1000);
+    // 查询拉取一律用累积型（large_fetch）配置：慢 broker 按 fetch 响应周期计延迟
+    // （实测 ~11s/周期），fetch.min.bytes=1 会让 broker 拿部分数据提前回包，把一次
+    // 能读完的范围拆成多个串行周期；min.bytes=64KB 迫使 broker 攒满完整响应再回，
+    // 合并周期。代价仅是尾部小数据量查询最多多等 fetch.wait.max.ms=100ms。
+    let cfg = build_query_consumer_config(&params.brokers, &group_id, true);
     let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()?;
     let mut t_phase = Instant::now();
 
