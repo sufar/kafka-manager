@@ -2672,6 +2672,7 @@ fn run_message_query(
     let group_id = format!("kafka-mgr-query-{}-{}", std::process::id(), unique_suffix);
     let cfg = build_query_consumer_config(&params.brokers, &group_id, params.max_messages > 1000);
     let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()?;
+    let mut t_phase = Instant::now();
 
     // 分区列表：调用方未提供时用这个 consumer 自己的 metadata 解析
     if params.partitions.is_empty() {
@@ -2693,6 +2694,8 @@ fn run_message_query(
         params.end_time,
         params.fetch_mode.as_deref(),
     )?;
+    let t_offsets = t_phase.elapsed();
+    t_phase = Instant::now();
 
     // 分区状态 + assign（空分区/空范围直接标记完成，不参与拉取）
     struct PState {
@@ -2731,6 +2734,10 @@ fn run_message_query(
         return Ok(0);
     }
     consumer.assign(&tpl)?;
+    tracing::info!(
+        "[Query] setup done in {:?}: offsets_calc={:?}, assign={:?}, active_partitions={}",
+        query_start.elapsed(), t_offsets, t_phase.elapsed(), active_count
+    );
 
     let search_term = params
         .search
@@ -2743,6 +2750,7 @@ fn run_message_query(
     // 活跃但没有堆候选的分区数：归 0 时才允许弹出堆顶（保证全局有序）
     let mut unrepresented = active_count;
     let mut sent = 0usize;
+    let mut total_bytes = 0usize;
     let mut stopped = false;
     let mut got_any = false;
     let mut last_msg_at = Instant::now();
@@ -2807,9 +2815,14 @@ fn run_message_query(
 
         match consumer.poll(Duration::from_millis(200)) {
             Some(Ok(msg)) => {
+                if !got_any {
+                    tracing::info!("[Query] first message at {:?}", query_start.elapsed());
+                }
                 got_any = true;
                 last_msg_at = Instant::now();
                 consecutive_errors = 0;
+                // 消息可能因搜索/范围过滤被丢弃，但 wire 字节已产生，照常计入
+                total_bytes += msg.payload_len() + msg.key_len();
 
                 let idx = match part_index.get(&msg.partition()) {
                     Some(&i) => i,
@@ -2902,9 +2915,11 @@ fn run_message_query(
         }
     }
 
+    let elapsed = query_start.elapsed();
+    let total_mb = total_bytes as f64 / (1024.0 * 1024.0);
     tracing::info!(
-        "[Query] done: sent={} from {} partitions in {:?}",
-        sent, params.partitions.len(), query_start.elapsed()
+        "[Query] done: sent={} from {} partitions in {:?} (fetched {:.1} MB, {:.2} MB/s)",
+        sent, params.partitions.len(), elapsed, total_mb, total_mb / elapsed.as_secs_f64().max(0.001)
     );
     Ok(sent)
 }
