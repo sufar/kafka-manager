@@ -2332,6 +2332,35 @@ fn build_query_consumer_config(brokers: &str, group_id: &str, large_fetch: bool)
     cfg
 }
 
+/// 查询 consumer 的 context：statistics.interval.ms 触发的 stats 回调，输出每 broker 的
+/// wire 字节/RTT/broker 限流时间——区分慢查询瓶颈（网络 vs broker quota vs broker 算力）
+/// 的权威数据。计数器为 consumer 生命周期累计值，相邻两行求差即得该间隔速率。
+#[derive(Debug)]
+struct QueryConsumerContext;
+
+impl rdkafka::ClientContext for QueryConsumerContext {
+    fn stats(&self, stats: rdkafka::Statistics) {
+        for b in stats.brokers.values() {
+            // 跳过 bootstrap 伪节点与未建立连接的 broker
+            if b.nodeid < 0 || b.state != "UP" {
+                continue;
+            }
+            let rtt_us = b.rtt.as_ref().map_or(0, |w| w.avg);
+            let throttle_us = b.throttle.as_ref().map_or(0, |w| w.max);
+            let fetches = b.req.get("Fetch").copied().unwrap_or(0);
+            tracing::info!(
+                "[Query][stats] {} rxbytes={} rx_resp={} fetches={} rtt_avg={}us throttle_max={}us timeouts={} partial={}",
+                b.name, b.rxbytes, b.rx, fetches, rtt_us, throttle_us, b.req_timeouts, b.rxpartial
+            );
+        }
+    }
+}
+
+impl rdkafka::consumer::ConsumerContext for QueryConsumerContext {}
+
+/// 查询引擎专用 consumer 类型（带 stats 回调）
+type QueryConsumer = rdkafka::consumer::BaseConsumer<QueryConsumerContext>;
+
 /// 不区分大小写的搜索词（ASCII 路径零分配；非 ASCII 回退到 Unicode 小写比较）
 enum SearchTerm {
     Ascii(Vec<u8>),
@@ -2412,7 +2441,7 @@ fn try_decode_schema_value(schema_type: &str, schema_json: &str, value: &str) ->
 /// 批量计算所有分区的读取范围（start/end offset 均 inclusive）
 /// offsets_for_times 一次 RPC 覆盖全部分区（原实现每分区各 2 次 RPC）
 fn calculate_offsets_batch(
-    consumer: &rdkafka::consumer::BaseConsumer,
+    consumer: &QueryConsumer,
     topic: &str,
     partitions: &[i32],
     max_messages: usize,
@@ -2657,7 +2686,7 @@ fn run_message_query(
     cancel: CancellationToken,
     mut emit: impl FnMut(crate::kafka::consumer::KafkaMessage) -> Emit,
 ) -> Result<usize> {
-    use rdkafka::consumer::{BaseConsumer, Consumer, DefaultConsumerContext};
+    use rdkafka::consumer::Consumer;
     use rdkafka::{Message, TopicPartitionList};
     use std::time::{Duration, Instant};
 
@@ -2676,8 +2705,10 @@ fn run_message_query(
     // min.bytes=64KB 累积型配置试图合并 fetch 周期，实测反而劣化（26s→37s）：
     // 该慢链路的瓶颈是 ~0.3MB/s 吞吐硬上限（非 broker 周期延迟），min.bytes=1 的
     // 小响应首包更早、进度更平滑。勿再为此改累积型。
-    let cfg = build_query_consumer_config(&params.brokers, &group_id, params.max_messages > 1000);
-    let consumer: BaseConsumer<DefaultConsumerContext> = cfg.create()?;
+    let mut cfg = build_query_consumer_config(&params.brokers, &group_id, params.max_messages > 1000);
+    // 2s 周期输出 broker 级统计（wire 速率/RTT/throttle），慢查询定位用
+    cfg.set("statistics.interval.ms", "2000");
+    let consumer: QueryConsumer = cfg.create_with_context(QueryConsumerContext)?;
     let mut t_phase = Instant::now();
 
     // 分区列表：调用方未提供时用这个 consumer 自己的 metadata 解析
@@ -3246,7 +3277,7 @@ struct TimeRangeInfo {
 /// 用查询 consumer 自身的 metadata 解析分区列表（带重试）
 /// 原实现为此单独建一个 consumer：多一次 TCP 连接 + metadata RTT，且配置不统一。
 /// 慢集群下 5s 超时曾导致退化为只查 partition 0，静默丢失其他分区的数据
-fn resolve_partitions(consumer: &rdkafka::consumer::BaseConsumer, topic: &str) -> Result<Vec<i32>> {
+fn resolve_partitions(consumer: &QueryConsumer, topic: &str) -> Result<Vec<i32>> {
     use rdkafka::consumer::Consumer;
     use std::time::Duration;
 
@@ -3287,7 +3318,7 @@ fn resolve_partitions(consumer: &rdkafka::consumer::BaseConsumer, topic: &str) -
 /// 慢链路（200ms RTT）30 分区 ≈ 6s 纯 setup；批量后 ≈ 2×RTT。
 /// 批量未拿到的分区回退串行 fetch_watermarks_with_retry（通常为零或个别分区）
 fn fetch_watermarks_batch(
-    consumer: &rdkafka::consumer::BaseConsumer,
+    consumer: &QueryConsumer,
     topic: &str,
     partitions: &[i32],
 ) -> Result<HashMap<i32, (i64, i64)>> {
@@ -3352,7 +3383,7 @@ fn fetch_watermarks_batch(
 /// 获取分区 watermark（带重试）
 /// 慢集群下单次 5s 超时会被误判为 (0,0) 空分区，导致整个分区被跳过
 fn fetch_watermarks_with_retry(
-    consumer: &rdkafka::consumer::BaseConsumer,
+    consumer: &QueryConsumer,
     topic: &str,
     partition: i32,
 ) -> std::result::Result<(i64, i64), rdkafka::error::KafkaError> {
