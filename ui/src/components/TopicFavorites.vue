@@ -2,8 +2,31 @@
   <div class="topic-favorites">
     <!-- 收藏分组列表 -->
     <div class="favorite-groups" data-tour="fav-list">
-      <div class="flex items-center justify-end mb-3">
-        <button class="btn btn-primary btn-sm" @click="openCreateGroupModal" data-tour="fav-add">
+      <div class="flex items-center justify-end gap-2 mb-3">
+        <div class="relative flex-1 min-w-0 max-w-[260px]">
+          <input
+            v-model="globalSearch"
+            type="text"
+            class="input input-bordered input-sm w-full pl-8 pr-8"
+            :placeholder="t.favorites?.searchAllPlaceholder || '跨分组搜索 Topic...'"
+            data-tour="fav-global-search"
+            @keydown.esc="globalSearch = ''"
+          />
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <button
+            v-if="globalSearch"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content"
+            @click="globalSearch = ''"
+            :title="t.common?.clear || '清空'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <button class="btn btn-primary btn-sm flex-shrink-0" @click="openCreateGroupModal" data-tour="fav-add">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
@@ -24,23 +47,33 @@
       </div>
 
       <!-- Group search state management -->
+      <div v-else-if="isGlobalSearching && displayedGroups.length === 0" class="text-center py-8 text-base-content/50">
+        <p>{{ t.favorites?.noSearchResults || '无匹配的收藏' }}</p>
+      </div>
+
       <div v-else class="space-y-3">
+      <div v-if="isGlobalSearching" class="flex items-center gap-2 px-1 text-xs text-base-content/50">
+        <span>{{ t.favorites?.searchAllResults || '跨分组搜索结果' }}</span>
+        <span class="badge badge-sm badge-ghost">{{ globalSearchResultCount }}</span>
+      </div>
       <!-- Group card -->
-      <div v-for="group in groups" :key="group.id" class="group-card" data-tour="fav-group-card">
+      <div v-for="group in displayedGroups" :key="group.id" class="group-card" data-tour="fav-group-card">
           <!-- 分组标题 -->
-          <div class="group-header" @click="toggleGroup(group.id)">
+          <div class="group-header" :class="{ 'group-header-static': isGlobalSearching }" @click="!isGlobalSearching && toggleGroup(group.id)">
             <div class="flex items-center gap-2 flex-1">
+              <template v-if="!isGlobalSearching">
               <svg v-if="expandedGroups.has(group.id)" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
               <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
               </svg>
+              </template>
               <span class="font-semibold flex-shrink-0">{{ group.name }}</span>
               <span v-if="group.description" class="text-xs text-base-content/40 truncate max-w-[100px] sm:max-w-[150px]" :title="group.description">{{ group.description }}</span>
               <span class="badge badge-sm badge-ghost flex-shrink-0">{{ filteredGroupItems(group.id)?.length || 0 }}</span>
             </div>
-            <div class="flex items-center gap-1 flex-shrink-0">
+            <div v-if="!isGlobalSearching" class="flex items-center gap-1 flex-shrink-0">
               <button class="btn btn-ghost btn-xs" @click.stop="editGroup(group)" title="编辑分组" data-tour="fav-edit-group">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -55,7 +88,7 @@
           </div>
 
           <!-- 搜索框 (在分组名下一行) -->
-          <div v-show="expandedGroups.has(group.id)" class="group-search px-3 pt-2 pb-1">
+          <div v-show="!isGlobalSearching && expandedGroups.has(group.id)" class="group-search px-3 pt-2 pb-1">
             <div class="relative">
               <input
                 v-model="groupSearches[group.id]"
@@ -81,7 +114,7 @@
           </div>
 
           <!-- 分组内容 -->
-          <div v-show="expandedGroups.has(group.id)" class="group-content">
+          <div v-show="isGlobalSearching || expandedGroups.has(group.id)" class="group-content">
             <div v-if="!filteredGroupItems(group.id) || filteredGroupItems(group.id).length === 0" class="text-center py-4 text-base-content/40 text-sm">
               {{ groupSearches[group.id] ? (t.favorites?.noSearchResults || '无匹配的收藏') : (t.favorites?.noItems || '该分组暂无收藏') }}
             </div>
@@ -203,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { apiClient } from '@/api/client';
 import { useToast } from '@/composables/useToast';
 
@@ -220,6 +253,7 @@ const saving = ref(false);
 const groups = ref<any[]>([]);
 const expandedGroups = ref<Set<number>>(new Set());
 const groupSearches = ref<Record<number, string>>({}); // Search query for each group
+const globalSearch = ref(''); // Cross-group search query
 const editingGroup = ref<any>(null);
 const editingFavorite = ref<any>(null);
 const groupModalRef = ref<HTMLDialogElement>();
@@ -266,23 +300,38 @@ function toggleGroup(groupId: number) {
   }
 }
 
-// Filter group items by search query - search only topic name and description (no cluster search)
+// Cross-group search - matches only topic name and description (no cluster search)
+const isGlobalSearching = computed(() => globalSearch.value.trim() !== '');
+const globalSearchQuery = computed(() => globalSearch.value.trim().toLowerCase());
+
+function itemMatchesQuery(item: any, query: string) {
+  const matchTopic = item.topic_name?.toLowerCase().includes(query);
+  const matchDesc = item.description?.toLowerCase().includes(query);
+  return matchTopic || matchDesc;
+}
+
+// Filter group items by search query - global search takes precedence over per-group search
 function filteredGroupItems(groupId: number) {
   const group = groups.value.find(g => g.id === groupId);
   if (!group || !group.items) return [];
 
-  const searchQuery = groupSearches.value[groupId];
-  if (!searchQuery || searchQuery.trim() === '') {
-    return group.items;
-  }
+  const query = isGlobalSearching.value
+    ? globalSearchQuery.value
+    : (groupSearches.value[groupId] || '').trim().toLowerCase();
+  if (!query) return group.items;
 
-  const query = searchQuery.toLowerCase();
-  return group.items.filter((item: any) => {
-    const matchTopic = item.topic_name?.toLowerCase().includes(query);
-    const matchDesc = item.description?.toLowerCase().includes(query);
-    return matchTopic || matchDesc;
-  });
+  return group.items.filter((item: any) => itemMatchesQuery(item, query));
 }
+
+// While searching globally, only show groups that contain matching topics
+const displayedGroups = computed(() => {
+  if (!isGlobalSearching.value) return groups.value;
+  return groups.value.filter(group => filteredGroupItems(group.id).length > 0);
+});
+
+const globalSearchResultCount = computed(() =>
+  displayedGroups.value.reduce((total, group) => total + filteredGroupItems(group.id).length, 0)
+);
 
 // Group CRUD
 function openCreateGroupModal() {
@@ -447,6 +496,18 @@ onMounted(() => {
 
 :root[data-theme="light"] .group-header:hover {
   background: rgba(0, 0, 0, 0.03);
+}
+
+.group-header-static {
+  cursor: default;
+}
+
+.group-header-static:hover {
+  background: transparent;
+}
+
+:root[data-theme="light"] .group-header-static:hover {
+  background: transparent;
 }
 
 .group-content {

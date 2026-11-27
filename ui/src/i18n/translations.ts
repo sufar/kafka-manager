@@ -541,6 +541,8 @@ export interface Translation {
     noItems: string;
     noSearchResults: string;
     searchPlaceholder: string;
+    searchAllPlaceholder: string;
+    searchAllResults: string;
     editFavorite: string;
     favoriteDescription: string;
     favoriteDescPlaceholder: string;
@@ -758,6 +760,7 @@ export interface Translation {
     favEditGroup: { title: string; desc: string };
     favDeleteGroup: { title: string; desc: string };
     favGroupSearch: { title: string; desc: string };
+    favGlobalSearch: { title: string; desc: string };
     favItemRow: { title: string; desc: string };
     favEditItem: { title: string; desc: string };
     favDeleteItem: { title: string; desc: string };
@@ -1309,6 +1312,8 @@ export const translations: Record<Language, Translation> = {
       noItems: '该分组暂无收藏',
       noSearchResults: '无匹配的收藏',
       searchPlaceholder: '搜索 Topic 名、备注...',
+      searchAllPlaceholder: '跨分组搜索 Topic...',
+      searchAllResults: '跨分组搜索结果',
       editFavorite: '编辑收藏',
       favoriteDescription: '描述',
       favoriteDescPlaceholder: '请输入描述（可选）',
@@ -1526,6 +1531,7 @@ export const translations: Record<Language, Translation> = {
       favEditGroup: { title: '编辑分组', desc: '修改分组名称、描述和排序。' },
       favDeleteGroup: { title: '删除分组', desc: '删除分组及分组内的所有收藏。' },
       favGroupSearch: { title: '分组内搜索', desc: '在当前分组中搜索 Topic 名称或备注。' },
+      favGlobalSearch: { title: '跨分组搜索', desc: '在所有收藏分组中搜索 Topic 名称或备注。' },
       favItemRow: { title: '收藏项', desc: '双击可跳转到对应 Topic 的消息页面。' },
       favEditItem: { title: '编辑收藏', desc: '修改收藏的分组、描述和排序。' },
       favDeleteItem: { title: '删除收藏', desc: '从收藏列表中移除该 Topic。' },
@@ -2075,6 +2081,8 @@ export const translations: Record<Language, Translation> = {
       noItems: 'No items in this group',
       noSearchResults: 'No matching favorites',
       searchPlaceholder: 'Search topic name, remark...',
+      searchAllPlaceholder: 'Search topics across groups...',
+      searchAllResults: 'Cross-group search results',
       editFavorite: 'Edit Favorite',
       favoriteDescription: 'Description',
       favoriteDescPlaceholder: 'Enter description (optional)',
@@ -2292,6 +2300,7 @@ export const translations: Record<Language, Translation> = {
       favEditGroup: { title: 'Edit Group', desc: 'Modify the group name, description, and sort order.' },
       favDeleteGroup: { title: 'Delete Group', desc: 'Remove the group and all favorites inside it.' },
       favGroupSearch: { title: 'Group Search', desc: 'Search for topics or notes within the current group.' },
+      favGlobalSearch: { title: 'Cross-group Search', desc: 'Search for topics or notes across all favorite groups.' },
       favItemRow: { title: 'Favorite Item', desc: 'Double-click to jump to the topic messages page.' },
       favEditItem: { title: 'Edit Favorite', desc: 'Change the favorite topic group, description, or sort order.' },
       favDeleteItem: { title: 'Delete Favorite', desc: 'Remove this topic from your favorites.' },

@@ -123,6 +123,7 @@ const consumerGroupsSteps: TourStep[] = [
 const favoritesSteps: TourStep[] = [
   { selector: '[data-tour="fav-title"]', title: 'tour.favTitle.title', description: 'tour.favTitle.desc', position: 'bottom' },
   { selector: '[data-tour="fav-add"]', title: 'tour.favoritesAdd.title', description: 'tour.favoritesAdd.desc', position: 'bottom' },
+  { selector: '[data-tour="fav-global-search"]', title: 'tour.favGlobalSearch.title', description: 'tour.favGlobalSearch.desc', position: 'bottom' },
   { selector: '[data-tour="fav-list"]', title: 'tour.favoritesList.title', description: 'tour.favoritesList.desc', position: 'right' },
   { selector: '[data-tour="fav-group-card"]', title: 'tour.favGroupCard.title', description: 'tour.favGroupCard.desc', position: 'right' },
   { selector: '[data-tour="fav-edit-group"]', title: 'tour.favEditGroup.title', description: 'tour.favEditGroup.desc', position: 'top' },
